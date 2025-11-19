@@ -1,0 +1,9 @@
+# .gitignore
+.DS_Store
+.env
+.idea/
+.venv/
+results/
+regulations/
+__pycache__/
+*.pyc
