@@ -7,7 +7,7 @@ this_directory = os.path.dirname(__file__)
 class DefaultConfig:
 
     def __init__(self, regulation_1_descriptor=None, regulation_1_filename=None, regulation_2_descriptor=None,
-                 regulation_2_filename=None, choose_best_of=None, timeout_in_minutes=120):
+                 regulation_2_filename=None, choose_best_of=None, save_entire_responses=False, timeout_in_minutes=120):
 
         self.REGULATION_1_DESCRIPTOR = regulation_1_descriptor
         self.REGULATION_2_DESCRIPTOR = regulation_2_descriptor
@@ -16,9 +16,10 @@ class DefaultConfig:
         self.REGULATION_1_TEXT = None
         self.REGULATION_2_TEXT = None
         self.CHOOSE_BEST_OF = choose_best_of
+        self.SAVE_ENTIRE_RESPONSES = save_entire_responses
         self.RESULT_FOLDER = os.path.join(this_directory, '../results/', f'chat_{datetime.now().strftime("%Y%m%d-%H%M")}')
-        self.TIMEOUT_IN_MINUTES = timeout_in_minutes
         os.makedirs(self.RESULT_FOLDER, exist_ok=True)
+        self.TIMEOUT_IN_MINUTES = timeout_in_minutes
         if self.REGULATION_1_FILENAME:
             with open(os.path.join(this_directory, '../regulations/', self.REGULATION_1_FILENAME), 'r',
                       encoding='utf-8') as file:
@@ -80,20 +81,48 @@ class OpenAiConfig(DefaultConfig):
 
 
     def __init__(self, regulation_1_descriptor=None, regulation_1_filename=None, regulation_2_descriptor=None,
-                 regulation_2_filename=None, choose_best_of=None, model_parameters_reasoning = None,
-                 model_parameters_verification = None):
+                 regulation_2_filename=None, choose_best_of=None, save_entire_responses=False,
+                 model_parameters_reasoning = None, model_parameters_verification = None, api_type='openai'):
         # forward regulation filenames to the base class
         super().__init__(regulation_1_descriptor=regulation_1_descriptor,
                          regulation_1_filename=regulation_1_filename,
                          regulation_2_descriptor=regulation_2_descriptor,
                          regulation_2_filename=regulation_2_filename,
-                         choose_best_of=choose_best_of)
+                         choose_best_of=choose_best_of,
+                         save_entire_responses=save_entire_responses)
 
         # accept provided model parameters or use defaults
         self.MODEL_PARAMETERS_REASONING = model_parameters_reasoning if model_parameters_reasoning is not None \
-            else dict(self._DEFAULT_MODEL_PARAMETERS_REASONING)
+            else self._DEFAULT_MODEL_PARAMETERS_REASONING
         self.MODEL_PARAMETERS_VERIFICATION = model_parameters_verification if model_parameters_verification is not None \
-            else dict(self._DEFAULT_MODEL_PARAMETERS_VERIFICATION)
+            else self._DEFAULT_MODEL_PARAMETERS_VERIFICATION
+        self.API_TYPE = api_type
+
+        # write config parameters to file for reference
+        self.write_config()  # writes `config_parameters.txt` under `self.RESULT_FOLDER`
+
+class GeminiConfig(DefaultConfig):
+
+    _DEFAULT_MODEL_PARAMETERS_REASONING = 'gemini-2.5-pro'
+    _DEFAULT_MODEL_PARAMETERS_VERIFICATION = 'gemini-2.5-flash'
+
+    def __init__(self, regulation_1_descriptor=None, regulation_1_filename=None, regulation_2_descriptor=None,
+                 regulation_2_filename=None, choose_best_of=None, save_entire_responses=False,
+                 model_parameters_reasoning = None, model_parameters_verification = None):
+        # forward regulation filenames to the base class
+        super().__init__(regulation_1_descriptor=regulation_1_descriptor,
+                         regulation_1_filename=regulation_1_filename,
+                         regulation_2_descriptor=regulation_2_descriptor,
+                         regulation_2_filename=regulation_2_filename,
+                         choose_best_of=choose_best_of,
+                         save_entire_responses=save_entire_responses)
+
+        # accept provided model parameters or use defaults
+        self.MODEL_PARAMETERS_REASONING = model_parameters_reasoning if model_parameters_reasoning is not None \
+            else self._DEFAULT_MODEL_PARAMETERS_REASONING
+        self.MODEL_PARAMETERS_VERIFICATION = model_parameters_verification if model_parameters_verification is not None \
+            else self._DEFAULT_MODEL_PARAMETERS_VERIFICATION
+        self.API_TYPE = 'gemini'
 
         # write config parameters to file for reference
         self.write_config()  # writes `config_parameters.txt` under `self.RESULT_FOLDER`

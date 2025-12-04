@@ -6,14 +6,18 @@ from io import StringIO
 def parse_single_answer_to_df(answer, json_template):
     """ answer can be a valid JSON str, path object or file-like object"""
     if not answer.strip():
-        raise ValueError("Answer text is empty.")
+        # raise ValueError("Answer text is empty.")
+        return pd.DataFrame()
     if answer.strip().startswith('{') or answer.strip().startswith('['):
-        # Direct JSON string
+        # Direct JSON string, bit crude check
         answer_to_parse = StringIO(answer.strip())
     else: # Assume file path
         answer_to_parse = answer
     if json_template == 'json_ea_yearly': # maybe this will not be necessary and the template can be removed
-        return pd.read_json(answer_to_parse)
+        try:  # TODO: implement json syntax and character checker? https://github.com/mangiucugna/json_repair/
+            return pd.read_json(answer_to_parse)
+        except Exception as e:
+            print(f"Could not save answers as CSVs: {e}")  # TODO: logging
     return pd.DataFrame()
 
 

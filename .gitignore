@@ -3,6 +3,7 @@
 .env
 .idea/
 .venv/
+.vscode/
 results/
 regulations/
 __pycache__/
