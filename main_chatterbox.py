@@ -8,14 +8,19 @@ from ea_agent_chat import prompt_templates
 from ea_agent_chat import question_assembler
 from ea_agent_chat.current_config import current_config
 from ea_agent_chat import api_helper
+from ea_agent_chat.logging_utils import setup_logger
 
 
-print('Starting chatterbox at {}'.format(datetime.now().strftime("%H:%M")))
+logger = setup_logger()
 
-print(f"REASONING reasoning: {current_config.MODEL_PARAMETERS_REASONING.get('reasoning_effort', 'N/A')}, "
-      f"REASONING verbosity: {current_config.MODEL_PARAMETERS_REASONING.get('verbosity', 'N/A')}, "
-      f"VERIFICATION reasoning: {current_config.MODEL_PARAMETERS_VERIFICATION.get('reasoning_effort', 'N/A')}, "
-      f"VERIFICATION verbosity: {current_config.MODEL_PARAMETERS_VERIFICATION.get('verbosity', 'N/A')}")
+logger.info("Starting chatterbox at %s", datetime.now().strftime("%H:%M"))
+logger.info(
+    "REASONING effort=%s verbosity=%s | VERIFICATION effort=%s verbosity=%s",
+    current_config.MODEL_PARAMETERS_REASONING.get("reasoning_effort", "N/A"),
+    current_config.MODEL_PARAMETERS_REASONING.get("verbosity", "N/A"),
+    current_config.MODEL_PARAMETERS_VERIFICATION.get("reasoning_effort", "N/A"),
+    current_config.MODEL_PARAMETERS_VERIFICATION.get("verbosity", "N/A"),
+)
 
 # client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 #
@@ -91,5 +96,4 @@ test_question = question_assembler.Question(api, test_instructions, test_prompt)
 test_question.run_and_save_multiple_questions()
 test_question.choose_best_answer()
 
-print(test_question.responses[-1].output_text)
-
+logger.info("Final response:\n%s", test_question.responses[-1].output_text)

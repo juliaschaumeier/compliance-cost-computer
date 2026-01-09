@@ -1,5 +1,6 @@
 import json
 import os
+from ea_agent_chat.logging_utils import get_logger
 
 from datetime import datetime, timedelta
 from openai import BadRequestError
@@ -11,13 +12,13 @@ from ea_agent_chat import prompt_templates
 from ea_agent_chat.current_config import current_config
 
 
-#  When called, each call should only retrieve one file at a time for simplicity
 class Question:
-    def __init__(self, api, instructions, prompt, previous_question=None):
+    def __init__(self, api, instructions, prompt, previous_question=None, logger=None):
         self.api = api
         self.client = api.client
         self.instructions = instructions.text
         self.prompt = prompt
+        self.logger = logger or get_logger()
         if previous_question:
             self.answer_file_stem = f"{previous_question.answer_file_stem}_{prompt.name}"
             self.previous_response_id = previous_question.best_response.id if previous_question.best_response else \
@@ -46,13 +47,13 @@ class Question:
         start_time = datetime.now()
         max_duration = timedelta(minutes=timeout_in_minutes) if timeout_in_minutes else None
 
-        print('Starting queries at {}'.format(start_time.strftime("%H:%M")))
+        self.logger.info("Starting queries at %s", start_time.strftime("%H:%M"))
 
         # Loop through conversation
         for i in range(current_config.CHOOSE_BEST_OF):
             while True:
                 if max_duration and datetime.now() - start_time > max_duration:
-                    print(f"{max_duration} minutes elapsed. Stopping.")
+                    self.logger.warning("%s minutes elapsed. Stopping.", max_duration)
                     break
                 try:
                     response = self.api.ask_question(self.instructions, self.prompt,
@@ -61,7 +62,7 @@ class Question:
                     self.responses.append(response)
                     break
                 except BadRequestError as e:
-                    print(f'Sleeping for 10 seconds due to bad request: {e}')
+                    self.logger.warning("Sleeping for 10 seconds due to bad request: %s", e)
                     sleep(10)
                     continue
                 # except Exception as e:
@@ -70,7 +71,7 @@ class Question:
                 #     print(f"Unexpected error occurred: {e}")
                 #     # break
                 #     continue
-            print('Question {} answered at {}'.format(i+1, datetime.now().strftime("%H:%M")))
+            self.logger.info("Question %s answered at %s", i+1, datetime.now().strftime("%H:%M"))
 
 
     def choose_best_answer(self):
@@ -79,7 +80,7 @@ class Question:
         self.best_response = response # TODO: This gives a new best_response object, not one of the original responses,
         # TODO: maybe always choose answer (unless best out of 1)
 
-        print('Best answer file chosen at {}'.format(datetime.now().strftime("%H:%M")))
+        self.logger.info("Best answer file chosen at %s", datetime.now().strftime("%H:%M"))
         return response
 
     def save_response_as_csv(self, response):
@@ -88,7 +89,7 @@ class Question:
             parser.parse_single_answer_to_df(response.output_text,
                                              self.prompt.json_template_name).to_csv(answer_csv, index=False)
         else:
-            print('No answer was saved as CSV.')
+            self.logger.warning("No answer was saved as CSV.")
 
     def save_answers_as_csvs(self):
         for r in self.responses:

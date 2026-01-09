@@ -26,7 +26,9 @@ def parse_single_answer_to_csv(answer, output_file, json_template):
 
 
 def flatten_sources_from_answer_df(df, sources_column='Quellen'):
-    """ DataFrame df must have a column which contains lists of sources. """
+    """DataFrame df must have a column which contains lists of sources."""
+    if sources_column not in df.columns:
+        raise KeyError(f"Column '{sources_column}' not found in DataFrame.")
     return [source for source_list in df[sources_column] for source in source_list]
 
 

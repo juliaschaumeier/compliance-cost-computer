@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tile Graph Mock</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.10.1/dist/style.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      background: #f4f6fb;
+      color: #1f2430;
+      height: 100vh;
+      display: flex;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      width: 100%;
+      height: 100%;
+    }
+    .side-panel {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border-right: 1px solid #1e293b;
+    }
+    .side-panel h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: -0.02em;
+    }
+    .side-panel .meta-card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 10px;
+      padding: 12px;
+      min-height: 120px;
+    }
+    .side-panel .meta-card h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+    .side-panel .meta-card pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .flow-shell {
+      position: relative;
+      height: 100%;
+      padding: 16px 16px 24px;
+    }
+    .reactflow-wrapper {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+    }
+    .tile {
+      width: 230px;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      padding: 12px;
+    }
+    .tile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .tile-title {
+      font-weight: 700;
+      font-size: 15px;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+    }
+    .tile-text {
+      margin: 0;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.4;
+    }
+    /* Softer edge styling */
+    .react-flow__edge-path {
+      stroke: #0f172a !important;
+      stroke-width: 2px !important;
+      fill: none !important;
+    }
+    .react-flow__arrowhead path {
+      fill: #0f172a !important;
+      stroke: #0f172a !important;
+    }
+    .actions {
+      display: flex;
+      gap: 4px;
+    }
+    .icon-btn {
+      width: 26px;
+      height: 26px;
+      border: 1px solid #e5e7eb;
+      background: #f8fafc;
+      color: #0f172a;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      line-height: 1;
+      transition: all 0.12s ease;
+      padding: 0;
+    }
+    .icon-btn:hover { background: #e2e8f0; transform: translateY(-1px); }
+    .icon-btn.delete { color: #dc2626; border-color: #fecdd3; background: #fff1f2; }
+    .icon-btn.delete:hover { background: #ffe4e6; }
+    .button-row {
+      position: absolute;
+      top: 8px;
+      left: 16px;
+      display: flex;
+      gap: 12px;
+      z-index: 5;
+    }
+    .column-button, .load-button {
+      background: #111827;
+      color: #e5e7eb;
+      border: 1px solid #1f2937;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .column-button:hover, .load-button:hover { background: #1f2937; transform: translateY(-1px); }
+    .column-button:disabled, .load-button:disabled {
+      background: #0b111f;
+      color: #6b7280;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .add-form {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: #111827;
+      color: #e5e7eb;
+      border: 1px solid #1f2937;
+      border-radius: 10px;
+      padding: 12px;
+      width: 260px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 6;
+    }
+    .add-form label {
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .add-form input, .add-form textarea {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0b1220;
+      color: #e2e8f0;
+      padding: 8px;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .add-form button {
+      align-self: flex-end;
+      background: #10b981;
+      color: #0b1220;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .add-form button:disabled {
+      background: #0b1220;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="side-panel">
+      <h1>Tile Graph Mock</h1>
+      <p style="margin:0;color:#94a3b8;font-size:14px;">
+        1) Load prerequisites/processes using the buttons.<br/>
+        2) Click the info icon to show meta details.<br/>
+        3) Delete or add prerequisites as needed.
+      </p>
+      <div class="meta-card" id="meta-card">
+        <h3>Meta information</h3>
+        <pre id="meta-content">Select a tile’s info icon.</pre>
+      </div>
+    </aside>
+    <main class="flow-shell">
+      <div class="button-row">
+        <button id="load-data" class="column-button">Load prerequisites</button>
+        <button id="load-processes" class="column-button">Load processes</button>
+      </div>
+      <div class="reactflow-wrapper" id="app"></div>
+    </main>
+  </div>
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' ry='6' fill='%230f172a'/%3E%3Cpath d='M8 16h6l-2-4 6 8 2-4h4' stroke='%23e2e8f0' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/reactflow@11.10.1/dist/umd/index.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useMemo, useCallback, useEffect, useRef } = React;
+    const { createRoot } = ReactDOM;
+    const { ReactFlow, ReactFlowProvider, Controls, Background, MarkerType, useStore, Handle, Position } = window.ReactFlow;
+
+    const formatMeta = (meta) => {
+      if (!meta || Object.keys(meta).length === 0) return "Keine Metadaten verfügbar.";
+      const lines = [];
+      Object.entries(meta).forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+          lines.push(`<strong>${key}</strong>`);
+          value.forEach((item, idx) => {
+            lines.push(`<div style="margin-left:12px;margin-top:2px;">• ${JSON.stringify(item, null, 2)}</div>`);
+          });
+        } else if (typeof value === "object") {
+          lines.push(`<strong>${key}</strong><div style="margin-left:12px;margin-top:2px;white-space:pre;">${JSON.stringify(value, null, 2)}</div>`);
+        } else {
+          lines.push(`<strong>${key}</strong>: ${value}`);
+        }
+        lines.push("");
+      });
+      return lines.join("<br/>");
+    };
+
+    // Mock data matching mockup_data.py intent; can be swapped for API data later.
+    const defaultPrerequisitesButton = "generate prerequisites from law";
+    const defaultProcessesButton = "generate processes from prerequisites";
+    const defaultInitialVisible = ["law_tile"];
+
+    const defaultTileData = {
+      law_tile: {
+        id: "law_tile",
+        title: "Gesetzesentwurf A",
+        text: "Gesetzesentwurf A ist ein Entwurf um xyz zu machen",
+        meta_information: {
+          based_on: [
+            {
+              Name: "Quelle1",
+              "exakte URL": "https://example.com",
+              "direktes Zitat": "Zitat 1",
+              "abgerufen am": "2025-01-01",
+            },
+            {
+              Name: "Quelle2",
+              "exakte URL": "https://example.org",
+              "direktes Zitat": "Zitat 2",
+              "abgerufen am": "2025-01-02",
+            },
+          ],
+          "long form of the law": "Das Gesetz ist dazu da um...",
+        },
+        link_from_tile: [],
+        column: 0,
+        row: 0,
+        deletable: false,
+      },
+      prerequisite_1: {
+        id: "prerequisite_1",
+        title: "Vorgabe 1",
+        text: "Auf jeden Fall Homeoffice-Bedingungen prüfen",
+        meta_information: {
+          Hinweis: "Beispielhafte Meta-Informationen zur Vorgabe 1.",
+        },
+        link_from_tile: ["law_tile"],
+        column: 1,
+        row: 0,
+        deletable: true,
+      },
+      prerequisite_2: {
+        id: "prerequisite_2",
+        title: "Vorgabe 2",
+        text: "Auf jeden Fall Strecke zur Arbeit prüfen.",
+        meta_information: {
+          Hinweis: "Weitere Details zur zweiten Vorgabe.",
+        },
+        link_from_tile: ["law_tile"],
+        column: 1,
+        row: 1,
+        deletable: true,
+      },
+      process_1: {
+        id: "process_1",
+        title: "Prozess 1",
+        text: "Interner Prozessschritt basierend auf Vorgaben.",
+        meta_information: {
+          Hinweis: "Demo-Prozess: hängt von beiden Vorgaben ab.",
+        },
+        link_from_tile: ["prerequisite_1", "prerequisite_2"],
+        column: 2,
+        row: 0,
+        deletable: true,
+      },
+    };
+
+    const defaultColumnButtons = [
+      { id: "prereq", label: defaultPrerequisitesButton, tiles: ["prerequisite_1", "prerequisite_2"] },
+      { id: "processes", label: defaultProcessesButton, tiles: ["process_1"] },
+    ];
+
+    const normalizeTiles = (tilesArray) => {
+      if (!Array.isArray(tilesArray)) return null;
+      const entries = {};
+      tilesArray.forEach((tile) => {
+        if (!tile?.id) return;
+        entries[tile.id] = {
+          id: tile.id,
+          title: tile.title || tile.id,
+          text: tile.text || "",
+          meta_information: tile.meta_information || {},
+          link_from_tile: tile.link_from_tile || tile.link_from_tiles || [],
+          column: tile.column ?? 0,
+          row: tile.row ?? 0,
+          deletable: tile.deletable ?? true,
+        };
+      });
+      return entries;
+    };
+
+    const columnSpacing = 320;
+    const rowSpacing = 200;
+
+    const toPosition = (tile) => ({
+      x: tile.column * columnSpacing,
+      y: tile.row * rowSpacing,
+    });
+
+    const TileNode = ({ data, id }) => (
+      <div className="tile">
+        <Handle
+          type="target"
+          position={Position.Left}
+          style={{ background: "transparent", border: "none", width: 1, height: "100%" }}
+          isConnectable={false}
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          style={{ background: "transparent", border: "none", width: 1, height: "100%" }}
+          isConnectable={false}
+        />
+        <div className="tile-header">
+          <span className="tile-title">{data.title}</span>
+          <div className="actions">
+            <button
+              title="Show meta information"
+              className="icon-btn"
+              onClick={(e) => { e.stopPropagation(); data.onInfo(id); }}
+            >
+              i
+            </button>
+            {data.deletable && (
+              <button
+                title="Delete tile"
+                className="icon-btn delete"
+                onClick={(e) => { e.stopPropagation(); data.onDelete(id); }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="tile-text">{data.text}</p>
+      </div>
+    );
+
+    const nodeTypes = { tileNode: TileNode };
+
+    // Fallback overlay removed; using native React Flow edges for stability.
+
+    function App() {
+      const [tileData, setTileData] = useState(defaultTileData);
+      const [columnButtons, setColumnButtons] = useState(defaultColumnButtons);
+      const [visibleTileIds, setVisibleTileIds] = useState([...defaultInitialVisible]);
+      const [metaText, setMetaText] = useState("Select a tile’s info icon.");
+      const [prereqLoaded, setPrereqLoaded] = useState(false);
+      const [processLoaded, setProcessLoaded] = useState(false);
+      const [loadingPrereq, setLoadingPrereq] = useState(false);
+      const [loadingProcesses, setLoadingProcesses] = useState(false);
+      const [creatingPrereq, setCreatingPrereq] = useState(false);
+      const [rfInstance, setRfInstance] = useState(null);
+      const backendStateRef = useRef({ tiles: { ...defaultTileData }, deleted: [], created: [] });
+
+      // Expose latest backend-ish state for inspection.
+      useEffect(() => {
+        window.mockBackendState = backendStateRef.current;
+      }, []);
+
+      const addTiles = useCallback((ids) => {
+        setVisibleTileIds((prev) => Array.from(new Set([...prev, ...ids])));
+      }, []);
+
+      const persistTileToApi = useCallback(async (tile) => {
+        try {
+          await fetch("http://localhost:5000/tiles", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(tile),
+          });
+        } catch (e) {
+          console.warn("Failed to persist tile", e);
+        }
+      }, []);
+
+      const deleteTileFromApi = useCallback(async (id) => {
+        try {
+          await fetch(`http://localhost:5000/tiles/${id}`, { method: "DELETE" });
+        } catch (e) {
+          console.warn("Failed to delete tile", e);
+        }
+      }, []);
+
+      const removeTile = useCallback((id) => {
+        setVisibleTileIds((prev) => prev.filter((x) => x !== id));
+        setTileData((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          backendStateRef.current.deleted = [...(backendStateRef.current.deleted || []), id];
+          backendStateRef.current.tiles = next;
+          window.mockBackendState = backendStateRef.current;
+          return next;
+        });
+        deleteTileFromApi(id);
+      }, [deleteTileFromApi]);
+
+      const nodes = useMemo(() => {
+        // Compact rows per column to close gaps after deletions.
+        const compactRows = (() => {
+          const groups = {};
+          visibleTileIds.forEach((id) => {
+            const t = tileData[id];
+            if (!t) return;
+            const col = t.column ?? 0;
+            groups[col] = groups[col] || [];
+            groups[col].push(t);
+          });
+          const map = {};
+          Object.values(groups).forEach((list) => {
+            list.sort((a, b) => (a.row ?? 0) - (b.row ?? 0));
+            list.forEach((tile, idx) => {
+              map[tile.id] = idx;
+            });
+          });
+          return map;
+        })();
+
+        return visibleTileIds
+          .map((id) => tileData[id])
+          .filter(Boolean)
+          .map((tile) => ({
+            id: tile.id,
+            type: "tileNode",
+            position: toPosition({ ...tile, row: compactRows[tile.id] ?? tile.row }),
+            data: {
+              title: tile.title,
+              text: tile.text,
+              deletable: tile.deletable,
+              onInfo: (tileId) => {
+                const meta = tileData[tileId]?.meta_information ?? {};
+                setMetaText(formatMeta(meta));
+              },
+              onDelete: removeTile,
+            },
+            sourcePosition: "right",
+            targetPosition: "left",
+          }));
+      }, [visibleTileIds, removeTile, tileData]);
+
+      const edges = useMemo(() => {
+        const existing = new Set(visibleTileIds);
+        const nextEdges = [];
+        visibleTileIds.forEach((id) => {
+          const tile = tileData[id];
+          if (!tile) return;
+          tile.link_from_tile.forEach((source) => {
+            if (existing.has(source)) {
+              const edgeId = `${source}->${id}`;
+              nextEdges.push({
+                id: edgeId,
+                source,
+                target: id,
+                type: "default",
+                animated: false,
+                markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: "#0f172a" },
+                style: { strokeWidth: 2, stroke: "#0f172a" },
+              });
+            }
+          });
+        });
+        return nextEdges;
+      }, [visibleTileIds, tileData]);
+
+      // Fit view whenever nodes change materially.
+      useEffect(() => {
+        if (rfInstance) {
+          rfInstance.fitView({ padding: 0.15, includeHiddenNodes: false, nodes: nodes.map((n) => n.id) });
+        }
+      }, [nodes, rfInstance]);
+
+      const fetchMockData = async () => {
+        try {
+          const res = await fetch("http://localhost:5000/tiles", { cache: "no-store" });
+          if (!res.ok) return null;
+          return await res.json();
+        } catch (e) {
+          return null;
+        }
+      };
+
+      const handleShowPrereq = async () => {
+        setLoadingPrereq(true);
+        const data = await fetchMockData();
+        const entries = normalizeTiles(data?.tiles || []);
+        if (entries && Object.keys(entries).length) {
+          setTileData((prev) => {
+            const next = { ...prev, ...entries };
+            backendStateRef.current.tiles = next;
+            window.mockBackendState = backendStateRef.current;
+            return next;
+          });
+        }
+        const initialVisible = defaultInitialVisible;
+        if (initialVisible.length) addTiles(initialVisible);
+        const prereq = columnButtons.find((b) => b.id === "prereq");
+        if (prereq) addTiles(prereq.tiles || []);
+        setPrereqLoaded(true);
+        setLoadingPrereq(false);
+      };
+
+      const handleShowProcesses = async () => {
+        setLoadingProcesses(true);
+        const data = await fetchMockData();
+        const entries = normalizeTiles(data?.tiles || []);
+        if (entries && Object.keys(entries).length) {
+          setTileData((prev) => {
+            const next = { ...prev, ...entries };
+            backendStateRef.current.tiles = next;
+            window.mockBackendState = backendStateRef.current;
+            return next;
+          });
+        }
+        const processes = columnButtons.find((b) => b.id === "processes");
+        if (processes) addTiles(processes.tiles || []);
+        setProcessLoaded(true);
+        setLoadingProcesses(false);
+      };
+
+      // Wire external load buttons.
+      useEffect(() => {
+        const btn = document.getElementById("load-data");
+        const btnProc = document.getElementById("load-processes");
+        if (btn) {
+          btn.onclick = () => {
+            handleShowPrereq();
+          };
+        }
+        if (btnProc) {
+          btnProc.onclick = () => {
+            handleShowProcesses();
+          };
+        }
+        return () => {
+          if (btn) btn.onclick = null;
+          if (btnProc) btnProc.onclick = null;
+        };
+      }, [handleShowPrereq, handleShowProcesses]);
+
+      const handleNodeClick = (_evt, node) => {
+        const meta = tileData[node?.id]?.meta_information ?? {};
+        setMetaText(formatMeta(meta));
+      };
+
+      const handleCreatePrereq = async ({ title, text }) => {
+        setCreatingPrereq(true);
+        const existingRows = Object.values(tileData)
+          .filter((t) => t?.column === 1)
+          .map((t) => t.row ?? 0);
+        const nextRow = existingRows.length ? Math.max(...existingRows) + 1 : 0;
+        const newId = `prereq_${Date.now()}`;
+        const newTile = {
+          id: newId,
+          title: title || "Neue Vorgabe",
+          text: text || "Beschreibung hinzufügen",
+          meta_information: {},
+          link_from_tile: ["law_tile"],
+          column: 1,
+          row: nextRow,
+          deletable: true,
+        };
+        setTileData((prev) => {
+          const next = { ...prev, [newId]: newTile };
+          backendStateRef.current.tiles = next;
+          backendStateRef.current.created = [...(backendStateRef.current.created || []), newTile];
+          window.mockBackendState = backendStateRef.current;
+          return next;
+        });
+        addTiles([newId]);
+        await persistTileToApi({
+          ...newTile,
+          meta_information: newTile.meta_information,
+        });
+        setCreatingPrereq(false);
+      };
+
+      return (
+        <>
+          <div style={{ width: "100%", height: "100%" }}>
+            <ReactFlow
+              fitView
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              style={{ width: "100%", height: "100%" }}
+              nodesDraggable={false}
+              panOnDrag
+            zoomOnScroll
+            onInit={setRfInstance}
+            onNodeClick={handleNodeClick}
+            defaultEdgeOptions={{
+              type: "default",
+              animated: false,
+              markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: "#0f172a" },
+              style: { strokeWidth: 2, stroke: "#0f172a" },
+            }}
+          >
+              <Background gap={24} color="#dbeafe" />
+              <Controls position="bottom-left" />
+            </ReactFlow>
+          </div>
+          <AddPrereqForm onCreate={handleCreatePrereq} busy={creatingPrereq} />
+          <MetaMount metaText={metaText} />
+        </>
+      );
+    }
+
+    function AddPrereqForm({ onCreate, busy }) {
+      const [title, setTitle] = useState("");
+      const [text, setText] = useState("");
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!title.trim() && !text.trim()) return;
+        onCreate({ title: title.trim(), text: text.trim() });
+        setTitle("");
+        setText("");
+      };
+
+      return (
+        <form className="add-form" onSubmit={handleSubmit}>
+          <div>
+            <label htmlFor="new-title">Neues Prerequisite</label>
+            <input
+              id="new-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Titel"
+            />
+          </div>
+          <div>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Beschreibung"
+              rows={3}
+            />
+          </div>
+          <button type="submit" disabled={busy || (!title.trim() && !text.trim())}>
+            {busy ? "Speichere…" : "Hinzufügen"}
+          </button>
+        </form>
+      );
+    }
+
+    // Mount meta text into the sidebar card.
+    function MetaMount({ metaText }) {
+      React.useEffect(() => {
+        const el = document.getElementById("meta-content");
+        if (el) el.innerHTML = metaText;
+      }, [metaText]);
+      return null;
+    }
+
+    const root = createRoot(document.getElementById("app"));
+    root.render(
+      <ReactFlowProvider>
+        <App />
+      </ReactFlowProvider>
+    );
+  </script>
+</body>
+</html>

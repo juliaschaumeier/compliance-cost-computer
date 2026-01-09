@@ -8,7 +8,11 @@ current_config = OpenAiConfig(
     choose_best_of=2,
     model_parameters_reasoning={'model': 'gpt-5', 'reasoning_effort': 'high', 'verbosity': 'medium'},
     model_parameters_verification = {'model': 'gpt-5', 'reasoning_effort': 'low', 'verbosity': 'low'},
-    save_entire_responses=True
+    save_entire_responses=True,
+    # Logging levels: DEBUG < INFO < WARNING < ERROR < CRITICAL.
+    # Set console/file separately; lower level = more chatter. Example: WARNING omits INFO.
+    log_level_console='INFO',
+    log_level_file='DEBUG'
 )
 
 

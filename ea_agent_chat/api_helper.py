@@ -1,14 +1,14 @@
 import json
 import os
+import logging
 
-from dotenv import load_dotenv
 from google import genai
 from openai import OpenAI
 
 from ea_agent_chat.current_config import current_config
 
-# Load environment variables
-load_dotenv()
+
+logger = logging.getLogger("ea_agent")
 
 
 class Response:
@@ -85,7 +85,7 @@ class OpenAiApi(BaseAPI):
                       'w', encoding='utf-8') as f:
                 f.write(self.current_response_object.output_text)
         else:
-            print(f'No answer was saved for question {file_stem}).')
+            logger.warning("No answer was saved for question %s.", file_stem)
 
     def save_current_response_object_to_file(self, file_stem):
         """
@@ -150,7 +150,7 @@ class GeminiApi(BaseAPI):
             config=config,
         )
 
-        print(response.text)
+        logger.info("Gemini response: %s", response.text)
 
         pass
 
