@@ -1,0 +1,54 @@
+## Compliance-Cost Computer (CCC-App)
+
+**The CCC-App is a specialized web application designed to compute the annual compliance costs for legislative processes in Germany.**
+
+### User Group
+The application is primarily targeted at **legislators who want to estimate compliance costs during the law drafting process**.
+
+### Application Workflow
+
+| Stage | Description | Key Action |
+|-------|-------------|------------|
+| **Law Upload** | User uploads a draft or existing law in text form | Provides legal document for analysis |
+| **Regulation Identification** | App generates a list of individual regulations affected by the law | Determines potential compliance cost changes |
+| **Process Compilation** | Collate individual regulations into comprehensive process lists | Creates foundational analysis framework |
+| **Case Group Development** | Create case groups for each process and estimate case numbers | Provides quantitative basis for cost calculation |
+| **Process Step Analysis** | Describe individual process steps for each case group | Breaks down operational complexity |
+| **Effort Calculation** | Calculate and display effort for each process step | Generates granular cost insights |
+| **Total Cost Computation** | Aggregate case numbers and process efforts | Produces final compliance cost estimate |
+
+### Application Interaction
+
+#### User Interface Features
+- Workflow displayed on an interactive board with tiles connected by arrows
+- Step-by-step progression guided by active buttons
+- Ability to add or remove tiles using "+" and "-" buttons
+- Progressive tile evolution as computation advances
+
+#### Usage Steps
+1. Upload law text (current or planned)
+2. Proceed systematically through computational stages
+3. Activate buttons sequentially to progress
+4. Modify tiles as needed during the process
+
+### Backend
+
+- **Intelligent Processing**: Utilizes Large Language Models (LLM) or Machine Comprehension Platforms (MCP)
+- **Data Management**: 
+  - Stores law text, computational questions, answers, and resources in a database
+  - Tracks user modifications
+- **Resource Verification**: Double-checks accuracy of referenced resources
+- **Statistical Integration**: Queries DESTATIS database for historical compliance cost data
+
+### Future Development Roadmap
+- Implement one-time compliance cost calculation for law implementation
+- Enable recalculation of steps when earlier tiles are modified
+- Add functionality to edit numbers in dropdown tiles
+- Develop feedback mechanism to inform user of resource accuracy
+- Explicit display of LLM confidence levels
+- Explainable AI components showing reasoning steps
+- Create multiple draft scenarios with different modifications or allow side-by-side comparison of different law drafts' compliance costs (e.g. retrieve previously calculated options from DB)
+
+### Alternative Entry Points
+For manual usage of the backend, a python-based chatterbox is available that
+bundles some of the most common usage patterns.
