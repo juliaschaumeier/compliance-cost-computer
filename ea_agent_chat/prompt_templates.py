@@ -125,3 +125,4 @@ class WebTestPrompt(PromptTemplate):
     def __init__(self):
         text = """ Use web search to answer the following question: What was a positive news story from today? Cite a specific link please."""
         super().__init__(name='web_test_prompt', text=text, task_type='verification', expected_answer_file_type='txt')
+
