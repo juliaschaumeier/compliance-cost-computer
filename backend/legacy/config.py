@@ -20,15 +20,21 @@ class DefaultConfig:
         self.SAVE_ENTIRE_RESPONSES = save_entire_responses
         self.LOG_LEVEL_CONSOLE = log_level_console
         self.LOG_LEVEL_FILE = log_level_file
-        self.RESULT_FOLDER = os.path.join(this_directory, '../results/', f'chat_{datetime.now().strftime("%Y%m%d-%H%M")}')
+        self.RESULT_FOLDER = os.path.join(
+            this_directory,
+            "..",
+            "..",
+            "results",
+            f'chat_{datetime.now().strftime("%Y%m%d-%H%M")}',
+        )
         os.makedirs(self.RESULT_FOLDER, exist_ok=True)
         self.TIMEOUT_IN_MINUTES = timeout_in_minutes
         if self.REGULATION_1_FILENAME:
-            with open(os.path.join(this_directory, '../regulations/', self.REGULATION_1_FILENAME), 'r',
+            with open(os.path.join(this_directory, "..", "..", "regulations", self.REGULATION_1_FILENAME), 'r',
                       encoding='utf-8') as file:
                 self.REGULATION_1_TEXT = file.read()
         if self.REGULATION_2_FILENAME:
-            with open(os.path.join(this_directory, '../regulations/', self.REGULATION_2_FILENAME), 'r',
+            with open(os.path.join(this_directory, "..", "..", "regulations", self.REGULATION_2_FILENAME), 'r',
                       encoding='utf-8') as file:
                 self.REGULATION_2_TEXT = file.read()
 

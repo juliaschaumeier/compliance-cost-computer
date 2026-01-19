@@ -1,15 +1,15 @@
 import json
 import os
-from ea_agent_chat.logging_utils import get_logger
+from backend.legacy.logging_utils import get_logger
 
 from datetime import datetime, timedelta
 from openai import BadRequestError
 from time import sleep
 
-from ea_agent_chat import api_helper
-from ea_agent_chat import parser
-from ea_agent_chat import prompt_templates
-from ea_agent_chat.current_config import current_config
+from backend.legacy import api_helper
+from backend.legacy import parser
+from backend.legacy import prompt_templates
+from backend.legacy.current_config import current_config
 
 
 class Question:

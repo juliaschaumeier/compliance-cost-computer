@@ -1,10 +1,10 @@
 import logging
 
-from ea_agent_chat import api_helper
-from ea_agent_chat import prompt_templates
-from ea_agent_chat import question_assembler
-from ea_agent_chat import logging_utils
-from ea_agent_chat import current_config
+from backend.legacy import api_helper
+from backend.legacy import prompt_templates
+from backend.legacy import question_assembler
+from backend.legacy import logging_utils
+from backend.legacy import current_config
 
 
 class DummyAPI:

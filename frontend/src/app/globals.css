@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@import "reactflow/dist/style.css";
+
+:root {
+  --bg-base: #f6f1ea;
+  --bg-veil: #fbfaf7;
+  --bg-ink: #0b1220;
+  --text-primary: #0f172a;
+  --text-muted: #5b6475;
+  --accent-1: #0ea5a4;
+  --accent-2: #f97316;
+  --border-soft: rgba(15, 23, 42, 0.12);
+}
+
+@theme inline {
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-space);
+  --font-mono: var(--font-jet);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(1000px 600px at 10% -10%, rgba(14, 165, 164, 0.22), transparent 60%),
+    radial-gradient(900px 700px at 90% 10%, rgba(249, 115, 22, 0.18), transparent 55%),
+    linear-gradient(180deg, var(--bg-veil) 0%, var(--bg-base) 100%);
+  color: var(--text-primary);
+  font-family: var(--font-space), "Space Grotesk", system-ui, sans-serif;
+  font-feature-settings: "ss01";
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.react-flow__controls button {
+  background: #ffffff;
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.tile-node {
+  width: 250px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  padding: 12px;
+}
+
+.tile-node h4 {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.tile-node p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.tile-node .tile-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.tile-node button {
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f8fafc;
+  font-size: 12px;
+  padding: 4px 6px;
+}

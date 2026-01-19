@@ -1,7 +1,7 @@
 #  use from Terminal: python -m pytest -s ./tests/test_parser.py
 
 import pytest
-from ea_agent_chat import parser
+from backend.legacy import parser
 
 
 SAMPLE_ANSWER = """

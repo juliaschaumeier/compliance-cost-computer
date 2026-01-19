@@ -40,6 +40,16 @@ The application is primarily targeted at **legislators who want to estimate comp
 - **Resource Verification**: Double-checks accuracy of referenced resources
 - **Statistical Integration**: Queries DESTATIS database for historical compliance cost data
 
+#### FastAPI service (new)
+- Backend entry point: `backend/main.py`
+- Core services: `backend/core/llm_service.py`, `backend/core/config.py`, `backend/core/db.py`
+- Routers: `backend/routers/tiles.py`, `backend/routers/models.py`
+- Run locally:
+  - `uvicorn backend.main:app --reload --port 5000`
+- API keys:
+  - Frontend sends `x-openai-key`, `x-deepinfra-key`, `x-gemini-key`
+  - Backend falls back to `OPENAI_API_KEY`, `DEEPINFRA_API_KEY`, `GEMINI_API_KEY` if headers are missing
+
 ### Future Development Roadmap
 - Implement one-time compliance cost calculation for law implementation
 - Enable recalculation of steps when earlier tiles are modified
@@ -52,3 +62,19 @@ The application is primarily targeted at **legislators who want to estimate comp
 ### Alternative Entry Points
 For manual usage of the backend, a python-based chatterbox is available that
 bundles some of the most common usage patterns.
+- Chatterbox script: `backend/scripts/main_chatterbox.py`
+- Legacy modules (pre-migration): `backend/legacy/`
+
+### Frontend (Next.js + React Flow)
+- Frontend root: `frontend/`
+- Run locally:
+  - `npm run install:frontend`
+  - `npm run dev`
+- Or from inside `frontend/`:
+  - `npm install`
+  - `npm run dev`
+- Optional: set `NEXT_PUBLIC_API_BASE_URL` if the backend isn't on `http://localhost:5000`
+- UI highlights:
+  - Header hosts the model selector and API key inputs.
+  - Tab bar controls the workflow stage (graph stays persistent underneath).
+  - React Flow canvas renders tiles from the backend `/tiles` API.

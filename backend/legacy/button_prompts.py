@@ -3,8 +3,8 @@
 import logging
 logger = logging.getLogger("ea_agent")
 
-from ea_agent_chat import api_helper
-from ea_agent_chat import question_assembler
+from backend.legacy import api_helper
+from backend.legacy import question_assembler
 
 async def regulation_identification(uploaded_law):
     """

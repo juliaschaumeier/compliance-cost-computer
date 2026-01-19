@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
-ROOT = Path(__file__).resolve().parent
-REGULATIONS_ROOT = ROOT.parent / "regulations"
-RESULTS_ROOT = ROOT.parent / "results"
+LEGACY_ROOT = Path(__file__).resolve().parent
+ROOT = LEGACY_ROOT.parents[1]
+REGULATIONS_ROOT = ROOT / "regulations"
+RESULTS_ROOT = ROOT / "results"
 
 
 @dataclass(frozen=True)
@@ -47,8 +48,8 @@ class LLMSettings:
 
 @dataclass(frozen=True)
 class BackendSettings:
-    DB_PATH: Path = ROOT / "tiles.db"
-    SEED_JSON: Path = ROOT / "mockup_data.json"
+    DB_PATH: Path = LEGACY_ROOT / "tiles.db"
+    SEED_JSON: Path = LEGACY_ROOT / "mockup_data.json"
     HOST: str = "0.0.0.0"
     PORT: int = 5000
     DEBUG: bool = True

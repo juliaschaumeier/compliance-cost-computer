@@ -4,11 +4,11 @@ import os
 from datetime import datetime
 from openai import OpenAI
 
-from ea_agent_chat import prompt_templates
-from ea_agent_chat import question_assembler
-from ea_agent_chat.current_config import current_config
-from ea_agent_chat import api_helper
-from ea_agent_chat.logging_utils import setup_logger
+from backend.legacy import prompt_templates
+from backend.legacy import question_assembler
+from backend.legacy.current_config import current_config
+from backend.legacy import api_helper
+from backend.legacy.logging_utils import setup_logger
 
 
 logger = setup_logger()

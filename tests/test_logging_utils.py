@@ -1,15 +1,15 @@
 import logging
 
-from ea_agent_chat import logging_utils
-from ea_agent_chat import current_config
+from backend.legacy import logging_utils
+from backend.legacy import current_config
 
 
 def test_setup_logger_respects_current_config_levels(tmp_path, monkeypatch):
     # Reset cached logger and point results to temp folder
     monkeypatch.setattr(logging_utils, "_CACHED_LOGGER", None)
-    monkeypatch.setattr(current_config, "LOG_LEVEL_CONSOLE", "WARNING")
-    monkeypatch.setattr(current_config, "LOG_LEVEL_FILE", "DEBUG")
-    monkeypatch.setattr(current_config, "RESULT_FOLDER", tmp_path)
+    monkeypatch.setattr(current_config.current_config, "LOG_LEVEL_CONSOLE", "WARNING")
+    monkeypatch.setattr(current_config.current_config, "LOG_LEVEL_FILE", "DEBUG")
+    monkeypatch.setattr(current_config.current_config, "RESULT_FOLDER", tmp_path)
 
     logger = logging_utils.setup_logger(log_filename="test.log")
 

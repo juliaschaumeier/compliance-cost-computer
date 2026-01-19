@@ -1,10 +1,37 @@
-# .gitignore
+# macOS
 .DS_Store
+
+# Env
 .env
+.env.*
+
+# IDE
 .idea/
-.venv/
 .vscode/
-results/
-regulations/
+
+# Python
+.venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# App data
+results/
+regulations/
+*.db
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

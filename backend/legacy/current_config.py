@@ -1,4 +1,4 @@
-from ea_agent_chat.config import OpenAiConfig
+from backend.legacy.config import OpenAiConfig
 
 current_config = OpenAiConfig(
     regulation_1_descriptor='Arbeitstagepauschale aktuell',

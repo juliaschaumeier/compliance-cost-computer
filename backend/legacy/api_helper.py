@@ -5,7 +5,7 @@ import logging
 from google import genai
 from openai import OpenAI
 
-from ea_agent_chat.current_config import current_config
+from backend.legacy.current_config import current_config
 
 
 logger = logging.getLogger("ea_agent")

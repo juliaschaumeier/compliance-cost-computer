@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Optional
 
-from ea_agent_chat.current_config import current_config
+from backend.legacy.current_config import current_config
 
 
 def _coerce_level(level, default=logging.INFO):
