@@ -1,9 +1,11 @@
 import GraphCanvas from "@/components/GraphCanvas";
+import TabPanels from "@/components/TabPanels";
 
 export default function HomePage() {
   return (
-    <div className="mx-auto max-w-7xl">
+    <>
+      <TabPanels />
       <GraphCanvas />
-    </div>
+    </>
   );
 }

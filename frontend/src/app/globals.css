@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "reactflow/dist/style.css";
+@import "@xyflow/react/dist/style.css";
 
 :root {
   --bg-base: #f6f1ea;
@@ -41,6 +41,15 @@ body {
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
+.react-flow__handle {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
 .tile-node {
   width: 250px;
   background: #ffffff;
@@ -50,17 +59,88 @@ body {
   padding: 12px;
 }
 
+.tile-node.is-focused {
+  border-color: rgba(15, 118, 110, 0.7);
+  box-shadow: 0 16px 32px rgba(15, 118, 110, 0.22);
+  background: #f0fdfa;
+}
+
+.tile-node.is-neighbor {
+  border-color: rgba(15, 118, 110, 0.35);
+  box-shadow: 0 12px 28px rgba(15, 118, 110, 0.16);
+  background: #f8fffd;
+}
+
+.react-flow__node.node-expanded {
+  z-index: 5;
+}
+
 .tile-node h4 {
   font-weight: 700;
   font-size: 15px;
+  margin: 0;
+}
+
+.tile-node .tile-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
 }
 
-.tile-node p {
+.tile-node .tile-body-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.tile-node .tile-body-text {
   margin: 0;
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.4;
+  flex: 0 1 auto;
+  max-width: calc(100% - 24px);
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tile-node .tile-body-text.is-expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  max-width: 100%;
+}
+
+.tile-node .tile-expand-inline {
+  border-radius: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 6px;
+  min-width: 22px;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  vertical-align: baseline;
+}
+
+.tile-node .tile-actions button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .tile-node .tile-actions {

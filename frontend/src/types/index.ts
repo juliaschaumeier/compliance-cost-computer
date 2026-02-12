@@ -41,3 +41,95 @@ export interface Tile {
 export interface TilesResponse {
   tiles: Tile[];
 }
+
+export interface SessionSummary {
+  app_session_id: string;
+  created_at: string;
+  llm_model: string;
+}
+
+export interface SessionsResponse {
+  sessions: SessionSummary[];
+}
+
+export interface SessionStatus {
+  summary_ready: boolean;
+  regulations_ready: boolean;
+  processes_ready: boolean;
+  case_groups_ready: boolean;
+  process_steps_ready: boolean;
+  effort_ready: boolean;
+  total_cost_ready: boolean;
+}
+
+export interface UndoStepResponse {
+  status: string;
+  undone_step?: string;
+  undone_label?: string;
+  message?: string;
+}
+
+export interface RegulationsResponse {
+  files: string[];
+}
+
+export interface Vorgabe {
+  regulation_id?: number;
+  normzitat: string;
+  beschreibung: string;
+}
+
+export interface VorgabenResponse {
+  vorgaben: Vorgabe[];
+  status?: string;
+}
+
+export interface Prozess {
+  process_id?: number;
+  prozess_bezeichnung: string;
+  prozess_beschreibung: string;
+}
+
+export interface ProzesseResponse {
+  prozesse: Prozess[];
+  status?: string;
+}
+
+export interface Fallgruppe {
+  case_group_id?: number;
+  beschreibung_fallgruppe: string;
+}
+
+export interface FallgruppenProzess {
+  process_id?: number;
+  prozess_bezeichnung: string;
+  prozess_beschreibung: string;
+  fallgruppen: Fallgruppe[];
+}
+
+export interface FallgruppenResponse {
+  prozesse: FallgruppenProzess[];
+  status?: string;
+}
+
+export interface Prozessschritt {
+  step_id?: number;
+  case_group_id?: number;
+  taetigkeit: string;
+  beschreibung: string;
+}
+
+export interface ProzessschritteResponse {
+  steps: Prozessschritt[];
+  status?: string;
+}
+
+export interface EffortCalculationResponse {
+  case_groups_updated: number;
+  steps_updated: number;
+  status?: string;
+}
+
+export interface TotalCostResponse {
+  total_cost: number;
+}

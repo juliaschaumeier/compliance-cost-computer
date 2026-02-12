@@ -49,6 +49,12 @@ The application is primarily targeted at **legislators who want to estimate comp
 - API keys:
   - Frontend sends `x-openai-key`, `x-deepinfra-key`, `x-gemini-key`
   - Backend falls back to `OPENAI_API_KEY`, `DEEPINFRA_API_KEY`, `GEMINI_API_KEY` if headers are missing
+- Seed demo graph:
+  - `POST /tiles/seed` loads `backend/legacy/mockup_data.json` into the tiles DB
+  - Example:
+    ```bash
+    curl -X POST http://localhost:5000/tiles/seed
+    ```
 
 ### Future Development Roadmap
 - Implement one-time compliance cost calculation for law implementation

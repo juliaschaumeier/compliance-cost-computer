@@ -19,6 +19,9 @@ const jetBrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "CCC App",
   description: "Compliance-Cost Computer",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
@@ -31,9 +34,11 @@ export default function RootLayout({
       <body>
         <AppProvider>
           <div className="min-h-screen flex flex-col">
-            <Header />
-            <TabBar />
-            <main className="flex-1 px-4 sm:px-6 lg:px-10 py-6">
+            <div className="sticky top-0 z-40">
+              <Header />
+              <TabBar />
+            </div>
+            <main className="flex-1">
               {children}
             </main>
           </div>

@@ -1,0 +1,201 @@
+from backend.core import db
+from backend.core.models import Tile
+
+
+def _seed_flow(session_id: int) -> dict:
+    process_id = db.insert_process(session_id, "Prozess A", "Beschreibung Prozess")
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Fallgruppe A", "Beschreibung Fallgruppe"
+    )
+    step_one = db.insert_process_step(
+        session_id, case_group_id, "Schritt 1", "Beschreibung Schritt 1"
+    )
+    step_two = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt 2",
+        "Beschreibung Schritt 2",
+        previous_id=step_one,
+    )
+    db.update_process_step_next(step_one, step_two)
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={"case_group_id": case_group_id},
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        )
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"step_{step_one}",
+            title="Schritt 1",
+            text="Beschreibung Schritt 1",
+            meta_information={"step_id": step_one, "case_group_id": case_group_id},
+            column=4,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"case_group_{case_group_id}"],
+        )
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"step_{step_two}",
+            title="Schritt 2",
+            text="Beschreibung Schritt 2",
+            meta_information={"step_id": step_two, "case_group_id": case_group_id},
+            column=5,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"step_{step_one}"],
+        )
+    )
+    return {
+        "process_id": process_id,
+        "case_group_id": case_group_id,
+        "step_one": step_one,
+        "step_two": step_two,
+    }
+
+
+def test_compute_costs_requires_steps(test_client):
+    """Rejects cost computation without process steps."""
+    session_id, _ = db.upsert_session("COST-NO-STEPS", "test-model")
+    process_id = db.insert_process(session_id, "Prozess A", "Beschreibung Prozess")
+    db.insert_case_group(
+        session_id, process_id, "Fallgruppe A", "Beschreibung Fallgruppe"
+    )
+
+    resp = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-NO-STEPS"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "No process steps for session"
+
+
+def test_compute_costs_requires_case_group_metrics(test_client):
+    """Rejects cost computation when case group metrics are missing."""
+    session_id, _ = db.upsert_session("COST-NO-METRICS", "test-model")
+    _seed_flow(session_id)
+
+    resp = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-NO-METRICS"}
+    )
+    assert resp.status_code == 422
+    assert "Missing case group metrics" in resp.json()["detail"]
+
+
+def test_compute_costs_updates_db_and_tiles(test_client):
+    """Computes step, case-group, process and session costs plus total tile."""
+    session_id, _ = db.upsert_session("COST-OK", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees=10,
+        annual_frequency=2,
+    )
+    db.update_process_step_effort(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
+        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
+        expenses=10,
+    )
+    db.update_process_step_effort(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
+        time_required={"a": 60, "b": None, "c": None, "d": None, "e": None},
+        expenses=None,
+    )
+
+    resp = test_client.post("/costs/compute", json={"app_session_id": "COST-OK"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total_cost"] == 2000
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE process_steps SET execution_per_case = 0 WHERE step_id = ?",
+        (seeded["step_two"],),
+    )
+    cur.execute(
+        "SELECT cost FROM process_steps WHERE step_id = ?",
+        (seeded["step_one"],),
+    )
+    assert cur.fetchone()["cost"] == 40
+    cur.execute(
+        "SELECT cost FROM process_steps WHERE step_id = ?",
+        (seeded["step_two"],),
+    )
+    assert cur.fetchone()["cost"] == 60
+    cur.execute(
+        "SELECT cost FROM case_groups WHERE case_group_id = ?",
+        (seeded["case_group_id"],),
+    )
+    assert cur.fetchone()["cost"] == 2000
+    cur.execute(
+        "SELECT cost FROM processes WHERE process_id = ?",
+        (seeded["process_id"],),
+    )
+    assert cur.fetchone()["cost"] == 2000
+    cur.execute(
+        "SELECT cc_cost FROM sessions WHERE session_id = ?",
+        (session_id,),
+    )
+    assert cur.fetchone()["cc_cost"] == 2000
+    conn.close()
+
+    tiles = db.fetch_tiles()
+    total_tile = next(tile for tile in tiles if tile.id == "total_cost")
+    assert "€" in total_tile.text
+    assert "Fälle pro Jahr: 20" in total_tile.text
+    assert f"step_{seeded['step_two']}" in total_tile.link_from_tile
+
+
+def test_compute_costs_honors_execution_per_case_flag(test_client):
+    """Per-group steps are not multiplied by case counts."""
+    session_id, _ = db.upsert_session("COST-PER-GROUP", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees=10,
+        annual_frequency=2,
+    )
+    db.update_process_step_effort(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
+        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
+        expenses=10,
+    )
+    db.update_process_step_effort(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
+        time_required={"a": 60, "b": None, "c": None, "d": None, "e": None},
+        expenses=None,
+    )
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE process_steps SET execution_per_case = 0 WHERE step_id = ?",
+        (seeded["step_two"],),
+    )
+    conn.commit()
+    conn.close()
+
+    resp = test_client.post("/costs/compute", json={"app_session_id": "COST-PER-GROUP"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total_cost"] == 860

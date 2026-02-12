@@ -7,13 +7,15 @@ from typing import Dict, List
 import httpx
 import logging
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 
 
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_DB_PATH = BASE_DIR / "backend" / "legacy" / "tiles.db"
+DEFAULT_DB_PATH = BASE_DIR / "backend" / "ccc.db"
 DEFAULT_SEED_JSON = BASE_DIR / "backend" / "legacy" / "mockup_data.json"
+DEFAULT_REGULATIONS_PATH = BASE_DIR / "regulations"
 
 
 class Settings(BaseSettings):
@@ -21,41 +23,42 @@ class Settings(BaseSettings):
     deepinfra_api_key: str = ""
     gemini_api_key: str = ""
     default_model: str = "gpt-4o"
+    enable_web_search: bool = True
+    deepinfra_max_tokens: int = 0
+    deepinfra_temperature: float = 0.4
     db_path: Path = DEFAULT_DB_PATH
     seed_json: Path = DEFAULT_SEED_JSON
+    regulations_path: Path = DEFAULT_REGULATIONS_PATH
 
-    class Config:
-        env_file = ".env"
+    model_config = ConfigDict(env_file=".env")
 
 
 settings = Settings()
 
 OPENAI_RECOMMENDED = [
-    "o1",
-    "o3",
-    "o1-mini",
-    "o3-mini",
-    "o4-mini",
-    "gpt-4o",
-    "gpt-4-turbo",
-    "gpt-4",
-    "gpt-3.5-turbo",
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
 ]
 
 DEEPINFRA_RECOMMENDED = [
+    "anthropic/claude-4-opus",
+    "anthropic/claude-4-sonnet",
+    "deepseek-ai/DeepSeek-R1-0528",
     "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-    "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-    "deepseek-ai/DeepSeek-R1-Turbo",
-    "deepseek-ai/DeepSeek-R1",
-    "deepseek-ai/DeepSeek-V3-0324",
+    "Qwen/Qwen2.5-72B-Instruct",
 ]
 
 GEMINI_RECOMMENDED = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3-pro-preview",
+    "gemini-3-flash-preview",
+    # "gemini-2.0-flash",
+    # "gemini-2.0-flash-lite",
 ]
 
 
@@ -186,7 +189,30 @@ def get_gemini_models(api_key: str | None = None) -> List[str]:
             data = response.json()
             if isinstance(data.get("data"), list):
                 models = [model["id"] for model in data["data"] if "id" in model]
-                text_models = [model for model in models if model.startswith("gemini-")]
+                normalized = [
+                    model.split("/", 1)[1] if model.startswith("models/") else model
+                    for model in models
+                ]
+                text_models = [
+                    model
+                    for model in normalized
+                    if model.startswith("gemini-")
+                    and not any(exclude in model.lower() for exclude in [
+                        "preview",
+                        "exp",
+                        "image",
+                        "audio",
+                        "embedding",
+                        "imagen",
+                        "veo",
+                        "lyria",
+                        "aqa",
+                        "nano-banana",
+                        "robotics",
+                        "computer-use",
+                        "deep-research",
+                    ])
+                ]
                 if text_models:
                     logger.info("Fetched %s Gemini models", len(text_models))
                     return text_models

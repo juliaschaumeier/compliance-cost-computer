@@ -1,0 +1,85 @@
+"use client";
+
+import { useCallback } from "react";
+import { Handle, type NodeProps, Position } from "@xyflow/react";
+
+export interface TileNodeData {
+  title: string;
+  text: string;
+  deletable: boolean;
+  onBodyRef: (id: string, element: HTMLParagraphElement | null) => void;
+  onNodeRef: (id: string, element: HTMLDivElement | null) => void;
+  onDelete: () => void;
+  onToggleExpand: () => void;
+  isExpanded: boolean;
+  textHasOverflow: boolean;
+  isFocused: boolean;
+  isNeighbor: boolean;
+}
+
+export function TileNode({ data, id }: NodeProps<TileNodeData>) {
+  const isLawTile = id === "law_tile";
+  const isExpanded = isLawTile || data.isExpanded;
+  const canExpand = !isLawTile && data.text && data.textHasOverflow;
+  const setNodeRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      data.onNodeRef(id, element);
+    },
+    [data.onNodeRef, id]
+  );
+  const setBodyRef = useCallback(
+    (element: HTMLParagraphElement | null) => {
+      data.onBodyRef(id, element);
+    },
+    [data.onBodyRef, id]
+  );
+  const highlightClass = data.isFocused
+    ? "is-focused"
+    : data.isNeighbor
+      ? "is-neighbor"
+      : "";
+  return (
+    <div ref={setNodeRef} className={`tile-node ${highlightClass}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="tile-header">
+        <h4>{data.title}</h4>
+        {data.deletable && (
+          <div className="tile-actions">
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                data.onDelete();
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="tile-body-row">
+        <p
+          ref={setBodyRef}
+          className={`tile-body-text ${
+            isExpanded || isLawTile ? "is-expanded" : ""
+          }`}
+        >
+          {data.text || "Keine Beschreibung"}
+        </p>
+        {canExpand && (
+          <button
+            className="tile-expand-inline"
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onToggleExpand();
+            }}
+            aria-expanded={isExpanded}
+            title={isExpanded ? "Text einklappen" : "Text ausklappen"}
+          >
+            {isExpanded ? "▴" : "▾"}
+          </button>
+        )}
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
