@@ -2,18 +2,140 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Iterable, List
 
 from .config import settings
 from .models import Tile
 
+_TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=None)
+
 
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+        (table_name,),
+    )
+    return cur.fetchone() is not None
+
+
+def _table_columns(cur: sqlite3.Cursor, table_name: str) -> set[str]:
+    if not _table_exists(cur, table_name):
+        return set()
+    cur.execute(f"PRAGMA table_info({table_name})")
+    return {str(row[1]) for row in cur.fetchall()}
+
+
+def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tiles (
+            session_id INTEGER NOT NULL,
+            id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            text TEXT NOT NULL,
+            meta JSON,
+            col INTEGER DEFAULT 0,
+            row INTEGER DEFAULT 0,
+            deletable INTEGER DEFAULT 1,
+            PRIMARY KEY (session_id, id),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions(session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        );
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS links (
+            session_id INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            target TEXT NOT NULL,
+            PRIMARY KEY (session_id, source, target),
+            FOREIGN KEY (session_id, source)
+            REFERENCES tiles(session_id, id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (session_id, target)
+            REFERENCES tiles(session_id, id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        );
+        """
+    )
+
+
+def _ensure_legacy_tiles_session(cur: sqlite3.Cursor) -> int:
+    cur.execute(
+        """
+        SELECT session_id
+        FROM sessions
+        ORDER BY created_at DESC, session_id DESC
+        LIMIT 1
+        """
+    )
+    row = cur.fetchone()
+    if row is not None:
+        return int(row[0])
+    cur.execute(
+        """
+        INSERT INTO sessions (app_session_id, llm_model)
+        VALUES (?, ?)
+        """,
+        ("LEGACY-TILES", "legacy"),
+    )
+    return int(cur.lastrowid)
+
+
+def _migrate_tiles_links_to_session_scope(cur: sqlite3.Cursor) -> None:
+    tiles_columns = _table_columns(cur, "tiles")
+    links_columns = _table_columns(cur, "links")
+
+    if not tiles_columns:
+        _create_session_scoped_tile_tables(cur)
+        return
+
+    if "session_id" in tiles_columns and "session_id" in links_columns:
+        _create_session_scoped_tile_tables(cur)
+        return
+
+    if _table_exists(cur, "links"):
+        cur.execute("ALTER TABLE links RENAME TO links_legacy")
+    cur.execute("ALTER TABLE tiles RENAME TO tiles_legacy")
+    _create_session_scoped_tile_tables(cur)
+    session_id = _ensure_legacy_tiles_session(cur)
+    cur.execute(
+        """
+        INSERT INTO tiles (session_id, id, title, text, meta, col, row, deletable)
+        SELECT ?, id, title, text, meta, col, row, deletable
+        FROM tiles_legacy
+        """,
+        (session_id,),
+    )
+    if _table_exists(cur, "links_legacy"):
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO links (session_id, source, target)
+            SELECT ?, source, target
+            FROM links_legacy
+            """,
+            (session_id,),
+        )
+        cur.execute("DROP TABLE links_legacy")
+    cur.execute("DROP TABLE tiles_legacy")
+
+
 def get_conn() -> sqlite3.Connection:
+    existing = _TX_CONN.get()
+    if existing is not None:
+        return existing
     _ensure_parent(settings.db_path)
     conn = sqlite3.connect(settings.db_path)
     conn.row_factory = sqlite3.Row
@@ -21,33 +143,46 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _in_transaction() -> bool:
+    return _TX_CONN.get() is not None
+
+
+def _maybe_commit(conn: sqlite3.Connection) -> None:
+    if not _in_transaction():
+        conn.commit()
+
+
+def _maybe_close(conn: sqlite3.Connection) -> None:
+    if not _in_transaction():
+        conn.close()
+
+
+@contextmanager
+def transaction() -> Iterable[sqlite3.Connection]:
+    existing = _TX_CONN.get()
+    if existing is not None:
+        yield existing
+        return
+    _ensure_parent(settings.db_path)
+    conn = sqlite3.connect(settings.db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    token = _TX_CONN.set(conn)
+    try:
+        conn.execute("BEGIN")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _TX_CONN.reset(token)
+        conn.close()
+
+
 def init_db() -> None:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS tiles (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            text TEXT NOT NULL,
-            meta JSON,
-            col INTEGER DEFAULT 0,
-            row INTEGER DEFAULT 0,
-            deletable INTEGER DEFAULT 1
-        );
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS links (
-            source TEXT NOT NULL,
-            target TEXT NOT NULL,
-            PRIMARY KEY (source, target),
-            FOREIGN KEY (source) REFERENCES tiles(id) ON DELETE CASCADE,
-            FOREIGN KEY (target) REFERENCES tiles(id) ON DELETE CASCADE
-        );
-        """
-    )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS laws (
@@ -86,6 +221,7 @@ def init_db() -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
+    _migrate_tiles_links_to_session_scope(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_sessions (
@@ -308,30 +444,62 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_processes_process_id ON web_sources_processes(process_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_case_groups_case_group_id ON web_sources_case_groups(case_group_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_process_steps_step_id ON web_sources_process_steps(step_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_target ON links(target)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_source ON links(source)")
-    conn.commit()
-    conn.close()
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_tiles_session_id ON tiles(session_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_target ON links(session_id, target)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_source ON links(session_id, source)")
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
-def seed_from_json() -> None:
+def _resolve_tile_session_id(
+    session_id: int | None,
+    *,
+    create_if_missing: bool = False,
+) -> int:
+    if session_id is not None:
+        return int(session_id)
+    latest = get_latest_session()
+    if latest is not None:
+        return int(latest["session_id"])
+    if not create_if_missing:
+        raise ValueError("No session available for tile operation")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO sessions (app_session_id, llm_model)
+        VALUES (?, ?)
+        """,
+        ("TILE-SEED", "system"),
+    )
+    _maybe_commit(conn)
+    created_id = int(cur.lastrowid)
+    _maybe_close(conn)
+    return created_id
+
+
+def seed_from_json(session_id: int | None = None) -> None:
     if not settings.seed_json.exists():
         return
+    resolved_session_id = _resolve_tile_session_id(
+        session_id, create_if_missing=True
+    )
     data = json.loads(settings.seed_json.read_text(encoding="utf-8"))
     tiles = data.get("tiles", [])
     links = []
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM links")
-    cur.execute("DELETE FROM tiles")
+    cur.execute("DELETE FROM links WHERE session_id = ?", (resolved_session_id,))
+    cur.execute("DELETE FROM tiles WHERE session_id = ?", (resolved_session_id,))
     for tile in tiles:
         tile_id = tile["id"]
         cur.execute(
             """
-            INSERT OR REPLACE INTO tiles (id, title, text, meta, col, row, deletable)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO tiles (session_id, id, title, text, meta, col, row, deletable)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                resolved_session_id,
                 tile_id,
                 tile.get("title", tile_id),
                 tile.get("text", ""),
@@ -346,29 +514,47 @@ def seed_from_json() -> None:
     for src, tgt in links:
         cur.execute(
             """
-            INSERT OR REPLACE INTO links (source, target)
-            VALUES (?, ?)
+            INSERT OR REPLACE INTO links (session_id, source, target)
+            VALUES (?, ?, ?)
             """,
-            (src, tgt),
+            (resolved_session_id, src, tgt),
         )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def ensure_db() -> None:
     init_db()
     conn = get_conn()
-    conn.close()
+    _maybe_close(conn)
 
 
-def fetch_tiles() -> List[Tile]:
+def fetch_tiles(session_id: int | None = None) -> List[Tile]:
+    try:
+        resolved_session_id = _resolve_tile_session_id(session_id)
+    except ValueError:
+        return []
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM tiles")
+    cur.execute(
+        """
+        SELECT *
+        FROM tiles
+        WHERE session_id = ?
+        """,
+        (resolved_session_id,),
+    )
     tiles: List[Tile] = []
     for row in cur.fetchall():
         tile_id = row["id"]
-        cur_links = conn.execute("SELECT source FROM links WHERE target = ?", (tile_id,)).fetchall()
+        cur_links = conn.execute(
+            """
+            SELECT source
+            FROM links
+            WHERE session_id = ? AND target = ?
+            """,
+            (resolved_session_id, tile_id),
+        ).fetchall()
         tiles.append(
             Tile(
                 id=tile_id,
@@ -381,7 +567,7 @@ def fetch_tiles() -> List[Tile]:
                 link_from_tile=[r["source"] for r in cur_links],
             )
         )
-    conn.close()
+    _maybe_close(conn)
     return tiles
 
 
@@ -392,7 +578,7 @@ def list_law_file_names() -> List[str]:
         "SELECT file_name FROM laws ORDER BY uploaded_at DESC, document_id DESC"
     )
     names = [row["file_name"] for row in cur.fetchall()]
-    conn.close()
+    _maybe_close(conn)
     return names
 
 
@@ -409,7 +595,7 @@ def get_law_by_filename(file_name: str) -> dict | None:
         (file_name,),
     )
     row = cur.fetchone()
-    conn.close()
+    _maybe_close(conn)
     if row is None:
         return None
     return dict(row)
@@ -428,7 +614,7 @@ def get_law_by_id(document_id: int) -> dict | None:
         (document_id,),
     )
     row = cur.fetchone()
-    conn.close()
+    _maybe_close(conn)
     if row is None:
         return None
     return dict(row)
@@ -444,9 +630,9 @@ def insert_law(file_name: str, law_text: str) -> int:
         """,
         (file_name, law_text, len(law_text)),
     )
-    conn.commit()
+    _maybe_commit(conn)
     document_id = int(cur.lastrowid)
-    conn.close()
+    _maybe_close(conn)
     return document_id
 
 
@@ -462,7 +648,32 @@ def get_session_by_app_id(app_session_id: str) -> dict | None:
         (app_session_id,),
     )
     row = cur.fetchone()
-    conn.close()
+    _maybe_close(conn)
+    if row is None:
+        return None
+    return dict(row)
+
+
+def get_session_export_info(app_session_id: str) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            s.app_session_id,
+            s.created_at,
+            s.llm_model,
+            current.file_name AS current_file_name,
+            proposed.file_name AS proposed_file_name
+        FROM sessions s
+        LEFT JOIN laws AS current ON current.document_id = s.current_law_id
+        LEFT JOIN laws AS proposed ON proposed.document_id = s.proposed_law_id
+        WHERE s.app_session_id = ?
+        """,
+        (app_session_id,),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
     if row is None:
         return None
     return dict(row)
@@ -480,7 +691,7 @@ def get_latest_session() -> dict | None:
         """
     )
     row = cur.fetchone()
-    conn.close()
+    _maybe_close(conn)
     if row is None:
         return None
     return dict(row)
@@ -499,7 +710,7 @@ def list_sessions(limit: int = 50) -> List[dict]:
         (limit,),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    conn.close()
+    _maybe_close(conn)
     return rows
 
 
@@ -518,7 +729,7 @@ def get_session_status(app_session_id: str) -> dict | None:
     case_groups_count = int(cur.fetchone()["count"])
     cur.execute("SELECT COUNT(*) AS count FROM process_steps WHERE session_id = ?", (session_id,))
     steps_count = int(cur.fetchone()["count"])
-    conn.close()
+    _maybe_close(conn)
     summary_ready = bool(
         session.get("law_diff_title")
         or session.get("law_diff_summary")
@@ -567,7 +778,7 @@ def has_effort_metrics(session_id: int) -> bool:
         (session_id,),
     )
     steps_with_metrics = int(cur.fetchone()["count"])
-    conn.close()
+    _maybe_close(conn)
     return groups_with_metrics > 0 or steps_with_metrics > 0
 
 
@@ -579,7 +790,7 @@ def get_session_id_by_app_id(app_session_id: str) -> int | None:
         (app_session_id,),
     )
     row = cur.fetchone()
-    conn.close()
+    _maybe_close(conn)
     if not row:
         return None
     return int(row["session_id"])
@@ -610,8 +821,8 @@ def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
         )
         session_id = int(cur.lastrowid)
         created = True
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
     return session_id, created
 
 
@@ -637,8 +848,8 @@ def insert_llm_answer(
             json.dumps(metadata, ensure_ascii=False) if metadata else None,
         ),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def list_regulations_for_session(session_id: int) -> List[dict]:
@@ -654,7 +865,7 @@ def list_regulations_for_session(session_id: int) -> List[dict]:
         (session_id,),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    conn.close()
+    _maybe_close(conn)
     return rows
 
 
@@ -670,7 +881,7 @@ def get_regulation_by_id(regulation_id: int) -> dict | None:
         (regulation_id,),
     )
     row = cur.fetchone()
-    conn.close()
+    _maybe_close(conn)
     if not row:
         return None
     return dict(row)
@@ -689,7 +900,7 @@ def list_processes_for_session(session_id: int) -> List[dict]:
         (session_id,),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    conn.close()
+    _maybe_close(conn)
     return rows
 
 
@@ -706,7 +917,7 @@ def list_case_groups_for_session(session_id: int) -> List[dict]:
         (session_id,),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    conn.close()
+    _maybe_close(conn)
     return rows
 
 
@@ -726,7 +937,7 @@ def list_process_steps_for_session(session_id: int) -> List[dict]:
         (session_id,),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    conn.close()
+    _maybe_close(conn)
     return rows
 
 
@@ -745,9 +956,9 @@ def insert_regulation(
         """,
         (session_id, process_id, legal_citation, description),
     )
-    conn.commit()
+    _maybe_commit(conn)
     regulation_id = int(cur.lastrowid)
-    conn.close()
+    _maybe_close(conn)
     return regulation_id
 
 
@@ -766,9 +977,9 @@ def insert_process(
         """,
         (session_id, process, description, cost),
     )
-    conn.commit()
+    _maybe_commit(conn)
     process_id = int(cur.lastrowid)
-    conn.close()
+    _maybe_close(conn)
     return process_id
 
 
@@ -787,9 +998,9 @@ def insert_case_group(
         """,
         (session_id, process_id, case_group, description),
     )
-    conn.commit()
+    _maybe_commit(conn)
     case_group_id = int(cur.lastrowid)
-    conn.close()
+    _maybe_close(conn)
     return case_group_id
 
 
@@ -827,9 +1038,9 @@ def insert_process_step(
             execution_per_case,
         ),
     )
-    conn.commit()
+    _maybe_commit(conn)
     step_id = int(cur.lastrowid)
-    conn.close()
+    _maybe_close(conn)
     return step_id
 
 
@@ -849,8 +1060,8 @@ def update_case_group_metrics(
         """,
         (addressees, annual_frequency, case_group_id, session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_process_step_effort(
@@ -886,8 +1097,8 @@ def update_process_step_effort(
             session_id,
         ),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_process_step_cost(
@@ -905,8 +1116,8 @@ def update_process_step_cost(
         """,
         (cost, step_id, session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_process_step_execution(
@@ -924,8 +1135,8 @@ def update_process_step_execution(
         """,
         (execution_per_case, step_id, session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_case_group_cost(
@@ -943,8 +1154,8 @@ def update_case_group_cost(
         """,
         (cost, case_group_id, session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_process_cost(
@@ -962,8 +1173,8 @@ def update_process_cost(
         """,
         (cost, process_id, session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def format_number(value: float | int | None) -> str:
@@ -1099,8 +1310,8 @@ def update_process_step_next(step_id: int, next_id: int | None) -> None:
         "UPDATE process_steps SET next_id = ? WHERE step_id = ?",
         (next_id, step_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_regulation_process(
@@ -1122,9 +1333,9 @@ def update_regulation_process(
         """,
         (process_id, regulation_id, legal_citation, description),
     )
-    conn.commit()
+    _maybe_commit(conn)
     updated = cur.rowcount > 0
-    conn.close()
+    _maybe_close(conn)
     return updated
 
 
@@ -1156,8 +1367,8 @@ def update_session_documents(
         """,
         (current_id, proposed_id, app_session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_session_summary(
@@ -1175,8 +1386,8 @@ def update_session_summary(
         """,
         (law_diff_title, law_diff_summary, app_session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def update_session_cost(session_id: int, cost: float | None) -> None:
@@ -1190,8 +1401,8 @@ def update_session_cost(session_id: int, cost: float | None) -> None:
         """,
         (cost, session_id),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def clear_session_summary(session_id: int) -> None:
@@ -1208,8 +1419,8 @@ def clear_session_summary(session_id: int) -> None:
         """,
         (session_id,),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def clear_effort_metrics(session_id: int) -> None:
@@ -1242,8 +1453,8 @@ def clear_effort_metrics(session_id: int) -> None:
         """,
         (session_id,),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def clear_costs(session_id: int) -> None:
@@ -1281,8 +1492,8 @@ def clear_costs(session_id: int) -> None:
         """,
         (session_id,),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def delete_process_steps_for_session(session_id: int) -> None:
@@ -1292,8 +1503,8 @@ def delete_process_steps_for_session(session_id: int) -> None:
         "DELETE FROM process_steps WHERE session_id = ?",
         (session_id,),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def delete_case_groups_for_session(session_id: int) -> None:
@@ -1303,8 +1514,8 @@ def delete_case_groups_for_session(session_id: int) -> None:
         "DELETE FROM case_groups WHERE session_id = ?",
         (session_id,),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def delete_processes_for_session(session_id: int) -> None:
@@ -1314,8 +1525,8 @@ def delete_processes_for_session(session_id: int) -> None:
         "DELETE FROM processes WHERE session_id = ?",
         (session_id,),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def delete_regulations_for_session(session_id: int) -> None:
@@ -1325,8 +1536,8 @@ def delete_regulations_for_session(session_id: int) -> None:
         "DELETE FROM regulations WHERE session_id = ?",
         (session_id,),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def delete_llm_answers(session_id: int, prompt_ids: Iterable[str]) -> None:
@@ -1340,19 +1551,30 @@ def delete_llm_answers(session_id: int, prompt_ids: Iterable[str]) -> None:
         f"DELETE FROM llm_answers WHERE session_id = ? AND prompt_id IN ({placeholders})",
         (session_id, *ids),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
-def upsert_tile(tile: Tile) -> None:
+def upsert_tile(tile: Tile, session_id: int | None = None) -> None:
+    resolved_session_id = _resolve_tile_session_id(
+        session_id, create_if_missing=True
+    )
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT OR REPLACE INTO tiles (id, title, text, meta, col, row, deletable)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tiles (session_id, id, title, text, meta, col, row, deletable)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, id) DO UPDATE SET
+            title = excluded.title,
+            text = excluded.text,
+            meta = excluded.meta,
+            col = excluded.col,
+            row = excluded.row,
+            deletable = excluded.deletable
         """,
         (
+            resolved_session_id,
             tile.id,
             tile.title,
             tile.text,
@@ -1362,38 +1584,68 @@ def upsert_tile(tile: Tile) -> None:
             1 if tile.deletable else 0,
         ),
     )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)
     if tile.link_from_tile is not None:
-        set_links(tile.id, tile.link_from_tile)
+        set_links(tile.id, tile.link_from_tile, session_id=resolved_session_id)
 
 
-def delete_tile(tile_id: str) -> None:
+def delete_tile(tile_id: str, session_id: int | None = None) -> None:
+    resolved_session_id = _resolve_tile_session_id(
+        session_id, create_if_missing=True
+    )
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM links WHERE target = ? OR source = ?", (tile_id, tile_id))
-    cur.execute("DELETE FROM tiles WHERE id = ?", (tile_id,))
-    conn.commit()
-    conn.close()
+    cur.execute(
+        """
+        DELETE FROM links
+        WHERE session_id = ? AND (target = ? OR source = ?)
+        """,
+        (resolved_session_id, tile_id, tile_id),
+    )
+    cur.execute(
+        "DELETE FROM tiles WHERE session_id = ? AND id = ?",
+        (resolved_session_id, tile_id),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
-def clear_tiles() -> None:
+def clear_tiles(session_id: int | None = None) -> None:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM links")
-    cur.execute("DELETE FROM tiles")
-    conn.commit()
-    conn.close()
+    if session_id is None:
+        cur.execute("DELETE FROM links")
+        cur.execute("DELETE FROM tiles")
+    else:
+        resolved_session_id = int(session_id)
+        cur.execute("DELETE FROM links WHERE session_id = ?", (resolved_session_id,))
+        cur.execute("DELETE FROM tiles WHERE session_id = ?", (resolved_session_id,))
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
-def set_links(target_id: str, sources: Iterable[str]) -> None:
+def set_links(
+    target_id: str,
+    sources: Iterable[str],
+    session_id: int | None = None,
+) -> None:
+    resolved_session_id = _resolve_tile_session_id(
+        session_id, create_if_missing=True
+    )
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM links WHERE target = ?", (target_id,))
+    cur.execute(
+        "DELETE FROM links WHERE session_id = ? AND target = ?",
+        (resolved_session_id, target_id),
+    )
     for src in sources:
         cur.execute(
-            "INSERT OR REPLACE INTO links (source, target) VALUES (?, ?)",
-            (src, target_id),
+            """
+            INSERT OR REPLACE INTO links (session_id, source, target)
+            VALUES (?, ?, ?)
+            """,
+            (resolved_session_id, src, target_id),
         )
-    conn.commit()
-    conn.close()
+    _maybe_commit(conn)
+    _maybe_close(conn)

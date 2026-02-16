@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,6 +8,7 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.config import settings
+from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.prompts import PromptId, render_prompt
@@ -16,47 +16,14 @@ from backend.core.prompts import PromptId, render_prompt
 
 router = APIRouter(prefix="/processes", tags=["processes"])
 
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-_THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\\s\\S]*?```", re.IGNORECASE)
-
-
 class ProcessCompilationRequest(BaseModel):
     app_session_id: str
     model: str | None = None
     provider: str | None = None
 
 
-def _clean_llm_payload(payload: str) -> str:
-    cleaned = _THINK_BLOCK_RE.sub("", payload)
-    cleaned = _THINK_FENCE_RE.sub("", cleaned)
-    return cleaned.strip()
-
-
-def _extract_last_json(payload: str) -> dict | None:
-    decoder = json.JSONDecoder()
-    index = 0
-    last: dict | None = None
-    while True:
-        start = payload.find("{", index)
-        if start == -1:
-            break
-        try:
-            data, end = decoder.raw_decode(payload, start)
-            if isinstance(data, dict):
-                last = data
-            index = end
-        except json.JSONDecodeError:
-            index = start + 1
-    return last
-
-
 def _parse_processes(payload: str) -> list[dict]:
-    cleaned = _clean_llm_payload(payload)
-    data = None
-    try:
-        data = json.loads(cleaned)
-    except Exception:
-        data = _extract_last_json(cleaned)
+    data = parse_json_object(payload)
     if not isinstance(data, dict):
         return []
     processes = data.get("prozesse")
@@ -105,7 +72,7 @@ def _add_process_tiles(
 ) -> list[dict]:
     base_col = 2
     base_row = 0
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     regulation_tiles = [tile for tile in tiles if tile.id.startswith("regulation_")]
     if regulation_tiles:
         base_col = max(tile.column for tile in regulation_tiles) + 1
@@ -169,7 +136,7 @@ def _add_process_tiles(
             deletable=True,
             link_from_tile=link_from_tile,
         )
-        db.upsert_tile(tile)
+        db.upsert_tile(tile, session_id=session_id)
         created.append(
             {
                 "process_id": process_id,
@@ -277,17 +244,18 @@ async def compile_processes(
         model=model,
         provider=payload.provider,
     )
-    db.insert_llm_answer(
-        session_id=session_id,
-        prompt_id=PromptId.PROCESS_COMPILATION,
-        model=model,
-        answer_text=response_text,
-        metadata={"provider": payload.provider},
-    )
     processes = _parse_processes(response_text)
     if not processes:
         raise HTTPException(status_code=422, detail="No processes parsed")
     regulation_lookup = {row["regulation_id"]: row for row in regulations}
     _validate_vorgaben(processes, regulation_lookup)
-    created = _add_process_tiles(session_id, processes, regulation_lookup)
+    with db.transaction():
+        db.insert_llm_answer(
+            session_id=session_id,
+            prompt_id=PromptId.PROCESS_COMPILATION,
+            model=model,
+            answer_text=response_text,
+            metadata={"provider": payload.provider},
+        )
+        created = _add_process_tiles(session_id, processes, regulation_lookup)
     return {"prozesse": created}

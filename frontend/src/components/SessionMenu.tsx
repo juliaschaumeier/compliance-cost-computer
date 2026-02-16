@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
-import { apiClient } from "@/lib/api";
+import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { SessionSummary } from "@/types";
 
 type SessionMenuProps = {
@@ -15,7 +15,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const {
     state,
     setCurrentTab,
-    setSessionId,
+    setAppSessionId,
     setSummaryReady,
     setRegulationsReady,
     setProcessesReady,
@@ -23,12 +23,19 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setProcessStepsReady,
     setEffortReady,
     setTotalCostReady,
+    setLastCompletedStep,
+    setLastCompletedLabel,
   } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
+  const [isRunningAll, setIsRunningAll] = useState(false);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [isCancellingRun, setIsCancellingRun] = useState(false);
+  const runEventSourceRef = useRef<EventSource | null>(null);
+  const runPollTimerRef = useRef<number | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
@@ -38,6 +45,19 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (runEventSourceRef.current) {
+        runEventSourceRef.current.close();
+        runEventSourceRef.current = null;
+      }
+      if (runPollTimerRef.current !== null) {
+        window.clearTimeout(runPollTimerRef.current);
+        runPollTimerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -84,24 +104,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
   const resetStatus = () => setStatus(null);
 
-  const lastStepLabel = useMemo(() => {
-    if (state.totalCostReady) return "Gesamtkosten berechnen";
-    if (state.effortReady) return "Aufwand berechnen";
-    if (state.processStepsReady) return "Prozessschritte bestimmen";
-    if (state.caseGroupsReady) return "Fallgruppen entwickeln";
-    if (state.processesReady) return "Prozesse bündeln";
-    if (state.regulationsReady) return "Vorgaben bestimmen";
-    if (state.summaryReady) return "CCC starten";
-    return null;
-  }, [
-    state.totalCostReady,
-    state.effortReady,
-    state.processStepsReady,
-    state.caseGroupsReady,
-    state.processesReady,
-    state.regulationsReady,
-    state.summaryReady,
-  ]);
+  const lastStepLabel = state.lastCompletedLabel;
 
   useEffect(() => {
     if (!isOpen) {
@@ -141,7 +144,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const handleRebuildCurrent = async () => {
     try {
       resetStatus();
-      await apiClient.rebuildTiles(state.sessionId);
+      await apiClient.rebuildTiles(state.appSessionId);
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus("Tiles der Session wurden neu geladen.");
     } catch {
@@ -162,7 +165,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     try {
       resetStatus();
       const sessionStatus = await apiClient.getSessionStatus(selectedSession);
-      setSessionId(selectedSession);
+      setAppSessionId(selectedSession);
       setSummaryReady(sessionStatus.summary_ready);
       setRegulationsReady(sessionStatus.regulations_ready);
       setProcessesReady(sessionStatus.processes_ready);
@@ -170,6 +173,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setProcessStepsReady(sessionStatus.process_steps_ready);
       setEffortReady(sessionStatus.effort_ready);
       setTotalCostReady(sessionStatus.total_cost_ready);
+      setLastCompletedStep(sessionStatus.last_completed_step ?? null);
+      setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
       setCurrentTab(0);
       await apiClient.rebuildTiles(selectedSession);
       window.dispatchEvent(new Event("tiles-updated"));
@@ -186,18 +191,339 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     try {
       resetStatus();
       setIsUndoing(true);
-      const result = await apiClient.undoLastStep(state.sessionId);
+      const result = await apiClient.undoLastStep(state.appSessionId);
       if (result.status === "no-op") {
         setStatus("Kein Schritt zum Zurücksetzen vorhanden.");
         return;
       }
-      await apiClient.rebuildTiles(state.sessionId);
+      await apiClient.rebuildTiles(state.appSessionId);
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus(`Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`);
     } catch {
       setStatus("Letzter Schritt konnte nicht zurückgesetzt werden.");
     } finally {
       setIsUndoing(false);
+    }
+  };
+
+  const handleExportSession = async () => {
+    try {
+      resetStatus();
+      const result = await apiClient.exportSession(state.appSessionId);
+      const blob = new Blob([result.markdown], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus("Session exportiert.");
+    } catch {
+      setStatus("Export fehlgeschlagen.");
+    }
+  };
+
+  const deriveTab = (sessionStatus: {
+    summary_ready: boolean;
+    regulations_ready: boolean;
+    processes_ready: boolean;
+    case_groups_ready: boolean;
+    process_steps_ready: boolean;
+    effort_ready: boolean;
+  }) => {
+    if (!sessionStatus.summary_ready) return 0;
+    if (!sessionStatus.regulations_ready) return 1;
+    if (!sessionStatus.processes_ready) return 2;
+    if (!sessionStatus.case_groups_ready) return 3;
+    if (!sessionStatus.process_steps_ready) return 4;
+    if (!sessionStatus.effort_ready) return 5;
+    return 6;
+  };
+
+  const applySessionStatus = (sessionStatus: {
+    summary_ready: boolean;
+    regulations_ready: boolean;
+    processes_ready: boolean;
+    case_groups_ready: boolean;
+    process_steps_ready: boolean;
+    effort_ready: boolean;
+    total_cost_ready: boolean;
+    last_completed_step?: string | null;
+    last_completed_label?: string | null;
+  }) => {
+    setSummaryReady(sessionStatus.summary_ready);
+    setRegulationsReady(sessionStatus.regulations_ready);
+    setProcessesReady(sessionStatus.processes_ready);
+    setCaseGroupsReady(sessionStatus.case_groups_ready);
+    setProcessStepsReady(sessionStatus.process_steps_ready);
+    setEffortReady(sessionStatus.effort_ready);
+    setTotalCostReady(sessionStatus.total_cost_ready);
+    setLastCompletedStep(sessionStatus.last_completed_step ?? null);
+    setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
+    setCurrentTab(deriveTab(sessionStatus));
+  };
+
+  const stopRunMonitoring = () => {
+    if (runEventSourceRef.current) {
+      runEventSourceRef.current.close();
+      runEventSourceRef.current = null;
+    }
+    if (runPollTimerRef.current !== null) {
+      window.clearTimeout(runPollTimerRef.current);
+      runPollTimerRef.current = null;
+    }
+  };
+
+  const pollRunStatus = (runId: string) => {
+    runPollTimerRef.current = window.setTimeout(async () => {
+      try {
+        const progress = await apiClient.getRunAllStatus(runId);
+        if (progress.final_status) {
+          applySessionStatus(progress.final_status);
+          window.dispatchEvent(new Event("tiles-updated"));
+        }
+        if (progress.status === "running") {
+          pollRunStatus(runId);
+          return;
+        }
+        setCurrentRunId(null);
+        setIsRunningAll(false);
+        setIsCancellingRun(false);
+        if (progress.status === "completed" && progress.ok) {
+          setStatus("Alle Schritte wurden ausgeführt.");
+        } else if (progress.status === "cancelled") {
+          setStatus("Ausführung abgebrochen. Session wurde zurückgesetzt.");
+        } else {
+          const failedStep = progress.steps.find((step) => step.status === "failed");
+          setStatus(
+            failedStep?.message ||
+              "Schritte konnten nicht vollständig ausgeführt werden."
+          );
+        }
+        stopRunMonitoring();
+      } catch {
+        setIsRunningAll(false);
+        setCurrentRunId(null);
+        setIsCancellingRun(false);
+        setStatus("Status der Schritte konnte nicht aktualisiert werden.");
+        stopRunMonitoring();
+      }
+    }, 1500);
+  };
+
+  const beginRunEventStream = (runId: string) => {
+    stopRunMonitoring();
+    const source = new EventSource(apiClient.getRunAllEventsUrl(runId));
+    runEventSourceRef.current = source;
+
+    source.addEventListener("step_started", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as {
+          label?: string;
+        };
+        if (payload.label) {
+          setStatus(`Läuft: ${payload.label}`);
+        }
+      } catch {
+        // Ignore malformed progress event.
+      }
+    });
+
+    const applyEventStatus = (event: Event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as {
+          session_status?: {
+            summary_ready: boolean;
+            regulations_ready: boolean;
+            processes_ready: boolean;
+            case_groups_ready: boolean;
+            process_steps_ready: boolean;
+            effort_ready: boolean;
+            total_cost_ready: boolean;
+            last_completed_step?: string | null;
+            last_completed_label?: string | null;
+          };
+        };
+        if (payload.session_status) {
+          applySessionStatus(payload.session_status);
+          window.dispatchEvent(new Event("tiles-updated"));
+        }
+      } catch {
+        // Ignore malformed status event.
+      }
+    };
+
+    source.addEventListener("step_completed", applyEventStatus);
+    source.addEventListener("step_skipped", applyEventStatus);
+    source.addEventListener("step_failed", applyEventStatus);
+    source.addEventListener("run_cancelling", () => {
+      setStatus("Abbruch angefordert...");
+    });
+
+    source.addEventListener("run_completed", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as {
+          final_status?: {
+            summary_ready: boolean;
+            regulations_ready: boolean;
+            processes_ready: boolean;
+            case_groups_ready: boolean;
+            process_steps_ready: boolean;
+            effort_ready: boolean;
+            total_cost_ready: boolean;
+            last_completed_step?: string | null;
+            last_completed_label?: string | null;
+          };
+          ok?: boolean;
+        };
+        if (payload.final_status) {
+          applySessionStatus(payload.final_status);
+          window.dispatchEvent(new Event("tiles-updated"));
+        }
+        setStatus(payload.ok ? "Alle Schritte wurden ausgeführt." : "Lauf beendet.");
+      } catch {
+        setStatus("Alle Schritte wurden ausgeführt.");
+      } finally {
+        setIsRunningAll(false);
+        setCurrentRunId(null);
+        setIsCancellingRun(false);
+        stopRunMonitoring();
+      }
+    });
+
+    source.addEventListener("run_failed", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as {
+          final_status?: {
+            summary_ready: boolean;
+            regulations_ready: boolean;
+            processes_ready: boolean;
+            case_groups_ready: boolean;
+            process_steps_ready: boolean;
+            effort_ready: boolean;
+            total_cost_ready: boolean;
+            last_completed_step?: string | null;
+            last_completed_label?: string | null;
+          };
+          message?: string;
+          steps?: Array<{ status: string; message?: string }>;
+        };
+        if (payload.final_status) {
+          applySessionStatus(payload.final_status);
+          window.dispatchEvent(new Event("tiles-updated"));
+        }
+        const failedStep = payload.steps?.find((step) => step.status === "failed");
+        setStatus(
+          failedStep?.message ||
+            payload.message ||
+            "Schritte konnten nicht vollständig ausgeführt werden."
+        );
+      } catch {
+        setStatus("Schritte konnten nicht vollständig ausgeführt werden.");
+      } finally {
+        setIsRunningAll(false);
+        setCurrentRunId(null);
+        setIsCancellingRun(false);
+        stopRunMonitoring();
+      }
+    });
+    source.addEventListener("run_cancelled", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as {
+          final_status?: {
+            summary_ready: boolean;
+            regulations_ready: boolean;
+            processes_ready: boolean;
+            case_groups_ready: boolean;
+            process_steps_ready: boolean;
+            effort_ready: boolean;
+            total_cost_ready: boolean;
+            last_completed_step?: string | null;
+            last_completed_label?: string | null;
+          };
+          message?: string;
+        };
+        if (payload.final_status) {
+          applySessionStatus(payload.final_status);
+          window.dispatchEvent(new Event("tiles-updated"));
+        }
+        setStatus(
+          payload.message || "Ausführung abgebrochen. Session wurde zurückgesetzt."
+        );
+      } catch {
+        setStatus("Ausführung abgebrochen. Session wurde zurückgesetzt.");
+      } finally {
+        setIsRunningAll(false);
+        setCurrentRunId(null);
+        setIsCancellingRun(false);
+        stopRunMonitoring();
+      }
+    });
+
+    source.onerror = () => {
+      source.close();
+      runEventSourceRef.current = null;
+      pollRunStatus(runId);
+    };
+  };
+
+  const handleRunAllSteps = async () => {
+    if (isRunningAll) {
+      if (!currentRunId) {
+        setStatus("Lauf läuft bereits.");
+        return;
+      }
+      if (isCancellingRun) {
+        setStatus("Abbruch läuft bereits...");
+        return;
+      }
+      try {
+        setIsCancellingRun(true);
+        setStatus("Abbruch angefordert...");
+        await apiClient.cancelRunAll(currentRunId);
+      } catch (error) {
+        const err = error as Error;
+        setIsCancellingRun(false);
+        setStatus(err?.message || "Abbruch konnte nicht angefordert werden.");
+      }
+      return;
+    }
+    if (state.totalCostReady) {
+      setStatus("Alle Schritte sind bereits abgeschlossen.");
+      return;
+    }
+    resetStatus();
+    setIsRunningAll(true);
+    const { model, provider, keys } = buildLlmRequestOptions({
+      selectedModel: state.selectedModel,
+      availableModels: state.availableModels,
+    });
+    try {
+      const start = await apiClient.startRunAllSteps({
+        appSessionId: state.appSessionId,
+        currentFilename: state.selectedCurrentLaw || undefined,
+        proposedFilename: state.selectedRegulation || undefined,
+        model,
+        provider,
+        keys,
+      });
+      setStatus(
+        start.started
+          ? "Schritte werden ausgeführt..."
+          : "Lauf läuft bereits. Status wird synchronisiert..."
+      );
+      setCurrentRunId(start.run_id);
+      setIsCancellingRun(false);
+      beginRunEventStream(start.run_id);
+    } catch (error) {
+      const err = error as Error;
+      setStatus(err?.message || "Schritte konnten nicht gestartet werden.");
+      setIsRunningAll(false);
+      setCurrentRunId(null);
+      setIsCancellingRun(false);
+      stopRunMonitoring();
     }
   };
 
@@ -227,6 +553,27 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           className="w-full rounded-xl bg-slate-900 px-3 py-2 text-left text-xs font-semibold text-white"
         >
           Kacheln dieser Session neu laden
+        </button>
+        <button
+          onClick={handleExportSession}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Session exportieren (Mermaid)
+        </button>
+        <button
+          onClick={handleRunAllSteps}
+          className={`w-full rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
+            isRunningAll
+              ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+              : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+          disabled={isRunningAll && isCancellingRun}
+        >
+          {isRunningAll
+            ? isCancellingRun
+              ? "Abbruch wird ausgeführt..."
+              : "Ausführung abbrechen"
+            : "Alle Schritte ausführen"}
         </button>
         <button
           onClick={handleUndoLastStep}
@@ -286,7 +633,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           Session
         </span>
         <span className="block select-text font-mono text-sm">
-          {state.sessionId}
+          {state.appSessionId}
         </span>
       </div>
       <button

@@ -48,8 +48,14 @@ def setup_logger(
 
     logger = logging.getLogger(name)
     if logger.handlers:
-        _CACHED_LOGGER = logger
-        return logger  # already configured
+        # Reconfigure if cached logger was reset (e.g. during tests) so handler levels
+        # and destinations reflect current settings.
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:
+                pass
 
     logger.setLevel(logging.DEBUG)  # allow handlers to filter
 
@@ -64,12 +70,15 @@ def setup_logger(
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
-    # File handler inside the run's result folder
-    log_path = os.path.join(current_config.RESULT_FOLDER, log_filename)
-    fh = logging.FileHandler(log_path, encoding="utf-8")
-    fh.setLevel(file_level)
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    # File handler inside the configured result folder.
+    result_folder = getattr(current_config, "RESULT_FOLDER", None)
+    if result_folder:
+        os.makedirs(result_folder, exist_ok=True)
+        log_path = os.path.join(result_folder, log_filename)
+        fh = logging.FileHandler(log_path, encoding="utf-8")
+        fh.setLevel(file_level)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
 
     logger.propagate = False
     _CACHED_LOGGER = logger

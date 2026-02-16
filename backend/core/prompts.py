@@ -219,6 +219,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         • Teilnahme an Fortbildungen und Schulungen  
         • Wege zu anderen Behörden, Organisationen oder Unternehmen
 
+        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. 
+        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen.
+        
         Bei Daueraufgaben oder wenn gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, kann es zweckmäßig 
         sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu  ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
         befüllt.

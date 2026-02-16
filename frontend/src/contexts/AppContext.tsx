@@ -6,7 +6,7 @@ import { Model } from "@/types";
 
 interface AppState {
   currentTab: number;
-  sessionId: string;
+  appSessionId: string;
   selectedModel: string;
   availableModels: Model[];
   selectedCurrentLaw: string;
@@ -19,12 +19,14 @@ interface AppState {
   processStepsReady: boolean;
   effortReady: boolean;
   totalCostReady: boolean;
+  lastCompletedStep: string | null;
+  lastCompletedLabel: string | null;
 }
 
 interface AppContextValue {
   state: AppState;
   setCurrentTab: (tab: number) => void;
-  setSessionId: (sessionId: string) => void;
+  setAppSessionId: (appSessionId: string) => void;
   setSelectedModel: (model: string) => void;
   setAvailableModels: (models: Model[]) => void;
   setSelectedCurrentLaw: (law: string) => void;
@@ -37,14 +39,18 @@ interface AppContextValue {
   setProcessStepsReady: (ready: boolean) => void;
   setEffortReady: (ready: boolean) => void;
   setTotalCostReady: (ready: boolean) => void;
+  setLastCompletedStep: (step: string | null) => void;
+  setLastCompletedLabel: (label: string | null) => void;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
+const APP_SESSION_STORAGE_KEY = "app_session_id";
+const LEGACY_SESSION_STORAGE_KEY = "session_id";
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentTab, setCurrentTab] = useState(0);
-  const [sessionId, setSessionId] = useState("");
-  const [isFreshSessionId, setIsFreshSessionId] = useState(false);
+  const [appSessionId, setAppSessionId] = useState("");
+  const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
     if (typeof window === "undefined") {
       return "";
@@ -62,41 +68,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [processStepsReady, setProcessStepsReady] = useState(false);
   const [effortReady, setEffortReady] = useState(false);
   const [totalCostReady, setTotalCostReady] = useState(false);
-  const sessionIdAttempts = useRef(0);
+  const [lastCompletedStep, setLastCompletedStep] = useState<string | null>(null);
+  const [lastCompletedLabel, setLastCompletedLabel] = useState<string | null>(null);
+  const appSessionIdAttempts = useRef(0);
 
-  const generateSessionId = () => {
+  const generateAppSessionId = () => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     return Array.from({ length: 6 }, () =>
       chars[Math.floor(Math.random() * chars.length)]
     ).join("");
   };
 
-  const setNewSessionId = () => {
-    const generated = generateSessionId();
-    sessionIdAttempts.current += 1;
-    setSessionId(generated);
-    setIsFreshSessionId(true);
+  const setNewAppSessionId = () => {
+    const generated = generateAppSessionId();
+    appSessionIdAttempts.current += 1;
+    setAppSessionId(generated);
+    setIsFreshAppSessionId(true);
   };
 
   useEffect(() => {
-    const storedSessionId = sessionStorage.getItem("session_id");
-    if (storedSessionId && /^[A-Z0-9]{6}$/.test(storedSessionId)) {
-      setSessionId(storedSessionId);
-      setIsFreshSessionId(false);
+    const storedAppSessionId =
+      sessionStorage.getItem(APP_SESSION_STORAGE_KEY) ||
+      sessionStorage.getItem(LEGACY_SESSION_STORAGE_KEY);
+    if (storedAppSessionId && /^[A-Z0-9]{6}$/.test(storedAppSessionId)) {
+      setAppSessionId(storedAppSessionId);
+      setIsFreshAppSessionId(false);
+      sessionStorage.setItem(APP_SESSION_STORAGE_KEY, storedAppSessionId);
+      sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
       return;
     }
-    setNewSessionId();
+    setNewAppSessionId();
   }, []);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!appSessionId) {
       return;
     }
-    sessionStorage.setItem("session_id", sessionId);
-  }, [sessionId]);
+    sessionStorage.setItem(APP_SESSION_STORAGE_KEY, appSessionId);
+    sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
+  }, [appSessionId]);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!appSessionId) {
       return;
     }
     let cancelled = false;
@@ -119,7 +132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     const syncStatus = async () => {
       try {
-        const status = await apiClient.getSessionStatus(sessionId);
+        const status = await apiClient.getSessionStatus(appSessionId);
         if (cancelled) {
           return;
         }
@@ -130,6 +143,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setProcessStepsReady(status.process_steps_ready);
         setEffortReady(status.effort_ready);
         setTotalCostReady(status.total_cost_ready);
+        setLastCompletedStep(status.last_completed_step ?? null);
+        setLastCompletedLabel(status.last_completed_label ?? null);
         const targetTab = deriveTab(status);
         setCurrentTab((prev) => (prev > targetTab ? targetTab : prev));
       } catch {
@@ -145,7 +160,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       window.removeEventListener("tiles-updated", handleTilesUpdate);
     };
-  }, [sessionId]);
+  }, [appSessionId]);
 
   useEffect(() => {
     const storedRegulation = sessionStorage.getItem("selected_regulation") || "";
@@ -368,26 +383,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [effortReady, totalCostReady]);
 
   useEffect(() => {
-    if (!sessionId || !selectedModel) {
+    if (!appSessionId || !selectedModel) {
       return;
     }
     let cancelled = false;
     const syncSession = async () => {
       try {
-        const { created } = await apiClient.upsertSession(sessionId, selectedModel);
+        const { created } = await apiClient.upsertSession(appSessionId, selectedModel);
         if (cancelled) {
           return;
         }
         if (created) {
-          sessionIdAttempts.current = 0;
-          setIsFreshSessionId(false);
+          appSessionIdAttempts.current = 0;
+          setIsFreshAppSessionId(false);
           return;
         }
-        if (isFreshSessionId && sessionIdAttempts.current < 5) {
-          setNewSessionId();
+        if (isFreshAppSessionId && appSessionIdAttempts.current < 5) {
+          setNewAppSessionId();
           return;
         }
-        setIsFreshSessionId(false);
+        setIsFreshAppSessionId(false);
       } catch {
         // Session persistence is best-effort; ignore failures for now.
       }
@@ -396,14 +411,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, selectedModel, isFreshSessionId]);
+  }, [appSessionId, selectedModel, isFreshAppSessionId]);
 
   return (
     <AppContext.Provider
       value={{
         state: {
           currentTab,
-          sessionId,
+          appSessionId,
           selectedModel,
           availableModels,
           selectedCurrentLaw,
@@ -416,9 +431,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           processStepsReady,
           effortReady,
           totalCostReady,
+          lastCompletedStep,
+          lastCompletedLabel,
         },
         setCurrentTab,
-        setSessionId,
+        setAppSessionId,
         setSelectedModel,
         setAvailableModels,
         setSelectedCurrentLaw,
@@ -431,6 +448,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setProcessStepsReady,
         setEffortReady,
         setTotalCostReady,
+        setLastCompletedStep,
+        setLastCompletedLabel,
       }}
     >
       {children}

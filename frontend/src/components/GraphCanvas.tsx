@@ -232,7 +232,7 @@ export default function GraphCanvas() {
     }
     try {
       setLoading(true);
-      const response = await apiClient.fetchTiles();
+      const response = await apiClient.fetchTiles(state.appSessionId || undefined);
       const lawTile = response.tiles.find((tile) => tile.id === "law_tile");
       if (lawTile) {
         const updatedTiles = response.tiles.map((tile) => {
@@ -253,7 +253,9 @@ export default function GraphCanvas() {
         if (changed.length) {
           const deduped = new Map(changed.map((tile) => [tile.id, tile]));
           await Promise.all(
-            Array.from(deduped.values()).map((tile) => apiClient.upsertTile(tile))
+            Array.from(deduped.values()).map((tile) =>
+              apiClient.upsertTile(tile, state.appSessionId || undefined)
+            )
           );
         }
       } else {
@@ -263,7 +265,9 @@ export default function GraphCanvas() {
         if (changed.length) {
           const deduped = new Map(changed.map((tile) => [tile.id, tile]));
           await Promise.all(
-            Array.from(deduped.values()).map((tile) => apiClient.upsertTile(tile))
+            Array.from(deduped.values()).map((tile) =>
+              apiClient.upsertTile(tile, state.appSessionId || undefined)
+            )
           );
         }
       }
@@ -273,7 +277,7 @@ export default function GraphCanvas() {
     } finally {
       setLoading(false);
     }
-  }, [state.summaryReady]);
+  }, [state.summaryReady, state.appSessionId]);
 
   useEffect(() => {
     refreshTiles();
@@ -305,13 +309,13 @@ export default function GraphCanvas() {
   const handleDelete = useCallback(
     async (tileId: string) => {
       try {
-        await apiClient.deleteTile(tileId);
+        await apiClient.deleteTile(tileId, state.appSessionId || undefined);
         setTiles((prev) => prev.filter((tile) => tile.id !== tileId));
       } catch (err) {
         setError("Tile konnte nicht gelöscht werden.");
       }
     },
-    []
+    [state.appSessionId]
   );
 
   const relatedNodeIds = useMemo(() => {
@@ -475,12 +479,12 @@ export default function GraphCanvas() {
         prev.map((item) => (item.id === node.id ? updatedTile : item))
       );
       try {
-        await apiClient.upsertTile(updatedTile);
+        await apiClient.upsertTile(updatedTile, state.appSessionId || undefined);
       } catch (err) {
         setError("Tile-Position konnte nicht gespeichert werden.");
       }
     },
-    [tiles]
+    [tiles, state.appSessionId]
   );
 
   const handleNodeClick = useCallback(

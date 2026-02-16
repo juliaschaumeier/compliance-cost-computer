@@ -22,7 +22,7 @@ const mockComputeTotalCost = apiClient.computeTotalCost as jest.Mock;
 
 const baseState = {
   currentTab: 6,
-  sessionId: "ABC123",
+  appSessionId: "ABC123",
   selectedModel: "gpt-5",
   availableModels: [{ id: "gpt-5", name: "GPT-5", provider: "OpenAI" }],
   selectedCurrentLaw: "",

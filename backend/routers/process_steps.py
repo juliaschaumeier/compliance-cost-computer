@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,6 +8,7 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.config import settings
+from backend.core.llm_json import extract_fallgruppen, parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.prompts import PromptId, render_prompt
@@ -16,67 +16,18 @@ from backend.core.prompts import PromptId, render_prompt
 
 router = APIRouter(prefix="/process-steps", tags=["process-steps"])
 
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-_THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\\s\\S]*?```", re.IGNORECASE)
-
-
 class ProcessStepAnalysisRequest(BaseModel):
     app_session_id: str
     model: str | None = None
     provider: str | None = None
 
 
-def _clean_llm_payload(payload: str) -> str:
-    cleaned = _THINK_BLOCK_RE.sub("", payload)
-    cleaned = _THINK_FENCE_RE.sub("", cleaned)
-    return cleaned.strip()
-
-
-def _extract_last_json(payload: str) -> dict | None:
-    decoder = json.JSONDecoder()
-    index = 0
-    last: dict | None = None
-    while True:
-        start = payload.find("{", index)
-        if start == -1:
-            break
-        try:
-            data, end = decoder.raw_decode(payload, start)
-            if isinstance(data, dict):
-                last = data
-            index = end
-        except json.JSONDecodeError:
-            index = start + 1
-    return last
-
-
-def _extract_fallgruppen(data: dict) -> list[dict]:
-    if "fallgruppen" in data and isinstance(data["fallgruppen"], list):
-        return data["fallgruppen"]
-    processes = data.get("prozesse")
-    if not isinstance(processes, list):
-        return []
-    fallgruppen: list[dict] = []
-    for process in processes:
-        if not isinstance(process, dict):
-            continue
-        process_groups = process.get("fallgruppen")
-        if isinstance(process_groups, list):
-            fallgruppen.extend([item for item in process_groups if isinstance(item, dict)])
-    return fallgruppen
-
-
 def _parse_process_steps(payload: str) -> list[dict]:
-    cleaned = _clean_llm_payload(payload)
-    data = None
-    try:
-        data = json.loads(cleaned)
-    except Exception:
-        data = _extract_last_json(cleaned)
+    data = parse_json_object(payload)
     if not isinstance(data, dict):
         return []
 
-    fallgruppen = _extract_fallgruppen(data)
+    fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
         fallgruppen_id = str(
@@ -161,7 +112,7 @@ def _add_step_tiles(
     parsed: list[dict],
     case_group_lookup: dict[int, dict],
 ) -> list[dict]:
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     case_group_tiles = {
         tile.id: tile for tile in tiles if tile.id.startswith("case_group_")
     }
@@ -209,7 +160,7 @@ def _add_step_tiles(
                 deletable=True,
                 link_from_tile=link_from,
             )
-            db.upsert_tile(tile)
+            db.upsert_tile(tile, session_id=session_id)
             created.append(
                 {
                     "step_id": step_id,
@@ -250,13 +201,6 @@ async def analyze_process_steps(
         model=model,
         provider=payload.provider,
     )
-    db.insert_llm_answer(
-        session_id=session_id,
-        prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
-        model=model,
-        answer_text=response_text,
-        metadata={"provider": payload.provider},
-    )
     parsed = _parse_process_steps(response_text)
     if not parsed:
         raise HTTPException(status_code=422, detail="No process steps parsed")
@@ -273,5 +217,13 @@ async def analyze_process_steps(
             detail="Unknown fallgruppen_id values: " + ", ".join(missing),
         )
 
-    created = _add_step_tiles(session_id, parsed, case_group_lookup)
+    with db.transaction():
+        db.insert_llm_answer(
+            session_id=session_id,
+            prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
+            model=model,
+            answer_text=response_text,
+            metadata={"provider": payload.provider},
+        )
+        created = _add_step_tiles(session_id, parsed, case_group_lookup)
     return {"steps": created}

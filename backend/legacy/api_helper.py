@@ -49,9 +49,18 @@ class BaseAPI:
         # if not self.current_response_object:
         #     print('No response object received from API.')
         #     return Response(None, None, None, None)
-        if file_stem and prompt.expected_answer_file_type:
+        if (
+            getattr(current_config, "SAVE_RESULTS", True)
+            and current_config.RESULT_FOLDER
+            and file_stem
+            and prompt.expected_answer_file_type
+        ):
             self.save_current_response_text_to_file(file_stem, prompt.expected_answer_file_type)
-        if current_config.SAVE_ENTIRE_RESPONSES:
+        if (
+            getattr(current_config, "SAVE_RESULTS", True)
+            and current_config.RESULT_FOLDER
+            and current_config.SAVE_ENTIRE_RESPONSES
+        ):
             self.save_current_response_object_to_file(file_stem)
         return self.get_response_object(file_stem, prompt.expected_answer_file_type)
 
@@ -80,7 +89,12 @@ class OpenAiApi(BaseAPI):
         self.current_response_object = self.client.responses.create(**kwargs)
 
     def save_current_response_text_to_file(self, file_stem, file_type):
-        if self.current_response_object and file_stem:
+        if (
+            self.current_response_object
+            and file_stem
+            and getattr(current_config, "SAVE_RESULTS", True)
+            and current_config.RESULT_FOLDER
+        ):
             with open(os.path.join(current_config.RESULT_FOLDER, '{}.{}'.format(file_stem, file_type)),
                       'w', encoding='utf-8') as f:
                 f.write(self.current_response_object.output_text)
@@ -100,6 +114,9 @@ class OpenAiApi(BaseAPI):
                 return o.__dict__
             return str(o)
 
+        if not getattr(current_config, "SAVE_RESULTS", True) or not current_config.RESULT_FOLDER:
+            logger.warning("Skipping response save because SAVE_RESULTS is disabled.")
+            return
         file_path = os.path.join(current_config.RESULT_FOLDER, f'response_{file_stem}.json')
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(self.current_response_object, f, default=_default, ensure_ascii=False, indent=2)

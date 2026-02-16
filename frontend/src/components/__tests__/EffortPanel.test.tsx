@@ -11,6 +11,26 @@ jest.mock("@/lib/api", () => ({
   apiClient: {
     calculateEffort: jest.fn(),
   },
+  buildLlmRequestOptions: ({
+    selectedModel,
+    availableModels,
+  }: {
+    selectedModel: string;
+    availableModels: Array<{ id: string; provider: string }>;
+  }) => {
+    const selectedModelData = availableModels.find(
+      (model) => model.id === selectedModel
+    );
+    return {
+      model: selectedModel || undefined,
+      provider: selectedModelData?.provider?.toLowerCase(),
+      keys: {
+        openaiApiKey: localStorage.getItem("openai_api_key") || undefined,
+        deepinfraApiKey: localStorage.getItem("deepinfra_api_key") || undefined,
+        geminiApiKey: localStorage.getItem("gemini_api_key") || undefined,
+      },
+    };
+  },
 }));
 
 jest.mock("@/contexts/AppContext", () => ({
@@ -22,7 +42,7 @@ const mockCalculateEffort = apiClient.calculateEffort as jest.Mock;
 
 const baseState = {
   currentTab: 5,
-  sessionId: "ABC123",
+  appSessionId: "ABC123",
   selectedModel: "gpt-5",
   availableModels: [
     { id: "gpt-5", name: "GPT-5", provider: "OpenAI" },

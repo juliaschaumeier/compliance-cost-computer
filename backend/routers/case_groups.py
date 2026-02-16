@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -9,6 +8,7 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.config import settings
+from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.prompts import PromptId, render_prompt
@@ -16,47 +16,14 @@ from backend.core.prompts import PromptId, render_prompt
 
 router = APIRouter(prefix="/case-groups", tags=["case-groups"])
 
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-_THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\\s\\S]*?```", re.IGNORECASE)
-
-
 class CaseGroupDevelopmentRequest(BaseModel):
     app_session_id: str
     model: str | None = None
     provider: str | None = None
 
 
-def _clean_llm_payload(payload: str) -> str:
-    cleaned = _THINK_BLOCK_RE.sub("", payload)
-    cleaned = _THINK_FENCE_RE.sub("", cleaned)
-    return cleaned.strip()
-
-
-def _extract_last_json(payload: str) -> dict | None:
-    decoder = json.JSONDecoder()
-    index = 0
-    last: dict | None = None
-    while True:
-        start = payload.find("{", index)
-        if start == -1:
-            break
-        try:
-            data, end = decoder.raw_decode(payload, start)
-            if isinstance(data, dict):
-                last = data
-            index = end
-        except json.JSONDecodeError:
-            index = start + 1
-    return last
-
-
 def _parse_case_groups(payload: str) -> list[dict]:
-    cleaned = _clean_llm_payload(payload)
-    data = None
-    try:
-        data = json.loads(cleaned)
-    except Exception:
-        data = _extract_last_json(cleaned)
+    data = parse_json_object(payload)
     if not isinstance(data, dict):
         return []
     processes = data.get("prozesse")
@@ -148,7 +115,7 @@ def _add_case_group_tiles(
     session_id: int,
     processes: list[dict],
 ) -> list[dict]:
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     process_tiles = {tile.id: tile for tile in tiles if tile.id.startswith("process_")}
     created = []
     row_spacing = 1
@@ -186,7 +153,7 @@ def _add_case_group_tiles(
                 deletable=True,
                 link_from_tile=[process_tile_id],
             )
-            db.upsert_tile(tile)
+            db.upsert_tile(tile, session_id=session_id)
             created.append(
                 {
                     "case_group_id": case_group_id,
@@ -247,14 +214,6 @@ async def develop_case_groups(
         model=model,
         provider=payload.provider,
     )
-    db.insert_llm_answer(
-        session_id=session_id,
-        prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
-        model=model,
-        answer_text=response_text,
-        metadata={"provider": payload.provider},
-    )
-
     parsed = _parse_case_groups(response_text)
     if not parsed:
         raise HTTPException(status_code=422, detail="No case groups parsed")
@@ -271,7 +230,15 @@ async def develop_case_groups(
             detail="Unknown process_id values: " + ", ".join(missing_ids),
         )
 
-    created = _add_case_group_tiles(session_id, parsed)
+    with db.transaction():
+        db.insert_llm_answer(
+            session_id=session_id,
+            prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
+            model=model,
+            answer_text=response_text,
+            metadata={"provider": payload.provider},
+        )
+        created = _add_case_group_tiles(session_id, parsed)
     grouped: dict[int, list[dict]] = {}
     for entry in created:
         grouped.setdefault(entry["process_id"], []).append(

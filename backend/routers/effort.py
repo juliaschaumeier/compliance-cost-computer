@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.config import settings
+from backend.core.llm_json import extract_fallgruppen, parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.prompts import PromptId, render_prompt
@@ -17,54 +18,11 @@ from backend.core.prompts import PromptId, render_prompt
 
 router = APIRouter(prefix="/effort", tags=["effort"])
 
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-_THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\\s\\S]*?```", re.IGNORECASE)
-
 
 class EffortCalculationRequest(BaseModel):
     app_session_id: str
     model: str | None = None
     provider: str | None = None
-
-
-def _clean_llm_payload(payload: str) -> str:
-    cleaned = _THINK_BLOCK_RE.sub("", payload)
-    cleaned = _THINK_FENCE_RE.sub("", cleaned)
-    return cleaned.strip()
-
-
-def _extract_last_json(payload: str) -> dict | None:
-    decoder = json.JSONDecoder()
-    index = 0
-    last: dict | None = None
-    while True:
-        start = payload.find("{", index)
-        if start == -1:
-            break
-        try:
-            data, end = decoder.raw_decode(payload, start)
-            if isinstance(data, dict):
-                last = data
-            index = end
-        except json.JSONDecodeError:
-            index = start + 1
-    return last
-
-
-def _extract_fallgruppen(data: dict) -> list[dict]:
-    if "fallgruppen" in data and isinstance(data["fallgruppen"], list):
-        return data["fallgruppen"]
-    processes = data.get("prozesse")
-    if not isinstance(processes, list):
-        return []
-    fallgruppen: list[dict] = []
-    for process in processes:
-        if not isinstance(process, dict):
-            continue
-        process_groups = process.get("fallgruppen")
-        if isinstance(process_groups, list):
-            fallgruppen.extend([item for item in process_groups if isinstance(item, dict)])
-    return fallgruppen
 
 
 def _parse_number(value: object) -> float | None:
@@ -92,15 +50,10 @@ def _parse_number(value: object) -> float | None:
 
 
 def _parse_cases_payload(payload: str) -> list[dict]:
-    cleaned = _clean_llm_payload(payload)
-    data = None
-    try:
-        data = json.loads(cleaned)
-    except Exception:
-        data = _extract_last_json(cleaned)
+    data = parse_json_object(payload)
     if not isinstance(data, dict):
         return []
-    fallgruppen = _extract_fallgruppen(data)
+    fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
         if not isinstance(fallgruppe, dict):
@@ -132,15 +85,10 @@ def _parse_cases_payload(payload: str) -> list[dict]:
 
 
 def _parse_effort_payload(payload: str) -> list[dict]:
-    cleaned = _clean_llm_payload(payload)
-    data = None
-    try:
-        data = json.loads(cleaned)
-    except Exception:
-        data = _extract_last_json(cleaned)
+    data = parse_json_object(payload)
     if not isinstance(data, dict):
         return []
-    fallgruppen = _extract_fallgruppen(data)
+    fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
         if not isinstance(fallgruppe, dict):
@@ -313,8 +261,8 @@ def _build_step_analysis_payload(
     return payload
 
 
-def _refresh_case_group_tiles(case_groups: list[dict]) -> None:
-    tiles = {tile.id: tile for tile in db.fetch_tiles()}
+def _refresh_case_group_tiles(session_id: int, case_groups: list[dict]) -> None:
+    tiles = {tile.id: tile for tile in db.fetch_tiles(session_id=session_id)}
     for group in case_groups:
         tile_id = f"case_group_{group['case_group_id']}"
         tile = tiles.get(tile_id)
@@ -335,11 +283,11 @@ def _refresh_case_group_tiles(case_groups: list[dict]) -> None:
             deletable=tile.deletable,
             link_from_tile=tile.link_from_tile,
         )
-        db.upsert_tile(updated)
+        db.upsert_tile(updated, session_id=session_id)
 
 
-def _refresh_step_tiles(steps: list[dict]) -> None:
-    tiles = {tile.id: tile for tile in db.fetch_tiles()}
+def _refresh_step_tiles(session_id: int, steps: list[dict]) -> None:
+    tiles = {tile.id: tile for tile in db.fetch_tiles(session_id=session_id)}
     for step in steps:
         tile_id = f"step_{step['step_id']}"
         tile = tiles.get(tile_id)
@@ -377,7 +325,7 @@ def _refresh_step_tiles(steps: list[dict]) -> None:
             deletable=tile.deletable,
             link_from_tile=tile.link_from_tile,
         )
-        db.upsert_tile(updated)
+        db.upsert_tile(updated, session_id=session_id)
 
 
 @router.post("/calculate")
@@ -429,21 +377,6 @@ async def calculate_effort(
         ),
     )
 
-    db.insert_llm_answer(
-        session_id=session_id,
-        prompt_id=PromptId.CASES_CALCULATION,
-        model=model,
-        answer_text=cases_response,
-        metadata={"provider": payload.provider},
-    )
-    db.insert_llm_answer(
-        session_id=session_id,
-        prompt_id=PromptId.EFFORT_CALCULATION,
-        model=model,
-        answer_text=effort_response,
-        metadata={"provider": payload.provider},
-    )
-
     parsed_cases = _parse_cases_payload(cases_response)
     if not parsed_cases:
         raise HTTPException(status_code=422, detail="No case group metrics parsed")
@@ -476,34 +409,101 @@ async def calculate_effort(
             detail="Unknown taetigkeiten_id values: " + ", ".join(missing_steps),
         )
 
-    for entry in parsed_cases:
-        db.update_case_group_metrics(
-            session_id=session_id,
-            case_group_id=entry["case_group_id"],
-            addressees=entry.get("addressees"),
-            annual_frequency=entry.get("annual_frequency"),
-        )
-
-    for entry in parsed_effort:
-        db.update_process_step_effort(
-            session_id=session_id,
-            step_id=entry["step_id"],
-            hourly_rates=entry["hourly_rates"],
-            time_required=entry["time_required"],
-            expenses=entry.get("expenses"),
-        )
-        execution_per_case = entry.get("execution_per_case")
-        if execution_per_case is not None:
-            db.update_process_step_execution(
-                session_id=session_id,
-                step_id=entry["step_id"],
-                execution_per_case=execution_per_case,
+    conn = db.get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("BEGIN")
+        for entry in parsed_cases:
+            cur.execute(
+                """
+                UPDATE case_groups
+                SET addressees = ?, annual_frequency = ?
+                WHERE case_group_id = ? AND session_id = ?
+                """,
+                (
+                    entry.get("addressees"),
+                    entry.get("annual_frequency"),
+                    entry["case_group_id"],
+                    session_id,
+                ),
             )
+
+        for entry in parsed_effort:
+            hourly_rates = entry["hourly_rates"]
+            time_required = entry["time_required"]
+            cur.execute(
+                """
+                UPDATE process_steps
+                SET hourly_rate_a = ?, hourly_rate_b = ?, hourly_rate_c = ?, hourly_rate_d = ?, hourly_rate_e = ?,
+                    time_required_in_min_a = ?, time_required_in_min_b = ?, time_required_in_min_c = ?, time_required_in_min_d = ?, time_required_in_min_e = ?,
+                    expenses = ?
+                WHERE step_id = ? AND session_id = ?
+                """,
+                (
+                    hourly_rates.get("a"),
+                    hourly_rates.get("b"),
+                    hourly_rates.get("c"),
+                    hourly_rates.get("d"),
+                    hourly_rates.get("e"),
+                    time_required.get("a"),
+                    time_required.get("b"),
+                    time_required.get("c"),
+                    time_required.get("d"),
+                    time_required.get("e"),
+                    entry.get("expenses"),
+                    entry["step_id"],
+                    session_id,
+                ),
+            )
+            execution_per_case = entry.get("execution_per_case")
+            if execution_per_case is not None:
+                cur.execute(
+                    """
+                    UPDATE process_steps
+                    SET execution_per_case = ?
+                    WHERE step_id = ? AND session_id = ?
+                    """,
+                    (execution_per_case, entry["step_id"], session_id),
+                )
+
+        metadata = json.dumps({"provider": payload.provider})
+        cur.execute(
+            """
+            INSERT INTO llm_answers (session_id, prompt_id, model, answer_text, metadata)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                PromptId.CASES_CALCULATION,
+                model,
+                cases_response,
+                metadata,
+            ),
+        )
+        cur.execute(
+            """
+            INSERT INTO llm_answers (session_id, prompt_id, model, answer_text, metadata)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                PromptId.EFFORT_CALCULATION,
+                model,
+                effort_response,
+                metadata,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
     refreshed_case_groups = db.list_case_groups_for_session(session_id)
     refreshed_steps = db.list_process_steps_for_session(session_id)
-    _refresh_case_group_tiles(refreshed_case_groups)
-    _refresh_step_tiles(refreshed_steps)
+    _refresh_case_group_tiles(session_id, refreshed_case_groups)
+    _refresh_step_tiles(session_id, refreshed_steps)
 
     return {
         "case_groups_updated": len(parsed_cases),

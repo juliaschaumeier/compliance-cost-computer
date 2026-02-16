@@ -8,7 +8,7 @@ class DefaultConfig:
 
     def __init__(self, regulation_1_descriptor=None, regulation_1_filename=None, regulation_2_descriptor=None,
                  regulation_2_filename=None, choose_best_of=None, save_entire_responses=False, timeout_in_minutes=120,
-                 log_level_console='INFO', log_level_file='INFO'):
+                 log_level_console='INFO', log_level_file='INFO', save_results=True):
 
         self.REGULATION_1_DESCRIPTOR = regulation_1_descriptor
         self.REGULATION_2_DESCRIPTOR = regulation_2_descriptor
@@ -20,14 +20,17 @@ class DefaultConfig:
         self.SAVE_ENTIRE_RESPONSES = save_entire_responses
         self.LOG_LEVEL_CONSOLE = log_level_console
         self.LOG_LEVEL_FILE = log_level_file
-        self.RESULT_FOLDER = os.path.join(
-            this_directory,
-            "..",
-            "..",
-            "results",
-            f'chat_{datetime.now().strftime("%Y%m%d-%H%M")}',
-        )
-        os.makedirs(self.RESULT_FOLDER, exist_ok=True)
+        self.SAVE_RESULTS = save_results
+        self.RESULT_FOLDER = None
+        if self.SAVE_RESULTS:
+            self.RESULT_FOLDER = os.path.join(
+                this_directory,
+                "..",
+                "..",
+                "results",
+                f'chat_{datetime.now().strftime("%Y%m%d-%H%M")}',
+            )
+            os.makedirs(self.RESULT_FOLDER, exist_ok=True)
         self.TIMEOUT_IN_MINUTES = timeout_in_minutes
         if self.REGULATION_1_FILENAME:
             with open(os.path.join(this_directory, "..", "..", "regulations", self.REGULATION_1_FILENAME), 'r',
@@ -65,6 +68,8 @@ class DefaultConfig:
                 break
 
         # write sorted key / json-serialized value lines
+        if not self.SAVE_RESULTS or not self.RESULT_FOLDER:
+            return
         with open(os.path.join(self.RESULT_FOLDER, filename), 'w', encoding='utf-8') as f:
             for k in sorted(data):
                 v = data[k]
@@ -90,7 +95,7 @@ class OpenAiConfig(DefaultConfig):
 
 
     def __init__(self, regulation_1_descriptor=None, regulation_1_filename=None, regulation_2_descriptor=None,
-                 regulation_2_filename=None, choose_best_of=None, save_entire_responses=False,
+                 regulation_2_filename=None, choose_best_of=None, save_entire_responses=False, save_results=True,
                  model_parameters_reasoning = None, model_parameters_verification = None, api_type='openai',
                  log_level_console='INFO', log_level_file='INFO'):
         # forward regulation filenames to the base class
@@ -100,6 +105,7 @@ class OpenAiConfig(DefaultConfig):
                          regulation_2_filename=regulation_2_filename,
                          choose_best_of=choose_best_of,
                          save_entire_responses=save_entire_responses,
+                         save_results=save_results,
                          log_level_console=log_level_console,
                          log_level_file=log_level_file)
 
@@ -111,7 +117,8 @@ class OpenAiConfig(DefaultConfig):
         self.API_TYPE = api_type
 
         # write config parameters to file for reference
-        self.write_config()  # writes `config_parameters.txt` under `self.RESULT_FOLDER`
+        if self.SAVE_RESULTS:
+            self.write_config()  # writes `config_parameters.txt` under `self.RESULT_FOLDER`
 
 class GeminiConfig(DefaultConfig):
 
@@ -119,7 +126,7 @@ class GeminiConfig(DefaultConfig):
     _DEFAULT_MODEL_PARAMETERS_VERIFICATION = 'gemini-2.5-flash'
 
     def __init__(self, regulation_1_descriptor=None, regulation_1_filename=None, regulation_2_descriptor=None,
-                 regulation_2_filename=None, choose_best_of=None, save_entire_responses=False,
+                 regulation_2_filename=None, choose_best_of=None, save_entire_responses=False, save_results=True,
                  model_parameters_reasoning = None, model_parameters_verification = None,
                  log_level_console='INFO', log_level_file='INFO'):
         # forward regulation filenames to the base class
@@ -129,6 +136,7 @@ class GeminiConfig(DefaultConfig):
                          regulation_2_filename=regulation_2_filename,
                          choose_best_of=choose_best_of,
                          save_entire_responses=save_entire_responses,
+                         save_results=save_results,
                          log_level_console=log_level_console,
                          log_level_file=log_level_file)
 
@@ -140,4 +148,5 @@ class GeminiConfig(DefaultConfig):
         self.API_TYPE = 'gemini'
 
         # write config parameters to file for reference
-        self.write_config()  # writes `config_parameters.txt` under `self.RESULT_FOLDER`
+        if self.SAVE_RESULTS:
+            self.write_config()  # writes `config_parameters.txt` under `self.RESULT_FOLDER`

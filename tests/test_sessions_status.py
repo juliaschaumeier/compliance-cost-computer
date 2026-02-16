@@ -15,6 +15,8 @@ def test_session_status_progression(test_client):
     assert payload["process_steps_ready"] is False
     assert payload["effort_ready"] is False
     assert payload["total_cost_ready"] is False
+    assert payload["last_completed_step"] is None
+    assert payload["last_completed_label"] is None
 
     db.update_session_summary("STATUS-OK", "Titel", "Zusammenfassung")
     reg_id = db.insert_regulation(session_id, "§ 1", "Beschreibung")
@@ -35,6 +37,8 @@ def test_session_status_progression(test_client):
     assert payload["process_steps_ready"] is True
     assert payload["effort_ready"] is False
     assert payload["total_cost_ready"] is False
+    assert payload["last_completed_step"] == "process_steps"
+    assert payload["last_completed_label"] == "Prozessschritte bestimmen"
 
     db.update_case_group_metrics(
         session_id=session_id,
@@ -54,9 +58,13 @@ def test_session_status_progression(test_client):
     payload = resp.json()
     assert payload["effort_ready"] is True
     assert payload["total_cost_ready"] is False
+    assert payload["last_completed_step"] == "effort"
+    assert payload["last_completed_label"] == "Aufwand berechnen"
     assert reg_id is not None
 
     db.update_session_cost(session_id, 123.0)
     resp = test_client.get("/sessions/status", params={"app_session_id": "STATUS-OK"})
     payload = resp.json()
     assert payload["total_cost_ready"] is True
+    assert payload["last_completed_step"] == "total_cost"
+    assert payload["last_completed_label"] == "Gesamtkosten berechnen"

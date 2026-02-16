@@ -56,8 +56,8 @@ def _total_yearly_cases(case_groups: list[dict]) -> float:
     return total
 
 
-def _refresh_step_tiles(steps: list[dict]) -> None:
-    tiles = {tile.id: tile for tile in db.fetch_tiles()}
+def _refresh_step_tiles(session_id: int, steps: list[dict]) -> None:
+    tiles = {tile.id: tile for tile in db.fetch_tiles(session_id=session_id)}
     for step in steps:
         tile_id = f"step_{step['step_id']}"
         tile = tiles.get(tile_id)
@@ -95,11 +95,15 @@ def _refresh_step_tiles(steps: list[dict]) -> None:
             deletable=tile.deletable,
             link_from_tile=tile.link_from_tile,
         )
-        db.upsert_tile(updated)
+        db.upsert_tile(updated, session_id=session_id)
 
 
-def _refresh_process_tiles(processes: list[dict], costs: dict[int, float]) -> None:
-    tiles = {tile.id: tile for tile in db.fetch_tiles()}
+def _refresh_process_tiles(
+    session_id: int,
+    processes: list[dict],
+    costs: dict[int, float],
+) -> None:
+    tiles = {tile.id: tile for tile in db.fetch_tiles(session_id=session_id)}
     for process in processes:
         process_id = int(process["process_id"])
         tile_id = f"process_{process_id}"
@@ -121,7 +125,7 @@ def _refresh_process_tiles(processes: list[dict], costs: dict[int, float]) -> No
             deletable=tile.deletable,
             link_from_tile=tile.link_from_tile,
         )
-        db.upsert_tile(updated)
+        db.upsert_tile(updated, session_id=session_id)
 
 
 @router.post("/compute")
@@ -150,83 +154,82 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
             + ", ".join(missing_case_groups),
         )
 
-    step_costs: dict[int, float] = {}
-    per_case_flags: dict[int, bool] = {}
-    for step in steps:
-        cost = _compute_step_cost(step)
-        step_id = int(step["step_id"])
-        step_costs[step_id] = cost
-        step["cost"] = cost
-        raw_flag = step.get("execution_per_case")
-        per_case_flags[step_id] = bool(raw_flag) if raw_flag is not None else True
-        db.update_process_step_cost(session_id, step_id, cost)
+    with db.transaction():
+        step_costs: dict[int, float] = {}
+        per_case_flags: dict[int, bool] = {}
+        for step in steps:
+            cost = _compute_step_cost(step)
+            step_id = int(step["step_id"])
+            step_costs[step_id] = cost
+            step["cost"] = cost
+            raw_flag = step.get("execution_per_case")
+            per_case_flags[step_id] = bool(raw_flag) if raw_flag is not None else True
+            db.update_process_step_cost(session_id, step_id, cost)
 
-    steps_by_group: dict[int, list[int]] = {}
-    for step in steps:
-        steps_by_group.setdefault(int(step["case_group_id"]), []).append(
-            int(step["step_id"])
+        steps_by_group: dict[int, list[int]] = {}
+        for step in steps:
+            steps_by_group.setdefault(int(step["case_group_id"]), []).append(
+                int(step["step_id"])
+            )
+
+        case_group_costs: dict[int, float] = {}
+        for group in case_groups:
+            case_group_id = int(group["case_group_id"])
+            case_steps = steps_by_group.get(case_group_id, [])
+            cases = _safe_number(group.get("addressees")) * _safe_number(
+                group.get("annual_frequency")
+            )
+            cost = 0.0
+            for step_id in case_steps:
+                step_cost = step_costs.get(step_id, 0.0)
+                if per_case_flags.get(step_id, True):
+                    cost += step_cost * cases
+                else:
+                    cost += step_cost
+            case_group_costs[case_group_id] = cost
+            db.update_case_group_cost(session_id, case_group_id, cost)
+
+        groups_by_process: dict[int, list[int]] = {}
+        for group in case_groups:
+            groups_by_process.setdefault(int(group["process_id"]), []).append(
+                int(group["case_group_id"])
+            )
+
+        process_costs: dict[int, float] = {}
+        for process in processes:
+            process_id = int(process["process_id"])
+            group_ids = groups_by_process.get(process_id, [])
+            total = sum(case_group_costs.get(group_id, 0.0) for group_id in group_ids)
+            process_costs[process_id] = total
+            db.update_process_cost(session_id, process_id, total)
+
+        total_cost = sum(process_costs.values())
+        db.update_session_cost(session_id, total_cost)
+        total_cases = _total_yearly_cases(case_groups)
+        _refresh_step_tiles(session_id, steps)
+        _refresh_process_tiles(session_id, processes, process_costs)
+
+        tiles = db.fetch_tiles(session_id=session_id)
+        step_tiles = [tile for tile in tiles if tile.id.startswith("step_")]
+        max_step_col = max((tile.column for tile in step_tiles), default=None)
+        max_col = max((tile.column for tile in tiles), default=0)
+        total_col = (max_step_col if max_step_col is not None else max_col) + 1
+        link_from = [f"step_{step_id}" for step_id in _last_step_ids(steps)]
+        total_tile = Tile(
+            id="total_cost",
+            title="Jährliche Kosten",
+            text="\n".join(
+                [
+                    db.format_currency(total_cost),
+                    f"Fälle pro Jahr: {db.format_number(round(total_cases))}",
+                ]
+            ),
+            meta_information={"app_session_id": payload.app_session_id},
+            column=total_col,
+            row=0,
+            deletable=True,
+            link_from_tile=link_from,
         )
-
-    case_group_costs: dict[int, float] = {}
-    for group in case_groups:
-        case_group_id = int(group["case_group_id"])
-        case_steps = steps_by_group.get(case_group_id, [])
-        cases = _safe_number(group.get("addressees")) * _safe_number(
-            group.get("annual_frequency")
-        )
-        cost = 0.0
-        for step_id in case_steps:
-            step_cost = step_costs.get(step_id, 0.0)
-            if per_case_flags.get(step_id, True):
-                cost += step_cost * cases
-            else:
-                cost += step_cost
-        case_group_costs[case_group_id] = cost
-        db.update_case_group_cost(session_id, case_group_id, cost)
-
-    groups_by_process: dict[int, list[int]] = {}
-    for group in case_groups:
-        groups_by_process.setdefault(int(group["process_id"]), []).append(
-            int(group["case_group_id"])
-        )
-
-    process_costs: dict[int, float] = {}
-    for process in processes:
-        process_id = int(process["process_id"])
-        group_ids = groups_by_process.get(process_id, [])
-        total = sum(case_group_costs.get(group_id, 0.0) for group_id in group_ids)
-        process_costs[process_id] = total
-        db.update_process_cost(session_id, process_id, total)
-
-    total_cost = sum(process_costs.values())
-    db.update_session_cost(session_id, total_cost)
-    total_cases = _total_yearly_cases(case_groups)
-    _refresh_step_tiles(steps)
-    _refresh_process_tiles(processes, process_costs)
-
-    tiles = db.fetch_tiles()
-    step_tiles = [tile for tile in tiles if tile.id.startswith("step_")]
-    max_step_col = max((tile.column for tile in step_tiles), default=None)
-    max_col = max((tile.column for tile in tiles), default=0)
-    total_col = (max_step_col if max_step_col is not None else max_col) + 1
-    link_from = [
-        f"step_{step_id}" for step_id in _last_step_ids(steps)
-    ]
-    total_tile = Tile(
-        id="total_cost",
-        title="Jährliche Kosten",
-        text="\n".join(
-            [
-                db.format_currency(total_cost),
-                f"Fälle pro Jahr: {db.format_number(total_cases)}",
-            ]
-        ),
-        meta_information={"session_id": session_id},
-        column=total_col,
-        row=0,
-        deletable=True,
-        link_from_tile=link_from,
-    )
-    db.upsert_tile(total_tile)
+        db.upsert_tile(total_tile, session_id=session_id)
 
     return {"total_cost": total_cost}

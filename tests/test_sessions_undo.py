@@ -1,4 +1,7 @@
+import pytest
+
 from backend.core import db
+from backend.core.prompts import PromptId
 
 
 def _seed_flow(app_session_id: str) -> dict:
@@ -129,4 +132,63 @@ def test_undo_effort_clears_metrics(test_client):
     assert step["hourly_rate_a"] is None
     assert step["time_required_in_min_a"] is None
     assert step["expenses"] is None
+    conn.close()
+
+
+def test_undo_effort_is_atomic_on_failure(test_client, monkeypatch):
+    seeded = _seed_flow("UNDO-ATOMIC")
+    session_id = seeded["session_id"]
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees=10,
+        annual_frequency=2,
+    )
+    db.update_process_step_effort(
+        session_id=session_id,
+        step_id=seeded["step_id"],
+        hourly_rates={"a": 40, "b": None, "c": None, "d": None, "e": None},
+        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
+        expenses=5,
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id=PromptId.CASES_CALCULATION,
+        model="test-model",
+        answer_text="cases",
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id=PromptId.EFFORT_CALCULATION,
+        model="test-model",
+        answer_text="effort",
+    )
+
+    def _raise_delete(*_args, **_kwargs):
+        raise RuntimeError("forced delete failure")
+
+    monkeypatch.setattr(db, "delete_llm_answers", _raise_delete)
+
+    with pytest.raises(RuntimeError):
+        test_client.post("/sessions/undo", json={"app_session_id": "UNDO-ATOMIC"})
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT addressees, annual_frequency FROM case_groups WHERE case_group_id = ?",
+        (seeded["case_group_id"],),
+    )
+    group = cur.fetchone()
+    assert group["addressees"] == 10
+    assert group["annual_frequency"] == 2
+
+    cur.execute(
+        "SELECT hourly_rate_a, time_required_in_min_a, expenses FROM process_steps WHERE step_id = ?",
+        (seeded["step_id"],),
+    )
+    step = cur.fetchone()
+    assert step["hourly_rate_a"] == 40
+    assert step["time_required_in_min_a"] == 30
+    assert step["expenses"] == 5
     conn.close()

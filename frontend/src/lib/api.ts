@@ -13,16 +13,53 @@ import {
   SessionsResponse,
   SessionStatus,
   UndoStepResponse,
+  RunAllResponse,
+  RunAllStartResponse,
+  RunAllStatusResponse,
+  RunAllCancelResponse,
+  Model,
 } from "@/types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
 
-type ApiKeys = {
+export type ApiKeys = {
   openaiApiKey?: string;
   deepinfraApiKey?: string;
   geminiApiKey?: string;
 };
+
+export type LlmRequestOptions = {
+  model?: string;
+  provider?: string;
+  keys: ApiKeys;
+};
+
+type LlmRequestOptionsInput = {
+  selectedModel: string;
+  availableModels: Model[];
+  storage?: Pick<Storage, "getItem"> | null;
+};
+
+export function buildLlmRequestOptions({
+  selectedModel,
+  availableModels,
+  storage,
+}: LlmRequestOptionsInput): LlmRequestOptions {
+  const selectedModelData = availableModels.find((model) => model.id === selectedModel);
+  const activeStorage =
+    storage !== undefined ? storage : typeof window !== "undefined" ? window.localStorage : null;
+
+  return {
+    model: selectedModel || undefined,
+    provider: selectedModelData?.provider?.toLowerCase(),
+    keys: {
+      openaiApiKey: activeStorage?.getItem("openai_api_key") || undefined,
+      deepinfraApiKey: activeStorage?.getItem("deepinfra_api_key") || undefined,
+      geminiApiKey: activeStorage?.getItem("gemini_api_key") || undefined,
+    },
+  };
+}
 
 function buildKeyHeaders(keys: ApiKeys) {
   const headers: Record<string, string> = {};
@@ -42,7 +79,7 @@ export const apiClient = {
   async upsertSession(
     appSessionId: string,
     llmModel: string
-  ): Promise<{ session_id: number; created: boolean }> {
+  ): Promise<{ app_session_id: string; created: boolean }> {
     const response = await fetch(`${API_BASE_URL}/sessions`, {
       method: "POST",
       headers: {
@@ -78,16 +115,22 @@ export const apiClient = {
     return response.json();
   },
 
-  async fetchTiles(): Promise<TilesResponse> {
-    const response = await fetch(`${API_BASE_URL}/tiles`);
+  async fetchTiles(appSessionId?: string): Promise<TilesResponse> {
+    const query = appSessionId
+      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
+      : "";
+    const response = await fetch(`${API_BASE_URL}/tiles${query}`);
     if (!response.ok) {
       throw new Error("Failed to load tiles");
     }
     return response.json();
   },
 
-  async upsertTile(tile: Tile): Promise<Tile> {
-    const response = await fetch(`${API_BASE_URL}/tiles`, {
+  async upsertTile(tile: Tile, appSessionId?: string): Promise<Tile> {
+    const query = appSessionId
+      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
+      : "";
+    const response = await fetch(`${API_BASE_URL}/tiles${query}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -100,8 +143,11 @@ export const apiClient = {
     return response.json();
   },
 
-  async deleteTile(tileId: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/tiles/${tileId}`, {
+  async deleteTile(tileId: string, appSessionId?: string): Promise<void> {
+    const query = appSessionId
+      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
+      : "";
+    const response = await fetch(`${API_BASE_URL}/tiles/${tileId}${query}`, {
       method: "DELETE",
     });
     if (!response.ok) {
@@ -125,8 +171,11 @@ export const apiClient = {
     return response.json();
   },
 
-  async seedTiles(): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/tiles/seed`, {
+  async seedTiles(appSessionId?: string): Promise<void> {
+    const query = appSessionId
+      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
+      : "";
+    const response = await fetch(`${API_BASE_URL}/tiles/seed${query}`, {
       method: "POST",
     });
     if (!response.ok) {
@@ -172,6 +221,101 @@ export const apiClient = {
     });
     if (!response.ok) {
       throw new Error("Failed to undo last step");
+    }
+    return response.json();
+  },
+  async exportSession(
+    appSessionId: string
+  ): Promise<{ filename: string; markdown: string }> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/export?app_session_id=${encodeURIComponent(
+        appSessionId
+      )}`
+    );
+    if (!response.ok) {
+      throw new Error("Failed to export session");
+    }
+    return response.json();
+  },
+  async startRunAllSteps(
+    options: {
+      appSessionId: string;
+      currentFilename?: string;
+      proposedFilename?: string;
+      model?: string;
+      provider?: string;
+      keys?: ApiKeys;
+    }
+  ): Promise<RunAllStartResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/run-all/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...buildKeyHeaders(options.keys || {}),
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        current_filename: options.currentFilename,
+        proposed_filename: options.proposedFilename,
+        model: options.model,
+        provider: options.provider,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error("Failed to start run-all steps");
+    }
+    return response.json();
+  },
+  async getRunAllStatus(runId: string): Promise<RunAllStatusResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}`
+    );
+    if (!response.ok) {
+      throw new Error("Failed to load run-all status");
+    }
+    return response.json();
+  },
+  getRunAllEventsUrl(runId: string): string {
+    return `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}/events`;
+  },
+  async cancelRunAll(runId: string): Promise<RunAllCancelResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}/cancel`,
+      {
+        method: "POST",
+      }
+    );
+    if (!response.ok) {
+      throw new Error("Failed to cancel run-all");
+    }
+    return response.json();
+  },
+  async runAllSteps(
+    options: {
+      appSessionId: string;
+      currentFilename?: string;
+      proposedFilename?: string;
+      model?: string;
+      provider?: string;
+      keys?: ApiKeys;
+    }
+  ): Promise<RunAllResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/run-all`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...buildKeyHeaders(options.keys || {}),
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        current_filename: options.currentFilename,
+        proposed_filename: options.proposedFilename,
+        model: options.model,
+        provider: options.provider,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error("Failed to run all steps");
     }
     return response.json();
   },

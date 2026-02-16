@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
-import { apiClient } from "@/lib/api";
+import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 
 export default function RegulationsPanel() {
   const { state, setCurrentTab, setRegulationsReady, setProcessesReady } = useApp();
@@ -23,23 +23,18 @@ export default function RegulationsPanel() {
     }
     setStatus(null);
     setIsRunning(true);
-    const selectedModel = state.selectedModel;
-    const selectedModelData = state.availableModels.find(
-      (model) => model.id === selectedModel
-    );
-    const provider = selectedModelData?.provider?.toLowerCase();
+    const llm = buildLlmRequestOptions({
+      selectedModel: state.selectedModel,
+      availableModels: state.availableModels,
+    });
     try {
       await apiClient.identifyRegulations({
         currentFilename: state.selectedCurrentLaw,
         proposedFilename: state.selectedRegulation,
-        appSessionId: state.sessionId,
-        model: selectedModel || undefined,
-        provider,
-        keys: {
-          openaiApiKey: localStorage.getItem("openai_api_key") || undefined,
-          deepinfraApiKey: localStorage.getItem("deepinfra_api_key") || undefined,
-          geminiApiKey: localStorage.getItem("gemini_api_key") || undefined,
-        },
+        appSessionId: state.appSessionId,
+        model: llm.model,
+        provider: llm.provider,
+        keys: llm.keys,
       });
       window.dispatchEvent(new Event("tiles-updated"));
       setRegulationsReady(true);

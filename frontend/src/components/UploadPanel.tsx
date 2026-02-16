@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
-import { apiClient } from "@/lib/api";
+import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 
 type UploadTarget = "current" | "proposed";
 
@@ -89,22 +89,17 @@ export default function UploadPanel() {
   const summarizeRegulation = async (filename: string, currentLaw: string) => {
     setSummaryReady(false);
     setIsSummarizing(true);
-    const selectedModel = state.selectedModel;
-    const selectedModelData = state.availableModels.find(
-      (model) => model.id === selectedModel
-    );
-    const provider = selectedModelData?.provider?.toLowerCase();
+    const llm = buildLlmRequestOptions({
+      selectedModel: state.selectedModel,
+      availableModels: state.availableModels,
+    });
     try {
       await apiClient.summarizeRegulation(filename, {
         currentFilename: currentLaw,
-        appSessionId: state.sessionId,
-        model: selectedModel || undefined,
-        provider,
-        keys: {
-          openaiApiKey: localStorage.getItem("openai_api_key") || undefined,
-          deepinfraApiKey: localStorage.getItem("deepinfra_api_key") || undefined,
-          geminiApiKey: localStorage.getItem("gemini_api_key") || undefined,
-        },
+        appSessionId: state.appSessionId,
+        model: llm.model,
+        provider: llm.provider,
+        keys: llm.keys,
       });
       window.dispatchEvent(new Event("tiles-updated"));
       setSummaryReady(true);

@@ -60,6 +60,8 @@ export interface SessionStatus {
   process_steps_ready: boolean;
   effort_ready: boolean;
   total_cost_ready: boolean;
+  last_completed_step?: string | null;
+  last_completed_label?: string | null;
 }
 
 export interface UndoStepResponse {
@@ -67,6 +69,44 @@ export interface UndoStepResponse {
   undone_step?: string;
   undone_label?: string;
   message?: string;
+}
+
+export interface RunAllStepResult {
+  key: string;
+  label: string;
+  status: "completed" | "skipped" | "failed";
+  message?: string | null;
+}
+
+export interface RunAllResponse {
+  app_session_id: string;
+  ok: boolean;
+  steps: RunAllStepResult[];
+  final_status: SessionStatus;
+}
+
+export interface RunAllStartResponse {
+  app_session_id: string;
+  run_id: string;
+  started: boolean;
+  status: "running" | "completed" | "failed" | "cancelled";
+}
+
+export interface RunAllStatusResponse {
+  run_id: string;
+  app_session_id: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  ok?: boolean | null;
+  steps: RunAllStepResult[];
+  final_status?: SessionStatus | null;
+}
+
+export interface RunAllCancelResponse {
+  run_id: string;
+  app_session_id: string;
+  status: "cancelling" | "completed" | "failed" | "cancelled";
+  accepted: boolean;
+  message?: string | null;
 }
 
 export interface RegulationsResponse {

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 import json
 
@@ -11,6 +10,7 @@ from pydantic import BaseModel
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.config import settings
 from backend.core import db
+from backend.core.llm_json import clean_llm_payload, parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.models import Tile
@@ -72,51 +72,13 @@ async def upload_regulation(
     return {"ok": True, "filename": desired_name, "document_id": document_id}
 
 
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
-_THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\\s\\S]*?```", re.IGNORECASE)
-
-
-def _clean_llm_payload(payload: str) -> str:
-    cleaned = _THINK_BLOCK_RE.sub("", payload)
-    cleaned = _THINK_FENCE_RE.sub("", cleaned)
-    return cleaned.strip()
-
-
-def _extract_last_json(payload: str) -> dict | None:
-    decoder = json.JSONDecoder()
-    index = 0
-    last: dict | None = None
-    while True:
-        start = payload.find("{", index)
-        if start == -1:
-            break
-        try:
-            data, end = decoder.raw_decode(payload, start)
-            if isinstance(data, dict):
-                last = data
-            index = end
-        except json.JSONDecodeError:
-            index = start + 1
-    return last
-
-
 def _parse_summary(payload: str) -> tuple[str, str]:
     payload = payload.strip()
     if not payload:
         return "", ""
 
-    cleaned = _clean_llm_payload(payload)
-
-    try:
-        data = json.loads(cleaned)
-        title = str(data.get("title", "")).strip()
-        blurb = str(data.get("blurb", "")).strip()
-        if title or blurb:
-            return title, blurb
-    except Exception:
-        pass
-
-    data = _extract_last_json(cleaned)
+    cleaned = clean_llm_payload(payload)
+    data = parse_json_object(payload)
     if data:
         title = str(data.get("title", "")).strip()
         blurb = str(data.get("blurb", "")).strip()
@@ -132,12 +94,7 @@ def _parse_summary(payload: str) -> tuple[str, str]:
 
 
 def _parse_vorgaben(payload: str) -> list[dict]:
-    cleaned = _clean_llm_payload(payload)
-    data = None
-    try:
-        data = json.loads(cleaned)
-    except Exception:
-        data = _extract_last_json(cleaned)
+    data = parse_json_object(payload)
     if not isinstance(data, dict):
         return []
     vorgaben = data.get("vorgaben")
@@ -161,13 +118,14 @@ def _parse_vorgaben(payload: str) -> list[dict]:
 
 
 def _update_law_tile(
+    session_id: int,
     title: str,
     blurb: str,
     filename: str,
     model: str,
     current_filename: str | None = None,
 ) -> Tile:
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     tile = next((item for item in tiles if item.id == "law_tile"), None)
     if tile is None:
         tile = Tile(
@@ -192,14 +150,17 @@ def _update_law_tile(
         meta["summary_model"] = model
     tile.meta_information = meta
 
-    db.upsert_tile(tile)
+    db.upsert_tile(tile, session_id=session_id)
     return tile
 
 
 def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
     base_col = 0
     base_row = 0
-    law_tile = next((item for item in db.fetch_tiles() if item.id == "law_tile"), None)
+    law_tile = next(
+        (item for item in db.fetch_tiles(session_id=session_id) if item.id == "law_tile"),
+        None,
+    )
     if law_tile:
         base_col = law_tile.column
         base_row = law_tile.row
@@ -223,7 +184,7 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
             deletable=True,
             link_from_tile=["law_tile"],
         )
-        db.upsert_tile(tile)
+        db.upsert_tile(tile, session_id=session_id)
         created.append(
             {
                 "regulation_id": regulation_id,
@@ -234,9 +195,9 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
     return created
 
 
-def _clear_existing_tiles() -> None:
-    for tile in db.fetch_tiles():
-        db.delete_tile(tile.id)
+def _clear_existing_tiles(session_id: int) -> None:
+    for tile in db.fetch_tiles(session_id=session_id):
+        db.delete_tile(tile.id, session_id=session_id)
 
 
 @router.post("/identify")
@@ -288,19 +249,20 @@ async def identify_regulations(
         model=model,
         provider=payload.provider,
     )
-    db.insert_llm_answer(
-        session_id=session_id,
-        prompt_id=PromptId.REGULATIONS_IDENTIFICATION,
-        model=model,
-        answer_text=response_text,
-        metadata={
-            "provider": payload.provider,
-        },
-    )
     vorgaben = _parse_vorgaben(response_text)
     if not vorgaben:
         raise HTTPException(status_code=422, detail="No vorgaben parsed")
-    created = _add_vorgaben_tiles(session_id, vorgaben)
+    with db.transaction():
+        db.insert_llm_answer(
+            session_id=session_id,
+            prompt_id=PromptId.REGULATIONS_IDENTIFICATION,
+            model=model,
+            answer_text=response_text,
+            metadata={
+                "provider": payload.provider,
+            },
+        )
+        created = _add_vorgaben_tiles(session_id, vorgaben)
     return {"vorgaben": created}
 
 
@@ -339,39 +301,54 @@ async def summarize_regulation(
     )
 
     model = payload.model or settings.default_model
-    session_id = None
-    if payload.app_session_id:
-        session_id, _created = db.upsert_session(payload.app_session_id, model)
-        try:
-            db.update_session_documents(
-                payload.app_session_id,
-                current_filename,
-                filename,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _clear_existing_tiles()
+    session_id: int | None = None
     response_text = await query_llm(
         prompt,
         api_keys=api_keys,
         model=model,
         provider=payload.provider,
     )
-    if session_id is not None:
-        db.insert_llm_answer(
-            session_id=session_id,
-            prompt_id=PromptId.LAW_SUMMARY,
-            model=model,
-            answer_text=response_text,
-            metadata={
-                "provider": payload.provider,
-            },
-        )
     title, blurb = _parse_summary(response_text)
     if not title:
         title = filename
-    _update_law_tile(title, blurb, filename, model, current_filename=current_filename)
-    if payload.app_session_id:
-        db.update_session_summary(payload.app_session_id, title, blurb)
+    with db.transaction():
+        if payload.app_session_id:
+            session_id, _created = db.upsert_session(payload.app_session_id, model)
+            try:
+                db.update_session_documents(
+                    payload.app_session_id,
+                    current_filename,
+                    filename,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        else:
+            latest = db.get_latest_session()
+            if latest:
+                session_id = int(latest["session_id"])
+            else:
+                session_id, _created = db.upsert_session("SUMMARY-AUTO", model)
+        assert session_id is not None
+        _clear_existing_tiles(session_id)
+        if session_id is not None:
+            db.insert_llm_answer(
+                session_id=session_id,
+                prompt_id=PromptId.LAW_SUMMARY,
+                model=model,
+                answer_text=response_text,
+                metadata={
+                    "provider": payload.provider,
+                },
+            )
+        _update_law_tile(
+            session_id,
+            title,
+            blurb,
+            filename,
+            model,
+            current_filename=current_filename,
+        )
+        if payload.app_session_id:
+            db.update_session_summary(payload.app_session_id, title, blurb)
 
     return {"title": title, "blurb": blurb, "filename": filename}

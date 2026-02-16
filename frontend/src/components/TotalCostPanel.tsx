@@ -29,7 +29,7 @@ export default function TotalCostPanel() {
     setStatus(null);
     setIsRunning(true);
     try {
-      await apiClient.computeTotalCost({ appSessionId: state.sessionId });
+      await apiClient.computeTotalCost({ appSessionId: state.appSessionId });
       window.dispatchEvent(new Event("tiles-updated"));
       setCurrentTab(6);
     } catch (error) {

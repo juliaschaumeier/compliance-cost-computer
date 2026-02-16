@@ -84,6 +84,9 @@ class Question:
         return response
 
     def save_response_as_csv(self, response):
+        if not getattr(current_config, "SAVE_RESULTS", True) or not current_config.RESULT_FOLDER:
+            self.logger.info("Skipping CSV export because SAVE_RESULTS is disabled.")
+            return
         if response:
             answer_csv = os.path.join(current_config.RESULT_FOLDER, f'{response.file_stem}.csv')
             parser.parse_single_answer_to_df(response.output_text,
@@ -100,6 +103,9 @@ class Question:
 
 
     def verify_and_save_sources(self):
+        if not getattr(current_config, "SAVE_RESULTS", True) or not current_config.RESULT_FOLDER:
+            self.logger.info("Skipping source verification export because SAVE_RESULTS is disabled.")
+            return
         source_list = parser.list_of_sources_from_multiple_responses(self.responses, self.prompt.json_template_name)
         prompt = prompt_templates.VerifyWebSources(source_list)
         self.verified_sources = self.api.ask_question(self.instructions, prompt,
