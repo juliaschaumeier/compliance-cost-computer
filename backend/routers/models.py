@@ -14,7 +14,6 @@ from backend.core.config import (
 )
 from backend.core.models import (
     ModelInfo,
-    ModelsResponse,
     OrganizedModels,
     OrganizedModelsResponse,
     ProviderModels,
@@ -44,21 +43,6 @@ def _as_model_info(models: list[str], provider: str) -> list[ModelInfo]:
         ModelInfo(id=model, name=format_model_name(model, provider), provider=provider)
         for model in models
     ]
-
-
-@router.get("", response_model=ModelsResponse)
-async def get_available_models(api_keys: ApiKeys = Depends(get_api_keys)) -> ModelsResponse:
-    openai_models = get_openai_models(api_keys.openai_api_key)
-    deepinfra_models = get_deepinfra_models(api_keys.deepinfra_api_key)
-    gemini_models = get_gemini_models(api_keys.gemini_api_key)
-
-    models_list = (
-        _as_model_info(openai_models, "OpenAI")
-        + _as_model_info(deepinfra_models, "DeepInfra")
-        + _as_model_info(gemini_models, "Gemini")
-    )
-
-    return ModelsResponse(models=models_list, default=settings.default_model)
 
 
 @router.get("/organized", response_model=OrganizedModelsResponse)

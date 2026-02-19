@@ -31,7 +31,7 @@ def test_rebuild_tiles_keeps_step_order(test_client):
     resp = test_client.post("/tiles/rebuild", json={"app_session_id": "TILES-REBUILD"})
     assert resp.status_code == 200
 
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tiles = [
         tile

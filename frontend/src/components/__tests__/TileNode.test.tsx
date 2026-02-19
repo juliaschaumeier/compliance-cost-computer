@@ -1,10 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { NodeProps } from "@xyflow/react";
 
-import { TileNode } from "@/components/TileNode";
+import { TileNode, type TileNodeData } from "@/components/TileNode";
 
 jest.mock("@xyflow/react", () => {
-  const React = require("react");
+  const React = jest.requireActual<typeof import("react")>("react");
   return {
     __esModule: true,
     ReactFlow: ({ children }: { children: React.ReactNode }) => (
@@ -22,6 +23,29 @@ jest.mock("@xyflow/react", () => {
   };
 });
 
+function buildTileNodeProps(
+  id: string,
+  overrides: Partial<TileNodeData> = {}
+): NodeProps<TileNodeData> {
+  return {
+    id,
+    data: {
+      title: "Regelung",
+      text: "Kurztext",
+      deletable: false,
+      onBodyRef: jest.fn(),
+      onNodeRef: jest.fn(),
+      onDelete: jest.fn(),
+      onToggleExpand: jest.fn(),
+      isExpanded: false,
+      textHasOverflow: false,
+      isFocused: false,
+      isNeighbor: false,
+      ...overrides,
+    },
+  } as unknown as NodeProps<TileNodeData>;
+}
+
 describe("TileNode", () => {
   it("does not bubble the expand click to parent handlers", async () => {
     const user = userEvent.setup();
@@ -31,22 +55,10 @@ describe("TileNode", () => {
     render(
       <div onClick={onParentClick}>
         <TileNode
-          {...({
-            id: "regulation_1",
-            data: {
-              title: "Regelung",
-              text: longText,
-              deletable: false,
-              onBodyRef: jest.fn(),
-              onNodeRef: jest.fn(),
-              onDelete: jest.fn(),
-              onToggleExpand: jest.fn(),
-              isExpanded: false,
-              textHasOverflow: true,
-              isFocused: false,
-              isNeighbor: false,
-            },
-          } as any)}
+          {...buildTileNodeProps("regulation_1", {
+            text: longText,
+            textHasOverflow: true,
+          })}
         />
       </div>
     );
@@ -62,22 +74,10 @@ describe("TileNode", () => {
     const onBodyRef = jest.fn();
     const { rerender } = render(
       <TileNode
-        {...({
-          id: "regulation_2",
-          data: {
-            title: "Regelung",
-            text: "Kurztext",
-            deletable: false,
-            onBodyRef,
-            onNodeRef,
-            onDelete: jest.fn(),
-            onToggleExpand: jest.fn(),
-            isExpanded: false,
-            textHasOverflow: false,
-            isFocused: false,
-            isNeighbor: false,
-          },
-        } as any)}
+        {...buildTileNodeProps("regulation_2", {
+          onBodyRef,
+          onNodeRef,
+        })}
       />
     );
 
@@ -86,22 +86,10 @@ describe("TileNode", () => {
 
     rerender(
       <TileNode
-        {...({
-          id: "regulation_2",
-          data: {
-            title: "Regelung",
-            text: "Kurztext",
-            deletable: false,
-            onBodyRef,
-            onNodeRef,
-            onDelete: jest.fn(),
-            onToggleExpand: jest.fn(),
-            isExpanded: false,
-            textHasOverflow: false,
-            isFocused: false,
-            isNeighbor: false,
-          },
-        } as any)}
+        {...buildTileNodeProps("regulation_2", {
+          onBodyRef,
+          onNodeRef,
+        })}
       />
     );
 

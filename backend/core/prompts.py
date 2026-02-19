@@ -11,7 +11,6 @@ class PromptId:
     PROCESS_STEP_ANALYSIS = "process_step_analysis"
     CASES_CALCULATION = "cases_calculation"
     EFFORT_CALCULATION = "effort_calculation"
-    TOTAL_COST_COMPUTATION = "total_cost_computation"
 
 
 PROMPT_TEMPLATES: Dict[str, str] = {
@@ -323,19 +322,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
-                    "beschreibung": "",
+                    "beschreibung": ""
                 }}
             ], 
             "fallgruppen": [
                 {{
-                    "fallgruppen_id", ""
+                    "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
                     "anzahl_betroffene": "",
                     "haeufigkeit_pro_jahr": ""
                 }},
                 {{
-                    "fallgruppen_id", ""
+                    "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
                     "anzahl_betroffene": "",
@@ -351,17 +350,17 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
-                    "beschreibung": "",
+                    "beschreibung": ""
                 }},
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
-                    "beschreibung": "",
+                    "beschreibung": ""
                 }}
             ], 
             "fallgruppen": [
                 {{
-                    "fallgruppen_id", ""
+                    "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
                     "anzahl_betroffene": "",
@@ -553,10 +552,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         }}
         Verwende keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
-    ),
-    PromptId.TOTAL_COST_COMPUTATION: (
-        "TODO: Prompt fuer Gesamtkosten berechnen einfuegen.\n\n"
-        "{content}"
     ),
 }
 

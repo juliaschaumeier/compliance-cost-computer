@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 
 export default function TotalCostPanel() {
   const { state, setCurrentTab } = useApp();
@@ -33,6 +34,9 @@ export default function TotalCostPanel() {
       window.dispatchEvent(new Event("tiles-updated"));
       setCurrentTab(6);
     } catch (error) {
+      logClientError("TotalCostPanel.computeTotalCost", error, {
+        appSessionId: state.appSessionId,
+      });
       setStatus("Gesamtkosten konnten nicht berechnet werden.");
     } finally {
       setIsRunning(false);

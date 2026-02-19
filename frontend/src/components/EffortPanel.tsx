@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 
 export default function EffortPanel() {
   const { state, setCurrentTab, setEffortReady } = useApp();
@@ -39,7 +40,14 @@ export default function EffortPanel() {
       setEffortReady(true);
       setCurrentTab(6);
     } catch (error) {
-      setStatus("Aufwand konnte nicht berechnet werden.");
+      logClientError("EffortPanel.calculateEffort", error, {
+        appSessionId: state.appSessionId,
+      });
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unbekannter Fehler";
+      setStatus(`Aufwand konnte nicht berechnet werden: ${message}`);
     } finally {
       setIsRunning(false);
     }

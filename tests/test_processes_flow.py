@@ -8,8 +8,8 @@ def test_compile_processes_success(test_client, monkeypatch):
     session_id, _ = db.upsert_session("PROC-OK", "test-model")
     reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
     reg_two = db.insert_regulation(session_id, "Section 2", "Beschreibung B")
-    db.upsert_tile(Tile(id=f"regulation_{reg_one}", title="Regelung 1"))
-    db.upsert_tile(Tile(id=f"regulation_{reg_two}", title="Regelung 2"))
+    db.upsert_tile(Tile(id=f"regulation_{reg_one}", title="Regelung 1"), session_id=session_id)
+    db.upsert_tile(Tile(id=f"regulation_{reg_two}", title="Regelung 2"), session_id=session_id)
 
     response_text = f"""
     {{
@@ -50,7 +50,7 @@ def test_compile_processes_success(test_client, monkeypatch):
     regulations = db.list_regulations_for_session(session_id)
     assert all(row["process_id"] is not None for row in regulations)
 
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     process_tiles = [tile for tile in tiles if tile.id.startswith("process_")]
     assert len(process_tiles) == 2
     links = {tuple(tile.link_from_tile) for tile in process_tiles}

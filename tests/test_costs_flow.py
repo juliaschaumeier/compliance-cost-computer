@@ -28,7 +28,8 @@ def _seed_flow(session_id: int) -> dict:
             row=0,
             deletable=True,
             link_from_tile=[],
-        )
+        ),
+        session_id=session_id,
     )
     db.upsert_tile(
         Tile(
@@ -40,7 +41,8 @@ def _seed_flow(session_id: int) -> dict:
             row=0,
             deletable=True,
             link_from_tile=[f"case_group_{case_group_id}"],
-        )
+        ),
+        session_id=session_id,
     )
     db.upsert_tile(
         Tile(
@@ -52,7 +54,8 @@ def _seed_flow(session_id: int) -> dict:
             row=0,
             deletable=True,
             link_from_tile=[f"step_{step_one}"],
-        )
+        ),
+        session_id=session_id,
     )
     return {
         "process_id": process_id,
@@ -153,7 +156,7 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     assert cur.fetchone()["cc_cost"] == 2000
     conn.close()
 
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     total_tile = next(tile for tile in tiles if tile.id == "total_cost")
     assert "€" in total_tile.text
     assert "Fälle pro Jahr: 20" in total_tile.text

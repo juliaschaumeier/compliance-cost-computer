@@ -377,6 +377,23 @@ async def calculate_effort(
         ),
     )
 
+    # Persist raw LLM outputs before parsing so failed parses remain inspectable.
+    answer_metadata = {"provider": payload.provider}
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id=PromptId.CASES_CALCULATION,
+        model=model,
+        answer_text=cases_response,
+        metadata=answer_metadata,
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id=PromptId.EFFORT_CALCULATION,
+        model=model,
+        answer_text=effort_response,
+        metadata=answer_metadata,
+    )
+
     parsed_cases = _parse_cases_payload(cases_response)
     if not parsed_cases:
         raise HTTPException(status_code=422, detail="No case group metrics parsed")
@@ -466,33 +483,6 @@ async def calculate_effort(
                     (execution_per_case, entry["step_id"], session_id),
                 )
 
-        metadata = json.dumps({"provider": payload.provider})
-        cur.execute(
-            """
-            INSERT INTO llm_answers (session_id, prompt_id, model, answer_text, metadata)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                PromptId.CASES_CALCULATION,
-                model,
-                cases_response,
-                metadata,
-            ),
-        )
-        cur.execute(
-            """
-            INSERT INTO llm_answers (session_id, prompt_id, model, answer_text, metadata)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                PromptId.EFFORT_CALCULATION,
-                model,
-                effort_response,
-                metadata,
-            ),
-        )
         conn.commit()
     except Exception:
         conn.rollback()

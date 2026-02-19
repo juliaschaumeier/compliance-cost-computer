@@ -21,17 +21,18 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
   const isLawTile = id === "law_tile";
   const isExpanded = isLawTile || data.isExpanded;
   const canExpand = !isLawTile && data.text && data.textHasOverflow;
+  const { onNodeRef, onBodyRef } = data;
   const setNodeRef = useCallback(
     (element: HTMLDivElement | null) => {
-      data.onNodeRef(id, element);
+      onNodeRef(id, element);
     },
-    [data.onNodeRef, id]
+    [onNodeRef, id]
   );
   const setBodyRef = useCallback(
     (element: HTMLParagraphElement | null) => {
-      data.onBodyRef(id, element);
+      onBodyRef(id, element);
     },
-    [data.onBodyRef, id]
+    [onBodyRef, id]
   );
   const highlightClass = data.isFocused
     ? "is-focused"

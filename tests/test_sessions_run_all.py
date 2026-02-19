@@ -221,8 +221,8 @@ def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
     db.insert_law("proposed.txt", "neuer entwurf")
     _patch_run_all_llms(monkeypatch, app_session_id)
 
-    response = test_client.post(
-        "/sessions/run-all",
+    start_response = test_client.post(
+        "/sessions/run-all/start",
         json={
             "app_session_id": app_session_id,
             "current_filename": "current.txt",
@@ -231,8 +231,10 @@ def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
             "provider": "openai",
         },
     )
-    assert response.status_code == 200
-    payload = response.json()
+    assert start_response.status_code == 200
+    run_id = start_response.json()["run_id"]
+    payload = _wait_for_run_completion(test_client, run_id)
+    assert payload["status"] == "completed"
     assert payload["ok"] is True
     assert [step["key"] for step in payload["steps"]] == [
         "summary",
@@ -249,12 +251,13 @@ def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
 
 
 def test_run_all_reports_step_failure(test_client):
-    response = test_client.post(
-        "/sessions/run-all",
+    start_response = test_client.post(
+        "/sessions/run-all/start",
         json={"app_session_id": "RUNALL-FAIL", "model": "test-model"},
     )
-    assert response.status_code == 200
-    payload = response.json()
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "failed"
     assert payload["ok"] is False
     assert payload["steps"][0]["key"] == "summary"
     assert payload["steps"][0]["status"] == "failed"
@@ -280,12 +283,13 @@ def test_run_all_skips_summary_when_already_done(test_client, monkeypatch):
     )
     assert summary_response.status_code == 200
 
-    response = test_client.post(
-        "/sessions/run-all",
+    start_response = test_client.post(
+        "/sessions/run-all/start",
         json={"app_session_id": app_session_id, "model": "test-model", "provider": "openai"},
     )
-    assert response.status_code == 200
-    payload = response.json()
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "completed"
     assert payload["ok"] is True
     assert payload["steps"][0]["key"] == "summary"
     assert payload["steps"][0]["status"] == "skipped"

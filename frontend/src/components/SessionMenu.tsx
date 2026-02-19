@@ -5,11 +5,23 @@ import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { SessionSummary } from "@/types";
+import { logClientError } from "@/lib/errorFeedback";
+import { deriveTabFromStatus } from "@/lib/sessionStatus";
+import { SessionStatus, SessionSummary } from "@/types";
 
 type SessionMenuProps = {
   compact?: boolean;
 };
+
+type SessionStepResult = { status: string; message?: string };
+type RunStepStatusEvent = { session_status?: SessionStatus };
+type RunCompletedEvent = { final_status?: SessionStatus; ok?: boolean };
+type RunFailedEvent = {
+  final_status?: SessionStatus;
+  message?: string;
+  steps?: SessionStepResult[];
+};
+type RunCancelledEvent = { final_status?: SessionStatus; message?: string };
 
 export default function SessionMenu({ compact }: SessionMenuProps) {
   const {
@@ -71,7 +83,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         if (!cancelled) {
           setSessions(payload.sessions);
         }
-      } catch {
+      } catch (error) {
+        logClientError("SessionMenu.loadSessions", error);
         if (!cancelled) {
           setSessions([]);
         }
@@ -147,7 +160,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       await apiClient.rebuildTiles(state.appSessionId);
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus("Tiles der Session wurden neu geladen.");
-    } catch {
+    } catch (error) {
+      logClientError("SessionMenu.rebuildTiles", error, {
+        appSessionId: state.appSessionId,
+      });
       setStatus("Tiles konnten nicht neu geladen werden.");
     }
   };
@@ -166,20 +182,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       resetStatus();
       const sessionStatus = await apiClient.getSessionStatus(selectedSession);
       setAppSessionId(selectedSession);
-      setSummaryReady(sessionStatus.summary_ready);
-      setRegulationsReady(sessionStatus.regulations_ready);
-      setProcessesReady(sessionStatus.processes_ready);
-      setCaseGroupsReady(sessionStatus.case_groups_ready);
-      setProcessStepsReady(sessionStatus.process_steps_ready);
-      setEffortReady(sessionStatus.effort_ready);
-      setTotalCostReady(sessionStatus.total_cost_ready);
-      setLastCompletedStep(sessionStatus.last_completed_step ?? null);
-      setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
-      setCurrentTab(0);
+      applySessionStatus(sessionStatus);
       await apiClient.rebuildTiles(selectedSession);
       window.dispatchEvent(new Event("tiles-updated"));
       setIsOpen(false);
-    } catch {
+    } catch (error) {
+      logClientError("SessionMenu.loadSession", error, {
+        selectedSession,
+      });
       setStatus("Session konnte nicht geladen werden.");
     }
   };
@@ -199,7 +209,11 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       await apiClient.rebuildTiles(state.appSessionId);
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus(`Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`);
-    } catch {
+    } catch (error) {
+      logClientError("SessionMenu.undoLastStep", error, {
+        appSessionId: state.appSessionId,
+        lastStepLabel,
+      });
       setStatus("Letzter Schritt konnte nicht zurückgesetzt werden.");
     } finally {
       setIsUndoing(false);
@@ -220,39 +234,15 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       link.remove();
       URL.revokeObjectURL(url);
       setStatus("Session exportiert.");
-    } catch {
+    } catch (error) {
+      logClientError("SessionMenu.exportSession", error, {
+        appSessionId: state.appSessionId,
+      });
       setStatus("Export fehlgeschlagen.");
     }
   };
 
-  const deriveTab = (sessionStatus: {
-    summary_ready: boolean;
-    regulations_ready: boolean;
-    processes_ready: boolean;
-    case_groups_ready: boolean;
-    process_steps_ready: boolean;
-    effort_ready: boolean;
-  }) => {
-    if (!sessionStatus.summary_ready) return 0;
-    if (!sessionStatus.regulations_ready) return 1;
-    if (!sessionStatus.processes_ready) return 2;
-    if (!sessionStatus.case_groups_ready) return 3;
-    if (!sessionStatus.process_steps_ready) return 4;
-    if (!sessionStatus.effort_ready) return 5;
-    return 6;
-  };
-
-  const applySessionStatus = (sessionStatus: {
-    summary_ready: boolean;
-    regulations_ready: boolean;
-    processes_ready: boolean;
-    case_groups_ready: boolean;
-    process_steps_ready: boolean;
-    effort_ready: boolean;
-    total_cost_ready: boolean;
-    last_completed_step?: string | null;
-    last_completed_label?: string | null;
-  }) => {
+  const applySessionStatus = (sessionStatus: SessionStatus) => {
     setSummaryReady(sessionStatus.summary_ready);
     setRegulationsReady(sessionStatus.regulations_ready);
     setProcessesReady(sessionStatus.processes_ready);
@@ -262,7 +252,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setTotalCostReady(sessionStatus.total_cost_ready);
     setLastCompletedStep(sessionStatus.last_completed_step ?? null);
     setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
-    setCurrentTab(deriveTab(sessionStatus));
+    setCurrentTab(deriveTabFromStatus(sessionStatus));
   };
 
   const stopRunMonitoring = () => {
@@ -303,7 +293,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           );
         }
         stopRunMonitoring();
-      } catch {
+      } catch (error) {
+        logClientError("SessionMenu.pollRunStatus", error, { runId });
         setIsRunningAll(false);
         setCurrentRunId(null);
         setIsCancellingRun(false);
@@ -326,31 +317,21 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         if (payload.label) {
           setStatus(`Läuft: ${payload.label}`);
         }
-      } catch {
+      } catch (error) {
+        logClientError("SessionMenu.stepStartedEvent", error, { runId });
         // Ignore malformed progress event.
       }
     });
 
     const applyEventStatus = (event: Event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as {
-          session_status?: {
-            summary_ready: boolean;
-            regulations_ready: boolean;
-            processes_ready: boolean;
-            case_groups_ready: boolean;
-            process_steps_ready: boolean;
-            effort_ready: boolean;
-            total_cost_ready: boolean;
-            last_completed_step?: string | null;
-            last_completed_label?: string | null;
-          };
-        };
+        const payload = JSON.parse((event as MessageEvent).data) as RunStepStatusEvent;
         if (payload.session_status) {
           applySessionStatus(payload.session_status);
           window.dispatchEvent(new Event("tiles-updated"));
         }
-      } catch {
+      } catch (error) {
+        logClientError("SessionMenu.stepStatusEvent", error, { runId });
         // Ignore malformed status event.
       }
     };
@@ -364,26 +345,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
     source.addEventListener("run_completed", (event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as {
-          final_status?: {
-            summary_ready: boolean;
-            regulations_ready: boolean;
-            processes_ready: boolean;
-            case_groups_ready: boolean;
-            process_steps_ready: boolean;
-            effort_ready: boolean;
-            total_cost_ready: boolean;
-            last_completed_step?: string | null;
-            last_completed_label?: string | null;
-          };
-          ok?: boolean;
-        };
+        const payload = JSON.parse((event as MessageEvent).data) as RunCompletedEvent;
         if (payload.final_status) {
           applySessionStatus(payload.final_status);
           window.dispatchEvent(new Event("tiles-updated"));
         }
         setStatus(payload.ok ? "Alle Schritte wurden ausgeführt." : "Lauf beendet.");
-      } catch {
+      } catch (error) {
+        logClientError("SessionMenu.runCompletedEvent", error, { runId });
         setStatus("Alle Schritte wurden ausgeführt.");
       } finally {
         setIsRunningAll(false);
@@ -395,21 +364,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
     source.addEventListener("run_failed", (event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as {
-          final_status?: {
-            summary_ready: boolean;
-            regulations_ready: boolean;
-            processes_ready: boolean;
-            case_groups_ready: boolean;
-            process_steps_ready: boolean;
-            effort_ready: boolean;
-            total_cost_ready: boolean;
-            last_completed_step?: string | null;
-            last_completed_label?: string | null;
-          };
-          message?: string;
-          steps?: Array<{ status: string; message?: string }>;
-        };
+        const payload = JSON.parse((event as MessageEvent).data) as RunFailedEvent;
         if (payload.final_status) {
           applySessionStatus(payload.final_status);
           window.dispatchEvent(new Event("tiles-updated"));
@@ -420,7 +375,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             payload.message ||
             "Schritte konnten nicht vollständig ausgeführt werden."
         );
-      } catch {
+      } catch (error) {
+        logClientError("SessionMenu.runFailedEvent", error, { runId });
         setStatus("Schritte konnten nicht vollständig ausgeführt werden.");
       } finally {
         setIsRunningAll(false);
@@ -431,20 +387,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     });
     source.addEventListener("run_cancelled", (event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as {
-          final_status?: {
-            summary_ready: boolean;
-            regulations_ready: boolean;
-            processes_ready: boolean;
-            case_groups_ready: boolean;
-            process_steps_ready: boolean;
-            effort_ready: boolean;
-            total_cost_ready: boolean;
-            last_completed_step?: string | null;
-            last_completed_label?: string | null;
-          };
-          message?: string;
-        };
+        const payload = JSON.parse((event as MessageEvent).data) as RunCancelledEvent;
         if (payload.final_status) {
           applySessionStatus(payload.final_status);
           window.dispatchEvent(new Event("tiles-updated"));
@@ -452,7 +395,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setStatus(
           payload.message || "Ausführung abgebrochen. Session wurde zurückgesetzt."
         );
-      } catch {
+      } catch (error) {
+        logClientError("SessionMenu.runCancelledEvent", error, { runId });
         setStatus("Ausführung abgebrochen. Session wurde zurückgesetzt.");
       } finally {
         setIsRunningAll(false);
@@ -484,6 +428,9 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setStatus("Abbruch angefordert...");
         await apiClient.cancelRunAll(currentRunId);
       } catch (error) {
+        logClientError("SessionMenu.cancelRunAll", error, {
+          runId: currentRunId,
+        });
         const err = error as Error;
         setIsCancellingRun(false);
         setStatus(err?.message || "Abbruch konnte nicht angefordert werden.");
@@ -518,6 +465,9 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setIsCancellingRun(false);
       beginRunEventStream(start.run_id);
     } catch (error) {
+      logClientError("SessionMenu.startRunAll", error, {
+        appSessionId: state.appSessionId,
+      });
       const err = error as Error;
       setStatus(err?.message || "Schritte konnten nicht gestartet werden.");
       setIsRunningAll(false);

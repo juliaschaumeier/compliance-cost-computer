@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 
 export default function CaseGroupsPanel() {
   const { state, setCurrentTab, setCaseGroupsReady } = useApp();
@@ -33,6 +34,9 @@ export default function CaseGroupsPanel() {
       setCaseGroupsReady(true);
       setCurrentTab(4);
     } catch (error) {
+      logClientError("CaseGroupsPanel.developCaseGroups", error, {
+        appSessionId: state.appSessionId,
+      });
       setStatus("Fallgruppen konnten nicht entwickelt werden.");
     } finally {
       setIsRunning(false);

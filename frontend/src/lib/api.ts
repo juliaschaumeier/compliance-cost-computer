@@ -1,5 +1,4 @@
 import {
-  ModelsResponse,
   OrganizedModelsResponse,
   RegulationsResponse,
   Tile,
@@ -13,7 +12,6 @@ import {
   SessionsResponse,
   SessionStatus,
   UndoStepResponse,
-  RunAllResponse,
   RunAllStartResponse,
   RunAllStatusResponse,
   RunAllCancelResponse,
@@ -27,6 +25,12 @@ export type ApiKeys = {
   openaiApiKey?: string;
   deepinfraApiKey?: string;
   geminiApiKey?: string;
+};
+
+export type ApiClientError = Error & {
+  status?: number;
+  details?: unknown;
+  raw?: string;
 };
 
 export type LlmRequestOptions = {
@@ -75,6 +79,23 @@ function buildKeyHeaders(keys: ApiKeys) {
   return headers;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function createApiClientError(
+  message: string,
+  extras?: Pick<ApiClientError, "status" | "details" | "raw">
+): ApiClientError {
+  const error = new Error(message) as ApiClientError;
+  if (extras) {
+    error.status = extras.status;
+    error.details = extras.details;
+    error.raw = extras.raw;
+  }
+  return error;
+}
+
 export const apiClient = {
   async upsertSession(
     appSessionId: string,
@@ -95,16 +116,6 @@ export const apiClient = {
     }
     return response.json();
   },
-  async fetchModels(keys: ApiKeys): Promise<ModelsResponse> {
-    const response = await fetch(`${API_BASE_URL}/models`, {
-      headers: buildKeyHeaders(keys),
-    });
-    if (!response.ok) {
-      throw new Error("Failed to load models");
-    }
-    return response.json();
-  },
-
   async fetchOrganizedModels(keys: ApiKeys): Promise<OrganizedModelsResponse> {
     const response = await fetch(`${API_BASE_URL}/models/organized`, {
       headers: buildKeyHeaders(keys),
@@ -115,10 +126,8 @@ export const apiClient = {
     return response.json();
   },
 
-  async fetchTiles(appSessionId?: string): Promise<TilesResponse> {
-    const query = appSessionId
-      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
-      : "";
+  async fetchTiles(appSessionId: string): Promise<TilesResponse> {
+    const query = `?app_session_id=${encodeURIComponent(appSessionId)}`;
     const response = await fetch(`${API_BASE_URL}/tiles${query}`);
     if (!response.ok) {
       throw new Error("Failed to load tiles");
@@ -126,10 +135,8 @@ export const apiClient = {
     return response.json();
   },
 
-  async upsertTile(tile: Tile, appSessionId?: string): Promise<Tile> {
-    const query = appSessionId
-      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
-      : "";
+  async upsertTile(tile: Tile, appSessionId: string): Promise<Tile> {
+    const query = `?app_session_id=${encodeURIComponent(appSessionId)}`;
     const response = await fetch(`${API_BASE_URL}/tiles${query}`, {
       method: "POST",
       headers: {
@@ -143,10 +150,8 @@ export const apiClient = {
     return response.json();
   },
 
-  async deleteTile(tileId: string, appSessionId?: string): Promise<void> {
-    const query = appSessionId
-      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
-      : "";
+  async deleteTile(tileId: string, appSessionId: string): Promise<void> {
+    const query = `?app_session_id=${encodeURIComponent(appSessionId)}`;
     const response = await fetch(`${API_BASE_URL}/tiles/${tileId}${query}`, {
       method: "DELETE",
     });
@@ -155,7 +160,7 @@ export const apiClient = {
     }
   },
 
-  async rebuildTiles(appSessionId?: string): Promise<{ ok: boolean }> {
+  async rebuildTiles(appSessionId: string): Promise<{ ok: boolean }> {
     const response = await fetch(`${API_BASE_URL}/tiles/rebuild`, {
       method: "POST",
       headers: {
@@ -169,18 +174,6 @@ export const apiClient = {
       throw new Error("Failed to rebuild tiles");
     }
     return response.json();
-  },
-
-  async seedTiles(appSessionId?: string): Promise<void> {
-    const query = appSessionId
-      ? `?app_session_id=${encodeURIComponent(appSessionId)}`
-      : "";
-    const response = await fetch(`${API_BASE_URL}/tiles/seed${query}`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error("Failed to seed tiles");
-    }
   },
 
   async fetchRegulations(): Promise<RegulationsResponse> {
@@ -290,36 +283,6 @@ export const apiClient = {
     }
     return response.json();
   },
-  async runAllSteps(
-    options: {
-      appSessionId: string;
-      currentFilename?: string;
-      proposedFilename?: string;
-      model?: string;
-      provider?: string;
-      keys?: ApiKeys;
-    }
-  ): Promise<RunAllResponse> {
-    const response = await fetch(`${API_BASE_URL}/sessions/run-all`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...buildKeyHeaders(options.keys || {}),
-      },
-      body: JSON.stringify({
-        app_session_id: options.appSessionId,
-        current_filename: options.currentFilename,
-        proposed_filename: options.proposedFilename,
-        model: options.model,
-        provider: options.provider,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error("Failed to run all steps");
-    }
-    return response.json();
-  },
-
   async uploadRegulation(
     file: File,
     filenameOverride?: string
@@ -334,18 +297,22 @@ export const apiClient = {
       body: formData,
     });
     if (!response.ok) {
-      let errorBody: any = null;
+      let errorBody: unknown = null;
       try {
         errorBody = await response.json();
       } catch {
         errorBody = null;
       }
-      const error = new Error(
-        errorBody?.detail?.error || "Failed to upload regulation"
+      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
+      const detailError =
+        isRecord(detail) && typeof detail.error === "string" ? detail.error : null;
+      throw createApiClientError(
+        detailError || "Failed to upload regulation",
+        {
+          status: response.status,
+          details: detail ?? errorBody,
+        }
       );
-      (error as any).status = response.status;
-      (error as any).details = errorBody?.detail ?? errorBody;
-      throw error;
     }
     return response.json();
   },
@@ -375,7 +342,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      let errorBody: any = null;
+      let errorBody: unknown = null;
       let rawText = "";
       try {
         rawText = await response.text();
@@ -384,17 +351,21 @@ export const apiClient = {
         errorBody = null;
       }
       const statusLabel = `${response.status} ${response.statusText}`.trim();
+      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
       const detailMessage =
-        errorBody?.detail?.error || errorBody?.detail || rawText;
-      const error = new Error(
+        (isRecord(detail) && typeof detail.error === "string" ? detail.error : null) ||
+        (typeof detail === "string" ? detail : null) ||
+        rawText;
+      throw createApiClientError(
         detailMessage
           ? `Failed to summarize regulation (${statusLabel}): ${detailMessage}`
-          : `Failed to summarize regulation (${statusLabel})`
+          : `Failed to summarize regulation (${statusLabel})`,
+        {
+          status: response.status,
+          details: detail ?? errorBody ?? rawText,
+          raw: rawText,
+        }
       );
-      (error as any).status = response.status;
-      (error as any).details = errorBody?.detail ?? errorBody ?? rawText;
-      (error as any).raw = rawText;
-      throw error;
     }
     return response.json();
   },
@@ -526,7 +497,24 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to calculate effort");
+      let errorBody: unknown = null;
+      let rawText = "";
+      try {
+        rawText = await response.text();
+        errorBody = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        errorBody = null;
+      }
+      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
+      const detailMessage =
+        (typeof detail === "string" ? detail : null) ||
+        rawText ||
+        "Failed to calculate effort";
+      throw createApiClientError(detailMessage, {
+        status: response.status,
+        details: detail ?? errorBody ?? rawText,
+        raw: rawText,
+      });
     }
     return response.json();
   },

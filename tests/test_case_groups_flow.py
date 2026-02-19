@@ -20,7 +20,8 @@ def test_develop_case_groups_success(test_client, monkeypatch):
             row=0,
             deletable=True,
             link_from_tile=[],
-        )
+        ),
+        session_id=session_id,
     )
     db.upsert_tile(
         Tile(
@@ -32,7 +33,8 @@ def test_develop_case_groups_success(test_client, monkeypatch):
             row=1,
             deletable=True,
             link_from_tile=[],
-        )
+        ),
+        session_id=session_id,
     )
 
     response_text = f"""
@@ -88,7 +90,7 @@ def test_develop_case_groups_success(test_client, monkeypatch):
     case_groups = db.list_case_groups_for_session(session_id)
     assert len(case_groups) == 3
 
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     case_tiles = [tile for tile in tiles if tile.id.startswith("case_group_")]
     assert len(case_tiles) == 3
     assert all(tile.link_from_tile for tile in case_tiles)

@@ -1,13 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 import { OrganizedModels, ProviderModels } from "@/types";
 
 const emptyProvider: ProviderModels = { recommended: [], additional: [] };
+const isLikelyValidApiKey = (value: string) => value.trim().length > 10;
+const flattenModels = (organized: OrganizedModels) => [
+  ...organized.openai.recommended,
+  ...organized.openai.additional,
+  ...organized.deepinfra.recommended,
+  ...organized.deepinfra.additional,
+  ...organized.gemini.recommended,
+  ...organized.gemini.additional,
+];
 
 export default function ModelSelector() {
   const { state, setAvailableModels, setSelectedModel } = useApp();
@@ -32,6 +42,32 @@ export default function ModelSelector() {
     setIsMounted(true);
   }, []);
 
+  const loadModels = useCallback(async (
+    openaiKey: string,
+    deepinfraKey: string,
+    geminiKey: string
+  ) => {
+    setLoading(true);
+    try {
+      const organized = await apiClient.fetchOrganizedModels({
+        openaiApiKey: isLikelyValidApiKey(openaiKey)
+          ? openaiKey.trim()
+          : undefined,
+        deepinfraApiKey: isLikelyValidApiKey(deepinfraKey)
+          ? deepinfraKey.trim()
+          : undefined,
+        geminiApiKey: isLikelyValidApiKey(geminiKey)
+          ? geminiKey.trim()
+          : undefined,
+      });
+      setOrganizedModels(organized.organized);
+    } catch (error) {
+      logClientError("ModelSelector.loadModels", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const storedOpenai = localStorage.getItem("openai_api_key") || "";
     const storedDeepinfra = localStorage.getItem("deepinfra_api_key") || "";
@@ -40,60 +76,61 @@ export default function ModelSelector() {
     setDeepinfraApiKey(storedDeepinfra);
     setGeminiApiKey(storedGemini);
     loadModels(storedOpenai, storedDeepinfra, storedGemini);
-  }, []);
+  }, [loadModels]);
 
-  const loadModels = async (
-    openaiKey = openaiApiKey,
-    deepinfraKey = deepinfraApiKey,
-    geminiKey = geminiApiKey
-  ) => {
-    setLoading(true);
-    try {
-      const organized = await apiClient.fetchOrganizedModels({
-        openaiApiKey: openaiKey,
-        deepinfraApiKey: deepinfraKey,
-        geminiApiKey: geminiKey,
-      });
-      setOrganizedModels(organized.organized);
+  const visibleOrganizedModels = useMemo<OrganizedModels>(() => {
+    const hasOpenAiKey = isLikelyValidApiKey(openaiApiKey);
+    const hasDeepinfraKey = isLikelyValidApiKey(deepinfraApiKey);
+    const hasGeminiKey = isLikelyValidApiKey(geminiApiKey);
+    return {
+      openai: hasOpenAiKey ? organizedModels.openai : emptyProvider,
+      deepinfra: hasDeepinfraKey ? organizedModels.deepinfra : emptyProvider,
+      gemini: hasGeminiKey ? organizedModels.gemini : emptyProvider,
+    };
+  }, [organizedModels, openaiApiKey, deepinfraApiKey, geminiApiKey]);
 
-      const allModels = [
-        ...organized.organized.openai.recommended,
-        ...organized.organized.openai.additional,
-        ...organized.organized.deepinfra.recommended,
-        ...organized.organized.deepinfra.additional,
-        ...organized.organized.gemini.recommended,
-        ...organized.organized.gemini.additional,
-      ];
-
-      setAvailableModels(allModels);
-      const hasSelection = allModels.some(
-        (model) => model.id === state.selectedModel
-      );
-      if (!hasSelection) {
-        setSelectedModel(organized.default || allModels[0]?.id || "");
-      }
-    } catch (error) {
-      console.error("Error loading models:", error);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    const allModels = flattenModels(visibleOrganizedModels);
+    setAvailableModels(allModels);
+    const hasSelection = allModels.some((model) => model.id === state.selectedModel);
+    if (!hasSelection && state.selectedModel) {
+      setSelectedModel("");
     }
-  };
+  }, [
+    visibleOrganizedModels,
+    state.selectedModel,
+    setAvailableModels,
+    setSelectedModel,
+  ]);
 
   const handleKeyChange = (
     value: string,
     type: "openai" | "deepinfra" | "gemini"
   ) => {
+    const normalized = value.trim();
     if (type === "openai") {
       setOpenaiApiKey(value);
-      localStorage.setItem("openai_api_key", value);
+      if (normalized) {
+        localStorage.setItem("openai_api_key", value);
+      } else {
+        localStorage.removeItem("openai_api_key");
+      }
     } else if (type === "deepinfra") {
       setDeepinfraApiKey(value);
-      localStorage.setItem("deepinfra_api_key", value);
+      if (normalized) {
+        localStorage.setItem("deepinfra_api_key", value);
+      } else {
+        localStorage.removeItem("deepinfra_api_key");
+      }
     } else {
       setGeminiApiKey(value);
-      localStorage.setItem("gemini_api_key", value);
+      if (normalized) {
+        localStorage.setItem("gemini_api_key", value);
+      } else {
+        localStorage.removeItem("gemini_api_key");
+      }
     }
-    if (value.length > 10) {
+    if (isLikelyValidApiKey(value) || normalized.length === 0) {
       loadModels(
         type === "openai" ? value : openaiApiKey,
         type === "deepinfra" ? value : deepinfraApiKey,
@@ -166,42 +203,42 @@ export default function ModelSelector() {
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
             >
               <optgroup label="Empfohlen - OpenAI">
-                {organizedModels.openai.recommended.map((model) => (
+                {visibleOrganizedModels.openai.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Empfohlen - DeepInfra">
-                {organizedModels.deepinfra.recommended.map((model) => (
+                {visibleOrganizedModels.deepinfra.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Empfohlen - Gemini">
-                {organizedModels.gemini.recommended.map((model) => (
+                {visibleOrganizedModels.gemini.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Weitere - OpenAI">
-                {organizedModels.openai.additional.map((model) => (
+                {visibleOrganizedModels.openai.additional.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Weitere - DeepInfra">
-                {organizedModels.deepinfra.additional.map((model) => (
+                {visibleOrganizedModels.deepinfra.additional.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Weitere - Gemini">
-                {organizedModels.gemini.additional.map((model) => (
+                {visibleOrganizedModels.gemini.additional.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>

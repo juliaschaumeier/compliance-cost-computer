@@ -1,0 +1,19 @@
+export type SessionStatusFlags = {
+  summary_ready: boolean;
+  regulations_ready: boolean;
+  processes_ready: boolean;
+  case_groups_ready: boolean;
+  process_steps_ready: boolean;
+  effort_ready: boolean;
+  total_cost_ready: boolean;
+};
+
+export function deriveTabFromStatus(status: SessionStatusFlags): number {
+  if (!status.summary_ready) return 0;
+  if (!status.regulations_ready) return 1;
+  if (!status.processes_ready) return 2;
+  if (!status.case_groups_ready) return 3;
+  if (!status.process_steps_ready) return 4;
+  if (!status.effort_ready) return 5;
+  return 6;
+}

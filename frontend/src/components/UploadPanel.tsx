@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
-import { apiClient, buildLlmRequestOptions } from "@/lib/api";
+import { ApiClientError, apiClient, buildLlmRequestOptions } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 
 type UploadTarget = "current" | "proposed";
 
@@ -78,6 +79,7 @@ export default function UploadPanel() {
       const response = await apiClient.fetchRegulations();
       setAvailableRegulations(response.files);
     } catch (error) {
+      logClientError("UploadPanel.loadRegulations", error);
       setStatus("Regelungen konnten nicht geladen werden.");
     }
   }, [setAvailableRegulations]);
@@ -105,12 +107,10 @@ export default function UploadPanel() {
       setSummaryReady(true);
       setCurrentTab(1);
     } catch (error) {
-      const err = error as any;
-      console.error("Zusammenfassung fehlgeschlagen", {
-        status: err?.status,
-        details: err?.details,
-        message: err?.message,
-        raw: err?.raw,
+      logClientError("UploadPanel.summarizeRegulation", error, {
+        appSessionId: state.appSessionId,
+        filename,
+        currentLaw,
       });
       setStatus("Zusammenfassung fehlgeschlagen.");
       setSummaryReady(false);
@@ -160,13 +160,26 @@ export default function UploadPanel() {
       setSummaryReady(false);
       return response.filename;
     } catch (error) {
-      const err = error as any;
-      if (err?.status === 409 && err?.details?.error === "exists") {
+      logClientError("UploadPanel.handleUpload", error, {
+        target,
+        fileName: uploadFile.name,
+        nameOverride,
+      });
+      const err = error as ApiClientError;
+      const details =
+        err.details && typeof err.details === "object"
+          ? (err.details as { error?: unknown; filename?: unknown })
+          : null;
+      if (
+        err.status === 409 &&
+        details?.error === "exists" &&
+        typeof details.filename === "string"
+      ) {
         setConflicts((prev) => ({
           ...prev,
-          [target]: err.details.filename,
+          [target]: details.filename,
         }));
-        setStatus(`Datei existiert bereits: ${err.details.filename}`);
+        setStatus(`Datei existiert bereits: ${details.filename}`);
         return null;
       }
       setStatus("Upload fehlgeschlagen.");

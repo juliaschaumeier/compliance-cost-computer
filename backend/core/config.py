@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 import httpx
 import logging
@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = BASE_DIR / "backend" / "ccc.db"
-DEFAULT_SEED_JSON = BASE_DIR / "backend" / "legacy" / "mockup_data.json"
 DEFAULT_REGULATIONS_PATH = BASE_DIR / "regulations"
 
 
@@ -27,7 +26,6 @@ class Settings(BaseSettings):
     deepinfra_max_tokens: int = 0
     deepinfra_temperature: float = 0.4
     db_path: Path = DEFAULT_DB_PATH
-    seed_json: Path = DEFAULT_SEED_JSON
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 
     model_config = ConfigDict(env_file=".env")
@@ -231,34 +229,3 @@ def is_deepinfra_model(model: str) -> bool:
 
 def is_gemini_model(model: str) -> bool:
     return model.startswith("gemini-") or model in GEMINI_RECOMMENDED
-
-
-def get_all_available_models(api_key_map: Dict[str, str] | None = None) -> Dict[str, List[str]]:
-    api_key_map = api_key_map or {}
-    return {
-        "openai": get_openai_models(api_key_map.get("openai")),
-        "deepinfra": get_deepinfra_models(api_key_map.get("deepinfra")),
-        "gemini": get_gemini_models(api_key_map.get("gemini")),
-    }
-
-
-def get_organized_models(api_key_map: Dict[str, str] | None = None) -> Dict[str, Dict[str, List[str]]]:
-    api_key_map = api_key_map or {}
-    all_openai = get_openai_models(api_key_map.get("openai"))
-    all_deepinfra = get_deepinfra_models(api_key_map.get("deepinfra"))
-    all_gemini = get_gemini_models(api_key_map.get("gemini"))
-
-    return {
-        "openai": {
-            "recommended": [model for model in OPENAI_RECOMMENDED if model in all_openai],
-            "additional": sorted([model for model in all_openai if model not in OPENAI_RECOMMENDED]),
-        },
-        "deepinfra": {
-            "recommended": [model for model in DEEPINFRA_RECOMMENDED if model in all_deepinfra],
-            "additional": sorted([model for model in all_deepinfra if model not in DEEPINFRA_RECOMMENDED]),
-        },
-        "gemini": {
-            "recommended": [model for model in GEMINI_RECOMMENDED if model in all_gemini],
-            "additional": sorted([model for model in all_gemini if model not in GEMINI_RECOMMENDED]),
-        },
-    }

@@ -17,11 +17,6 @@ export interface OrganizedModels {
   gemini: ProviderModels;
 }
 
-export interface ModelsResponse {
-  models: Model[];
-  default: string;
-}
-
 export interface OrganizedModelsResponse {
   organized: OrganizedModels;
   default: string;
@@ -76,13 +71,6 @@ export interface RunAllStepResult {
   label: string;
   status: "completed" | "skipped" | "failed";
   message?: string | null;
-}
-
-export interface RunAllResponse {
-  app_session_id: string;
-  ok: boolean;
-  steps: RunAllStepResult[];
-  final_status: SessionStatus;
 }
 
 export interface RunAllStartResponse {

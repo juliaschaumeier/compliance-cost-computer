@@ -5,12 +5,14 @@ import {
   Background,
   Controls,
   type Node,
+  type ReactFlowInstance,
   ReactFlow,
   ReactFlowProvider,
 } from "@xyflow/react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 import { normalizeAndAlignTiles } from "@/lib/graphLayout";
 import { Tile } from "@/types";
 import { TileNode } from "@/components/TileNode";
@@ -43,14 +45,6 @@ export default function GraphCanvas() {
   }
   const edgeTypes = edgeTypesRef.current;
   const [tiles, setTiles] = useState<Tile[]>([]);
-  useEffect(() => {
-    if (nodeTypesRef.current?.tile !== TileNode) {
-      console.warn("[GraphCanvas] nodeTypes tile changed", {
-        prev: nodeTypesRef.current?.tile,
-        next: TileNode,
-      });
-    }
-  }, [nodeTypes]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [canvasHeight, setCanvasHeight] = useState<number | null>(null);
@@ -65,6 +59,7 @@ export default function GraphCanvas() {
   const bodyRefs = useRef<Map<string, HTMLParagraphElement | null>>(new Map());
   const nodeRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const nodeObservers = useRef<Map<string, ResizeObserver>>(new Map());
+  const hasLoadedTilesRef = useRef(false);
 
   const registerBodyRef = useCallback(
     (id: string, element: HTMLParagraphElement | null) => {
@@ -157,9 +152,10 @@ export default function GraphCanvas() {
   }, [tiles, expandedNodeIds]);
 
   useEffect(() => {
+    const observers = nodeObservers.current;
     return () => {
-      nodeObservers.current.forEach((observer) => observer.disconnect());
-      nodeObservers.current.clear();
+      observers.forEach((observer) => observer.disconnect());
+      observers.clear();
     };
   }, []);
 
@@ -227,12 +223,15 @@ export default function GraphCanvas() {
     if (!state.summaryReady) {
       setTiles([]);
       setLoading(false);
+      hasLoadedTilesRef.current = true;
       setError(null);
       return;
     }
     try {
-      setLoading(true);
-      const response = await apiClient.fetchTiles(state.appSessionId || undefined);
+      if (!hasLoadedTilesRef.current) {
+        setLoading(true);
+      }
+      const response = await apiClient.fetchTiles(state.appSessionId);
       const lawTile = response.tiles.find((tile) => tile.id === "law_tile");
       if (lawTile) {
         const updatedTiles = response.tiles.map((tile) => {
@@ -254,7 +253,7 @@ export default function GraphCanvas() {
           const deduped = new Map(changed.map((tile) => [tile.id, tile]));
           await Promise.all(
             Array.from(deduped.values()).map((tile) =>
-              apiClient.upsertTile(tile, state.appSessionId || undefined)
+              apiClient.upsertTile(tile, state.appSessionId)
             )
           );
         }
@@ -266,18 +265,26 @@ export default function GraphCanvas() {
           const deduped = new Map(changed.map((tile) => [tile.id, tile]));
           await Promise.all(
             Array.from(deduped.values()).map((tile) =>
-              apiClient.upsertTile(tile, state.appSessionId || undefined)
+              apiClient.upsertTile(tile, state.appSessionId)
             )
           );
         }
       }
       setError(null);
     } catch (err) {
+      logClientError("GraphCanvas.refreshTiles", err, {
+        appSessionId: state.appSessionId,
+      });
       setError("Tiles konnten nicht geladen werden.");
     } finally {
+      hasLoadedTilesRef.current = true;
       setLoading(false);
     }
   }, [state.summaryReady, state.appSessionId]);
+
+  useEffect(() => {
+    hasLoadedTilesRef.current = false;
+  }, [state.appSessionId]);
 
   useEffect(() => {
     refreshTiles();
@@ -309,9 +316,13 @@ export default function GraphCanvas() {
   const handleDelete = useCallback(
     async (tileId: string) => {
       try {
-        await apiClient.deleteTile(tileId, state.appSessionId || undefined);
+        await apiClient.deleteTile(tileId, state.appSessionId);
         setTiles((prev) => prev.filter((tile) => tile.id !== tileId));
       } catch (err) {
+        logClientError("GraphCanvas.deleteTile", err, {
+          appSessionId: state.appSessionId,
+          tileId,
+        });
         setError("Tile konnte nicht gelöscht werden.");
       }
     },
@@ -479,8 +490,14 @@ export default function GraphCanvas() {
         prev.map((item) => (item.id === node.id ? updatedTile : item))
       );
       try {
-        await apiClient.upsertTile(updatedTile, state.appSessionId || undefined);
+        await apiClient.upsertTile(updatedTile, state.appSessionId);
       } catch (err) {
+        logClientError("GraphCanvas.saveTilePosition", err, {
+          appSessionId: state.appSessionId,
+          tileId: node.id,
+          nextColumn,
+          nextRow,
+        });
         setError("Tile-Position konnte nicht gespeichert werden.");
       }
     },
@@ -490,20 +507,30 @@ export default function GraphCanvas() {
   const handleNodeClick = useCallback(
     (_event: unknown, node: Node) => {
       setFocusedNodeId((prev) => (prev === node.id ? null : node.id));
+      if (node.id !== "law_tile" && (overflowIds.has(node.id) || expandedNodeIds[node.id])) {
+        setExpandedNodeIds((prev) => ({
+          ...prev,
+          [node.id]: !prev[node.id],
+        }));
+      }
     },
-    []
+    [overflowIds, expandedNodeIds]
   );
 
   const handlePaneClick = useCallback(() => {
     setFocusedNodeId(null);
   }, []);
 
-  const handleMove = useCallback(
-    (_event: unknown, nextViewport: { x: number; y: number; zoom: number }) => {
+  const handleViewportChange = useCallback(
+    (nextViewport: { x: number; y: number; zoom: number }) => {
       setViewport(nextViewport);
     },
     []
   );
+
+  const handleInit = useCallback((instance: ReactFlowInstance) => {
+    setViewport(instance.getViewport());
+  }, []);
 
   const disableFitView = tiles.length === 1 && tiles[0]?.id === "law_tile";
   const lawColumn = tiles.find((tile) => tile.id === "law_tile")?.column ?? 0;
@@ -559,24 +586,20 @@ export default function GraphCanvas() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(14,165,164,0.12),transparent_55%),radial-gradient(circle_at_80%_20%,rgba(249,115,22,0.12),transparent_60%)]" />
 
       <div className="absolute inset-0">
-        {loading ? (
-          <div className="flex h-full items-center justify-center text-sm text-slate-500">
-            Daten werden geladen...
-          </div>
-        ) : (
-          <ReactFlowProvider>
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                nodeTypes={nodeTypes}
-                edgeTypes={edgeTypes}
-                nodesDraggable={false}
-                onNodeDragStop={handleNodeDragStop}
-                onNodeClick={handleNodeClick}
-                onPaneClick={handlePaneClick}
-                onMove={handleMove}
-                fitView={!disableFitView}
-              >
+        <ReactFlowProvider>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              nodesDraggable={false}
+              onInit={handleInit}
+              onNodeDragStop={handleNodeDragStop}
+              onNodeClick={handleNodeClick}
+              onPaneClick={handlePaneClick}
+              onViewportChange={handleViewportChange}
+              fitView={!disableFitView}
+            >
               <div
                 className="pointer-events-none absolute left-0"
                 style={{
@@ -644,8 +667,17 @@ export default function GraphCanvas() {
               )}
               <Background gap={32} size={1.2} color="#e2e8f0" />
               <Controls />
-            </ReactFlow>
-          </ReactFlowProvider>
+          </ReactFlow>
+        </ReactFlowProvider>
+        {loading && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm text-slate-500">
+            Daten werden geladen...
+          </div>
+        )}
+        {error && !loading && (
+          <div className="pointer-events-none absolute right-4 top-4 z-20 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            {error}
+          </div>
         )}
 
       </div>

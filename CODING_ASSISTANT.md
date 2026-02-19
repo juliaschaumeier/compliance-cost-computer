@@ -1,17 +1,78 @@
 # Coding Assistant Guide
 
-- **Project goal**: Compliance-Cost Computer (CCC-App) for estimating German legislative compliance costs; LLM pipeline plus a tile-board mock UI.
-- **LLM entry point**: `backend/scripts/main_chatterbox.py` builds prompts from `backend/legacy/prompt_templates.py` and runs them via `backend/legacy/question_assembler.py` with the API from `backend/legacy/api_helper.py`. The full compliance workflow is commented out; the active run uses `WebTest*` prompts.
-- **Config & data**: `backend/legacy/config.py` defines config classes; `backend/legacy/current_config.py` selects regulation descriptors and text files from `regulations/`, model params, `CHOOSE_BEST_OF`, timeouts, and log levels. Each run writes `config_parameters.txt` into `results/chat_YYYYMMDD-HHMM/`.
-- **API layer**: `OpenAiApi` wraps the Responses API with the `web_search` tool; `GeminiApi` is a stub. `BaseAPI.ask_question` optionally saves response text to `results/` and can dump the full response JSON when `SAVE_ENTIRE_RESPONSES` is true.
-- **Prompt flow**: `Question.run_and_save_multiple_questions` loops `CHOOSE_BEST_OF` times, retries on `BadRequestError`, tracks `responses`, and can `choose_best_answer()` plus `verify_and_save_sources()`.
-- **Templates & parsing**: `backend/legacy/json_templates.py` defines JSON shapes; `backend/legacy/parser.py` uses pandas to parse JSON answers to DataFrame/CSV and flatten sources. It assumes valid JSON and returns empty DataFrames on parse failure.
-- **Logging**: `backend/legacy/logging_utils.py` writes to stdout + `results/.../run.log` (levels from `current_config`). `backend/legacy/usage_logger.py` is optional and not wired into the main flow.
-- **Backend + UI mock**: `backend/legacy/backend.py` is a Flask + SQLite API (`tiles.db`) with `/tiles` GET/POST and `/tiles/<id>` DELETE. `seed_from_json()` loads `backend/legacy/mockup_data.json` when the DB is empty. `backend/legacy/reactflow_mock.html` is a standalone ReactFlow UMD page that fetches `http://localhost:5000/tiles` and falls back to inline mock data.
-- **Mock data**: `backend/legacy/mockup_data.py` generates `backend/legacy/mockup_data.json` via `write_json()`. Keep them aligned if you edit the schema.
-- **Tests**: `tests/` covers `parser`, `question_assembler`, `logging_utils`, plus monkeypatch examples. Run with `pytest`.
-- **Env**: `OPENAI_API_KEY` required for OpenAI; `GEMINI_API_KEY` for the Gemini path. There is no dotenv loader in this repo, so set env vars in your shell.
-- **Run**: `python backend/scripts/main_chatterbox.py` for the LLM pipeline; `python backend/legacy/backend.py` for the tiles API; open `backend/legacy/reactflow_mock.html` to view the UI.
-- **Data folders**: `regulations/` holds law text inputs; `results/` stores run outputs and logs. Avoid editing these unless you intend to update data.
+## Project Focus
+- CCC computes compliance costs through a 7-step workflow:
+  - `summary`
+  - `regulations`
+  - `processes`
+  - `case_groups`
+  - `process_steps`
+  - `effort`
+  - `total_cost`
 
-<!-- asked with prompt: analyse my codebase and give me a coding assistant markdown file. -->
+## Active Architecture (Use This)
+- Backend entry point: `backend/main.py`
+- Frontend entry point: `frontend/src/app/page.tsx`
+- Active backend routers:
+  - `backend/routers/sessions.py`
+  - `backend/routers/tiles.py`
+  - `backend/routers/models.py`
+  - `backend/routers/regulations.py`
+  - `backend/routers/processes.py`
+  - `backend/routers/case_groups.py`
+  - `backend/routers/process_steps.py`
+  - `backend/routers/effort.py`
+  - `backend/routers/costs.py`
+
+## Session Rules (Important)
+- API-facing identifier is `app_session_id` (string).
+- DB-facing key is `session_id` (integer).
+- Tiles and links are strictly session-scoped.
+- Do not reintroduce fallback behavior for missing session IDs.
+
+## Run-All Workflow Rules
+- Start: `POST /sessions/run-all/start`
+- Observe:
+  - Polling endpoint: `GET /sessions/run-all/{run_id}`
+  - SSE endpoint: `GET /sessions/run-all/{run_id}/events`
+- Cancel: `POST /sessions/run-all/{run_id}/cancel`
+- Cancellation is a true abort and rolls session state back to the last completed step baseline.
+
+## Frontend State Notes
+- Main state lives in `frontend/src/contexts/AppContext.tsx`.
+- Session tab progression derives from `frontend/src/lib/sessionStatus.ts`.
+- Session menu orchestration/UI controls live in `frontend/src/components/SessionMenu.tsx`.
+- Canvas behavior and tile persistence live in `frontend/src/components/GraphCanvas.tsx`.
+
+## Model + Key Handling
+- Frontend uses `GET /models/organized` only.
+- API key inputs are in `frontend/src/components/ModelSelector.tsx`.
+- Provider model lists are shown only when that provider key looks valid.
+- Clearing a key removes it from browser storage.
+
+## LLM Prompt/Parsing Paths
+- Prompt templates: `backend/core/prompts.py`
+- Unified LLM JSON parsing helpers: `backend/core/llm_json.py`
+- LLM service wrapper: `backend/core/llm_service.py`
+
+## Database
+- DB setup/migrations-in-place: `backend/core/db.py`
+- Default DB path: `backend/ccc.db`
+- Keep integrity checks in DB and avoid duplicating the same guard logic in many routers.
+
+## Testing
+- Backend: `python3 -m pytest`
+- Frontend unit tests: `npm --prefix frontend test -- --runInBand`
+- Frontend lint: `npm --prefix frontend run lint -- --max-warnings=0`
+
+## Legacy Code
+- `backend/legacy/` and some legacy tests still exist.
+- Do not base new feature work on legacy modules unless explicitly requested.
+- When possible, keep cleanup scoped and safe (remove dead code only when verified unused).
+
+## Preferred Change Style
+- Keep API contracts stable; update tests with any contract changes.
+- Prefer small, focused refactors over broad rewrites.
+- For frontend errors:
+  - user-facing: concise and actionable
+  - developer-facing: lightweight debug logging

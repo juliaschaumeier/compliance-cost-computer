@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 
 export default function ProcessesPanel() {
   const { state, setCurrentTab, setProcessesReady } = useApp();
@@ -36,6 +37,9 @@ export default function ProcessesPanel() {
       setProcessesReady(true);
       setCurrentTab(3);
     } catch (error) {
+      logClientError("ProcessesPanel.compileProcesses", error, {
+        appSessionId: state.appSessionId,
+      });
       setStatus("Prozesse konnten nicht gebündelt werden.");
     } finally {
       setIsRunning(false);

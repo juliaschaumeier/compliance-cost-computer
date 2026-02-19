@@ -16,16 +16,6 @@ class Tile(BaseModel):
     link_from_tile: List[str] = Field(default_factory=list)
 
 
-class TileUpdate(BaseModel):
-    title: str | None = None
-    text: str | None = None
-    meta_information: Dict[str, Any] | None = None
-    column: int | None = None
-    row: int | None = None
-    deletable: bool | None = None
-    link_from_tile: List[str] | None = None
-
-
 class TilesResponse(BaseModel):
     tiles: List[Tile]
 
@@ -45,11 +35,6 @@ class OrganizedModels(BaseModel):
     openai: ProviderModels
     deepinfra: ProviderModels
     gemini: ProviderModels
-
-
-class ModelsResponse(BaseModel):
-    models: List[ModelInfo]
-    default: str
 
 
 class OrganizedModelsResponse(BaseModel):

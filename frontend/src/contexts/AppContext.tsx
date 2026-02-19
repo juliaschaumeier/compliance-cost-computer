@@ -1,7 +1,16 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { apiClient } from "@/lib/api";
+import { deriveTabFromStatus } from "@/lib/sessionStatus";
 import { Model } from "@/types";
 
 interface AppState {
@@ -46,8 +55,24 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 const APP_SESSION_STORAGE_KEY = "app_session_id";
 const LEGACY_SESSION_STORAGE_KEY = "session_id";
+const READINESS_STORAGE_KEYS = [
+  "summary_ready",
+  "regulations_ready",
+  "processes_ready",
+  "case_groups_ready",
+  "process_steps_ready",
+  "effort_ready",
+  "total_cost_ready",
+] as const;
+type ReadinessStorageKey = (typeof READINESS_STORAGE_KEYS)[number];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const logDebug = useCallback((message: string, details?: Record<string, unknown>) => {
+    if (process.env.NODE_ENV !== "production") {
+      console.debug(message, details);
+    }
+  }, []);
+
   const [currentTab, setCurrentTab] = useState(0);
   const [appSessionId, setAppSessionId] = useState("");
   const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
@@ -71,20 +96,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastCompletedStep, setLastCompletedStep] = useState<string | null>(null);
   const [lastCompletedLabel, setLastCompletedLabel] = useState<string | null>(null);
   const appSessionIdAttempts = useRef(0);
+  const readinessSetters = useMemo<
+    Record<ReadinessStorageKey, (value: boolean) => void>
+  >(
+    () => ({
+      summary_ready: setSummaryReady,
+      regulations_ready: setRegulationsReady,
+      processes_ready: setProcessesReady,
+      case_groups_ready: setCaseGroupsReady,
+      process_steps_ready: setProcessStepsReady,
+      effort_ready: setEffortReady,
+      total_cost_ready: setTotalCostReady,
+    }),
+    []
+  );
+  const readinessValues = useMemo<Record<ReadinessStorageKey, boolean>>(
+    () => ({
+      summary_ready: summaryReady,
+      regulations_ready: regulationsReady,
+      processes_ready: processesReady,
+      case_groups_ready: caseGroupsReady,
+      process_steps_ready: processStepsReady,
+      effort_ready: effortReady,
+      total_cost_ready: totalCostReady,
+    }),
+    [
+      summaryReady,
+      regulationsReady,
+      processesReady,
+      caseGroupsReady,
+      processStepsReady,
+      effortReady,
+      totalCostReady,
+    ]
+  );
 
-  const generateAppSessionId = () => {
+  const generateAppSessionId = useCallback(() => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     return Array.from({ length: 6 }, () =>
       chars[Math.floor(Math.random() * chars.length)]
     ).join("");
-  };
+  }, []);
 
-  const setNewAppSessionId = () => {
+  const setNewAppSessionId = useCallback(() => {
     const generated = generateAppSessionId();
     appSessionIdAttempts.current += 1;
     setAppSessionId(generated);
     setIsFreshAppSessionId(true);
-  };
+  }, [generateAppSessionId]);
 
   useEffect(() => {
     const storedAppSessionId =
@@ -98,7 +157,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setNewAppSessionId();
-  }, []);
+  }, [setNewAppSessionId]);
 
   useEffect(() => {
     if (!appSessionId) {
@@ -106,49 +165,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     sessionStorage.setItem(APP_SESSION_STORAGE_KEY, appSessionId);
     sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
-  }, [appSessionId]);
+  }, [appSessionId, readinessSetters, logDebug]);
 
   useEffect(() => {
     if (!appSessionId) {
       return;
     }
     let cancelled = false;
-    const deriveTab = (status: {
-      summary_ready: boolean;
-      regulations_ready: boolean;
-      processes_ready: boolean;
-      case_groups_ready: boolean;
-      process_steps_ready: boolean;
-      effort_ready: boolean;
-      total_cost_ready: boolean;
-    }) => {
-      if (!status.summary_ready) return 0;
-      if (!status.regulations_ready) return 1;
-      if (!status.processes_ready) return 2;
-      if (!status.case_groups_ready) return 3;
-      if (!status.process_steps_ready) return 4;
-      if (!status.effort_ready) return 5;
-      return 6;
-    };
     const syncStatus = async () => {
       try {
         const status = await apiClient.getSessionStatus(appSessionId);
         if (cancelled) {
           return;
         }
-        setSummaryReady(status.summary_ready);
-        setRegulationsReady(status.regulations_ready);
-        setProcessesReady(status.processes_ready);
-        setCaseGroupsReady(status.case_groups_ready);
-        setProcessStepsReady(status.process_steps_ready);
-        setEffortReady(status.effort_ready);
-        setTotalCostReady(status.total_cost_ready);
+        for (const storageKey of READINESS_STORAGE_KEYS) {
+          readinessSetters[storageKey](status[storageKey]);
+        }
         setLastCompletedStep(status.last_completed_step ?? null);
         setLastCompletedLabel(status.last_completed_label ?? null);
-        const targetTab = deriveTab(status);
-        setCurrentTab((prev) => (prev > targetTab ? targetTab : prev));
-      } catch {
-        // Best-effort sync; keep sessionStorage state if backend is unavailable.
+      } catch (error) {
+        logDebug("[AppContext] Failed to sync session status", {
+          appSessionId,
+          error,
+        });
       }
     };
     syncStatus();
@@ -160,12 +199,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       window.removeEventListener("tiles-updated", handleTilesUpdate);
     };
-  }, [appSessionId]);
+  }, [appSessionId, logDebug, readinessSetters]);
 
   useEffect(() => {
-    const storedRegulation = sessionStorage.getItem("selected_regulation") || "";
-    if (storedRegulation) {
-      setSelectedRegulation(storedRegulation);
+    const localStorageKeys: Array<[string, (value: string) => void]> = [
+      ["selected_regulation", setSelectedRegulation],
+      ["selected_current_law", setSelectedCurrentLaw],
+    ];
+    for (const [storageKey, setter] of localStorageKeys) {
+      const storedValue = sessionStorage.getItem(storageKey) || "";
+      if (storedValue) {
+        setter(storedValue);
+      }
     }
   }, []);
 
@@ -178,209 +223,85 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [selectedModel]);
 
   useEffect(() => {
-    const storedCurrentLaw = sessionStorage.getItem("selected_current_law") || "";
-    if (storedCurrentLaw) {
-      setSelectedCurrentLaw(storedCurrentLaw);
+    const localStorageValues: Array<[string, string]> = [
+      ["selected_regulation", selectedRegulation],
+      ["selected_current_law", selectedCurrentLaw],
+    ];
+    for (const [storageKey, value] of localStorageValues) {
+      if (value) {
+        sessionStorage.setItem(storageKey, value);
+      } else {
+        sessionStorage.removeItem(storageKey);
+      }
     }
-  }, []);
+  }, [selectedRegulation, selectedCurrentLaw]);
 
   useEffect(() => {
-    if (selectedRegulation) {
-      sessionStorage.setItem("selected_regulation", selectedRegulation);
-    } else {
-      sessionStorage.removeItem("selected_regulation");
+    for (const storageKey of READINESS_STORAGE_KEYS) {
+      const setter = readinessSetters[storageKey];
+      setter(sessionStorage.getItem(storageKey) === "true");
     }
-  }, [selectedRegulation]);
+  }, [readinessSetters]);
 
   useEffect(() => {
-    if (selectedCurrentLaw) {
-      sessionStorage.setItem("selected_current_law", selectedCurrentLaw);
-    } else {
-      sessionStorage.removeItem("selected_current_law");
+    for (const storageKey of READINESS_STORAGE_KEYS) {
+      const ready = readinessValues[storageKey];
+      if (ready) {
+        sessionStorage.setItem(storageKey, "true");
+      } else {
+        sessionStorage.removeItem(storageKey);
+      }
     }
-  }, [selectedCurrentLaw]);
+  }, [readinessValues]);
 
   useEffect(() => {
-    const storedSummaryReady = sessionStorage.getItem("summary_ready") === "true";
-    if (storedSummaryReady) {
-      setSummaryReady(true);
-    }
-  }, []);
+    const normalizedStatus = {
+      summary_ready: readinessValues.summary_ready,
+      regulations_ready:
+        readinessValues.summary_ready && readinessValues.regulations_ready,
+      processes_ready:
+        readinessValues.summary_ready &&
+        readinessValues.regulations_ready &&
+        readinessValues.processes_ready,
+      case_groups_ready:
+        readinessValues.summary_ready &&
+        readinessValues.regulations_ready &&
+        readinessValues.processes_ready &&
+        readinessValues.case_groups_ready,
+      process_steps_ready:
+        readinessValues.summary_ready &&
+        readinessValues.regulations_ready &&
+        readinessValues.processes_ready &&
+        readinessValues.case_groups_ready &&
+        readinessValues.process_steps_ready,
+      effort_ready:
+        readinessValues.summary_ready &&
+        readinessValues.regulations_ready &&
+        readinessValues.processes_ready &&
+        readinessValues.case_groups_ready &&
+        readinessValues.process_steps_ready &&
+        readinessValues.effort_ready,
+      total_cost_ready:
+        readinessValues.summary_ready &&
+        readinessValues.regulations_ready &&
+        readinessValues.processes_ready &&
+        readinessValues.case_groups_ready &&
+        readinessValues.process_steps_ready &&
+        readinessValues.effort_ready &&
+        readinessValues.total_cost_ready,
+    };
 
-  useEffect(() => {
-    const storedRegulationsReady =
-      sessionStorage.getItem("regulations_ready") === "true";
-    if (storedRegulationsReady) {
-      setRegulationsReady(true);
+    for (const storageKey of READINESS_STORAGE_KEYS) {
+      if (storageKey === "summary_ready") {
+        continue;
+      }
+      if (normalizedStatus[storageKey] !== readinessValues[storageKey]) {
+        readinessSetters[storageKey](normalizedStatus[storageKey]);
+      }
     }
-  }, []);
 
-  useEffect(() => {
-    const storedProcessesReady =
-      sessionStorage.getItem("processes_ready") === "true";
-    if (storedProcessesReady) {
-      setProcessesReady(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    const storedCaseGroupsReady =
-      sessionStorage.getItem("case_groups_ready") === "true";
-    if (storedCaseGroupsReady) {
-      setCaseGroupsReady(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    const storedProcessStepsReady =
-      sessionStorage.getItem("process_steps_ready") === "true";
-    if (storedProcessStepsReady) {
-      setProcessStepsReady(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    const storedEffortReady = sessionStorage.getItem("effort_ready") === "true";
-    if (storedEffortReady) {
-      setEffortReady(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    const storedTotalCostReady =
-      sessionStorage.getItem("total_cost_ready") === "true";
-    if (storedTotalCostReady) {
-      setTotalCostReady(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (summaryReady) {
-      sessionStorage.setItem("summary_ready", "true");
-    } else {
-      sessionStorage.removeItem("summary_ready");
-    }
-  }, [summaryReady]);
-
-  useEffect(() => {
-    if (regulationsReady) {
-      sessionStorage.setItem("regulations_ready", "true");
-    } else {
-      sessionStorage.removeItem("regulations_ready");
-    }
-  }, [regulationsReady]);
-
-  useEffect(() => {
-    if (processesReady) {
-      sessionStorage.setItem("processes_ready", "true");
-    } else {
-      sessionStorage.removeItem("processes_ready");
-    }
-  }, [processesReady]);
-
-  useEffect(() => {
-    if (caseGroupsReady) {
-      sessionStorage.setItem("case_groups_ready", "true");
-    } else {
-      sessionStorage.removeItem("case_groups_ready");
-    }
-  }, [caseGroupsReady]);
-
-  useEffect(() => {
-    if (processStepsReady) {
-      sessionStorage.setItem("process_steps_ready", "true");
-    } else {
-      sessionStorage.removeItem("process_steps_ready");
-    }
-  }, [processStepsReady]);
-
-  useEffect(() => {
-    if (effortReady) {
-      sessionStorage.setItem("effort_ready", "true");
-    } else {
-      sessionStorage.removeItem("effort_ready");
-    }
-  }, [effortReady]);
-
-  useEffect(() => {
-    if (totalCostReady) {
-      sessionStorage.setItem("total_cost_ready", "true");
-    } else {
-      sessionStorage.removeItem("total_cost_ready");
-    }
-  }, [totalCostReady]);
-
-  useEffect(() => {
-    if (summaryReady && currentTab === 0) {
-      setCurrentTab(1);
-    }
-  }, [summaryReady, currentTab]);
-
-  useEffect(() => {
-    if (regulationsReady && currentTab <= 1) {
-      setCurrentTab(2);
-    }
-  }, [regulationsReady, currentTab]);
-
-  useEffect(() => {
-    if (processesReady && currentTab <= 2) {
-      setCurrentTab(3);
-    }
-  }, [processesReady, currentTab]);
-
-  useEffect(() => {
-    if (caseGroupsReady && currentTab <= 3) {
-      setCurrentTab(4);
-    }
-  }, [caseGroupsReady, currentTab]);
-
-  useEffect(() => {
-    if (processStepsReady && currentTab <= 4) {
-      setCurrentTab(5);
-    }
-  }, [processStepsReady, currentTab]);
-
-  useEffect(() => {
-    if (effortReady && currentTab <= 5) {
-      setCurrentTab(6);
-    }
-  }, [effortReady, currentTab]);
-
-  useEffect(() => {
-    if (!summaryReady && regulationsReady) {
-      setRegulationsReady(false);
-    }
-  }, [summaryReady, regulationsReady]);
-
-  useEffect(() => {
-    if (!regulationsReady && processesReady) {
-      setProcessesReady(false);
-    }
-  }, [regulationsReady, processesReady]);
-
-  useEffect(() => {
-    if (!processesReady && caseGroupsReady) {
-      setCaseGroupsReady(false);
-    }
-  }, [processesReady, caseGroupsReady]);
-
-  useEffect(() => {
-    if (!caseGroupsReady && processStepsReady) {
-      setProcessStepsReady(false);
-    }
-  }, [caseGroupsReady, processStepsReady]);
-
-  useEffect(() => {
-    if (!processStepsReady && effortReady) {
-      setEffortReady(false);
-    }
-  }, [processStepsReady, effortReady]);
-
-  useEffect(() => {
-    if (!effortReady && totalCostReady) {
-      setTotalCostReady(false);
-    }
-  }, [effortReady, totalCostReady]);
+    setCurrentTab(deriveTabFromStatus(normalizedStatus));
+  }, [readinessSetters, readinessValues]);
 
   useEffect(() => {
     if (!appSessionId || !selectedModel) {
@@ -403,15 +324,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         setIsFreshAppSessionId(false);
-      } catch {
-        // Session persistence is best-effort; ignore failures for now.
+      } catch (error) {
+        logDebug("[AppContext] Failed to upsert session", {
+          appSessionId,
+          selectedModel,
+          error,
+        });
       }
     };
     syncSession();
     return () => {
       cancelled = true;
     };
-  }, [appSessionId, selectedModel, isFreshAppSessionId]);
+  }, [appSessionId, selectedModel, isFreshAppSessionId, setNewAppSessionId, logDebug]);
 
   return (
     <AppContext.Provider

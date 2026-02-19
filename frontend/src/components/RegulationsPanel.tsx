@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 
 export default function RegulationsPanel() {
   const { state, setCurrentTab, setRegulationsReady, setProcessesReady } = useApp();
@@ -41,6 +42,9 @@ export default function RegulationsPanel() {
       setProcessesReady(false);
       setCurrentTab(2);
     } catch (error) {
+      logClientError("RegulationsPanel.identifyRegulations", error, {
+        appSessionId: state.appSessionId,
+      });
       setStatus("Vorgaben konnten nicht bestimmt werden.");
     } finally {
       setIsRunning(false);

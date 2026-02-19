@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
 
 export default function ProcessStepsPanel() {
   const { state, setCurrentTab, setProcessStepsReady } = useApp();
@@ -33,6 +34,9 @@ export default function ProcessStepsPanel() {
       setProcessStepsReady(true);
       setCurrentTab(5);
     } catch (error) {
+      logClientError("ProcessStepsPanel.analyzeProcessSteps", error, {
+        appSessionId: state.appSessionId,
+      });
       setStatus("Prozessschritte konnten nicht bestimmt werden.");
     } finally {
       setIsRunning(false);

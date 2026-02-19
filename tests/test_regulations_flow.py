@@ -58,7 +58,7 @@ def test_identify_regulations_flow(test_client, monkeypatch):
     regs = db.list_regulations_for_session(session_id)
     assert [r["legal_citation"] for r in regs] == ["§ 1", "§ 2"]
 
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     assert any(tile.id == "law_tile" for tile in tiles)
     reg_tiles = [tile for tile in tiles if tile.id.startswith("regulation_")]
     assert len(reg_tiles) == 2

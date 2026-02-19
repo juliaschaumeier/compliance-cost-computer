@@ -113,13 +113,6 @@ class SessionRunStepResult(BaseModel):
     message: str | None = None
 
 
-class SessionRunAllResponse(BaseModel):
-    app_session_id: str
-    ok: bool
-    steps: list[SessionRunStepResult]
-    final_status: SessionStatusResponse
-
-
 class SessionRunAllStartResponse(BaseModel):
     app_session_id: str
     run_id: str
@@ -946,25 +939,3 @@ async def stream_run_all_events(run_id: str) -> StreamingResponse:
         },
     )
 
-
-@router.post("/run-all", response_model=SessionRunAllResponse)
-async def run_all_steps(
-    payload: SessionRunAllRequest,
-    api_keys: ApiKeys = Depends(get_api_keys),
-) -> SessionRunAllResponse:
-    model = payload.model or settings.default_model
-    db.upsert_session(payload.app_session_id, model)
-
-    lock = _get_run_all_lock(payload.app_session_id)
-    async with lock:
-        steps, final_status, ok = await _execute_run_all_steps(
-            payload=payload,
-            api_keys=api_keys,
-            model=model,
-        )
-        return SessionRunAllResponse(
-            app_session_id=payload.app_session_id,
-            ok=ok,
-            steps=steps,
-            final_status=final_status,
-        )

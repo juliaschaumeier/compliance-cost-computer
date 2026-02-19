@@ -41,9 +41,9 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
             title TEXT NOT NULL,
             text TEXT NOT NULL,
             meta JSON,
-            col INTEGER DEFAULT 0,
-            row INTEGER DEFAULT 0,
-            deletable INTEGER DEFAULT 1,
+            col INTEGER NOT NULL DEFAULT 0,
+            row INTEGER NOT NULL DEFAULT 0,
+            deletable INTEGER NOT NULL DEFAULT 1 CHECK (deletable IN (0, 1)),
             PRIMARY KEY (session_id, id),
             FOREIGN KEY (session_id)
             REFERENCES sessions(session_id)
@@ -72,29 +72,7 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
     )
 
 
-def _ensure_legacy_tiles_session(cur: sqlite3.Cursor) -> int:
-    cur.execute(
-        """
-        SELECT session_id
-        FROM sessions
-        ORDER BY created_at DESC, session_id DESC
-        LIMIT 1
-        """
-    )
-    row = cur.fetchone()
-    if row is not None:
-        return int(row[0])
-    cur.execute(
-        """
-        INSERT INTO sessions (app_session_id, llm_model)
-        VALUES (?, ?)
-        """,
-        ("LEGACY-TILES", "legacy"),
-    )
-    return int(cur.lastrowid)
-
-
-def _migrate_tiles_links_to_session_scope(cur: sqlite3.Cursor) -> None:
+def _ensure_session_scoped_tile_schema(cur: sqlite3.Cursor) -> None:
     tiles_columns = _table_columns(cur, "tiles")
     links_columns = _table_columns(cur, "links")
 
@@ -102,34 +80,16 @@ def _migrate_tiles_links_to_session_scope(cur: sqlite3.Cursor) -> None:
         _create_session_scoped_tile_tables(cur)
         return
 
-    if "session_id" in tiles_columns and "session_id" in links_columns:
+    if "session_id" in tiles_columns and (
+        not links_columns or "session_id" in links_columns
+    ):
         _create_session_scoped_tile_tables(cur)
         return
 
-    if _table_exists(cur, "links"):
-        cur.execute("ALTER TABLE links RENAME TO links_legacy")
-    cur.execute("ALTER TABLE tiles RENAME TO tiles_legacy")
-    _create_session_scoped_tile_tables(cur)
-    session_id = _ensure_legacy_tiles_session(cur)
-    cur.execute(
-        """
-        INSERT INTO tiles (session_id, id, title, text, meta, col, row, deletable)
-        SELECT ?, id, title, text, meta, col, row, deletable
-        FROM tiles_legacy
-        """,
-        (session_id,),
+    raise RuntimeError(
+        "Legacy tile schema detected (missing session_id). "
+        "Please migrate legacy tiles/links manually before starting the app."
     )
-    if _table_exists(cur, "links_legacy"):
-        cur.execute(
-            """
-            INSERT OR IGNORE INTO links (session_id, source, target)
-            SELECT ?, source, target
-            FROM links_legacy
-            """,
-            (session_id,),
-        )
-        cur.execute("DROP TABLE links_legacy")
-    cur.execute("DROP TABLE tiles_legacy")
 
 
 def get_conn() -> sqlite3.Connection:
@@ -221,7 +181,7 @@ def init_db() -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
-    _migrate_tiles_links_to_session_scope(cur)
+    _ensure_session_scoped_tile_schema(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_sessions (
@@ -451,89 +411,14 @@ def init_db() -> None:
     _maybe_close(conn)
 
 
-def _resolve_tile_session_id(
-    session_id: int | None,
-    *,
-    create_if_missing: bool = False,
-) -> int:
-    if session_id is not None:
-        return int(session_id)
-    latest = get_latest_session()
-    if latest is not None:
-        return int(latest["session_id"])
-    if not create_if_missing:
-        raise ValueError("No session available for tile operation")
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO sessions (app_session_id, llm_model)
-        VALUES (?, ?)
-        """,
-        ("TILE-SEED", "system"),
-    )
-    _maybe_commit(conn)
-    created_id = int(cur.lastrowid)
-    _maybe_close(conn)
-    return created_id
-
-
-def seed_from_json(session_id: int | None = None) -> None:
-    if not settings.seed_json.exists():
-        return
-    resolved_session_id = _resolve_tile_session_id(
-        session_id, create_if_missing=True
-    )
-    data = json.loads(settings.seed_json.read_text(encoding="utf-8"))
-    tiles = data.get("tiles", [])
-    links = []
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM links WHERE session_id = ?", (resolved_session_id,))
-    cur.execute("DELETE FROM tiles WHERE session_id = ?", (resolved_session_id,))
-    for tile in tiles:
-        tile_id = tile["id"]
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO tiles (session_id, id, title, text, meta, col, row, deletable)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                resolved_session_id,
-                tile_id,
-                tile.get("title", tile_id),
-                tile.get("text", ""),
-                json.dumps(tile.get("meta_information", {}), ensure_ascii=False),
-                tile.get("column", 0),
-                tile.get("row", 0),
-                1 if tile.get("deletable", True) else 0,
-            ),
-        )
-        for src in tile.get("link_from_tile", []):
-            links.append((src, tile_id))
-    for src, tgt in links:
-        cur.execute(
-            """
-            INSERT OR REPLACE INTO links (session_id, source, target)
-            VALUES (?, ?, ?)
-            """,
-            (resolved_session_id, src, tgt),
-        )
-    _maybe_commit(conn)
-    _maybe_close(conn)
-
-
 def ensure_db() -> None:
     init_db()
     conn = get_conn()
     _maybe_close(conn)
 
 
-def fetch_tiles(session_id: int | None = None) -> List[Tile]:
-    try:
-        resolved_session_id = _resolve_tile_session_id(session_id)
-    except ValueError:
-        return []
+def fetch_tiles(session_id: int) -> List[Tile]:
+    resolved_session_id = int(session_id)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -1120,25 +1005,6 @@ def update_process_step_cost(
     _maybe_close(conn)
 
 
-def update_process_step_execution(
-    session_id: int,
-    step_id: int,
-    execution_per_case: bool | None,
-) -> None:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE process_steps
-        SET execution_per_case = ?
-        WHERE step_id = ? AND session_id = ?
-        """,
-        (execution_per_case, step_id, session_id),
-    )
-    _maybe_commit(conn)
-    _maybe_close(conn)
-
-
 def update_case_group_cost(
     session_id: int,
     case_group_id: int,
@@ -1555,10 +1421,8 @@ def delete_llm_answers(session_id: int, prompt_ids: Iterable[str]) -> None:
     _maybe_close(conn)
 
 
-def upsert_tile(tile: Tile, session_id: int | None = None) -> None:
-    resolved_session_id = _resolve_tile_session_id(
-        session_id, create_if_missing=True
-    )
+def upsert_tile(tile: Tile, session_id: int) -> None:
+    resolved_session_id = int(session_id)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -1590,10 +1454,8 @@ def upsert_tile(tile: Tile, session_id: int | None = None) -> None:
         set_links(tile.id, tile.link_from_tile, session_id=resolved_session_id)
 
 
-def delete_tile(tile_id: str, session_id: int | None = None) -> None:
-    resolved_session_id = _resolve_tile_session_id(
-        session_id, create_if_missing=True
-    )
+def delete_tile(tile_id: str, session_id: int) -> None:
+    resolved_session_id = int(session_id)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -1611,16 +1473,12 @@ def delete_tile(tile_id: str, session_id: int | None = None) -> None:
     _maybe_close(conn)
 
 
-def clear_tiles(session_id: int | None = None) -> None:
+def clear_tiles(session_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()
-    if session_id is None:
-        cur.execute("DELETE FROM links")
-        cur.execute("DELETE FROM tiles")
-    else:
-        resolved_session_id = int(session_id)
-        cur.execute("DELETE FROM links WHERE session_id = ?", (resolved_session_id,))
-        cur.execute("DELETE FROM tiles WHERE session_id = ?", (resolved_session_id,))
+    resolved_session_id = int(session_id)
+    cur.execute("DELETE FROM links WHERE session_id = ?", (resolved_session_id,))
+    cur.execute("DELETE FROM tiles WHERE session_id = ?", (resolved_session_id,))
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -1628,11 +1486,9 @@ def clear_tiles(session_id: int | None = None) -> None:
 def set_links(
     target_id: str,
     sources: Iterable[str],
-    session_id: int | None = None,
+    session_id: int,
 ) -> None:
-    resolved_session_id = _resolve_tile_session_id(
-        session_id, create_if_missing=True
-    )
+    resolved_session_id = int(session_id)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(

@@ -42,7 +42,8 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
             row=0,
             deletable=True,
             link_from_tile=[],
-        )
+        ),
+        session_id=session_id,
     )
     db.upsert_tile(
         Tile(
@@ -54,7 +55,8 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
             row=0,
             deletable=True,
             link_from_tile=[f"case_group_{case_group_id}"],
-        )
+        ),
+        session_id=session_id,
     )
 
     cases_response = f"""
@@ -141,7 +143,7 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     assert steps[0]["expenses"] == 12
     assert steps[0]["execution_per_case"] in (0, False)
 
-    tiles = db.fetch_tiles()
+    tiles = db.fetch_tiles(session_id=session_id)
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tile = next(tile for tile in tiles if tile.id == f"step_{step_one}")
     assert "Betroffene: 120" in case_tile.text
@@ -167,7 +169,8 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
             row=0,
             deletable=True,
             link_from_tile=[],
-        )
+        ),
+        session_id=session_id,
     )
     db.upsert_tile(
         Tile(
@@ -179,7 +182,8 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
             row=0,
             deletable=True,
             link_from_tile=[f"case_group_{case_group_id}"],
-        )
+        ),
+        session_id=session_id,
     )
 
     cases_response = f"""

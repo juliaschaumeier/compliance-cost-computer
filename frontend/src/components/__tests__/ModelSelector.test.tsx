@@ -1,6 +1,6 @@
 "use client";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import ModelSelector from "@/components/ModelSelector";
@@ -23,6 +23,7 @@ const mockFetchModels = apiClient.fetchOrganizedModels as jest.Mock;
 describe("ModelSelector", () => {
   beforeEach(() => {
     mockFetchModels.mockReset();
+    localStorage.clear();
   });
 
   it("renders the chooser in a portal and allows closing", async () => {
@@ -54,5 +55,56 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getByRole("button", { name: /Schließen/i }));
     expect(screen.queryByText("LLM-Auswahl")).not.toBeInTheDocument();
+  });
+
+  it("removes cleared API keys and only shows models for valid keys", async () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedModel: "",
+        availableModels: [],
+      },
+      setAvailableModels: jest.fn(),
+      setSelectedModel: jest.fn(),
+    });
+    mockFetchModels.mockResolvedValue({
+      organized: {
+        openai: {
+          recommended: [{ id: "gpt-5", name: "GPT-5", provider: "OpenAI" }],
+          additional: [],
+        },
+        deepinfra: { recommended: [], additional: [] },
+        gemini: { recommended: [], additional: [] },
+      },
+      default: "gpt-5",
+    });
+
+    render(<ModelSelector />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /modell/i }));
+    await screen.findByTestId("model-selector-modal");
+
+    expect(screen.queryByRole("option", { name: "GPT-5" })).not.toBeInTheDocument();
+
+    const openAiInput = screen.getByPlaceholderText("sk-...");
+    await user.type(openAiInput, "sk-very-valid-test-key");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("option", {
+          name: "GPT-5",
+        })
+      ).toBeInTheDocument()
+    );
+    const storedKey = localStorage.getItem("openai_api_key");
+    expect(storedKey).toMatch(/^sk-/);
+    expect(storedKey && storedKey.length).toBeGreaterThan(10);
+
+    const refreshedOpenAiInput = screen.getByPlaceholderText("sk-...");
+    await user.click(refreshedOpenAiInput);
+    await user.clear(refreshedOpenAiInput);
+    await waitFor(() =>
+      expect(screen.queryByRole("option", { name: "GPT-5" })).not.toBeInTheDocument()
+    );
+    expect(localStorage.getItem("openai_api_key")).toBeNull();
   });
 });
