@@ -57,10 +57,13 @@ def test_compile_processes_success(test_client, monkeypatch):
     assert links == {(f"regulation_{reg_one}",), (f"regulation_{reg_two}",)}
 
 
-def test_compile_processes_rejects_mismatched_text(test_client, monkeypatch):
-    """Rejects LLM output if normzitat/beschreibung doesn't match the DB record."""
+def test_compile_processes_accepts_mismatched_text_when_id_matches(
+    test_client, monkeypatch
+):
+    """Links regulations by vorgaben_id even if text differs."""
     session_id, _ = db.upsert_session("PROC-MISMATCH", "test-model")
     reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
+    db.upsert_tile(Tile(id=f"regulation_{reg_one}", title="Regelung 1"), session_id=session_id)
 
     response_text = f"""
     {{
@@ -89,9 +92,11 @@ def test_compile_processes_rejects_mismatched_text(test_client, monkeypatch):
             "provider": "deepinfra",
         },
     )
-    assert resp.status_code == 422
-    assert "text mismatch" in resp.json()["detail"]
-    assert db.list_processes_for_session(session_id) == []
+    assert resp.status_code == 200
+    processes = db.list_processes_for_session(session_id)
+    assert len(processes) == 1
+    regulations = db.list_regulations_for_session(session_id)
+    assert regulations[0]["process_id"] == processes[0]["process_id"]
 
 
 def test_compile_processes_rejects_duplicate_vorgaben(test_client, monkeypatch):
@@ -203,7 +208,77 @@ def test_compile_processes_returns_existing(test_client, monkeypatch):
             "process_id": process_id,
             "prozess_bezeichnung": "Vorhanden",
             "prozess_beschreibung": "Schon da",
+            "aenderungsstatus": "geaendert",
         }
+    ]
+
+
+def test_compile_processes_normalizes_change_status_variants(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("PROC-STATUS-VARIANTS", "test-model")
+    reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
+    reg_two = db.insert_regulation(session_id, "Section 2", "Beschreibung B")
+    reg_three = db.insert_regulation(session_id, "Section 3", "Beschreibung C")
+    db.upsert_tile(Tile(id=f"regulation_{reg_one}", title="Regelung 1"), session_id=session_id)
+    db.upsert_tile(Tile(id=f"regulation_{reg_two}", title="Regelung 2"), session_id=session_id)
+    db.upsert_tile(Tile(id=f"regulation_{reg_three}", title="Regelung 3"), session_id=session_id)
+
+    response_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_bezeichnung": "Prozess A",
+          "prozess_beschreibung": "Beschreibung A",
+          "change_status": "new",
+          "vorgaben": [
+            {{"vorgaben_id": "{reg_one}", "normzitat": "Section 1", "beschreibung": "Beschreibung A"}}
+          ]
+        }},
+        {{
+          "prozess_bezeichnung": "Prozess B",
+          "prozess_beschreibung": "Beschreibung B",
+          "status_change": "updated",
+          "vorgaben": [
+            {{"vorgaben_id": "{reg_two}", "normzitat": "Section 2", "beschreibung": "Beschreibung B"}}
+          ]
+        }},
+        {{
+          "prozess_bezeichnung": "Prozess C",
+          "prozess_beschreibung": "Beschreibung C",
+          "status": "deleted",
+          "vorgaben": [
+            {{"vorgaben_id": "{reg_three}", "normzitat": "Section 3", "beschreibung": "Beschreibung C"}}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return response_text
+
+    monkeypatch.setattr(processes_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-STATUS-VARIANTS",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert [row["aenderungsstatus"] for row in payload["prozesse"]] == [
+        "eingefuehrt",
+        "geaendert",
+        "abgeschafft",
+    ]
+
+    rows = db.list_processes_for_session(session_id)
+    assert [row["change_status"] for row in rows] == [
+        "eingefuehrt",
+        "geaendert",
+        "abgeschafft",
     ]
 
 

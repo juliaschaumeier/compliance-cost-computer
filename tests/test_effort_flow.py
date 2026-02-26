@@ -71,8 +71,10 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
               "fallgruppen_id": "{case_group_id}",
               "fallgruppe_bezeichnung": "Fallgruppe A",
               "fallgruppe_beschreibung": "Beschreibung Fallgruppe",
-              "anzahl_betroffene": "120",
-              "haeufigkeit_pro_jahr": "2"
+              "anzahl_betroffene_gueltig": "100",
+              "haeufigkeit_pro_jahr_gueltig": "2",
+              "anzahl_betroffene_vorschlag": "120",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
             }}
           ]
         }}
@@ -96,9 +98,12 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
                   "taetigkeiten_id": "{step_one}",
                   "taetigkeit": "Schritt 1",
                   "beschreibung": "Beschreibung Schritt 1",
-                  "stundenlohn_satz_a": "45",
-                  "zeitaufwand_in_min_a": "1.5",
-                  "sachaufwand": "12",
+                  "stundenlohn_satz_a_gueltig": "40",
+                  "zeitaufwand_in_min_a_gueltig": "1",
+                  "sachaufwand_gueltig": "10",
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "sachaufwand_vorschlag": "12",
                   "ausfuehrung_pro_einzelfall": "0"
                 }}
               ]
@@ -134,20 +139,27 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     assert len(calls) == 2
 
     case_groups = db.list_case_groups_for_session(session_id)
-    assert case_groups[0]["addressees"] == 120
-    assert case_groups[0]["annual_frequency"] == 2
+    assert case_groups[0]["addressees_current"] == 100
+    assert case_groups[0]["annual_frequency_current"] == 2
+    assert case_groups[0]["addressees_proposed"] == 120
+    assert case_groups[0]["annual_frequency_proposed"] == 2
 
     steps = db.list_process_steps_for_session(session_id)
-    assert steps[0]["hourly_rate_a"] == 45
-    assert steps[0]["time_required_in_min_a"] == 1.5
-    assert steps[0]["expenses"] == 12
+    assert steps[0]["hourly_rate_a_current"] == 40
+    assert steps[0]["time_required_in_min_a_current"] == 1
+    assert steps[0]["expenses_current"] == 10
+    assert steps[0]["hourly_rate_a_proposed"] == 45
+    assert steps[0]["time_required_in_min_a_proposed"] == 1.5
+    assert steps[0]["expenses_proposed"] == 12
     assert steps[0]["execution_per_case"] in (0, False)
 
     tiles = db.fetch_tiles(session_id=session_id)
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tile = next(tile for tile in tiles if tile.id == f"step_{step_one}")
+    assert "Gültig:" in case_tile.text
+    assert "Vorschlag:" in case_tile.text
     assert "Betroffene: 120" in case_tile.text
-    assert "Häufigkeit: 2" in case_tile.text
+    assert "Häufigkeit/Jahr: 2" in case_tile.text
     assert "Lohnsatz A: 45" in step_tile.text
     assert "Zeitaufwand A: 1.5" in step_tile.text
     assert "Sachaufwand: 12" in step_tile.text
@@ -198,8 +210,8 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
               "fallgruppen_id": "{case_group_id}",
               "fallgruppe_bezeichnung": "Fallgruppe A",
               "fallgruppe_beschreibung": "Beschreibung Fallgruppe",
-              "anzahl_betroffene": "120",
-              "haeufigkeit_pro_jahr": "2"
+              "anzahl_betroffene_vorschlag": "120",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
             }}
           ]
         }}
@@ -223,9 +235,9 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
                   "taetigkeiten_id": "{step_one}",
                   "taetigkeit": "Schritt 1",
                   "beschreibung": "Beschreibung Schritt 1",
-                  "stundenlohn_satz_a": "45",
-                  "zeitaufwand_in_min_a": "1.5",
-                  "sachaufwand": "12"
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "sachaufwand_vorschlag": "12"
                 }}
               ]
             }}
@@ -272,8 +284,8 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
     assert payload["steps_updated"] == 0
 
 
-def test_calculate_effort_parses_legacy_keys(test_client, monkeypatch):
-    """Accepts legacy lohnsatz/zeitaufwand keys and stores metrics."""
+def test_calculate_effort_rejects_legacy_keys(test_client, monkeypatch):
+    """Rejects unsuffixed legacy keys in effort payloads."""
     session_id, _ = db.upsert_session("EFFORT-LEGACY", "test-model")
     _process_id, case_group_id = _seed_case_group(session_id)
     step_one, _step_two = _seed_steps(session_id, case_group_id)
@@ -332,12 +344,8 @@ def test_calculate_effort_parses_legacy_keys(test_client, monkeypatch):
             "provider": "openai",
         },
     )
-    assert resp.status_code == 200
-
-    steps = db.list_process_steps_for_session(session_id)
-    assert steps[0]["hourly_rate_a"] == 22
-    assert steps[0]["time_required_in_min_a"] == 15
-    assert steps[0]["expenses"] == 7
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "No case group metrics parsed"
 
 
 def test_calculate_effort_requires_case_groups(test_client):
@@ -387,8 +395,8 @@ def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):
           "fallgruppen": [
             {
               "fallgruppen_id": "999",
-              "anzahl_betroffene": "10",
-              "haeufigkeit_pro_jahr": "1"
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "1"
             }
           ]
         }
@@ -406,9 +414,9 @@ def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):
               "taetigkeiten": [
                 {
                   "taetigkeiten_id": "1",
-                  "stundenlohn_satz_a": "10",
-                  "zeitaufwand_in_min_a": "1",
-                  "sachaufwand": "1"
+                  "stundenlohn_satz_a_vorschlag": "10",
+                  "zeitaufwand_in_min_a_vorschlag": "1",
+                  "sachaufwand_vorschlag": "1"
                 }
               ]
             }
@@ -451,8 +459,8 @@ def test_calculate_effort_rejects_unknown_step(test_client, monkeypatch):
           "fallgruppen": [
             {{
               "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene": "10",
-              "haeufigkeit_pro_jahr": "1"
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "1"
             }}
           ]
         }}
@@ -470,9 +478,9 @@ def test_calculate_effort_rejects_unknown_step(test_client, monkeypatch):
               "taetigkeiten": [
                 {
                   "taetigkeiten_id": "999",
-                  "stundenlohn_satz_a": "10",
-                  "zeitaufwand_in_min_a": "1",
-                  "sachaufwand": "1"
+                  "stundenlohn_satz_a_vorschlag": "10",
+                  "zeitaufwand_in_min_a_vorschlag": "1",
+                  "sachaufwand_vorschlag": "1"
                 }
               ]
             }

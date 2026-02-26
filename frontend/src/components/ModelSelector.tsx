@@ -37,6 +37,7 @@ export default function ModelSelector() {
     left: 16,
   });
   const [isMounted, setIsMounted] = useState(false);
+  const modelsLoadedRef = useRef(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -64,6 +65,7 @@ export default function ModelSelector() {
     } catch (error) {
       logClientError("ModelSelector.loadModels", error);
     } finally {
+      modelsLoadedRef.current = true;
       setLoading(false);
     }
   }, []);
@@ -92,6 +94,9 @@ export default function ModelSelector() {
   useEffect(() => {
     const allModels = flattenModels(visibleOrganizedModels);
     setAvailableModels(allModels);
+    if (!modelsLoadedRef.current) {
+      return;
+    }
     const hasSelection = allModels.some((model) => model.id === state.selectedModel);
     if (!hasSelection && state.selectedModel) {
       setSelectedModel("");
@@ -140,11 +145,17 @@ export default function ModelSelector() {
   };
 
   const selectedModelLabel = useMemo(() => {
-    const model = state.availableModels.find(
-      (item) => item.id === state.selectedModel
-    );
-    return model ? `${model.name} (${model.provider})` : "Model wählen";
-  }, [state.availableModels, state.selectedModel]);
+    if (!state.selectedModel) {
+      return "Model wählen";
+    }
+    const knownModels = flattenModels(organizedModels);
+    const model =
+      knownModels.find((item) => item.id === state.selectedModel) ||
+      state.availableModels.find((item) => item.id === state.selectedModel);
+    return model
+      ? `${model.name} (${model.provider})`
+      : state.selectedModel;
+  }, [organizedModels, state.availableModels, state.selectedModel]);
 
   useEffect(() => {
     if (!open) {
@@ -202,6 +213,7 @@ export default function ModelSelector() {
               onChange={(event) => setSelectedModel(event.target.value)}
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
             >
+              <option value="">Modell auswählen</option>
               <optgroup label="Empfohlen - OpenAI">
                 {visibleOrganizedModels.openai.recommended.map((model) => (
                   <option key={model.id} value={model.id}>

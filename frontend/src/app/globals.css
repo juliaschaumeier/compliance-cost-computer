@@ -60,15 +60,15 @@ body {
 }
 
 .tile-node.is-focused {
-  border-color: rgba(15, 118, 110, 0.7);
-  box-shadow: 0 16px 32px rgba(15, 118, 110, 0.22);
-  background: #f0fdfa;
+  border-color: rgba(59, 130, 246, 0.62);
+  box-shadow: 0 16px 32px rgba(59, 130, 246, 0.2);
+  background: #edf4ff;
 }
 
 .tile-node.is-neighbor {
-  border-color: rgba(15, 118, 110, 0.35);
-  box-shadow: 0 12px 28px rgba(15, 118, 110, 0.16);
-  background: #f8fffd;
+  border-color: rgba(96, 165, 250, 0.38);
+  box-shadow: 0 12px 28px rgba(96, 165, 250, 0.14);
+  background: #f4f8ff;
 }
 
 .react-flow__node.node-expanded {
@@ -87,6 +87,43 @@ body {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+.tile-node .tile-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tile-node .tile-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.tile-node .tile-status-eingefuehrt {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.tile-node .tile-status-geaendert {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.tile-node .tile-status-abgeschafft {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
 }
 
 .tile-node .tile-body-row {

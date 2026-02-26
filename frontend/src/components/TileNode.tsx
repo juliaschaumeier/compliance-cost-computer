@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { Handle, type NodeProps, Position } from "@xyflow/react";
+import { ChangeStatus, getChangeStatusLabel } from "@/lib/changeStatus";
 
 export interface TileNodeData {
   title: string;
@@ -15,6 +16,7 @@ export interface TileNodeData {
   textHasOverflow: boolean;
   isFocused: boolean;
   isNeighbor: boolean;
+  changeStatus?: ChangeStatus | null;
 }
 
 export function TileNode({ data, id }: NodeProps<TileNodeData>) {
@@ -43,7 +45,14 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
     <div ref={setNodeRef} className={`tile-node ${highlightClass}`}>
       <Handle type="target" position={Position.Left} />
       <div className="tile-header">
-        <h4>{data.title}</h4>
+        <div className="tile-title-wrap">
+          {data.changeStatus && (
+            <span className={`tile-status tile-status-${data.changeStatus}`}>
+              {getChangeStatusLabel(data.changeStatus)}
+            </span>
+          )}
+          <h4>{data.title}</h4>
+        </div>
         {data.deletable && (
           <div className="tile-actions">
             <button

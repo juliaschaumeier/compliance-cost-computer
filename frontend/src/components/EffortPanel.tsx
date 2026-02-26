@@ -4,16 +4,27 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function EffortPanel() {
   const { state, setCurrentTab, setEffortReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const isRunAllBusy = useRunAllStepBusy("effort");
+  const isBusy = isRunning || isRunAllBusy;
 
-  const canRun = state.processStepsReady && !state.effortReady && !isRunning;
+  const canRun =
+    state.processStepsReady &&
+    !state.effortReady &&
+    Boolean(state.selectedModel) &&
+    !isBusy;
 
   const handleCalculate = async () => {
+    if (!state.selectedModel) {
+      setStatus("Bitte zuerst ein Modell auswählen.");
+      return;
+    }
     if (!canRun) {
       return;
     }
@@ -43,11 +54,7 @@ export default function EffortPanel() {
       logClientError("EffortPanel.calculateEffort", error, {
         appSessionId: state.appSessionId,
       });
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Unbekannter Fehler";
-      setStatus(`Aufwand konnte nicht berechnet werden: ${message}`);
+      setStatus(formatActionErrorMessage("Aufwand konnte nicht berechnet werden", error));
     } finally {
       setIsRunning(false);
     }
@@ -70,7 +77,7 @@ export default function EffortPanel() {
                 : "cursor-not-allowed bg-slate-200 text-slate-500"
             }`}
           >
-            {isRunning ? "Bitte warten..." : "Aufwand berechnen"}
+            {isBusy ? "Bitte warten..." : "Aufwand berechnen"}
           </button>
         </div>
 

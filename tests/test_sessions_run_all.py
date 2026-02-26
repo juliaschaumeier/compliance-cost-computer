@@ -9,6 +9,7 @@ from backend.routers import (
     process_steps as process_steps_router,
     processes as processes_router,
     regulations as regulations_router,
+    sessions as sessions_router,
 )
 
 
@@ -153,8 +154,8 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
                             "fallgruppen": [
                                 {
                                     "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                                    "anzahl_betroffene": "10",
-                                    "haeufigkeit_pro_jahr": "2",
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
                                 }
                             ],
                         },
@@ -163,8 +164,8 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
                             "fallgruppen": [
                                 {
                                     "fallgruppen_id": str(case_groups[1]["case_group_id"]),
-                                    "anzahl_betroffene": "5",
-                                    "haeufigkeit_pro_jahr": "1",
+                                    "anzahl_betroffene_vorschlag": "5",
+                                    "haeufigkeit_pro_jahr_vorschlag": "1",
                                 }
                             ],
                         },
@@ -179,9 +180,9 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
                     "taetigkeiten_id": str(step["step_id"]),
                     "taetigkeit": step["step"],
                     "beschreibung": step["description"],
-                    "stundenlohn_satz_a": "50",
-                    "zeitaufwand_in_min_a": "10",
-                    "sachaufwand": "5",
+                    "stundenlohn_satz_a_vorschlag": "50",
+                    "zeitaufwand_in_min_a_vorschlag": "10",
+                    "sachaufwand_vorschlag": "5",
                 }
                 for step in steps_by_group.get(group_id, [])
             ]
@@ -265,6 +266,15 @@ def test_run_all_reports_step_failure(test_client):
     assert payload["final_status"]["summary_ready"] is False
 
 
+def test_run_all_start_requires_model_for_new_session(test_client):
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={"app_session_id": "RUNALL-NO-MODEL"},
+    )
+    assert start_response.status_code == 400
+    assert "Model is required for new session" in start_response.json()["detail"]
+
+
 def test_run_all_skips_summary_when_already_done(test_client, monkeypatch):
     app_session_id = "RUNALL-SKIP"
     db.insert_law("current_skip.txt", "aktuelles gesetz")
@@ -294,6 +304,28 @@ def test_run_all_skips_summary_when_already_done(test_client, monkeypatch):
     assert payload["steps"][0]["key"] == "summary"
     assert payload["steps"][0]["status"] == "skipped"
     assert payload["final_status"]["total_cost_ready"] is True
+
+
+def test_run_all_start_keeps_existing_model_when_request_model_missing(
+    test_client, monkeypatch
+):
+    app_session_id = "RUNALL-KEEP-MODEL"
+    db.upsert_session(app_session_id, "gpt-5")
+
+    async def fake_background(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(sessions_router, "_run_all_background", fake_background)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={"app_session_id": app_session_id},
+    )
+    assert start_response.status_code == 200
+
+    session = db.get_session_by_app_id(app_session_id)
+    assert session is not None
+    assert session["llm_model"] == "gpt-5"
 
 
 def _wait_for_run_completion(test_client, run_id: str, timeout_s: float = 5.0) -> dict:

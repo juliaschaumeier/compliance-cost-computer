@@ -107,4 +107,39 @@ describe("ModelSelector", () => {
     );
     expect(localStorage.getItem("openai_api_key")).toBeNull();
   });
+
+  it("keeps selected model label visible after loading models", async () => {
+    const setAvailableModels = jest.fn();
+    const setSelectedModel = jest.fn();
+    localStorage.setItem("openai_api_key", "sk-very-valid-test-key");
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedModel: "gpt-5",
+        availableModels: [],
+      },
+      setAvailableModels,
+      setSelectedModel,
+    });
+    mockFetchModels.mockResolvedValue({
+      organized: {
+        openai: {
+          recommended: [{ id: "gpt-5", name: "GPT-5", provider: "OpenAI" }],
+          additional: [],
+        },
+        deepinfra: { recommended: [], additional: [] },
+        gemini: { recommended: [], additional: [] },
+      },
+      default: "gpt-5",
+    });
+
+    render(<ModelSelector />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /GPT-5 \(OpenAI\)/i })
+      ).toBeInTheDocument()
+    );
+    expect(setSelectedModel).not.toHaveBeenCalledWith("");
+    expect(setAvailableModels).toHaveBeenCalled();
+  });
 });

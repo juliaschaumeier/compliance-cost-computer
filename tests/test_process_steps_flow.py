@@ -1,4 +1,5 @@
 from backend.core import db
+from backend.core.models import Tile
 from backend.routers import process_steps as process_steps_router
 
 
@@ -52,3 +53,149 @@ def test_analyze_process_steps_requires_case_groups(test_client):
     assert resp.status_code == 400
     assert resp.json()["detail"] == "No case groups for session"
 
+
+def test_analyze_process_steps_parses_change_status_and_sets_tile_meta(
+    test_client, monkeypatch
+):
+    session_id, process_id, case_group_id, _step_id = _seed_steps("STEPS-STATUS")
+    db.delete_process_steps_for_session(session_id)
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={
+                "case_group_id": case_group_id,
+                "process_id": process_id,
+            },
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    response_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{process_id}",
+          "aenderungsstatus": "geaendert",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "aenderungsstatus": "geaendert",
+              "taetigkeiten": [
+                {{
+                  "taetigkeit": "Neuer Schritt",
+                  "beschreibung": "Beschreibung",
+                  "aenderungsstatus": "abgeschafft"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return response_text
+
+    monkeypatch.setattr(process_steps_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/process-steps/analyze",
+        json={
+            "app_session_id": "STEPS-STATUS",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["steps"][0]["aenderungsstatus"] == "abgeschafft"
+
+    steps = db.list_process_steps_for_session(session_id)
+    assert steps[0]["change_status"] == "abgeschafft"
+
+    tiles = db.fetch_tiles(session_id=session_id)
+    step_tile = next(tile for tile in tiles if tile.id.startswith("step_"))
+    assert step_tile.meta_information.get("change_status") == "abgeschafft"
+
+
+def test_analyze_process_steps_normalizes_change_status_variants(test_client, monkeypatch):
+    session_id, process_id, case_group_id, _step_id = _seed_steps("STEPS-STATUS-VARIANTS")
+    db.delete_process_steps_for_session(session_id)
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={
+                "case_group_id": case_group_id,
+                "process_id": process_id,
+            },
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    response_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{process_id}",
+          "status": "updated",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "change_status": "updated",
+              "taetigkeiten": [
+                {{
+                  "taetigkeit": "Neuer Schritt A",
+                  "beschreibung": "Beschreibung A",
+                  "status_change": "new"
+                }},
+                {{
+                  "taetigkeit": "Neuer Schritt B",
+                  "beschreibung": "Beschreibung B",
+                  "status": "deleted"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return response_text
+
+    monkeypatch.setattr(process_steps_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/process-steps/analyze",
+        json={
+            "app_session_id": "STEPS-STATUS-VARIANTS",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert [row["aenderungsstatus"] for row in payload["steps"]] == [
+        "eingefuehrt",
+        "abgeschafft",
+    ]
+
+    rows = db.list_process_steps_for_session(session_id)
+    assert [row["change_status"] for row in rows] == [
+        "eingefuehrt",
+        "abgeschafft",
+    ]

@@ -4,16 +4,27 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function CaseGroupsPanel() {
   const { state, setCurrentTab, setCaseGroupsReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const isRunAllBusy = useRunAllStepBusy("case_groups");
+  const isBusy = isRunning || isRunAllBusy;
 
-  const canRun = state.processesReady && !state.caseGroupsReady && !isRunning;
+  const canRun =
+    state.processesReady &&
+    !state.caseGroupsReady &&
+    Boolean(state.selectedModel) &&
+    !isBusy;
 
   const handleDevelop = async () => {
+    if (!state.selectedModel) {
+      setStatus("Bitte zuerst ein Modell auswählen.");
+      return;
+    }
     if (!canRun) {
       return;
     }
@@ -37,7 +48,7 @@ export default function CaseGroupsPanel() {
       logClientError("CaseGroupsPanel.developCaseGroups", error, {
         appSessionId: state.appSessionId,
       });
-      setStatus("Fallgruppen konnten nicht entwickelt werden.");
+      setStatus(formatActionErrorMessage("Fallgruppen konnten nicht entwickelt werden", error));
     } finally {
       setIsRunning(false);
     }
@@ -66,7 +77,7 @@ export default function CaseGroupsPanel() {
                 : "cursor-not-allowed bg-slate-200 text-slate-500"
             }`}
           >
-            {isRunning ? "Bitte warten..." : "Fallgruppen entwickeln"}
+            {isBusy ? "Bitte warten..." : "Fallgruppen entwickeln"}
           </button>
         </div>
 

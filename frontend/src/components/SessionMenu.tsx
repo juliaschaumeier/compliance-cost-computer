@@ -4,8 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
-import { apiClient, buildLlmRequestOptions } from "@/lib/api";
+import {
+  apiClient,
+  buildLlmRequestOptions,
+  type ApiClientError,
+} from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
+import {
+  emitRunAllStepCleared,
+  emitRunAllStepStarted,
+} from "@/lib/runAllStepEvents";
 import { deriveTabFromStatus } from "@/lib/sessionStatus";
 import { SessionStatus, SessionSummary } from "@/types";
 
@@ -14,6 +22,7 @@ type SessionMenuProps = {
 };
 
 type SessionStepResult = { status: string; message?: string };
+type RunStepStartedEvent = { key?: string; label?: string };
 type RunStepStatusEvent = { session_status?: SessionStatus };
 type RunCompletedEvent = { final_status?: SessionStatus; ok?: boolean };
 type RunFailedEvent = {
@@ -116,6 +125,28 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   }, [sessions]);
 
   const resetStatus = () => setStatus(null);
+  const getErrorStatus = (error: unknown): number | undefined => {
+    const status = (error as ApiClientError)?.status;
+    return typeof status === "number" ? status : undefined;
+  };
+  const getRunStatusErrorMessage = (error: unknown): string => {
+    const err = error as ApiClientError;
+    const rawMessage =
+      typeof err?.message === "string" ? err.message.trim() : "";
+    const lower = rawMessage.toLowerCase();
+    const status = getErrorStatus(error);
+
+    if (lower.includes("failed to fetch")) {
+      return "Backend ist nicht erreichbar. Bitte Backend prüfen und erneut versuchen.";
+    }
+    if (status) {
+      return `Status der Schritte konnte nicht aktualisiert werden (HTTP ${status}).`;
+    }
+    if (rawMessage && rawMessage !== "Failed to load run-all status") {
+      return `Status der Schritte konnte nicht aktualisiert werden: ${rawMessage}`;
+    }
+    return "Status der Schritte konnte nicht aktualisiert werden.";
+  };
 
   const lastStepLabel = state.lastCompletedLabel;
 
@@ -266,6 +297,36 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     }
   };
 
+  const resetRunUiState = () => {
+    setIsRunningAll(false);
+    setCurrentRunId(null);
+    setIsCancellingRun(false);
+    emitRunAllStepCleared();
+    stopRunMonitoring();
+  };
+
+  const handleMissingRunState = async (runId: string, error: unknown) => {
+    logClientError("SessionMenu.missingRunState", error, {
+      runId,
+      appSessionId: state.appSessionId,
+    });
+    try {
+      const sessionStatus = await apiClient.getSessionStatus(state.appSessionId);
+      applySessionStatus(sessionStatus);
+      window.dispatchEvent(new Event("tiles-updated"));
+    } catch (statusError) {
+      logClientError("SessionMenu.refreshStatusAfterMissingRun", statusError, {
+        runId,
+        appSessionId: state.appSessionId,
+      });
+    } finally {
+      setStatus(
+        "Backend-Neustart erkannt. Laufstatus wurde verworfen, bitte erneut starten."
+      );
+      resetRunUiState();
+    }
+  };
+
   const pollRunStatus = (runId: string) => {
     runPollTimerRef.current = window.setTimeout(async () => {
       try {
@@ -278,9 +339,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           pollRunStatus(runId);
           return;
         }
-        setCurrentRunId(null);
-        setIsRunningAll(false);
-        setIsCancellingRun(false);
+        resetRunUiState();
         if (progress.status === "completed" && progress.ok) {
           setStatus("Alle Schritte wurden ausgeführt.");
         } else if (progress.status === "cancelled") {
@@ -292,14 +351,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
               "Schritte konnten nicht vollständig ausgeführt werden."
           );
         }
-        stopRunMonitoring();
       } catch (error) {
+        if (getErrorStatus(error) === 404) {
+          await handleMissingRunState(runId, error);
+          return;
+        }
         logClientError("SessionMenu.pollRunStatus", error, { runId });
-        setIsRunningAll(false);
-        setCurrentRunId(null);
-        setIsCancellingRun(false);
-        setStatus("Status der Schritte konnte nicht aktualisiert werden.");
-        stopRunMonitoring();
+        resetRunUiState();
+        setStatus(getRunStatusErrorMessage(error));
       }
     }, 1500);
   };
@@ -311,9 +370,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
     source.addEventListener("step_started", (event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as {
-          label?: string;
-        };
+        const payload = JSON.parse((event as MessageEvent).data) as RunStepStartedEvent;
+        emitRunAllStepStarted(payload.key);
         if (payload.label) {
           setStatus(`Läuft: ${payload.label}`);
         }
@@ -358,6 +416,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setIsRunningAll(false);
         setCurrentRunId(null);
         setIsCancellingRun(false);
+        emitRunAllStepCleared();
         stopRunMonitoring();
       }
     });
@@ -382,6 +441,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setIsRunningAll(false);
         setCurrentRunId(null);
         setIsCancellingRun(false);
+        emitRunAllStepCleared();
         stopRunMonitoring();
       }
     });
@@ -402,6 +462,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setIsRunningAll(false);
         setCurrentRunId(null);
         setIsCancellingRun(false);
+        emitRunAllStepCleared();
         stopRunMonitoring();
       }
     });
@@ -428,6 +489,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setStatus("Abbruch angefordert...");
         await apiClient.cancelRunAll(currentRunId);
       } catch (error) {
+        if (getErrorStatus(error) === 404) {
+          await handleMissingRunState(currentRunId, error);
+          return;
+        }
         logClientError("SessionMenu.cancelRunAll", error, {
           runId: currentRunId,
         });
@@ -437,12 +502,17 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       }
       return;
     }
+    if (!state.selectedModel) {
+      setStatus("Bitte zuerst ein Modell auswählen.");
+      return;
+    }
     if (state.totalCostReady) {
       setStatus("Alle Schritte sind bereits abgeschlossen.");
       return;
     }
     resetStatus();
     setIsRunningAll(true);
+    emitRunAllStepCleared();
     const { model, provider, keys } = buildLlmRequestOptions({
       selectedModel: state.selectedModel,
       availableModels: state.availableModels,
@@ -473,6 +543,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setIsRunningAll(false);
       setCurrentRunId(null);
       setIsCancellingRun(false);
+      emitRunAllStepCleared();
       stopRunMonitoring();
     }
   };

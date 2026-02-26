@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Iterable, List
 
 from .config import settings
+from .db_formatting import (
+    build_case_group_tile_text,
+    build_process_step_tile_text,
+    build_process_tile_text,
+    format_currency,
+    format_number,
+)
 from .models import Tile
 
 _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=None)
@@ -15,21 +22,6 @@ _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=
 
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-
-
-def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
-    cur.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
-        (table_name,),
-    )
-    return cur.fetchone() is not None
-
-
-def _table_columns(cur: sqlite3.Cursor, table_name: str) -> set[str]:
-    if not _table_exists(cur, table_name):
-        return set()
-    cur.execute(f"PRAGMA table_info({table_name})")
-    return {str(row[1]) for row in cur.fetchall()}
 
 
 def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
@@ -70,28 +62,6 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
         );
         """
     )
-
-
-def _ensure_session_scoped_tile_schema(cur: sqlite3.Cursor) -> None:
-    tiles_columns = _table_columns(cur, "tiles")
-    links_columns = _table_columns(cur, "links")
-
-    if not tiles_columns:
-        _create_session_scoped_tile_tables(cur)
-        return
-
-    if "session_id" in tiles_columns and (
-        not links_columns or "session_id" in links_columns
-    ):
-        _create_session_scoped_tile_tables(cur)
-        return
-
-    raise RuntimeError(
-        "Legacy tile schema detected (missing session_id). "
-        "Please migrate legacy tiles/links manually before starting the app."
-    )
-
-
 def get_conn() -> sqlite3.Connection:
     existing = _TX_CONN.get()
     if existing is not None:
@@ -155,6 +125,7 @@ def init_db() -> None:
         """
     )
     # TODO: Maybe add updated_at with trigger rule: https://www.sqlitetutorial.net/sqlite-date-functions/sqlite-current_timestamp/
+    # TODO: Potentially add the change in cases? How meaningful is that number?
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS sessions (
@@ -181,7 +152,7 @@ def init_db() -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
-    _ensure_session_scoped_tile_schema(cur)
+    _create_session_scoped_tile_tables(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_sessions (
@@ -227,6 +198,7 @@ def init_db() -> None:
             session_id      INTEGER NOT NULL,
             legal_citation  TEXT NOT NULL,
             description     TEXT NOT NULL,
+            change_status   TEXT NOT NULL,
             created_at      TEXT NOT NULL DEFAULT current_timestamp,
             FOREIGN KEY (session_id)
             REFERENCES sessions (session_id) 
@@ -266,6 +238,7 @@ def init_db() -> None:
             session_id      INTEGER NOT NULL,
             process         TEXT NOT NULL,
             description     TEXT NOT NULL,
+            change_status   TEXT NOT NULL,
             created_at      TEXT NOT NULL DEFAULT current_timestamp,
             cost            REAL,
             FOREIGN KEY (session_id)
@@ -296,15 +269,20 @@ def init_db() -> None:
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS case_groups (
-            case_group_id       INTEGER PRIMARY KEY,
-            process_id          INTEGER NOT NULL,
-            session_id          INTEGER NOT NULL,
-            case_group          TEXT NOT NULL,
-            description         TEXT NOT NULL,
-            created_at          TEXT NOT NULL DEFAULT current_timestamp,
-            addressees          REAL,
-            annual_frequency    REAL,
-            cost                REAL,
+            case_group_id               INTEGER PRIMARY KEY,
+            process_id                  INTEGER NOT NULL,
+            session_id                  INTEGER NOT NULL,
+            case_group                  TEXT NOT NULL,
+            description                 TEXT NOT NULL,
+            change_status               TEXT NOT NULL,
+            created_at                  TEXT NOT NULL DEFAULT current_timestamp,
+            addressees_current          REAL,
+            annual_frequency_current    REAL,
+            cases_current               REAL,
+            addressees_proposed         REAL,
+            annual_frequency_proposed   REAL,
+            cases_proposed              REAL,
+            cost                        REAL,
             FOREIGN KEY (process_id)
             REFERENCES processes
                 ON UPDATE CASCADE
@@ -339,27 +317,36 @@ def init_db() -> None:
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS process_steps (
-            step_id                 INTEGER PRIMARY KEY,
-            case_group_id           INTEGER NOT NULL,
-            session_id              INTEGER NOT NULL,
-            step                    TEXT NOT NULL,
-            description             TEXT NOT NULL,
-            created_at              TEXT NOT NULL DEFAULT current_timestamp,
-            previous_id             INTEGER,
-            next_id                 INTEGER,
-            hourly_rate_a           REAL,
-            hourly_rate_b           REAL,
-            hourly_rate_c           REAL,
-            hourly_rate_d           REAL,
-            hourly_rate_e           REAL,
-            time_required_in_min_a  REAL,
-            time_required_in_min_b  REAL,
-            time_required_in_min_c  REAL,
-            time_required_in_min_d  REAL,
-            time_required_in_min_e  REAL,
-            expenses                REAL,
-            execution_per_case      BIT,
-            cost                    REAL,
+            step_id                         INTEGER PRIMARY KEY,
+            case_group_id                   INTEGER NOT NULL,
+            session_id                      INTEGER NOT NULL,
+            step                            TEXT NOT NULL,
+            description                     TEXT NOT NULL,
+            change_status                   TEXT NOT NULL,
+            created_at                      TEXT NOT NULL DEFAULT current_timestamp,
+            previous_id                     INTEGER,
+            next_id                         INTEGER,
+            hourly_rate_a_current           REAL,
+            hourly_rate_b_current           REAL,
+            hourly_rate_c_current           REAL,
+            hourly_rate_d_current           REAL,
+            time_required_in_min_a_current  REAL,
+            time_required_in_min_b_current  REAL,
+            time_required_in_min_c_current  REAL,
+            time_required_in_min_d_current  REAL,
+            expenses_current                REAL,
+            hourly_rate_a_proposed          REAL,
+            hourly_rate_b_proposed          REAL,
+            hourly_rate_c_proposed          REAL,
+            hourly_rate_d_proposed          REAL,
+            time_required_in_min_a_proposed REAL,
+            time_required_in_min_b_proposed REAL,
+            time_required_in_min_c_proposed REAL,
+            time_required_in_min_d_proposed REAL,
+            expenses_proposed               REAL,
+            execution_per_case              BIT,
+            cost_current                    REAL,
+            cost_proposed                   REAL,
             FOREIGN KEY (case_group_id)
             REFERENCES case_groups
                 ON UPDATE CASCADE
@@ -539,6 +526,41 @@ def get_session_by_app_id(app_session_id: str) -> dict | None:
     return dict(row)
 
 
+def get_session_law_texts(session_id: int) -> tuple[str, str]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT current_law_id, proposed_law_id
+        FROM sessions
+        WHERE session_id = ?
+        LIMIT 1
+        """,
+        (session_id,),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    if row is None:
+        return "", ""
+
+    current_text = ""
+    proposed_text = ""
+
+    current_law_id = row["current_law_id"]
+    if current_law_id is not None:
+        current_law = get_law_by_id(int(current_law_id))
+        if current_law is not None:
+            current_text = str(current_law.get("law_text", "")).strip()
+
+    proposed_law_id = row["proposed_law_id"]
+    if proposed_law_id is not None:
+        proposed_law = get_law_by_id(int(proposed_law_id))
+        if proposed_law is not None:
+            proposed_text = str(proposed_law.get("law_text", "")).strip()
+
+    return current_text, proposed_text
+
+
 def get_session_export_info(app_session_id: str) -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
@@ -641,7 +663,10 @@ def has_effort_metrics(session_id: int) -> bool:
         SELECT COUNT(*) AS count
         FROM case_groups
         WHERE session_id = ?
-          AND (addressees IS NOT NULL OR annual_frequency IS NOT NULL)
+          AND (
+            addressees_current IS NOT NULL OR annual_frequency_current IS NOT NULL
+            OR addressees_proposed IS NOT NULL OR annual_frequency_proposed IS NOT NULL
+          )
         """,
         (session_id,),
     )
@@ -652,12 +677,20 @@ def has_effort_metrics(session_id: int) -> bool:
         FROM process_steps
         WHERE session_id = ?
           AND (
-            hourly_rate_a IS NOT NULL OR hourly_rate_b IS NOT NULL OR hourly_rate_c IS NOT NULL
-            OR hourly_rate_d IS NOT NULL OR hourly_rate_e IS NOT NULL
-            OR time_required_in_min_a IS NOT NULL OR time_required_in_min_b IS NOT NULL
-            OR time_required_in_min_c IS NOT NULL OR time_required_in_min_d IS NOT NULL
-            OR time_required_in_min_e IS NOT NULL
-            OR expenses IS NOT NULL
+            hourly_rate_a_current IS NOT NULL OR hourly_rate_b_current IS NOT NULL
+            OR hourly_rate_c_current IS NOT NULL OR hourly_rate_d_current IS NOT NULL
+            OR time_required_in_min_a_current IS NOT NULL
+            OR time_required_in_min_b_current IS NOT NULL
+            OR time_required_in_min_c_current IS NOT NULL
+            OR time_required_in_min_d_current IS NOT NULL
+            OR expenses_current IS NOT NULL
+            OR hourly_rate_a_proposed IS NOT NULL OR hourly_rate_b_proposed IS NOT NULL
+            OR hourly_rate_c_proposed IS NOT NULL OR hourly_rate_d_proposed IS NOT NULL
+            OR time_required_in_min_a_proposed IS NOT NULL
+            OR time_required_in_min_b_proposed IS NOT NULL
+            OR time_required_in_min_c_proposed IS NOT NULL
+            OR time_required_in_min_d_proposed IS NOT NULL
+            OR expenses_proposed IS NOT NULL
           )
         """,
         (session_id,),
@@ -679,6 +712,29 @@ def get_session_id_by_app_id(app_session_id: str) -> int | None:
     if not row:
         return None
     return int(row["session_id"])
+
+
+def ensure_session(
+    app_session_id: str,
+    llm_model: str | None = None,
+) -> tuple[int, bool, str]:
+    requested_model = str(llm_model or "").strip()
+    existing = get_session_by_app_id(app_session_id)
+    if existing:
+        session_id = int(existing["session_id"])
+        existing_model = str(existing.get("llm_model") or "").strip()
+        if not existing_model:
+            raise ValueError("Session exists without llm_model; please select a model")
+        if requested_model and requested_model != existing_model:
+            upsert_session(app_session_id, requested_model)
+            return session_id, False, requested_model
+        return session_id, False, existing_model
+
+    if not requested_model:
+        raise ValueError("Model is required for new session")
+    model = requested_model
+    session_id, created = upsert_session(app_session_id, model)
+    return session_id, created, model
 
 
 def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
@@ -742,7 +798,7 @@ def list_regulations_for_session(session_id: int) -> List[dict]:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT regulation_id, legal_citation, description, process_id
+        SELECT regulation_id, legal_citation, description, process_id, change_status
         FROM regulations
         WHERE session_id = ?
         ORDER BY regulation_id
@@ -759,7 +815,7 @@ def get_regulation_by_id(regulation_id: int) -> dict | None:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT regulation_id, legal_citation, description, process_id
+        SELECT regulation_id, legal_citation, description, process_id, change_status
         FROM regulations
         WHERE regulation_id = ?
         """,
@@ -777,7 +833,7 @@ def list_processes_for_session(session_id: int) -> List[dict]:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT process_id, process, description, cost
+        SELECT process_id, process, description, change_status, cost
         FROM processes
         WHERE session_id = ?
         ORDER BY process_id
@@ -794,7 +850,19 @@ def list_case_groups_for_session(session_id: int) -> List[dict]:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT case_group_id, process_id, case_group, description, addressees, annual_frequency
+        SELECT
+            case_group_id,
+            process_id,
+            case_group,
+            description,
+            change_status,
+            addressees_current,
+            annual_frequency_current,
+            cases_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_proposed,
+            cost
         FROM case_groups
         WHERE session_id = ?
         ORDER BY case_group_id
@@ -812,9 +880,16 @@ def list_process_steps_for_session(session_id: int) -> List[dict]:
     cur.execute(
         """
         SELECT step_id, case_group_id, step, description, previous_id, next_id,
-               hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d, hourly_rate_e,
-               time_required_in_min_a, time_required_in_min_b, time_required_in_min_c, time_required_in_min_d, time_required_in_min_e,
-               expenses, cost, execution_per_case
+               change_status,
+               hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
+               time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
+               expenses_current,
+               hourly_rate_a_proposed, hourly_rate_b_proposed, hourly_rate_c_proposed, hourly_rate_d_proposed,
+               time_required_in_min_a_proposed, time_required_in_min_b_proposed, time_required_in_min_c_proposed, time_required_in_min_d_proposed,
+               expenses_proposed,
+               cost_current,
+               cost_proposed,
+               execution_per_case
         FROM process_steps
         WHERE session_id = ?
         ORDER BY step_id
@@ -830,16 +905,17 @@ def insert_regulation(
     session_id: int,
     legal_citation: str,
     description: str,
+    change_status: str = "geaendert",
     process_id: int | None = None,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO regulations (session_id, process_id, legal_citation, description)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO regulations (session_id, process_id, legal_citation, description, change_status)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (session_id, process_id, legal_citation, description),
+        (session_id, process_id, legal_citation, description, change_status),
     )
     _maybe_commit(conn)
     regulation_id = int(cur.lastrowid)
@@ -851,16 +927,17 @@ def insert_process(
     session_id: int,
     process: str,
     description: str,
+    change_status: str = "geaendert",
     cost: float | None = None,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO processes (session_id, process, description, cost)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO processes (session_id, process, description, change_status, cost)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (session_id, process, description, cost),
+        (session_id, process, description, change_status, cost),
     )
     _maybe_commit(conn)
     process_id = int(cur.lastrowid)
@@ -873,15 +950,16 @@ def insert_case_group(
     process_id: int,
     case_group: str,
     description: str,
+    change_status: str = "geaendert",
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO case_groups (session_id, process_id, case_group, description)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO case_groups (session_id, process_id, case_group, description, change_status)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (session_id, process_id, case_group, description),
+        (session_id, process_id, case_group, description, change_status),
     )
     _maybe_commit(conn)
     case_group_id = int(cur.lastrowid)
@@ -894,6 +972,7 @@ def insert_process_step(
     case_group_id: int,
     step: str,
     description: str,
+    change_status: str = "geaendert",
     previous_id: int | None = None,
     next_id: int | None = None,
     execution_per_case: bool | None = None,
@@ -907,17 +986,19 @@ def insert_process_step(
             case_group_id,
             step,
             description,
+            change_status,
             previous_id,
             next_id,
             execution_per_case
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
             case_group_id,
             step,
             description,
+            change_status,
             previous_id,
             next_id,
             execution_per_case,
@@ -932,52 +1013,99 @@ def insert_process_step(
 def update_case_group_metrics(
     session_id: int,
     case_group_id: int,
-    addressees: float | None,
-    annual_frequency: float | None,
+    addressees_current: float | None = None,
+    annual_frequency_current: float | None = None,
+    addressees_proposed: float | None = None,
+    annual_frequency_proposed: float | None = None,
+    cases_current: float | None = None,
+    cases_proposed: float | None = None,
 ) -> None:
+    if (
+        cases_current is None
+        and addressees_current is not None
+        and annual_frequency_current is not None
+    ):
+        cases_current = addressees_current * annual_frequency_current
+    if (
+        cases_proposed is None
+        and addressees_proposed is not None
+        and annual_frequency_proposed is not None
+    ):
+        cases_proposed = addressees_proposed * annual_frequency_proposed
+
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
         UPDATE case_groups
-        SET addressees = ?, annual_frequency = ?
+        SET addressees_current = ?,
+            annual_frequency_current = ?,
+            addressees_proposed = ?,
+            annual_frequency_proposed = ?,
+            cases_current = ?,
+            cases_proposed = ?
         WHERE case_group_id = ? AND session_id = ?
         """,
-        (addressees, annual_frequency, case_group_id, session_id),
+        (
+            addressees_current,
+            annual_frequency_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_current,
+            cases_proposed,
+            case_group_id,
+            session_id,
+        ),
     )
     _maybe_commit(conn)
     _maybe_close(conn)
 
 
-def update_process_step_effort(
+def update_process_step_effort_split(
     session_id: int,
     step_id: int,
-    hourly_rates: dict[str, float | None],
-    time_required: dict[str, float | None],
-    expenses: float | None,
+    hourly_rates_current: dict[str, float | None],
+    time_required_current: dict[str, float | None],
+    expenses_current: float | None,
+    hourly_rates_proposed: dict[str, float | None],
+    time_required_proposed: dict[str, float | None],
+    expenses_proposed: float | None,
+    execution_per_case: bool | None,
 ) -> None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
         UPDATE process_steps
-        SET hourly_rate_a = ?, hourly_rate_b = ?, hourly_rate_c = ?, hourly_rate_d = ?, hourly_rate_e = ?,
-            time_required_in_min_a = ?, time_required_in_min_b = ?, time_required_in_min_c = ?, time_required_in_min_d = ?, time_required_in_min_e = ?,
-            expenses = ?
+        SET hourly_rate_a_current = ?, hourly_rate_b_current = ?, hourly_rate_c_current = ?, hourly_rate_d_current = ?,
+            time_required_in_min_a_current = ?, time_required_in_min_b_current = ?, time_required_in_min_c_current = ?, time_required_in_min_d_current = ?,
+            expenses_current = ?,
+            hourly_rate_a_proposed = ?, hourly_rate_b_proposed = ?, hourly_rate_c_proposed = ?, hourly_rate_d_proposed = ?,
+            time_required_in_min_a_proposed = ?, time_required_in_min_b_proposed = ?, time_required_in_min_c_proposed = ?, time_required_in_min_d_proposed = ?,
+            expenses_proposed = ?,
+            execution_per_case = COALESCE(?, execution_per_case)
         WHERE step_id = ? AND session_id = ?
         """,
         (
-            hourly_rates.get("a"),
-            hourly_rates.get("b"),
-            hourly_rates.get("c"),
-            hourly_rates.get("d"),
-            hourly_rates.get("e"),
-            time_required.get("a"),
-            time_required.get("b"),
-            time_required.get("c"),
-            time_required.get("d"),
-            time_required.get("e"),
-            expenses,
+            hourly_rates_current.get("a"),
+            hourly_rates_current.get("b"),
+            hourly_rates_current.get("c"),
+            hourly_rates_current.get("d"),
+            time_required_current.get("a"),
+            time_required_current.get("b"),
+            time_required_current.get("c"),
+            time_required_current.get("d"),
+            expenses_current,
+            hourly_rates_proposed.get("a"),
+            hourly_rates_proposed.get("b"),
+            hourly_rates_proposed.get("c"),
+            hourly_rates_proposed.get("d"),
+            time_required_proposed.get("a"),
+            time_required_proposed.get("b"),
+            time_required_proposed.get("c"),
+            time_required_proposed.get("d"),
+            expenses_proposed,
+            execution_per_case,
             step_id,
             session_id,
         ),
@@ -989,17 +1117,18 @@ def update_process_step_effort(
 def update_process_step_cost(
     session_id: int,
     step_id: int,
-    cost: float | None,
+    cost_current: float | None,
+    cost_proposed: float | None,
 ) -> None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
         UPDATE process_steps
-        SET cost = ?
+        SET cost_current = ?, cost_proposed = ?
         WHERE step_id = ? AND session_id = ?
         """,
-        (cost, step_id, session_id),
+        (cost_current, cost_proposed, step_id, session_id),
     )
     _maybe_commit(conn)
     _maybe_close(conn)
@@ -1043,132 +1172,6 @@ def update_process_cost(
     _maybe_close(conn)
 
 
-def format_number(value: float | int | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return str(int(value))
-    if isinstance(value, (int, float)):
-        num = float(value)
-        if num.is_integer():
-            return str(int(num))
-        formatted = f"{num:.4f}".rstrip("0").rstrip(".")
-        return formatted
-    return str(value)
-
-
-def format_currency(value: float | int | None) -> str:
-    if value is None:
-        return ""
-    amount = float(value)
-    sign = "-" if amount < 0 else ""
-    amount = abs(amount)
-
-    def _format_compact(num: float) -> str:
-        if num >= 100:
-            decimals = 0
-        elif num >= 10:
-            decimals = 1
-        else:
-            decimals = 2
-        formatted = f"{num:,.{decimals}f}"
-        return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
-
-    if amount >= 1_000_000_000:
-        return f"{sign}{_format_compact(amount / 1_000_000_000)} Mrd. €"
-    if amount >= 1_000_000:
-        return f"{sign}{_format_compact(amount / 1_000_000)} Mio. €"
-    if amount >= 1_000:
-        return f"{sign}{_format_compact(amount / 1_000)} Tsd. €"
-
-    if amount.is_integer():
-        formatted = f"{amount:,.0f}".replace(",", ".")
-    else:
-        formatted = f"{amount:,.2f}".replace(",", ".")
-    return f"{sign}{formatted} €"
-
-
-def build_case_group_tile_text(
-    description: str,
-    addressees: float | None,
-    annual_frequency: float | None,
-) -> str:
-    lines = []
-    base = (description or "").strip()
-    if base:
-        lines.append(base)
-    if addressees is not None:
-        lines.append(f"Betroffene: {format_number(addressees)}")
-    if annual_frequency is not None:
-        lines.append(f"Häufigkeit: {format_number(annual_frequency)}")
-    return "\n".join(lines).strip()
-
-
-def build_process_step_tile_text(
-    description: str,
-    hourly_rates: dict[str, float | None],
-    time_required: dict[str, float | None],
-    expenses: float | None,
-    cost: float | None = None,
-    execution_per_case: bool | None = None,
-) -> str:
-    lines = []
-    base = (description or "").strip()
-    if base:
-        lines.append(base)
-    for key in ["a", "b", "c", "d", "e"]:
-        rate = hourly_rates.get(key)
-        if rate is not None:
-            lines.append(f"Lohnsatz {key.upper()}: {format_number(rate)}")
-    for key in ["a", "b", "c", "d", "e"]:
-        duration = time_required.get(key)
-        if duration is not None:
-            lines.append(f"Zeitaufwand {key.upper()}: {format_number(duration)}")
-    if expenses is not None:
-        try:
-            expense_value = float(expenses)
-        except (TypeError, ValueError):
-            expense_value = None
-        if expense_value is not None and abs(expense_value) > 0:
-            lines.append(f"Sachaufwand: {format_number(expense_value)}")
-    if cost is not None:
-        try:
-            cost_value = float(cost)
-        except (TypeError, ValueError):
-            cost_value = None
-        if cost_value is not None:
-            if execution_per_case is None:
-                per_case = True
-            elif isinstance(execution_per_case, str):
-                normalized = execution_per_case.strip().lower()
-                if normalized in {"0", "false", "nein", "no", "n"}:
-                    per_case = False
-                elif normalized in {"1", "true", "ja", "yes", "y"}:
-                    per_case = True
-                else:
-                    per_case = True
-            else:
-                per_case = bool(execution_per_case)
-            scope = "pro Einzelfall" if per_case else "pro Fallgruppe"
-            lines.append(f"Kosten: {format_currency(cost_value)} ({scope})")
-    return "\n".join(lines).strip()
-
-
-def build_process_tile_text(description: str, cost: float | None) -> str:
-    lines = []
-    base = (description or "").strip()
-    if base:
-        lines.append(base)
-    if cost is not None:
-        try:
-            cost_value = float(cost)
-        except (TypeError, ValueError):
-            cost_value = None
-        if cost_value is not None:
-            lines.append(f"Kosten: {format_currency(cost_value)}")
-    return "\n".join(lines).strip()
-
-
 def update_process_step_next(step_id: int, next_id: int | None) -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -1183,8 +1186,6 @@ def update_process_step_next(step_id: int, next_id: int | None) -> None:
 def update_regulation_process(
     regulation_id: int,
     process_id: int,
-    legal_citation: str,
-    description: str,
 ) -> bool:
     conn = get_conn()
     cur = conn.cursor()
@@ -1194,10 +1195,8 @@ def update_regulation_process(
         SET process_id = ?
         WHERE regulation_id = ?
           AND process_id IS NULL
-          AND legal_citation = ?
-          AND description = ?
         """,
-        (process_id, regulation_id, legal_citation, description),
+        (process_id, regulation_id),
     )
     _maybe_commit(conn)
     updated = cur.rowcount > 0
@@ -1295,8 +1294,12 @@ def clear_effort_metrics(session_id: int) -> None:
     cur.execute(
         """
         UPDATE case_groups
-        SET addressees = NULL,
-            annual_frequency = NULL
+        SET addressees_current = NULL,
+            annual_frequency_current = NULL,
+            cases_current = NULL,
+            addressees_proposed = NULL,
+            annual_frequency_proposed = NULL,
+            cases_proposed = NULL
         WHERE session_id = ?
         """,
         (session_id,),
@@ -1304,17 +1307,24 @@ def clear_effort_metrics(session_id: int) -> None:
     cur.execute(
         """
         UPDATE process_steps
-        SET hourly_rate_a = NULL,
-            hourly_rate_b = NULL,
-            hourly_rate_c = NULL,
-            hourly_rate_d = NULL,
-            hourly_rate_e = NULL,
-            time_required_in_min_a = NULL,
-            time_required_in_min_b = NULL,
-            time_required_in_min_c = NULL,
-            time_required_in_min_d = NULL,
-            time_required_in_min_e = NULL,
-            expenses = NULL
+        SET hourly_rate_a_current = NULL,
+            hourly_rate_b_current = NULL,
+            hourly_rate_c_current = NULL,
+            hourly_rate_d_current = NULL,
+            time_required_in_min_a_current = NULL,
+            time_required_in_min_b_current = NULL,
+            time_required_in_min_c_current = NULL,
+            time_required_in_min_d_current = NULL,
+            expenses_current = NULL,
+            hourly_rate_a_proposed = NULL,
+            hourly_rate_b_proposed = NULL,
+            hourly_rate_c_proposed = NULL,
+            hourly_rate_d_proposed = NULL,
+            time_required_in_min_a_proposed = NULL,
+            time_required_in_min_b_proposed = NULL,
+            time_required_in_min_c_proposed = NULL,
+            time_required_in_min_d_proposed = NULL,
+            expenses_proposed = NULL
         WHERE session_id = ?
         """,
         (session_id,),
@@ -1329,7 +1339,8 @@ def clear_costs(session_id: int) -> None:
     cur.execute(
         """
         UPDATE process_steps
-        SET cost = NULL
+        SET cost_current = NULL,
+            cost_proposed = NULL
         WHERE session_id = ?
         """,
         (session_id,),

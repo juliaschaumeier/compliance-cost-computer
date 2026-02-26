@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { ApiClientError, apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 
 type UploadTarget = "current" | "proposed";
 
@@ -112,7 +112,7 @@ export default function UploadPanel() {
         filename,
         currentLaw,
       });
-      setStatus("Zusammenfassung fehlgeschlagen.");
+      setStatus(formatActionErrorMessage("Zusammenfassung fehlgeschlagen", error));
       setSummaryReady(false);
     } finally {
       setIsSummarizing(false);
@@ -198,7 +198,12 @@ export default function UploadPanel() {
     uploadFiles.proposed || state.selectedRegulation
   );
   const hasConflicts = Boolean(conflicts.current || conflicts.proposed);
-  const canStart = hasCurrent && hasProposed && !isSummarizing && !hasConflicts;
+  const canStart =
+    hasCurrent &&
+    hasProposed &&
+    !isSummarizing &&
+    !hasConflicts &&
+    Boolean(state.selectedModel);
 
   const getSelectedName = (target: UploadTarget) => {
     const uploadName = uploadFiles[target]?.name;
@@ -211,6 +216,10 @@ export default function UploadPanel() {
   };
 
   const handleStart = async () => {
+    if (!state.selectedModel) {
+      setStatus("Bitte zuerst ein Modell auswählen.");
+      return;
+    }
     if (!canStart) {
       return;
     }

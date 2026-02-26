@@ -29,17 +29,21 @@ def test_undo_total_cost_clears_costs_only(test_client):
     db.update_case_group_metrics(
         session_id=session_id,
         case_group_id=seeded["case_group_id"],
-        addressees=10,
-        annual_frequency=2,
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_id"],
-        hourly_rates={"a": 40, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
-        expenses=5,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=5,
+        execution_per_case=None,
     )
-    db.update_process_step_cost(session_id, seeded["step_id"], 25)
+    db.update_process_step_cost(session_id, seeded["step_id"], None, 25)
     db.update_case_group_cost(session_id, seeded["case_group_id"], 50)
     db.update_process_cost(session_id, seeded["process_id"], 50)
     db.update_session_cost(session_id, 50)
@@ -67,25 +71,41 @@ def test_undo_total_cost_clears_costs_only(test_client):
     )
     assert cur.fetchone()["cost"] is None
     cur.execute(
-        "SELECT cost FROM process_steps WHERE step_id = ?",
+        "SELECT cost_current, cost_proposed FROM process_steps WHERE step_id = ?",
         (seeded["step_id"],),
     )
-    assert cur.fetchone()["cost"] is None
+    step_cost = cur.fetchone()
+    assert step_cost["cost_current"] is None
+    assert step_cost["cost_proposed"] is None
     cur.execute(
-        "SELECT addressees, annual_frequency FROM case_groups WHERE case_group_id = ?",
+        """
+        SELECT addressees_current, annual_frequency_current, addressees_proposed, annual_frequency_proposed
+        FROM case_groups
+        WHERE case_group_id = ?
+        """,
         (seeded["case_group_id"],),
     )
     group = cur.fetchone()
-    assert group["addressees"] == 10
-    assert group["annual_frequency"] == 2
+    assert group["addressees_proposed"] == 10
+    assert group["annual_frequency_proposed"] == 2
+    assert group["addressees_current"] is None
+    assert group["annual_frequency_current"] is None
     cur.execute(
-        "SELECT hourly_rate_a, time_required_in_min_a, expenses FROM process_steps WHERE step_id = ?",
+        """
+        SELECT hourly_rate_a_current, time_required_in_min_a_current, expenses_current,
+               hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed
+        FROM process_steps
+        WHERE step_id = ?
+        """,
         (seeded["step_id"],),
     )
     step = cur.fetchone()
-    assert step["hourly_rate_a"] == 40
-    assert step["time_required_in_min_a"] == 30
-    assert step["expenses"] == 5
+    assert step["hourly_rate_a_proposed"] == 40
+    assert step["time_required_in_min_a_proposed"] == 30
+    assert step["expenses_proposed"] == 5
+    assert step["hourly_rate_a_current"] is None
+    assert step["time_required_in_min_a_current"] is None
+    assert step["expenses_current"] is None
     conn.close()
 
 
@@ -97,15 +117,19 @@ def test_undo_effort_clears_metrics(test_client):
     db.update_case_group_metrics(
         session_id=session_id,
         case_group_id=seeded["case_group_id"],
-        addressees=10,
-        annual_frequency=2,
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_id"],
-        hourly_rates={"a": 40, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
-        expenses=5,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=5,
+        execution_per_case=None,
     )
 
     resp = test_client.post(
@@ -118,20 +142,34 @@ def test_undo_effort_clears_metrics(test_client):
     conn = db.get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT addressees, annual_frequency FROM case_groups WHERE case_group_id = ?",
+        """
+        SELECT addressees_current, annual_frequency_current, addressees_proposed, annual_frequency_proposed
+        FROM case_groups
+        WHERE case_group_id = ?
+        """,
         (seeded["case_group_id"],),
     )
     group = cur.fetchone()
-    assert group["addressees"] is None
-    assert group["annual_frequency"] is None
+    assert group["addressees_current"] is None
+    assert group["annual_frequency_current"] is None
+    assert group["addressees_proposed"] is None
+    assert group["annual_frequency_proposed"] is None
     cur.execute(
-        "SELECT hourly_rate_a, time_required_in_min_a, expenses FROM process_steps WHERE step_id = ?",
+        """
+        SELECT hourly_rate_a_current, time_required_in_min_a_current, expenses_current,
+               hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed
+        FROM process_steps
+        WHERE step_id = ?
+        """,
         (seeded["step_id"],),
     )
     step = cur.fetchone()
-    assert step["hourly_rate_a"] is None
-    assert step["time_required_in_min_a"] is None
-    assert step["expenses"] is None
+    assert step["hourly_rate_a_current"] is None
+    assert step["time_required_in_min_a_current"] is None
+    assert step["expenses_current"] is None
+    assert step["hourly_rate_a_proposed"] is None
+    assert step["time_required_in_min_a_proposed"] is None
+    assert step["expenses_proposed"] is None
     conn.close()
 
 
@@ -142,15 +180,19 @@ def test_undo_effort_is_atomic_on_failure(test_client, monkeypatch):
     db.update_case_group_metrics(
         session_id=session_id,
         case_group_id=seeded["case_group_id"],
-        addressees=10,
-        annual_frequency=2,
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_id"],
-        hourly_rates={"a": 40, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
-        expenses=5,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=5,
+        execution_per_case=None,
     )
     db.insert_llm_answer(
         session_id=session_id,
@@ -176,19 +218,28 @@ def test_undo_effort_is_atomic_on_failure(test_client, monkeypatch):
     conn = db.get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT addressees, annual_frequency FROM case_groups WHERE case_group_id = ?",
+        """
+        SELECT addressees_current, annual_frequency_current, addressees_proposed, annual_frequency_proposed
+        FROM case_groups
+        WHERE case_group_id = ?
+        """,
         (seeded["case_group_id"],),
     )
     group = cur.fetchone()
-    assert group["addressees"] == 10
-    assert group["annual_frequency"] == 2
+    assert group["addressees_proposed"] == 10
+    assert group["annual_frequency_proposed"] == 2
 
     cur.execute(
-        "SELECT hourly_rate_a, time_required_in_min_a, expenses FROM process_steps WHERE step_id = ?",
+        """
+        SELECT hourly_rate_a_current, time_required_in_min_a_current, expenses_current,
+               hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed
+        FROM process_steps
+        WHERE step_id = ?
+        """,
         (seeded["step_id"],),
     )
     step = cur.fetchone()
-    assert step["hourly_rate_a"] == 40
-    assert step["time_required_in_min_a"] == 30
-    assert step["expenses"] == 5
+    assert step["hourly_rate_a_proposed"] == 40
+    assert step["time_required_in_min_a_proposed"] == 30
+    assert step["expenses_proposed"] == 5
     conn.close()

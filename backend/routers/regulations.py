@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.core.auth import ApiKeys, get_api_keys
+from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.config import settings
 from backend.core import db
 from backend.core.llm_json import clean_llm_payload, parse_json_object
@@ -106,12 +107,14 @@ def _parse_vorgaben(payload: str) -> list[dict]:
             continue
         normzitat = str(entry.get("normzitat", "")).strip()
         beschreibung = str(entry.get("beschreibung", "")).strip()
+        aenderungsstatus = extract_change_status(entry)
         if not normzitat and not beschreibung:
             continue
         parsed.append(
             {
                 "normzitat": normzitat,
                 "beschreibung": beschreibung,
+                "aenderungsstatus": aenderungsstatus,
             }
         )
     return parsed
@@ -169,16 +172,21 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
     for idx, vorgabe in enumerate(vorgaben):
         title = vorgabe.get("normzitat") or f"Vorgabe {idx + 1}"
         text = vorgabe.get("beschreibung") or ""
+        aenderungsstatus = normalize_change_status(vorgabe.get("aenderungsstatus"))
         regulation_id = db.insert_regulation(
             session_id=session_id,
             legal_citation=title,
             description=text,
+            change_status=aenderungsstatus,
         )
         tile = Tile(
             id=f"regulation_{regulation_id}",
             title=title,
             text=text,
-            meta_information={"regulation_id": regulation_id},
+            meta_information={
+                "regulation_id": regulation_id,
+                "change_status": aenderungsstatus,
+            },
             column=base_col + 1,
             row=base_row + (idx * row_spacing),
             deletable=True,
@@ -190,6 +198,7 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
                 "regulation_id": regulation_id,
                 "normzitat": title,
                 "beschreibung": text,
+                "aenderungsstatus": aenderungsstatus,
             }
         )
     return created
@@ -217,13 +226,21 @@ async def identify_regulations(
     if not proposed_law:
         raise HTTPException(status_code=404, detail="Proposed file not found")
 
-    current_text = str(current_law.get("law_text", "")).strip()
-    proposed_text = str(proposed_law.get("law_text", "")).strip()
+    try:
+        session_id, _created, model = db.ensure_session(
+            payload.app_session_id,
+            payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.update_session_documents(
+        payload.app_session_id,
+        current_filename,
+        proposed_filename,
+    )
+    current_text, proposed_text = db.get_session_law_texts(session_id)
     if not current_text or not proposed_text:
         raise HTTPException(status_code=400, detail="Empty file")
-
-    model = payload.model or settings.default_model
-    session_id, _created = db.upsert_session(payload.app_session_id, model)
     existing = db.list_regulations_for_session(session_id)
     if existing:
         return {
@@ -232,6 +249,7 @@ async def identify_regulations(
                     "regulation_id": row["regulation_id"],
                     "normzitat": row["legal_citation"],
                     "beschreibung": row["description"],
+                    "aenderungsstatus": row["change_status"],
                 }
                 for row in existing
             ],
@@ -300,8 +318,19 @@ async def summarize_regulation(
         gesetz_vorschlag=content,
     )
 
-    model = payload.model or settings.default_model
-    session_id: int | None = None
+    if payload.app_session_id:
+        try:
+            session_id, _created, model = db.ensure_session(
+                payload.app_session_id,
+                payload.model,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        model = str(payload.model or "").strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="Model is required")
+        session_id = None
     response_text = await query_llm(
         prompt,
         api_keys=api_keys,
@@ -313,7 +342,6 @@ async def summarize_regulation(
         title = filename
     with db.transaction():
         if payload.app_session_id:
-            session_id, _created = db.upsert_session(payload.app_session_id, model)
             try:
                 db.update_session_documents(
                     payload.app_session_id,

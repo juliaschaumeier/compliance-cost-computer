@@ -13,28 +13,50 @@ class PromptId:
     EFFORT_CALCULATION = "effort_calculation"
 
 
+LEGIST_PROMPT_OPENING = (
+    """
+    Sie sind Legist im deutschen Bundestag und damit betraut, die 
+    Erfüllungsaufwandsänderung zu einer geplanten Gesetzesänderung zu berechnen.
+
+    Insbesondere werden zur Ermittlung der zu erwartenden Änderung des Aufwands 
+    pro Fall die wesentlichen Tätigkeiten identifiziert, die zur Erfüllung 
+    einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese 
+    schließen Tätigkeiten ein, welche neu hinzukommen, welche sich ändern und 
+    welche wegfallen. Für diese Tätigkeiten werden die zu erwartenden Änderungen des  
+    Zeit-, Personal- sowie Sachaufwands ermittelt.
+
+    Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
+
+    Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
+
+    """
+)
+
+
 PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.LAW_SUMMARY: (
-        "Vergleiche den derzeit gueltigen Gesetzestext mit dem vorgeschlagenen "
-        "Gesetzesvorschlag. Leite daraus ab, was der Gesetzgeber erreichen moechte. "
-        "Gib strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\"}}. "
-        "Die 'title' soll ein kurzer Titel sein (max. 12 Woerter). "
-        "Die 'blurb' soll genau ein Satz sein.\n\n"
-        "Geltendes Gesetz:\n{gesetz_gueltig}\n\n"
-        "Gesetzesvorschlag:\n{gesetz_vorschlag}"
+        """
+        Sie sind Legist im deutschen Bundestag. 
+
+        Vergleichen Sie den derzeit gueltigen Gesetzestext mit dem vorgeschlagenen 
+        Gesetzesvorschlag. Leiten Sie daraus ab, was der Gesetzgeber erreichen möchte. 
+        Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\"}}. 
+
+        Der 'title' soll ein kurzer Titel sein (max. 12 Wörter), der 'blurb' soll genau ein Satz sein.
+
+        Geltendes Gesetz: {gesetz_gueltig}
+
+        Gesetzesvorschlag: {gesetz_vorschlag}
+        """
     ),
-    # TODO: Also ask for the vorgaben type, i.e. added, deleted or changed during the law migration, add field in json and db.
-    # TODO: Maybe add the title/text-body of the law tile to give the llm more up-front context on what the change is about?
+    # TODO: Auch Vorgaben identifizieren, bei denen z.B. Betroffene wegfallen, weil sie jetzt den neuen Prozess durchlaufen??
     PromptId.REGULATIONS_IDENTIFICATION: (
-        """ 
-        Du bist Legist im deutschen Bundestag und damit betraut, den Erfüllungsaufwand zu einer geplanten Gesetzesänderung zu berechnen.
-
-        Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
-        Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
-
-        Deine Aufgabe ist, ausgehend, von den konsolidierten Versionen die Gesetzesänderungen herauszuarbeiten und 
-        alle darin enthaltenen Vorgaben (Einzelregelungen) im nachfolgendem Sinne zu identifizieren. 
-        Wichtig: Jede Gesetzesänderung kann keine, eine oder mehrere Vorgaben enthalten. Identifiziere alle für die Verwaltung zu beachtenden Vorgaben.
+        LEGIST_PROMPT_OPENING
+        + """ 
+        Ihre Aufgabe ist, ausgehend, von den konsolidierten Versionen die Gesetzesänderungen herauszuarbeiten und alle darin enthaltenen Vorgaben 
+        (Einzelregelungen) im nachfolgendem Sinne zu identifizieren. 
+        Wichtig: Jede Gesetzesänderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle für die Verwaltung zu beachtenden Vorgaben 
+        und geben Sie den Status an, also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung handelt.
 
         Verwaltung sind alle die mit der Wahrnehmung von Verwaltungsaufgaben betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen 
         des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen hoheitlichen Kompetenzen). Soweit Körperschaften/Anstalten des 
@@ -54,82 +76,89 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         um Rechtsverstöße oder den Verlust von Ansprüchen zu vermeiden. Auch Regelungen, die nur Ziele, Grenzwerte oder förderbedingte Verhaltensänderungen 
         vorgeben, gelten als Vorgaben, wenn sie direkt Aufwand auslösen.
 
-        Gib nur und ausschließlich JSON im folgenden Format zurück:
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
         {{
           "vorgaben": [
             {{
               "normzitat": "",
-              "beschreibung": ""
+              "beschreibung": "",
+              "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
             }}
           ]
         }}
 
-        Verwende keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
     PromptId.PROCESS_COMPILATION: (
-        """
-        Du bist Legist im deutschen Bundestag und damit betraut, den Erfüllungsaufwand zu einer geplanten Gesetzesänderung zu berechnen.
-        
+        LEGIST_PROMPT_OPENING
+        + """
         Die Gesetzesänderung führt zu folgenden Einzelvorgaben für die Verwaltung: {vorgaben_json}
 
-        Deine Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, können zu gemeinsamen 
+        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, können zu gemeinsamen 
         Prozessen zu bündeln. Soweit eine Bündelung von Vorgaben in Prozesse nicht möglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
-        einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschließlich aus einer Vorgabe.
+        einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschließlich aus einer Vorgabe. Geben Sie außerdem den Status an, 
+        also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung des Prozesses handelt. Orientieren Sie sich dazu an den 
+        Statusangaben der Vorgaben.
 
-        Gib mir nur und ausschließlich JSON zurück, das zwingend wie folgt formatiert ist:
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
         {{
         "prozesse": [
             {{
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft",
             "vorgaben": [
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
                     "beschreibung": "",
+                    "aenderungsstatus": ""
                 }}
             ]
             }},
             {{
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft",
             "vorgaben": [
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
                     "beschreibung": "",
+                    "aenderungsstatus": ""
                 }},
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
                     "beschreibung": "",
+                    "aenderungsstatus": ""
                 }}
             ]
             }}
         ]
         }}
 
-        Verwende keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
-        """
-        Du bist Legist im deutschen Bundestag und damit betraut, den Erfüllungsaufwand zu einer geplanten Gesetzesänderung zu berechnen.
-        
+        LEGIST_PROMPT_OPENING
+        + """
         Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für die Verwaltung: {prozesse_json}
 
         Wenn damit zu rechnen ist, dass die Verwaltung die jeweiligen Prozesse auf unterschiedlichen Wegen erfüllt, sind dafür sogenannte Fallgruppen zu bilden. 
         Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Für jede Fallgruppe ist der Erfüllungsaufwand separat zu 
         ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil die Normadressaten verschiedene Gestaltungsmöglichkeiten nutzen 
-        oder weil sich die zugrunde liegenden Sachverhalte unterscheiden.
+        oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie außerdem den Status an, also ob es sich um entweder eine Einführung, 
+        eine Änderung, oder eine Streichung/Löschung der Fallgruppe handelt.
 
         Soweit eine Bildung von Fallgruppen aus dem jeweiligem Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
 
-        Gib mir nur und ausschließlich eine JSON-Datei zurück, die zwingend wie folgt formatiert ist:
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
         {{
         "prozesse": [
@@ -137,21 +166,25 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "vorgaben": [
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
                     "beschreibung": "",
+                    "aenderungsstatus": ""
                 }}
             ], 
             "fallgruppen": [
                 {{
                     "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": ""
+                    "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                 }},
                 {{
                     "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": ""
+                    "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                 }}
             ]
             }},
@@ -159,40 +192,45 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "vorgaben": [
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
                     "beschreibung": "",
+                    "aenderungsstatus": ""
                 }},
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
                     "beschreibung": "",
+                    "aenderungsstatus": ""
                 }}
             ], 
             "fallgruppen": [
                 {{
                     "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": ""
+                    "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                 }}
             ]
             }}
         ]
         }}
-        Verwende keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
     # TODO: ausfuehrung_pro_einzelfall bereits hier abfragen und nicht erst in effort_calculation??
     PromptId.PROCESS_STEP_ANALYSIS: (
-        """
-        Du bist Legist im deutschen Bundestag und damit betraut, den Erfüllungsaufwand zu einer geplanten Gesetzesänderung zu berechnen.
-        
-        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für die Verwaltung, welche durch folgende Fallgruppen 
-        differenziert werden: {case_groups_json}
+        LEGIST_PROMPT_OPENING
+        + """
+        Die Gesetzesänderung führt zu folgenden, positiven oder negativen Erfüllungsaufwand auslösenden Prozessen für die Verwaltung, welche durch folgende 
+        Fallgruppen differenziert werden: {case_groups_json}
 
-        Deine Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten der Verwaltungsträger zur Erfüllung eines Prozesses pro Fallgruppe 
-        zu identifizieren. Auf dieser Grundlage werden später der anfallende Personal- und ggf. Sachaufwand bestimmt. 
+        Ihre Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten der Verwaltungsträger zur Erfüllung eines Prozesses pro Fallgruppe 
+        zu identifizieren. Auf dieser Grundlage werden später der anfallende Personal- und ggf. Sachaufwand bestimmt. Geben Sie außerdem den Status an, 
+        also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung des Prozessschrittes handelt. Orientieren Sie sich dabei an den 
+        vorhandenen Statusangaben.
 
         Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die Checkliste mit den möglichen Tätigkeiten der Verwaltung zur Erfüllung 
         von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.
@@ -225,7 +263,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu  ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
         befüllt.
         
-        Gib nur und ausschließlich JSON im folgenden Format zurück:
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
         
         {{
         "prozesse": [
@@ -233,19 +271,23 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "",
                     "taetigkeiten": [ 
                         {{
                             "taetigkeit": "",
-                            "beschreibung": ""
+                            "beschreibung": "",
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                         }},
                         {{
                             "taetigkeit": "",
-                            "beschreibung": ""
+                            "beschreibung": "",
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                         }}
                     ]
                 }},
@@ -253,10 +295,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "",
                     "taetigkeiten": [ 
                         {{
                             "taetigkeit": "",
-                            "beschreibung": ""
+                            "beschreibung": "",
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                         }}
                     ]
                 }}
@@ -266,19 +310,23 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "",
                     "taetigkeiten": [ 
                         {{
                             "taetigkeit": "",
-                            "beschreibung": ""
+                            "beschreibung": "",
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                         }},
                         {{
                             "taetigkeit": "",
-                            "beschreibung": ""
+                            "beschreibung": "",
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
                         }}
                     ]
                 }}
@@ -286,18 +334,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             }}
         ]
         }}
-        Verwende keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
 
         """
     ),
     PromptId.CASES_CALCULATION: (
-        """
-        Du bist Legist im deutschen Bundestag und damit betraut, den Erfüllungsaufwand zu einer geplanten Gesetzesänderung zu berechnen.
-        
+        LEGIST_PROMPT_OPENING
+        + """
         Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für die Verwaltung, welche durch folgende Fallgruppen 
         differenziert werden: {case_groups_json}
 
-        Deine Aufgabe ist es, die Fallzahlen jeder dieser Fallgruppen zu bestimmen. 
+        Ihre Aufgabe ist es, die Änderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Häufigkeit und die Anzahl der Betroffenen 
+        vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesänderung betrachtet. Bei der Einführung einer Fallgruppe werden typischerweise nur die 
+        _vorschlag-Werte angegeben, bei der Löschung nur die _gueltig-Werte und bei einer Änderung beide.
 
         Allgemein gilt: Bei periodisch zu erfüllenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Häufigkeit mit der Anzahl 
         der Betroffenen. Die Häufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie häufig der damit einhergehende 
@@ -311,18 +360,21 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Gesetzesbegründungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) übernommen werden. Bevor solche Angaben verwendet werden, sollten 
         sie ggf. aktualisiert werden.
 
-        Gib nur und ausschließlich JSON im folgenden Format zurück:        
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
+        
         {{
         "prozesse": [
             {{
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "vorgaben": [
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
-                    "beschreibung": ""
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
                 }}
             ], 
             "fallgruppen": [
@@ -330,15 +382,21 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
-                    "anzahl_betroffene": "",
-                    "haeufigkeit_pro_jahr": ""
+                    "aenderungsstatus": "",
+                    "anzahl_betroffene_gueltig": "",
+                    "haeufigkeit_pro_jahr_gueltig": "",
+                    "anzahl_betroffene_vorschlag": "",
+                    "haeufigkeit_pro_jahr_vorschlag": ""
                 }},
                 {{
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
-                    "anzahl_betroffene": "",
-                    "haeufigkeit_pro_jahr": ""
+                    "aenderungsstatus": "",
+                    "anzahl_betroffene_gueltig": "",
+                    "haeufigkeit_pro_jahr_gueltig": "",
+                    "anzahl_betroffene_vorschlag": "",
+                    "haeufigkeit_pro_jahr_vorschlag": ""
                 }}
             ]
             }},
@@ -346,16 +404,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "vorgaben": [
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
-                    "beschreibung": ""
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
                 }},
                 {{
                     "vorgaben_id": "",
                     "normzitat": "",
-                    "beschreibung": ""
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
                 }}
             ], 
             "fallgruppen": [
@@ -363,26 +424,30 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
-                    "anzahl_betroffene": "",
-                    "haeufigkeit_pro_jahr": ""
+                    "aenderungsstatus": "",
+                    "anzahl_betroffene_gueltig": "",
+                    "haeufigkeit_pro_jahr_gueltig": "",
+                    "anzahl_betroffene_vorschlag": "",
+                    "haeufigkeit_pro_jahr_vorschlag": ""
                 }}
             ]
             }}
         ]
         }}
-        Verwende keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
     # TODO: How to add this? Die Bereitstellung und Wartung von Informationstechnologie aufgrund der Änderung von 
     #                        Vorgaben kann jedoch zusätzlichen Sach- und Personalaufwand erzeugen.
     PromptId.EFFORT_CALCULATION: (
-        """
-        Du bist Legist im deutschen Bundestag und damit betraut, den Erfüllungsaufwand zu einer geplanten Gesetzesänderung zu berechnen.
-        
+        LEGIST_PROMPT_OPENING
+        + """
         Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für die Verwaltung, welche durch folgende Fallgruppen und 
         Prozessschritte differenziert werden: {step_analysis_json}
 
-        Deine Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Tätigkeiten der Verwaltungsträger pro Einzelfall zu identifizieren.
+        Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Tätigkeiten der Verwaltungsträger pro Einzelfall zu identifizieren. 
+        Hierzu werden die Stundenlöhne, Zeit- und Sachaufwände vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesänderung betrachtet. Bei der Einführung
+        eines Prozessschrittes werden typischerweise nur die _vorschlag-Werte angegeben, bei der Löschung nur die _gueltig-Werte und bei einer Änderung beide.
 
         Eine Reihe von Tätigkeiten läuft bei Nutzung entsprechender Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen resultiert 
         zunächst kein Zeitaufwand.
@@ -424,53 +489,71 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {Lohnkostentabelle_Verwaltung}
 
-        Gib nur und ausschließlich JSON im folgenden Format zurück:
-        
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
+
         {{
         "prozesse": [
             {{
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "",
                     "taetigkeiten": [ 
                         {{
                             "taetigkeiten_id": "",
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "stundenlohn_satz_a": "",
-                            "stundenlohn_satz_b": "",
-                            "stundenlohn_satz_c": "",
-                            "stundenlohn_satz_d": "",
-                            "stundenlohn_satz_e": "",
-                            "zeitaufwand_in_min_a": "",
-                            "zeitaufwand_in_min_b": "",
-                            "zeitaufwand_in_min_c": "",
-                            "zeitaufwand_in_min_d": "",
-                            "zeitaufwand_in_min_e": "",
-                            "sachaufwand": "",
-                            "ausfuehrung_pro_einzelfall": ""
+                            "aenderungsstatus": "",
+                            "stundenlohn_satz_a_gueltig": "",
+                            "stundenlohn_satz_b_gueltig": "",
+                            "stundenlohn_satz_c_gueltig": "",
+                            "stundenlohn_satz_d_gueltig": "",
+                            "zeitaufwand_in_min_a_gueltig": "",
+                            "zeitaufwand_in_min_b_gueltig": "",
+                            "zeitaufwand_in_min_c_gueltig": "",
+                            "zeitaufwand_in_min_d_gueltig": "",
+                            "sachaufwand_gueltig": "",
+                            "stundenlohn_satz_a_vorschlag": "",
+                            "stundenlohn_satz_b_vorschlag": "",
+                            "stundenlohn_satz_c_vorschlag": "",
+                            "stundenlohn_satz_d_vorschlag": "",
+                            "zeitaufwand_in_min_a_vorschlag": "",
+                            "zeitaufwand_in_min_b_vorschlag": "",
+                            "zeitaufwand_in_min_c_vorschlag": "",
+                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }},
                         {{
                             "taetigkeiten_id": "",
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "stundenlohn_satz_a": "",
-                            "stundenlohn_satz_b": "",
-                            "stundenlohn_satz_c": "",
-                            "stundenlohn_satz_d": "",
-                            "stundenlohn_satz_e": "",
-                            "zeitaufwand_in_min_a": "",
-                            "zeitaufwand_in_min_b": "",
-                            "zeitaufwand_in_min_c": "",
-                            "zeitaufwand_in_min_d": "",
-                            "zeitaufwand_in_min_e": "",
-                            "sachaufwand": "",
-                            "ausfuehrung_pro_einzelfall": ""
+                            "aenderungsstatus": "",
+                            "stundenlohn_satz_a_gueltig": "",
+                            "stundenlohn_satz_b_gueltig": "",
+                            "stundenlohn_satz_c_gueltig": "",
+                            "stundenlohn_satz_d_gueltig": "",
+                            "zeitaufwand_in_min_a_gueltig": "",
+                            "zeitaufwand_in_min_b_gueltig": "",
+                            "zeitaufwand_in_min_c_gueltig": "",
+                            "zeitaufwand_in_min_d_gueltig": "",
+                            "sachaufwand_gueltig": "",
+                            "stundenlohn_satz_a_vorschlag": "",
+                            "stundenlohn_satz_b_vorschlag": "",
+                            "stundenlohn_satz_c_vorschlag": "",
+                            "stundenlohn_satz_d_vorschlag": "",
+                            "zeitaufwand_in_min_a_vorschlag": "",
+                            "zeitaufwand_in_min_b_vorschlag": "",
+                            "zeitaufwand_in_min_c_vorschlag": "",
+                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }},
@@ -478,23 +561,32 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "",
                     "taetigkeiten": [ 
                         {{
                             "taetigkeiten_id": "",
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "stundenlohn_satz_a": "",
-                            "stundenlohn_satz_b": "",
-                            "stundenlohn_satz_c": "",
-                            "stundenlohn_satz_d": "",
-                            "stundenlohn_satz_e": "",
-                            "zeitaufwand_in_min_a": "",
-                            "zeitaufwand_in_min_b": "",
-                            "zeitaufwand_in_min_c": "",
-                            "zeitaufwand_in_min_d": "",
-                            "zeitaufwand_in_min_e": "",
-                            "sachaufwand": "",
-                            "ausfuehrung_pro_einzelfall": ""
+                            "aenderungsstatus": "",
+                            "stundenlohn_satz_a_gueltig": "",
+                            "stundenlohn_satz_b_gueltig": "",
+                            "stundenlohn_satz_c_gueltig": "",
+                            "stundenlohn_satz_d_gueltig": "",
+                            "zeitaufwand_in_min_a_gueltig": "",
+                            "zeitaufwand_in_min_b_gueltig": "",
+                            "zeitaufwand_in_min_c_gueltig": "",
+                            "zeitaufwand_in_min_d_gueltig": "",
+                            "sachaufwand_gueltig": "",
+                            "stundenlohn_satz_a_vorschlag": "",
+                            "stundenlohn_satz_b_vorschlag": "",
+                            "stundenlohn_satz_c_vorschlag": "",
+                            "stundenlohn_satz_d_vorschlag": "",
+                            "zeitaufwand_in_min_a_vorschlag": "",
+                            "zeitaufwand_in_min_b_vorschlag": "",
+                            "zeitaufwand_in_min_c_vorschlag": "",
+                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }}
@@ -504,45 +596,63 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_id": "",
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
+            "aenderungsstatus": "",
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "",
                     "taetigkeiten": [ 
                         {{
                             "taetigkeiten_id": "",
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "stundenlohn_satz_a": "",
-                            "stundenlohn_satz_b": "",
-                            "stundenlohn_satz_c": "",
-                            "stundenlohn_satz_d": "",
-                            "stundenlohn_satz_e": "",
-                            "zeitaufwand_in_min_a": "",
-                            "zeitaufwand_in_min_b": "",
-                            "zeitaufwand_in_min_c": "",
-                            "zeitaufwand_in_min_d": "",
-                            "zeitaufwand_in_min_e": "",
-                            "sachaufwand": "",
-                            "ausfuehrung_pro_einzelfall": ""
+                            "aenderungsstatus": "",
+                            "stundenlohn_satz_a_gueltig": "",
+                            "stundenlohn_satz_b_gueltig": "",
+                            "stundenlohn_satz_c_gueltig": "",
+                            "stundenlohn_satz_d_gueltig": "",
+                            "zeitaufwand_in_min_a_gueltig": "",
+                            "zeitaufwand_in_min_b_gueltig": "",
+                            "zeitaufwand_in_min_c_gueltig": "",
+                            "zeitaufwand_in_min_d_gueltig": "",
+                            "sachaufwand_gueltig": "",
+                            "stundenlohn_satz_a_vorschlag": "",
+                            "stundenlohn_satz_b_vorschlag": "",
+                            "stundenlohn_satz_c_vorschlag": "",
+                            "stundenlohn_satz_d_vorschlag": "",
+                            "zeitaufwand_in_min_a_vorschlag": "",
+                            "zeitaufwand_in_min_b_vorschlag": "",
+                            "zeitaufwand_in_min_c_vorschlag": "",
+                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }},
                         {{
                             "taetigkeiten_id": "",
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "stundenlohn_satz_a": "",
-                            "stundenlohn_satz_b": "",
-                            "stundenlohn_satz_c": "",
-                            "stundenlohn_satz_d": "",
-                            "stundenlohn_satz_e": "",
-                            "zeitaufwand_in_min_a": "",
-                            "zeitaufwand_in_min_b": "",
-                            "zeitaufwand_in_min_c": "",
-                            "zeitaufwand_in_min_d": "",
-                            "zeitaufwand_in_min_e": "",
-                            "sachaufwand": "",
-                            "ausfuehrung_pro_einzelfall": ""
+                            "aenderungsstatus": "",
+                            "stundenlohn_satz_a_gueltig": "",
+                            "stundenlohn_satz_b_gueltig": "",
+                            "stundenlohn_satz_c_gueltig": "",
+                            "stundenlohn_satz_d_gueltig": "",
+                            "zeitaufwand_in_min_a_gueltig": "",
+                            "zeitaufwand_in_min_b_gueltig": "",
+                            "zeitaufwand_in_min_c_gueltig": "",
+                            "zeitaufwand_in_min_d_gueltig": "",
+                            "sachaufwand_gueltig": "",
+                            "stundenlohn_satz_a_vorschlag": "",
+                            "stundenlohn_satz_b_vorschlag": "",
+                            "stundenlohn_satz_c_vorschlag": "",
+                            "stundenlohn_satz_d_vorschlag": "",
+                            "zeitaufwand_in_min_a_vorschlag": "",
+                            "zeitaufwand_in_min_b_vorschlag": "",
+                            "zeitaufwand_in_min_c_vorschlag": "",
+                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }}
@@ -550,7 +660,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             }}
         ]
         }}
-        Verwende keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
 }
@@ -659,72 +769,75 @@ class Appendix:
         "1 MAK = 1 Personenjahr à 200 Arbeitstage mit je 8 Stunden\n"
     )
     # TODO: Insert glossary items into prompts?
-    Begriffsdefinitionen_Erlaeuterungen = (
-        "### Anhang 9: Begriffsdefinitionen und Erläuterungen\n\n"
-        "**Erfüllungsaufwand**\n\n"
-        "Der Erfüllungsaufwand umfasst den gesamten messbaren Zeitaufwand und die Kosten, "
-        "die durch die Befolgung einer bundesrechtlichen Vorschrift bei Bürgerinnen und "
-        "Bürgern, Wirtschaft sowie der öffentlichen Verwaltung entstehen. Teil des "
-        "Erfüllungsaufwands sind Bürokratiekosten, die durch die Erfüllung von "
-        "Informationspflichten verursacht werden. Diese sind beim Normadressaten Wirtschaft "
-        "gesondert auszuweisen.\n\n Bei Bürgerinnen und Bürgern sowie der Verwaltung ist eine "
-        "Unterscheidung zwischen Informationspflichten und anderen Vorgaben entbehrlich.\n\n"
-        "Zum Erfüllungsaufwand der Verwaltung gehört der Vollzugsaufwand. Auch das "
-        "fiskalische Handeln der Verwaltung als Normadressat (z. B. als Halter von Kfz oder "
-        "als Bauherr) ist dem Erfüllungsaufwand zuzurechnen. Erfüllungsaufwand entsteht der "
-        "Verwaltung insbesondere durch die Bearbeitung von Anträgen oder durch "
-        "Überwachungsaufgaben sowie durch die Bereitstellung von Informationen und "
-        "Materialien (z. B. Antragsformulare) für Bürgerinnen und Bürger oder für die "
-        "Wirtschaft oder für andere Teile der Verwaltung.\n\n"
-        "Einnahmen und Ausgaben, die bei Gesetzentwürfen unter Buchstabe D des Vorblattes "
-        "ausgewiesen werden, bleiben beim Erfüllungsaufwand unberücksichtigt (z. B. "
-        "Steuermehr-/ -mindereinnahmen, Aufwendungen gem. Artikel 104a Absatz3 und 4 GG).\n\n"
-        "Beim Erfüllungsaufwand wird lediglich die Kostenseite betrachtet. Es findet keine "
-        "Saldierung mit dem Nutzen einer Regelung statt.\n\n"
-        "**Normadressaten**\n\n"
-        "Bürgerinnen und Bürger, Wirtschaft sowie die öffentliche Verwaltung stellen die "
-        "möglichen Normadressaten dar.\n\n"
-        "Zum Normadressaten Wirtschaft zählt jede Einheit, die eine wirtschaftliche Tätigkeit "
-        "ausübt, die zum Bruttoinlandsprodukt beiträgt und dem Privatsektor zugerechnet wird. "
-        "Der Privatsektor umfasst auch karitative Organisationen und den ehrenamtlichen "
-        "Sektor; nicht darunter fallen öffentliche Verwaltung, private Haushalte und "
-        "exterritoriale Körperschaften und Organisationen.\n\n"
-        "Als öffentliche Verwaltung gelten die mit der Wahrnehmung von Verwaltungsaufgaben "
-        "betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen "
-        "des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen "
-        "hoheitlichen Kompetenzen).\n\n"
-        "Alle Vorgaben, die sich an natürliche Personen richten, sind Vorgaben für "
-        "Bürgerinnen und Bürger. Führt eine natürliche Person ein Unternehmen, dann zählen "
-        "diejenigen Vorgaben, die sich an die Person aufgrund ihrer Eigenschaft als "
-        "Unternehmerinnen und Unternehmer richten, als Vorgaben für die Wirtschaft.\n\n"
-        "Vorgaben können mehrere Normadressaten gleichzeitig betreffen.\n\n"
-        "**Prozess**\n\n"
-        "Mehrere Vorgaben, die in der Praxis in einem Zusammenhang erfüllt werden, können "
-        "zu einem Prozess gebündelt werden.\n\n"
-        "**Regelungsvorhaben**\n\n"
-        "Bei Regelungsvorhaben handelt es sich um alle Entwürfe von Rechts- und "
-        "Verwaltungsvorschriften, die nach den §§ 43, 44, 62 Absatz 2 und § 70 Absatz 1 der "
-        "GGO mit einer Gesetzesfolgenabschätzung zu versehen sind.\n\n"
-        "**Vorgaben**\n\n"
-        "Vorgaben sind Einzelregelungen, die bei den Normadressaten unmittelbar zur Änderung "
-        "von Kosten, Zeitaufwand oder beidem führen. Sie ergeben sich aus bundesrechtlichen "
-        "Regelungen. Sie veranlassen die Normadressaten, bestimmte Ziele oder Anordnungen zu "
-        "erfüllen oder auch bestimmte Handlungen zu unterlassen. Dazu zählen auch "
-        "Verpflichtungen zur Kooperation mit Dritten sowie zur Überwachung und Kontrolle "
-        "von Zuständen, Handlungen, numerischen Werten oder Verhaltensweisen. "
-        "Informationspflichten bilden eine Teilmenge der Vorgaben.\n\n"
-        "„Unmittelbar“ bedeutet hierbei, dass die Änderung von Kosten oder Zeitaufwand in "
-        "direkter Verbindung mit der Befolgung der jeweiligen Vorgabe steht. Ein Merkmal "
-        "von Vorgaben ist, dass Bürgerinnen und Bürger, Wirtschaft sowie öffentliche "
-        "Verwaltung ihnen Folge leisten müssen, um nicht gegen Rechtsvorschriften zu "
-        "verstoßen oder etwaige Ansprüche auf staatliche Leistungen zu verlieren "
-        "(z. B. Anträge).\n\n"
-        "Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum "
-        "Teil neben Ge- oder Verboten lediglich Ziele oder Grenzwerte festgelegt oder "
-        "z. B. durch staatliche Förderungen Verhaltensänderungen erreichen will. Auch "
-        "solche Einzelregelungen sind als Vorgaben zu verstehen, weil sie unmittelbar zur "
-        "Änderung von Kosten bzw. Zeitaufwand bei den Normadressaten führen.\n"
-    )
-
-
-    
+    # "### Anhang 9: Begriffsdefinitionen und Erläuterungen\n\n"
+    Begriffsdefinitionen_Erlaeuterungen = {
+        "erfuellungsaufwand": (
+            "Der Erfüllungsaufwand umfasst den gesamten messbaren Zeitaufwand und die Kosten, "
+            "die durch die Befolgung einer bundesrechtlichen Vorschrift bei Bürgerinnen und "
+            "Bürgern, Wirtschaft sowie der öffentlichen Verwaltung entstehen. Teil des "
+            "Erfüllungsaufwands sind Bürokratiekosten, die durch die Erfüllung von "
+            "Informationspflichten verursacht werden. Diese sind beim Normadressaten Wirtschaft "
+            "gesondert auszuweisen.\n\n"
+            "Bei Bürgerinnen und Bürgern sowie der Verwaltung ist eine Unterscheidung zwischen "
+            "Informationspflichten und anderen Vorgaben entbehrlich.\n\n"
+            "Zum Erfüllungsaufwand der Verwaltung gehört der Vollzugsaufwand. Auch das "
+            "fiskalische Handeln der Verwaltung als Normadressat (z. B. als Halter von Kfz oder "
+            "als Bauherr) ist dem Erfüllungsaufwand zuzurechnen. Erfüllungsaufwand entsteht der "
+            "Verwaltung insbesondere durch die Bearbeitung von Anträgen oder durch "
+            "Überwachungsaufgaben sowie durch die Bereitstellung von Informationen und "
+            "Materialien (z. B. Antragsformulare) für Bürgerinnen und Bürger oder für die "
+            "Wirtschaft oder für andere Teile der Verwaltung.\n\n"
+            "Einnahmen und Ausgaben, die bei Gesetzentwürfen unter Buchstabe D des Vorblattes "
+            "ausgewiesen werden, bleiben beim Erfüllungsaufwand unberücksichtigt (z. B. "
+            "Steuermehr-/ -mindereinnahmen, Aufwendungen gem. Artikel 104a Absatz3 und 4 GG).\n\n"
+            "Beim Erfüllungsaufwand wird lediglich die Kostenseite betrachtet. Es findet keine "
+            "Saldierung mit dem Nutzen einer Regelung statt.\n"
+        ),
+        "normadressaten": (
+            "Bürgerinnen und Bürger, Wirtschaft sowie die öffentliche Verwaltung stellen die "
+            "möglichen Normadressaten dar.\n\n"
+            "Zum Normadressaten Wirtschaft zählt jede Einheit, die eine wirtschaftliche Tätigkeit "
+            "ausübt, die zum Bruttoinlandsprodukt beiträgt und dem Privatsektor zugerechnet wird. "
+            "Der Privatsektor umfasst auch karitative Organisationen und den ehrenamtlichen "
+            "Sektor; nicht darunter fallen öffentliche Verwaltung, private Haushalte und "
+            "exterritoriale Körperschaften und Organisationen.\n\n"
+            "Als öffentliche Verwaltung gelten die mit der Wahrnehmung von Verwaltungsaufgaben "
+            "betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen "
+            "des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen "
+            "hoheitlichen Kompetenzen).\n\n"
+            "Alle Vorgaben, die sich an natürliche Personen richten, sind Vorgaben für "
+            "Bürgerinnen und Bürger. Führt eine natürliche Person ein Unternehmen, dann zählen "
+            "diejenigen Vorgaben, die sich an die Person aufgrund ihrer Eigenschaft als "
+            "Unternehmerinnen und Unternehmer richten, als Vorgaben für die Wirtschaft.\n\n"
+            "Vorgaben können mehrere Normadressaten gleichzeitig betreffen.\n"
+        ),
+        "prozess": (
+            "Mehrere Vorgaben, die in der Praxis in einem Zusammenhang erfüllt werden, können "
+            "zu einem Prozess gebündelt werden.\n"
+        ),
+        "regelungsvorhaben": (
+            "Bei Regelungsvorhaben handelt es sich um alle Entwürfe von Rechts- und "
+            "Verwaltungsvorschriften, die nach den §§ 43, 44, 62 Absatz 2 und § 70 Absatz 1 der "
+            "GGO mit einer Gesetzesfolgenabschätzung zu versehen sind.\n"
+        ),
+        "vorgaben": (
+            "Vorgaben sind Einzelregelungen, die bei den Normadressaten unmittelbar zur Änderung "
+            "von Kosten, Zeitaufwand oder beidem führen. Sie ergeben sich aus bundesrechtlichen "
+            "Regelungen. Sie veranlassen die Normadressaten, bestimmte Ziele oder Anordnungen zu "
+            "erfüllen oder auch bestimmte Handlungen zu unterlassen. Dazu zählen auch "
+            "Verpflichtungen zur Kooperation mit Dritten sowie zur Überwachung und Kontrolle "
+            "von Zuständen, Handlungen, numerischen Werten oder Verhaltensweisen. "
+            "Informationspflichten bilden eine Teilmenge der Vorgaben.\n\n"
+            "„Unmittelbar“ bedeutet hierbei, dass die Änderung von Kosten oder Zeitaufwand in "
+            "direkter Verbindung mit der Befolgung der jeweiligen Vorgabe steht. Ein Merkmal "
+            "von Vorgaben ist, dass Bürgerinnen und Bürger, Wirtschaft sowie öffentliche "
+            "Verwaltung ihnen Folge leisten müssen, um nicht gegen Rechtsvorschriften zu "
+            "verstoßen oder etwaige Ansprüche auf staatliche Leistungen zu verlieren "
+            "(z. B. Anträge).\n\n"
+            "Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum "
+            "Teil neben Ge- oder Verboten lediglich Ziele oder Grenzwerte festgelegt oder "
+            "z. B. durch staatliche Förderungen Verhaltensänderungen erreichen will. Auch "
+            "solche Einzelregelungen sind als Vorgaben zu verstehen, weil sie unmittelbar zur "
+            "Änderung von Kosten bzw. Zeitaufwand bei den Normadressaten führen.\n"
+        ),
+    }

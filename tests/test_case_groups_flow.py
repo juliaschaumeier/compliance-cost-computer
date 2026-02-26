@@ -216,3 +216,77 @@ def test_develop_case_groups_rejects_missing_process_tile(test_client, monkeypat
     )
     assert resp.status_code == 409
     assert "Process tile missing" in resp.json()["detail"]
+
+
+def test_develop_case_groups_normalizes_change_status_variants(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("CASE-STATUS-VARIANTS", "test-model")
+    process_id = db.insert_process(session_id, "Process 1", "Desc 1")
+    db.insert_regulation(session_id, "Section 1", "Reg 1", process_id=process_id)
+    db.upsert_tile(
+        Tile(
+            id=f"process_{process_id}",
+            title="Process 1",
+            text="",
+            meta_information={"process_id": process_id},
+            column=0,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    response_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppe_bezeichnung": "Fallgruppe A",
+              "fallgruppe_beschreibung": "Beschreibung A",
+              "change_status": "new"
+            }},
+            {{
+              "fallgruppe_bezeichnung": "Fallgruppe B",
+              "fallgruppe_beschreibung": "Beschreibung B",
+              "status_change": "updated"
+            }},
+            {{
+              "fallgruppe_bezeichnung": "Fallgruppe C",
+              "fallgruppe_beschreibung": "Beschreibung C",
+              "status": "deleted"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return response_text
+
+    monkeypatch.setattr(case_groups_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/case-groups/develop",
+        json={
+            "app_session_id": "CASE-STATUS-VARIANTS",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert [row["aenderungsstatus"] for row in payload["prozesse"][0]["fallgruppen"]] == [
+        "eingefuehrt",
+        "geaendert",
+        "abgeschafft",
+    ]
+
+    rows = db.list_case_groups_for_session(session_id)
+    assert [row["change_status"] for row in rows] == [
+        "eingefuehrt",
+        "geaendert",
+        "abgeschafft",
+    ]

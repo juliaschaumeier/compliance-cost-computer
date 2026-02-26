@@ -100,22 +100,30 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     db.update_case_group_metrics(
         session_id=session_id,
         case_group_id=seeded["case_group_id"],
-        addressees=10,
-        annual_frequency=2,
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_one"],
-        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
-        expenses=10,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=10,
+        execution_per_case=None,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_two"],
-        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 60, "b": None, "c": None, "d": None, "e": None},
-        expenses=None,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        execution_per_case=None,
     )
 
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-OK"})
@@ -130,15 +138,19 @@ def test_compute_costs_updates_db_and_tiles(test_client):
         (seeded["step_two"],),
     )
     cur.execute(
-        "SELECT cost FROM process_steps WHERE step_id = ?",
+        "SELECT cost_current, cost_proposed FROM process_steps WHERE step_id = ?",
         (seeded["step_one"],),
     )
-    assert cur.fetchone()["cost"] == 40
+    step_one_cost = cur.fetchone()
+    assert step_one_cost["cost_current"] == 0
+    assert step_one_cost["cost_proposed"] == 40
     cur.execute(
-        "SELECT cost FROM process_steps WHERE step_id = ?",
+        "SELECT cost_current, cost_proposed FROM process_steps WHERE step_id = ?",
         (seeded["step_two"],),
     )
-    assert cur.fetchone()["cost"] == 60
+    step_two_cost = cur.fetchone()
+    assert step_two_cost["cost_current"] == 0
+    assert step_two_cost["cost_proposed"] == 60
     cur.execute(
         "SELECT cost FROM case_groups WHERE case_group_id = ?",
         (seeded["case_group_id"],),
@@ -159,7 +171,7 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     tiles = db.fetch_tiles(session_id=session_id)
     total_tile = next(tile for tile in tiles if tile.id == "total_cost")
     assert "€" in total_tile.text
-    assert "Fälle pro Jahr: 20" in total_tile.text
+    assert "Fälle pro Jahr (Δ): 20" in total_tile.text
     assert f"step_{seeded['step_two']}" in total_tile.link_from_tile
 
 
@@ -171,22 +183,30 @@ def test_compute_costs_honors_execution_per_case_flag(test_client):
     db.update_case_group_metrics(
         session_id=session_id,
         case_group_id=seeded["case_group_id"],
-        addressees=10,
-        annual_frequency=2,
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_one"],
-        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 30, "b": None, "c": None, "d": None, "e": None},
-        expenses=10,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=10,
+        execution_per_case=None,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_two"],
-        hourly_rates={"a": 60, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 60, "b": None, "c": None, "d": None, "e": None},
-        expenses=None,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        execution_per_case=None,
     )
 
     conn = db.get_conn()

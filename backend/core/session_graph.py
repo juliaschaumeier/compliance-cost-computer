@@ -66,7 +66,10 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 id=f"regulation_{regulation_id}",
                 title=regulation["legal_citation"],
                 text=regulation["description"],
-                meta_information={"regulation_id": regulation_id},
+                meta_information={
+                    "regulation_id": regulation_id,
+                    "change_status": regulation.get("change_status"),
+                },
                 column=1,
                 row=idx,
                 deletable=True,
@@ -96,7 +99,10 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
             id=f"process_{process_id}",
             title=process["process"],
             text=process_text,
-            meta_information={"process_id": process_id},
+            meta_information={
+                "process_id": process_id,
+                "change_status": process.get("change_status"),
+            },
             column=process_col,
             row=idx,
             deletable=True,
@@ -119,8 +125,12 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
             case_group_id = int(group["case_group_id"])
             case_group_text = db.build_case_group_tile_text(
                 description=group["description"],
-                addressees=group.get("addressees"),
-                annual_frequency=group.get("annual_frequency"),
+                addressees_current=group.get("addressees_current"),
+                annual_frequency_current=group.get("annual_frequency_current"),
+                addressees_proposed=group.get("addressees_proposed"),
+                annual_frequency_proposed=group.get("annual_frequency_proposed"),
+                cases_current=group.get("cases_current"),
+                cases_proposed=group.get("cases_proposed"),
             )
             tile = Tile(
                 id=f"case_group_{case_group_id}",
@@ -129,6 +139,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 meta_information={
                     "case_group_id": case_group_id,
                     "process_id": process_id,
+                    "change_status": group.get("change_status"),
                 },
                 column=case_group_col,
                 row=base_row + idx,
@@ -154,26 +165,40 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         ordered = _ordered_step_ids(step_map)
         for idx, step_id in enumerate(ordered):
             step = step_map[step_id]
-            hourly_rates = {
-                "a": step.get("hourly_rate_a"),
-                "b": step.get("hourly_rate_b"),
-                "c": step.get("hourly_rate_c"),
-                "d": step.get("hourly_rate_d"),
-                "e": step.get("hourly_rate_e"),
+            hourly_rates_current = {
+                "a": step.get("hourly_rate_a_current"),
+                "b": step.get("hourly_rate_b_current"),
+                "c": step.get("hourly_rate_c_current"),
+                "d": step.get("hourly_rate_d_current"),
             }
-            time_required = {
-                "a": step.get("time_required_in_min_a"),
-                "b": step.get("time_required_in_min_b"),
-                "c": step.get("time_required_in_min_c"),
-                "d": step.get("time_required_in_min_d"),
-                "e": step.get("time_required_in_min_e"),
+            time_required_current = {
+                "a": step.get("time_required_in_min_a_current"),
+                "b": step.get("time_required_in_min_b_current"),
+                "c": step.get("time_required_in_min_c_current"),
+                "d": step.get("time_required_in_min_d_current"),
+            }
+            hourly_rates_proposed = {
+                "a": step.get("hourly_rate_a_proposed"),
+                "b": step.get("hourly_rate_b_proposed"),
+                "c": step.get("hourly_rate_c_proposed"),
+                "d": step.get("hourly_rate_d_proposed"),
+            }
+            time_required_proposed = {
+                "a": step.get("time_required_in_min_a_proposed"),
+                "b": step.get("time_required_in_min_b_proposed"),
+                "c": step.get("time_required_in_min_c_proposed"),
+                "d": step.get("time_required_in_min_d_proposed"),
             }
             step_text = db.build_process_step_tile_text(
                 description=step["description"],
-                hourly_rates=hourly_rates,
-                time_required=time_required,
-                expenses=step.get("expenses"),
-                cost=step.get("cost"),
+                hourly_rates_current=hourly_rates_current,
+                time_required_current=time_required_current,
+                expenses_current=step.get("expenses_current"),
+                cost_current=step.get("cost_current"),
+                hourly_rates_proposed=hourly_rates_proposed,
+                time_required_proposed=time_required_proposed,
+                expenses_proposed=step.get("expenses_proposed"),
+                cost_proposed=step.get("cost_proposed"),
                 execution_per_case=step.get("execution_per_case"),
             )
             tiles.append(
@@ -185,6 +210,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                         "step_id": step_id,
                         "case_group_id": case_group_id,
                         "process_id": case_group_tile.meta_information.get("process_id"),
+                        "change_status": step.get("change_status"),
                     },
                     column=case_group_tile.column + 1 + idx,
                     row=case_group_tile.row,
@@ -201,12 +227,12 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         max_col = max((tile.column for tile in tiles), default=case_group_col)
         total_col = (max_step_col if max_step_col is not None else max_col) + 1
 
-        total_cases = 0.0
+        total_cases_delta = 0.0
         for group in case_groups:
-            addressees = group.get("addressees") or 0
-            frequency = group.get("annual_frequency") or 0
             try:
-                total_cases += float(addressees) * float(frequency)
+                proposed = float(group.get("cases_proposed") or 0)
+                current = float(group.get("cases_current") or 0)
+                total_cases_delta += proposed - current
             except (TypeError, ValueError):
                 continue
 
@@ -229,7 +255,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 text="\n".join(
                     [
                         db.format_currency(float(session["cc_cost"])),
-                        f"Fälle pro Jahr: {db.format_number(total_cases)}",
+                        f"Fälle pro Jahr (Δ): {db.format_number(round(total_cases_delta))}",
                     ]
                 ),
                 meta_information=(

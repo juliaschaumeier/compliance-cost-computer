@@ -14,7 +14,6 @@ from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db
-from backend.core.config import settings
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import get_last_completed_step, undo_step
 from backend.routers import (
@@ -802,8 +801,13 @@ async def start_run_all_steps(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> SessionRunAllStartResponse:
-    model = payload.model or settings.default_model
-    db.upsert_session(payload.app_session_id, model)
+    try:
+        _session_id, _created, model = db.ensure_session(
+            payload.app_session_id,
+            payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     start_status = db.get_session_status(payload.app_session_id)
     baseline_step = get_last_completed_step(start_status or {})
 
@@ -938,4 +942,3 @@ async def stream_run_all_events(run_id: str) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
-

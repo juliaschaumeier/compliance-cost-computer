@@ -89,3 +89,67 @@ def test_identify_regulations_flow(test_client, monkeypatch):
     assert repeat_resp.status_code == 200
     repeat_payload = repeat_resp.json()
     assert repeat_payload["status"] == "existing"
+
+
+def test_identify_regulations_normalizes_change_status_variants(test_client, monkeypatch):
+    db.insert_law("status-current.txt", "aktuelles gesetz")
+    db.insert_law("status-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            """
+    {
+      "vorgaben": [
+        {"normzitat": "§ 10", "beschreibung": "Neu", "change_status": "new"},
+        {"normzitat": "§ 11", "beschreibung": "Geaendert", "status_change": "updated"},
+        {"normzitat": "§ 12", "beschreibung": "Entfaellt", "status": "deleted"}
+      ]
+    }
+    """,
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "status-proposed.txt",
+            "current_filename": "status-current.txt",
+            "app_session_id": "REG-STATUS-VARIANTS",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "current_filename": "status-current.txt",
+            "proposed_filename": "status-proposed.txt",
+            "app_session_id": "REG-STATUS-VARIANTS",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert [row["aenderungsstatus"] for row in payload["vorgaben"]] == [
+        "eingefuehrt",
+        "geaendert",
+        "abgeschafft",
+    ]
+
+    session_id = db.get_session_id_by_app_id("REG-STATUS-VARIANTS")
+    assert session_id is not None
+    rows = db.list_regulations_for_session(session_id)
+    assert [row["change_status"] for row in rows] == [
+        "eingefuehrt",
+        "geaendert",
+        "abgeschafft",
+    ]

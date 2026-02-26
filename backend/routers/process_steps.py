@@ -7,10 +7,12 @@ from pydantic import BaseModel
 
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
-from backend.core.config import settings
+from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_json import extract_fallgruppen, parse_json_object
 from backend.core.llm_service import query_llm
+from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
+from backend.core.payload_builders import build_case_groups_payload
 from backend.core.prompts import PromptId, render_prompt
 
 
@@ -27,21 +29,81 @@ def _parse_process_steps(payload: str) -> list[dict]:
     if not isinstance(data, dict):
         return []
 
-    fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
+    processes = data.get("prozesse")
+    if not isinstance(processes, list):
+        processes = []
+
+    for process in processes:
+        if not isinstance(process, dict):
+            continue
+        process_status = extract_change_status(process)
+        fallgruppen = process.get("fallgruppen")
+        if not isinstance(fallgruppen, list):
+            continue
+        for fallgruppe in fallgruppen:
+            if not isinstance(fallgruppe, dict):
+                continue
+            case_group_id = parse_first_int(
+                fallgruppe,
+                "fallgruppen_id",
+                "fallgruppe_id",
+                "case_group_id",
+            )
+            if case_group_id is None:
+                continue
+            case_group_status = extract_change_status(fallgruppe)
+            taetigkeiten = fallgruppe.get("taetigkeiten") or fallgruppe.get("tätigkeiten")
+            if not isinstance(taetigkeiten, list):
+                taetigkeiten = []
+            steps: list[dict] = []
+            for entry in taetigkeiten:
+                if not isinstance(entry, dict):
+                    continue
+                step = str(
+                    entry.get("taetigkeit")
+                    or entry.get("tätigkeit")
+                    or entry.get("step")
+                    or ""
+                ).strip()
+                description = str(
+                    entry.get("beschreibung")
+                    or entry.get("description")
+                    or ""
+                ).strip()
+                step_status = extract_change_status(entry)
+                if not step and not description:
+                    continue
+                steps.append(
+                    {
+                        "taetigkeit": step,
+                        "beschreibung": description,
+                        "aenderungsstatus": step_status,
+                    }
+                )
+            if steps:
+                parsed.append(
+                    {
+                        "case_group_id": case_group_id,
+                        "aenderungsstatus": case_group_status or process_status,
+                        "taetigkeiten": steps,
+                    }
+                )
+
+    if parsed:
+        return parsed
+
+    fallgruppen = extract_fallgruppen(data)
     for fallgruppe in fallgruppen:
-        fallgruppen_id = str(
-            fallgruppe.get("fallgruppen_id")
-            or fallgruppe.get("fallgruppe_id")
-            or fallgruppe.get("case_group_id")
-            or ""
-        ).strip()
-        if not fallgruppen_id:
+        case_group_id = parse_first_int(
+            fallgruppe,
+            "fallgruppen_id",
+            "fallgruppe_id",
+            "case_group_id",
+        )
+        if case_group_id is None:
             continue
-        try:
-            case_group_id = int(fallgruppen_id)
-        except ValueError:
-            continue
+        case_group_status = extract_change_status(fallgruppe)
         taetigkeiten = fallgruppe.get("taetigkeiten") or fallgruppe.get("tätigkeiten")
         if not isinstance(taetigkeiten, list):
             taetigkeiten = []
@@ -60,51 +122,25 @@ def _parse_process_steps(payload: str) -> list[dict]:
                 or entry.get("description")
                 or ""
             ).strip()
+            step_status = extract_change_status(entry)
             if not step and not description:
                 continue
             steps.append(
                 {
                     "taetigkeit": step,
                     "beschreibung": description,
+                    "aenderungsstatus": step_status,
                 }
             )
         if steps:
             parsed.append(
                 {
                     "case_group_id": case_group_id,
+                    "aenderungsstatus": case_group_status,
                     "taetigkeiten": steps,
                 }
             )
     return parsed
-
-
-def _build_case_groups_payload(
-    processes: list[dict],
-    case_groups: list[dict],
-) -> list[dict]:
-    groups_by_process: dict[int, list[dict]] = {}
-    for group in case_groups:
-        process_id = int(group["process_id"])
-        groups_by_process.setdefault(process_id, []).append(
-            {
-                "fallgruppen_id": group["case_group_id"],
-                "fallgruppe_bezeichnung": group["case_group"],
-                "fallgruppe_beschreibung": group["description"],
-            }
-        )
-
-    payload = []
-    for process in processes:
-        process_id = int(process["process_id"])
-        payload.append(
-            {
-                "prozess_id": process_id,
-                "prozess_bezeichnung": process["process"],
-                "prozess_beschreibung": process["description"],
-                "fallgruppen": groups_by_process.get(process_id, []),
-            }
-        )
-    return payload
 
 
 def _add_step_tiles(
@@ -131,11 +167,13 @@ def _add_step_tiles(
         for idx, step in enumerate(entry["taetigkeiten"]):
             title = step.get("taetigkeit") or f"Schritt {idx + 1}"
             description = step.get("beschreibung") or ""
+            step_status = normalize_change_status(step.get("aenderungsstatus"))
             step_id = db.insert_process_step(
                 session_id=session_id,
                 case_group_id=case_group_id,
                 step=title,
                 description=description,
+                change_status=step_status,
                 previous_id=prev_step_id,
                 execution_per_case=None,
             )
@@ -154,6 +192,7 @@ def _add_step_tiles(
                     "step_id": step_id,
                     "case_group_id": case_group_id,
                     "process_id": case_group_lookup[case_group_id]["process_id"],
+                    "change_status": step_status,
                 },
                 column=case_group_tile.column + 1 + idx,
                 row=case_group_tile.row,
@@ -167,6 +206,7 @@ def _add_step_tiles(
                     "case_group_id": case_group_id,
                     "taetigkeit": title,
                     "beschreibung": description,
+                    "aenderungsstatus": step_status,
                 }
             )
             prev_step_id = step_id
@@ -178,8 +218,13 @@ async def analyze_process_steps(
     payload: ProcessStepAnalysisRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> dict:
-    model = payload.model or settings.default_model
-    session_id, _created = db.upsert_session(payload.app_session_id, model)
+    try:
+        session_id, _created, model = db.ensure_session(
+            payload.app_session_id,
+            payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     existing = db.list_process_steps_for_session(session_id)
     if existing:
         return {"steps": existing, "status": "existing"}
@@ -189,10 +234,17 @@ async def analyze_process_steps(
         raise HTTPException(status_code=400, detail="No case groups for session")
 
     processes = db.list_processes_for_session(session_id)
-    payload_groups = _build_case_groups_payload(processes, case_groups)
+    current_law_text, proposed_law_text = db.get_session_law_texts(session_id)
+    payload_groups = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        include_metrics=False,
+    )
 
     prompt = render_prompt(
         PromptId.PROCESS_STEP_ANALYSIS,
+        gesetz_gueltig=current_law_text,
+        gesetz_vorschlag=proposed_law_text,
         case_groups_json=json.dumps(payload_groups, ensure_ascii=False),
     )
     response_text = await query_llm(

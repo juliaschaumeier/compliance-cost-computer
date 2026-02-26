@@ -12,6 +12,7 @@ import {
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import { normalizeChangeStatus } from "@/lib/changeStatus";
 import { logClientError } from "@/lib/errorFeedback";
 import { normalizeAndAlignTiles } from "@/lib/graphLayout";
 import { Tile } from "@/types";
@@ -352,33 +353,131 @@ export default function GraphCanvas() {
       string,
       { x: number; y: number; height: number }
     >();
-    const rowHeights = new Map<number, number>();
-    tiles.forEach((tile) => {
-      const height = tileHeights[tile.id] ?? TILE_HEIGHT;
-      const current = rowHeights.get(tile.row) ?? 0;
-      if (height > current) {
-        rowHeights.set(tile.row, height);
-      }
-    });
-    const sortedRows = Array.from(rowHeights.keys()).sort((a, b) => a - b);
-    const rowOffsets = new Map<number, number>();
-    let y = 0;
+    const columnBottoms = new Map<number, number>();
     let maxBottom = 0;
-    sortedRows.forEach((row) => {
-      rowOffsets.set(row, y);
-      const height = rowHeights.get(row) ?? TILE_HEIGHT;
-      maxBottom = Math.max(maxBottom, y + height);
-      y += height + TILE_GAP;
-    });
-    tiles.forEach((tile) => {
+
+    const placeTile = (tile: Tile, y: number) => {
       const height = tileHeights[tile.id] ?? TILE_HEIGHT;
-      const yPos = rowOffsets.get(tile.row);
+      const bottom = y + height;
       positions.set(tile.id, {
         x: tile.column * COLUMN_WIDTH,
-        y: yPos ?? tile.row * ROW_HEIGHT,
+        y,
         height,
       });
+      maxBottom = Math.max(maxBottom, bottom);
+      const prevColumnBottom = columnBottoms.get(tile.column) ?? 0;
+      if (bottom > prevColumnBottom) {
+        columnBottoms.set(tile.column, bottom);
+      }
+      return height;
+    };
+
+    const parseCaseGroupId = (tile: Tile): number | null => {
+      const fromMeta = tile.meta_information?.case_group_id;
+      if (typeof fromMeta === "number") {
+        return Number.isFinite(fromMeta) ? fromMeta : null;
+      }
+      if (typeof fromMeta === "string") {
+        const parsed = Number.parseInt(fromMeta, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      if (tile.id.startsWith("case_group_")) {
+        const parsed = Number.parseInt(tile.id.replace("case_group_", ""), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    // 1) Lay out all non-step, non-case-group tiles per column independently.
+    const regularTilesByColumn = new Map<number, Tile[]>();
+    tiles.forEach((tile) => {
+      if (tile.id.startsWith("case_group_") || tile.id.startsWith("step_")) {
+        return;
+      }
+      const list = regularTilesByColumn.get(tile.column) || [];
+      list.push(tile);
+      regularTilesByColumn.set(tile.column, list);
     });
+    regularTilesByColumn.forEach((columnTiles) => {
+      const sorted = [...columnTiles].sort((a, b) =>
+        a.row !== b.row ? a.row - b.row : a.id.localeCompare(b.id)
+      );
+      let y = 0;
+      sorted.forEach((tile) => {
+        const usedHeight = placeTile(tile, y);
+        y += usedHeight + TILE_GAP;
+      });
+    });
+
+    // 2) Lay out case-groups and their step rows with shared row heights.
+    const caseGroupYById = new Map<number, number>();
+    const caseGroupTiles = tiles
+      .filter((tile) => tile.id.startsWith("case_group_"))
+      .sort((a, b) => (a.row !== b.row ? a.row - b.row : a.id.localeCompare(b.id)));
+    const stepTiles = tiles
+      .filter((tile) => tile.id.startsWith("step_"))
+      .sort((a, b) =>
+        a.column !== b.column
+          ? a.column - b.column
+          : a.row !== b.row
+            ? a.row - b.row
+            : a.id.localeCompare(b.id)
+      );
+    const stepTilesByCaseGroupId = new Map<number, Tile[]>();
+    const orphanStepTiles: Tile[] = [];
+
+    stepTiles.forEach((tile) => {
+      const caseGroupId = parseCaseGroupId(tile);
+      if (caseGroupId === null) {
+        orphanStepTiles.push(tile);
+        return;
+      }
+      const list = stepTilesByCaseGroupId.get(caseGroupId) || [];
+      list.push(tile);
+      stepTilesByCaseGroupId.set(caseGroupId, list);
+    });
+
+    let anchoredY = 0;
+    caseGroupTiles.forEach((tile) => {
+      const caseGroupId = parseCaseGroupId(tile);
+      const linkedSteps =
+        caseGroupId !== null ? (stepTilesByCaseGroupId.get(caseGroupId) ?? []) : [];
+      const rowHeight = linkedSteps.reduce((maxHeight, stepTile) => {
+        const stepHeight = tileHeights[stepTile.id] ?? TILE_HEIGHT;
+        return Math.max(maxHeight, stepHeight);
+      }, tileHeights[tile.id] ?? TILE_HEIGHT);
+
+      placeTile(tile, anchoredY);
+      if (caseGroupId !== null) {
+        caseGroupYById.set(caseGroupId, anchoredY);
+      }
+      linkedSteps.forEach((stepTile) => {
+        placeTile(stepTile, anchoredY);
+      });
+      anchoredY += rowHeight + TILE_GAP;
+    });
+
+    // 3) Lay out orphan steps (without matching case-group) per column.
+    stepTilesByCaseGroupId.forEach((linkedSteps, caseGroupId) => {
+      if (caseGroupYById.has(caseGroupId)) {
+        return;
+      }
+      orphanStepTiles.push(...linkedSteps);
+    });
+    orphanStepTiles
+      .sort((a, b) =>
+        a.column !== b.column
+          ? a.column - b.column
+          : a.row !== b.row
+            ? a.row - b.row
+            : a.id.localeCompare(b.id)
+      )
+      .forEach((tile) => {
+        const currentBottom = columnBottoms.get(tile.column);
+        const y = currentBottom === undefined ? 0 : currentBottom + TILE_GAP;
+        placeTile(tile, y);
+      });
+
     return { positions, maxBottom };
   }, [tiles, tileHeights]);
 
@@ -421,6 +520,7 @@ export default function GraphCanvas() {
             Boolean(focusedNodeId) &&
             relatedNodeIds.has(tile.id) &&
             focusedNodeId !== tile.id,
+          changeStatus: normalizeChangeStatus(tile.meta_information?.["change_status"]),
         },
         className: expandedNodeIds[tile.id] ? "node-expanded" : "",
         style: expandedNodeIds[tile.id] ? { zIndex: 5 } : undefined,
@@ -451,7 +551,7 @@ export default function GraphCanvas() {
           tile.id === focusedNodeId;
         const strokeColor = highlightEnabled
           ? isActive
-            ? "#0f766e"
+            ? "#3b82f6"
             : "#94a3b8"
           : "#0f172a";
         return {
@@ -507,14 +607,8 @@ export default function GraphCanvas() {
   const handleNodeClick = useCallback(
     (_event: unknown, node: Node) => {
       setFocusedNodeId((prev) => (prev === node.id ? null : node.id));
-      if (node.id !== "law_tile" && (overflowIds.has(node.id) || expandedNodeIds[node.id])) {
-        setExpandedNodeIds((prev) => ({
-          ...prev,
-          [node.id]: !prev[node.id],
-        }));
-      }
     },
-    [overflowIds, expandedNodeIds]
+    []
   );
 
   const handlePaneClick = useCallback(() => {

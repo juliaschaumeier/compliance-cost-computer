@@ -204,8 +204,8 @@ def test_end_to_end_flow_and_undo(test_client, monkeypatch):
                 "fallgruppen": [
                     {
                         "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "anzahl_betroffene": "10",
-                        "haeufigkeit_pro_jahr": "2",
+                        "anzahl_betroffene_vorschlag": "10",
+                        "haeufigkeit_pro_jahr_vorschlag": "2",
                     }
                 ],
             },
@@ -214,8 +214,8 @@ def test_end_to_end_flow_and_undo(test_client, monkeypatch):
                 "fallgruppen": [
                     {
                         "fallgruppen_id": str(case_groups[1]["case_group_id"]),
-                        "anzahl_betroffene": "5",
-                        "haeufigkeit_pro_jahr": "1",
+                        "anzahl_betroffene_vorschlag": "5",
+                        "haeufigkeit_pro_jahr_vorschlag": "1",
                     }
                 ],
             },
@@ -234,9 +234,9 @@ def test_end_to_end_flow_and_undo(test_client, monkeypatch):
                 "taetigkeiten_id": str(step["step_id"]),
                 "taetigkeit": step["step"],
                 "beschreibung": step["description"],
-                "stundenlohn_satz_a": "50",
-                "zeitaufwand_in_min_a": "10",
-                "sachaufwand": "5",
+                "stundenlohn_satz_a_vorschlag": "50",
+                "zeitaufwand_in_min_a_vorschlag": "10",
+                "sachaufwand_vorschlag": "5",
             }
             for step in steps_by_group.get(group_id, [])
         ]

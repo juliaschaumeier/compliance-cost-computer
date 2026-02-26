@@ -4,19 +4,27 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function ProcessesPanel() {
   const { state, setCurrentTab, setProcessesReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const isRunAllBusy = useRunAllStepBusy("processes");
+  const isBusy = isRunning || isRunAllBusy;
 
   const canRun =
     state.regulationsReady &&
     !state.processesReady &&
-    !isRunning;
+    Boolean(state.selectedModel) &&
+    !isBusy;
 
   const handleCompile = async () => {
+    if (!state.selectedModel) {
+      setStatus("Bitte zuerst ein Modell auswählen.");
+      return;
+    }
     if (!canRun) {
       return;
     }
@@ -40,7 +48,7 @@ export default function ProcessesPanel() {
       logClientError("ProcessesPanel.compileProcesses", error, {
         appSessionId: state.appSessionId,
       });
-      setStatus("Prozesse konnten nicht gebündelt werden.");
+      setStatus(formatActionErrorMessage("Prozesse konnten nicht gebündelt werden", error));
     } finally {
       setIsRunning(false);
     }
@@ -63,7 +71,7 @@ export default function ProcessesPanel() {
                 : "cursor-not-allowed bg-slate-200 text-slate-500"
             }`}
           >
-            {isRunning ? "Bitte warten..." : "Prozesse bündeln"}
+            {isBusy ? "Bitte warten..." : "Prozesse bündeln"}
           </button>
         </div>
 

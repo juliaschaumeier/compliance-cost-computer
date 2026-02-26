@@ -71,7 +71,7 @@ describe("TotalCostPanel", () => {
     );
 
     expect(
-      await screen.findByText("Gesamtkosten konnten nicht berechnet werden.")
+      await screen.findByText("Gesamtkosten konnten nicht berechnet werden: boom")
     ).toBeInTheDocument();
   });
 

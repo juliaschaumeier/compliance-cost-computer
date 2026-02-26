@@ -4,21 +4,29 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function RegulationsPanel() {
   const { state, setCurrentTab, setRegulationsReady, setProcessesReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const isRunAllBusy = useRunAllStepBusy("regulations");
+  const isBusy = isRunning || isRunAllBusy;
 
   const canRun =
     state.summaryReady &&
     !state.regulationsReady &&
-    !isRunning &&
+    !isBusy &&
+    Boolean(state.selectedModel) &&
     Boolean(state.selectedCurrentLaw) &&
     Boolean(state.selectedRegulation);
 
   const handleIdentify = async () => {
+    if (!state.selectedModel) {
+      setStatus("Bitte zuerst ein Modell auswählen.");
+      return;
+    }
     if (!canRun) {
       return;
     }
@@ -45,7 +53,7 @@ export default function RegulationsPanel() {
       logClientError("RegulationsPanel.identifyRegulations", error, {
         appSessionId: state.appSessionId,
       });
-      setStatus("Vorgaben konnten nicht bestimmt werden.");
+      setStatus(formatActionErrorMessage("Vorgaben konnten nicht bestimmt werden", error));
     } finally {
       setIsRunning(false);
     }
@@ -68,7 +76,7 @@ export default function RegulationsPanel() {
                 : "cursor-not-allowed bg-slate-200 text-slate-500"
             }`}
           >
-            {isRunning ? "Bitte warten..." : "Vorgaben bestimmen"}
+            {isBusy ? "Bitte warten..." : "Vorgaben bestimmen"}
           </button>
         </div>
 

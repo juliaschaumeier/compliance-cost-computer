@@ -36,3 +36,34 @@ export function logClientError(
 
   console.debug(`[${scope}]`, details);
 }
+
+export function formatActionErrorMessage(
+  actionMessage: string,
+  error: unknown
+): string {
+  const fallback = actionMessage.endsWith(".")
+    ? actionMessage
+    : `${actionMessage}.`;
+  const maybe = error as {
+    message?: unknown;
+    status?: unknown;
+  };
+  const message =
+    typeof maybe?.message === "string" ? maybe.message.trim() : "";
+  const status = typeof maybe?.status === "number" ? maybe.status : undefined;
+  const lower = message.toLowerCase();
+
+  if (lower.includes("failed to fetch")) {
+    return "Backend ist nicht erreichbar. Bitte Backend prüfen und erneut versuchen.";
+  }
+
+  if (status !== undefined) {
+    return `${actionMessage} (HTTP ${status}).`;
+  }
+
+  if (message && !lower.startsWith("failed to ")) {
+    return `${actionMessage}: ${message}`;
+  }
+
+  return fallback;
+}

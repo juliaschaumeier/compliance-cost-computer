@@ -47,6 +47,18 @@ function buildTileNodeProps(
 }
 
 describe("TileNode", () => {
+  it("renders a status marker when change status is provided", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("regulation_3", {
+          changeStatus: "eingefuehrt",
+        })}
+      />
+    );
+
+    expect(screen.getByText("Neu")).toBeInTheDocument();
+  });
+
   it("does not bubble the expand click to parent handlers", async () => {
     const user = userEvent.setup();
     const onParentClick = jest.fn();

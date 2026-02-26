@@ -43,15 +43,19 @@ def test_session_status_progression(test_client):
     db.update_case_group_metrics(
         session_id=session_id,
         case_group_id=case_group_id,
-        addressees=5,
-        annual_frequency=1,
+        addressees_proposed=5,
+        annual_frequency_proposed=1,
     )
-    db.update_process_step_effort(
+    db.update_process_step_effort_split(
         session_id=session_id,
         step_id=step_id,
-        hourly_rates={"a": 10, "b": None, "c": None, "d": None, "e": None},
-        time_required={"a": 5, "b": None, "c": None, "d": None, "e": None},
-        expenses=None,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 10, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 5, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        execution_per_case=None,
     )
 
     resp = test_client.get("/sessions/status", params={"app_session_id": "STATUS-OK"})

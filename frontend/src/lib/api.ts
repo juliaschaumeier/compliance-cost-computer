@@ -199,7 +199,24 @@ export const apiClient = {
       )}`
     );
     if (!response.ok) {
-      throw new Error("Failed to load session status");
+      let errorBody: unknown = null;
+      let rawText = "";
+      try {
+        rawText = await response.text();
+        errorBody = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        errorBody = null;
+      }
+      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
+      const detailMessage =
+        (typeof detail === "string" ? detail : null) ||
+        rawText ||
+        "Failed to load session status";
+      throw createApiClientError(detailMessage, {
+        status: response.status,
+        details: detail ?? errorBody ?? rawText,
+        raw: rawText,
+      });
     }
     return response.json();
   },
@@ -255,7 +272,24 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to start run-all steps");
+      let errorBody: unknown = null;
+      let rawText = "";
+      try {
+        rawText = await response.text();
+        errorBody = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        errorBody = null;
+      }
+      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
+      const detailMessage =
+        (typeof detail === "string" ? detail : null) ||
+        rawText ||
+        "Failed to start run-all steps";
+      throw createApiClientError(detailMessage, {
+        status: response.status,
+        details: detail ?? errorBody ?? rawText,
+        raw: rawText,
+      });
     }
     return response.json();
   },
@@ -264,7 +298,24 @@ export const apiClient = {
       `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}`
     );
     if (!response.ok) {
-      throw new Error("Failed to load run-all status");
+      let errorBody: unknown = null;
+      let rawText = "";
+      try {
+        rawText = await response.text();
+        errorBody = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        errorBody = null;
+      }
+      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
+      const detailMessage =
+        (typeof detail === "string" ? detail : null) ||
+        rawText ||
+        "Failed to load run-all status";
+      throw createApiClientError(detailMessage, {
+        status: response.status,
+        details: detail ?? errorBody ?? rawText,
+        raw: rawText,
+      });
     }
     return response.json();
   },
@@ -279,7 +330,24 @@ export const apiClient = {
       }
     );
     if (!response.ok) {
-      throw new Error("Failed to cancel run-all");
+      let errorBody: unknown = null;
+      let rawText = "";
+      try {
+        rawText = await response.text();
+        errorBody = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        errorBody = null;
+      }
+      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
+      const detailMessage =
+        (typeof detail === "string" ? detail : null) ||
+        rawText ||
+        "Failed to cancel run-all";
+      throw createApiClientError(detailMessage, {
+        status: response.status,
+        details: detail ?? errorBody ?? rawText,
+        raw: rawText,
+      });
     }
     return response.json();
   },

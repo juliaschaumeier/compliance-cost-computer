@@ -7,10 +7,11 @@ from pydantic import BaseModel
 
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
-from backend.core.config import settings
+from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
+from backend.core.parsing import parse_first_int
 from backend.core.prompts import PromptId, render_prompt
 
 
@@ -35,6 +36,7 @@ def _parse_processes(payload: str) -> list[dict]:
             continue
         name = str(entry.get("prozess_bezeichnung", "")).strip()
         description = str(entry.get("prozess_beschreibung", "")).strip()
+        process_status = extract_change_status(entry)
         vorgaben = entry.get("vorgaben")
         if not isinstance(vorgaben, list):
             vorgaben = []
@@ -42,15 +44,17 @@ def _parse_processes(payload: str) -> list[dict]:
         for vorgabe in vorgaben:
             if not isinstance(vorgabe, dict):
                 continue
-            vorgaben_id = str(vorgabe.get("vorgaben_id", "")).strip()
+            vorgaben_id = parse_first_int(vorgabe, "vorgaben_id")
             normzitat = str(vorgabe.get("normzitat", "")).strip()
             beschreibung = str(vorgabe.get("beschreibung", "")).strip()
-            if vorgaben_id or normzitat or beschreibung:
+            vorgabe_status = extract_change_status(vorgabe)
+            if vorgaben_id is not None or normzitat or beschreibung:
                 parsed_vorgaben.append(
                     {
                         "vorgaben_id": vorgaben_id,
                         "normzitat": normzitat,
                         "beschreibung": beschreibung,
+                        "aenderungsstatus": vorgabe_status,
                     }
                 )
         if not name and not description:
@@ -59,6 +63,7 @@ def _parse_processes(payload: str) -> list[dict]:
             {
                 "prozess_bezeichnung": name,
                 "prozess_beschreibung": description,
+                "aenderungsstatus": process_status,
                 "vorgaben": parsed_vorgaben,
             }
         )
@@ -87,26 +92,24 @@ def _add_process_tiles(
     for idx, process in enumerate(processes):
         name = process.get("prozess_bezeichnung") or f"Prozess {idx + 1}"
         description = process.get("prozess_beschreibung") or ""
-        process_id = db.insert_process(session_id, name, description)
+        process_status = normalize_change_status(process.get("aenderungsstatus"))
+        process_id = db.insert_process(
+            session_id,
+            name,
+            description,
+            change_status=process_status,
+        )
         link_from_tile = []
         for vorgabe in process.get("vorgaben", []):
-            raw_id = str(vorgabe.get("vorgaben_id", "")).strip()
-            if not raw_id:
-                continue
-            try:
-                regulation_id = int(raw_id)
-            except ValueError:
+            regulation_id = parse_first_int(vorgabe, "vorgaben_id")
+            if regulation_id is None:
                 continue
             regulation = regulation_lookup.get(regulation_id)
             if not regulation:
                 continue
-            llm_normzitat = str(vorgabe.get("normzitat", "")).strip()
-            llm_beschreibung = str(vorgabe.get("beschreibung", "")).strip()
             updated = db.update_regulation_process(
                 regulation_id=regulation_id,
                 process_id=process_id,
-                legal_citation=llm_normzitat,
-                description=llm_beschreibung,
             )
             if not updated:
                 latest = db.get_regulation_by_id(regulation_id)
@@ -121,7 +124,7 @@ def _add_process_tiles(
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        "Regulation text mismatch for regulation_id: "
+                        "Regulation ID mismatch for regulation_id: "
                         f"{regulation_id}"
                     ),
                 )
@@ -130,7 +133,10 @@ def _add_process_tiles(
             id=f"process_{process_id}",
             title=name,
             text=description,
-            meta_information={"process_id": process_id},
+            meta_information={
+                "process_id": process_id,
+                "change_status": process_status,
+            },
             column=base_col,
             row=base_row + (idx * row_spacing),
             deletable=True,
@@ -142,6 +148,7 @@ def _add_process_tiles(
                 "process_id": process_id,
                 "prozess_bezeichnung": name,
                 "prozess_beschreibung": description,
+                "aenderungsstatus": process_status,
             }
         )
     return created
@@ -156,13 +163,11 @@ def _validate_vorgaben(
     already_linked: list[str] = []
     for process in processes:
         for vorgabe in process.get("vorgaben", []):
-            raw_id = str(vorgabe.get("vorgaben_id", "")).strip()
-            if not raw_id:
-                continue
-            try:
-                regulation_id = int(raw_id)
-            except ValueError:
-                mismatches.append(f"Invalid vorgaben_id '{raw_id}'")
+            raw_id = vorgabe.get("vorgaben_id")
+            regulation_id = parse_first_int(vorgabe, "vorgaben_id")
+            if regulation_id is None:
+                if str(raw_id or "").strip():
+                    mismatches.append(f"Invalid vorgaben_id '{raw_id}'")
                 continue
             if regulation_id in seen_ids:
                 mismatches.append(
@@ -179,18 +184,10 @@ def _validate_vorgaben(
                     f"{regulation_id} -> {regulation['process_id']}"
                 )
                 continue
-            llm_normzitat = str(vorgabe.get("normzitat", "")).strip()
-            llm_beschreibung = str(vorgabe.get("beschreibung", "")).strip()
-            if not llm_normzitat or not llm_beschreibung:
-                mismatches.append(
-                    f"Vorgabe {regulation_id} missing normzitat/beschreibung"
-                )
-                continue
-            if (
-                llm_normzitat != str(regulation["legal_citation"]).strip()
-                or llm_beschreibung != str(regulation["description"]).strip()
-            ):
-                mismatches.append(f"Vorgabe {regulation_id} text mismatch")
+            # TODO: Add strict/optional text consistency checks later.
+            # Current behavior intentionally validates by vorgaben_id only.
+            # If one-to-one ID matching fails, we should decide whether to
+            # reject, retry with a repair prompt, or perform interactive review.
 
     if already_linked:
         raise HTTPException(
@@ -206,8 +203,13 @@ async def compile_processes(
     payload: ProcessCompilationRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> dict:
-    model = payload.model or settings.default_model
-    session_id, _created = db.upsert_session(payload.app_session_id, model)
+    try:
+        session_id, _created, model = db.ensure_session(
+            payload.app_session_id,
+            payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     existing = db.list_processes_for_session(session_id)
     if existing:
         return {
@@ -216,6 +218,7 @@ async def compile_processes(
                     "process_id": row["process_id"],
                     "prozess_bezeichnung": row["process"],
                     "prozess_beschreibung": row["description"],
+                    "aenderungsstatus": row["change_status"],
                 }
                 for row in existing
             ],
@@ -225,17 +228,21 @@ async def compile_processes(
     regulations = db.list_regulations_for_session(session_id)
     if not regulations:
         raise HTTPException(status_code=400, detail="No regulations for session")
+    current_law_text, proposed_law_text = db.get_session_law_texts(session_id)
     vorgaben_payload = [
         {
             "vorgaben_id": row["regulation_id"],
             "normzitat": row["legal_citation"],
             "beschreibung": row["description"],
+            "aenderungsstatus": row["change_status"],
         }
         for row in regulations
     ]
 
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
+        gesetz_gueltig=current_law_text,
+        gesetz_vorschlag=proposed_law_text,
         vorgaben_json=json.dumps(vorgaben_payload, ensure_ascii=False),
     )
     response_text = await query_llm(

@@ -74,14 +74,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [currentTab, setCurrentTab] = useState(0);
-  const [appSessionId, setAppSessionId] = useState("");
+  const [appSessionId, setAppSessionIdState] = useState("");
   const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(() => {
-    if (typeof window === "undefined") {
-      return "";
-    }
-    return localStorage.getItem("selected_model") || "";
-  });
+  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedModelHydrated, setSelectedModelHydrated] = useState(false);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [selectedCurrentLaw, setSelectedCurrentLaw] = useState("");
   const [selectedRegulation, setSelectedRegulation] = useState("");
@@ -141,16 +137,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setNewAppSessionId = useCallback(() => {
     const generated = generateAppSessionId();
     appSessionIdAttempts.current += 1;
-    setAppSessionId(generated);
+    setAppSessionIdState(generated);
     setIsFreshAppSessionId(true);
   }, [generateAppSessionId]);
+
+  const setAppSessionId = useCallback((nextAppSessionId: string) => {
+    setAppSessionIdState(nextAppSessionId);
+    setIsFreshAppSessionId(false);
+    appSessionIdAttempts.current = 0;
+  }, []);
 
   useEffect(() => {
     const storedAppSessionId =
       sessionStorage.getItem(APP_SESSION_STORAGE_KEY) ||
       sessionStorage.getItem(LEGACY_SESSION_STORAGE_KEY);
     if (storedAppSessionId && /^[A-Z0-9]{6}$/.test(storedAppSessionId)) {
-      setAppSessionId(storedAppSessionId);
+      setAppSessionIdState(storedAppSessionId);
       setIsFreshAppSessionId(false);
       sessionStorage.setItem(APP_SESSION_STORAGE_KEY, storedAppSessionId);
       sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
@@ -184,6 +186,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLastCompletedStep(status.last_completed_step ?? null);
         setLastCompletedLabel(status.last_completed_label ?? null);
       } catch (error) {
+        const status =
+          typeof (error as { status?: unknown })?.status === "number"
+            ? ((error as { status: number }).status as number)
+            : undefined;
+        // New app session IDs are created client-side first and may not exist
+        // server-side until the first upsert completes.
+        if (status === 404) {
+          return;
+        }
         logDebug("[AppContext] Failed to sync session status", {
           appSessionId,
           error,
@@ -215,12 +226,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const storedSelectedModel = localStorage.getItem("selected_model") || "";
+    if (storedSelectedModel) {
+      setSelectedModel(storedSelectedModel);
+    }
+    setSelectedModelHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedModelHydrated) {
+      return;
+    }
     if (selectedModel) {
       localStorage.setItem("selected_model", selectedModel);
     } else {
       localStorage.removeItem("selected_model");
     }
-  }, [selectedModel]);
+  }, [selectedModel, selectedModelHydrated]);
 
   useEffect(() => {
     const localStorageValues: Array<[string, string]> = [

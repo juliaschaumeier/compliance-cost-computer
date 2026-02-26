@@ -4,22 +4,25 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function TotalCostPanel() {
   const { state, setCurrentTab } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const isRunAllBusy = useRunAllStepBusy("total_cost");
+  const isBusy = isRunning || isRunAllBusy;
 
   const canRun =
     state.processStepsReady &&
     state.effortReady &&
     !state.totalCostReady &&
-    !isRunning;
+    !isBusy;
 
   const label = state.totalCostReady
     ? "Bereits berechnet"
-    : isRunning
+    : isBusy
       ? "Bitte warten..."
       : "Gesamtkosten berechnen";
 
@@ -37,7 +40,7 @@ export default function TotalCostPanel() {
       logClientError("TotalCostPanel.computeTotalCost", error, {
         appSessionId: state.appSessionId,
       });
-      setStatus("Gesamtkosten konnten nicht berechnet werden.");
+      setStatus(formatActionErrorMessage("Gesamtkosten konnten nicht berechnet werden", error));
     } finally {
       setIsRunning(false);
     }

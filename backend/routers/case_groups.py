@@ -7,10 +7,12 @@ from pydantic import BaseModel
 
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
-from backend.core.config import settings
+from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
+from backend.core.parsing import parse_first_int
+from backend.core.payload_builders import build_processes_payload_with_regulations
 from backend.core.prompts import PromptId, render_prompt
 
 
@@ -33,15 +35,12 @@ def _parse_case_groups(payload: str) -> list[dict]:
     for entry in processes:
         if not isinstance(entry, dict):
             continue
-        process_id_raw = str(entry.get("prozess_id", "")).strip()
-        if not process_id_raw:
-            continue
-        try:
-            process_id = int(process_id_raw)
-        except ValueError:
+        process_id = parse_first_int(entry, "prozess_id")
+        if process_id is None:
             continue
         process_name = str(entry.get("prozess_bezeichnung", "")).strip()
         process_description = str(entry.get("prozess_beschreibung", "")).strip()
+        process_status = extract_change_status(entry)
         fallgruppen = entry.get("fallgruppen")
         if not isinstance(fallgruppen, list):
             fallgruppen = []
@@ -59,12 +58,14 @@ def _parse_case_groups(payload: str) -> list[dict]:
                 or fallgruppe.get("beschreibung_fallgruppe")
                 or ""
             ).strip()
+            case_group_status = extract_change_status(fallgruppe)
             if not name and not description:
                 continue
             parsed_fallgruppen.append(
                 {
                     "fallgruppe_bezeichnung": name,
                     "fallgruppe_beschreibung": description,
+                    "aenderungsstatus": case_group_status,
                 }
             )
         parsed.append(
@@ -72,43 +73,11 @@ def _parse_case_groups(payload: str) -> list[dict]:
                 "prozess_id": process_id,
                 "prozess_bezeichnung": process_name,
                 "prozess_beschreibung": process_description,
+                "aenderungsstatus": process_status,
                 "fallgruppen": parsed_fallgruppen,
             }
         )
     return parsed
-
-
-def _build_prozesse_payload(
-    processes: list[dict],
-    regulations: list[dict],
-) -> list[dict]:
-    regs_by_process: dict[int, list[dict]] = {}
-    for regulation in regulations:
-        process_id = regulation.get("process_id")
-        if process_id is None:
-            continue
-        regs_by_process.setdefault(int(process_id), []).append(regulation)
-
-    payload = []
-    for process in processes:
-        process_id = int(process["process_id"])
-        vorgaben = [
-            {
-                "vorgaben_id": row["regulation_id"],
-                "normzitat": row["legal_citation"],
-                "beschreibung": row["description"],
-            }
-            for row in regs_by_process.get(process_id, [])
-        ]
-        payload.append(
-            {
-                "prozess_id": process_id,
-                "prozess_bezeichnung": process["process"],
-                "prozess_beschreibung": process["description"],
-                "vorgaben": vorgaben,
-            }
-        )
-    return payload
 
 
 def _add_case_group_tiles(
@@ -134,11 +103,15 @@ def _add_case_group_tiles(
         for idx, fallgruppe in enumerate(process.get("fallgruppen", [])):
             title = fallgruppe.get("fallgruppe_bezeichnung") or f"Fallgruppe {idx + 1}"
             text = fallgruppe.get("fallgruppe_beschreibung") or ""
+            case_group_status = normalize_change_status(
+                fallgruppe.get("aenderungsstatus")
+            )
             case_group_id = db.insert_case_group(
                 session_id=session_id,
                 process_id=process_id,
                 case_group=title,
                 description=text,
+                change_status=case_group_status,
             )
             tile = Tile(
                 id=f"case_group_{case_group_id}",
@@ -147,6 +120,7 @@ def _add_case_group_tiles(
                 meta_information={
                     "case_group_id": case_group_id,
                     "process_id": process_id,
+                    "change_status": case_group_status,
                 },
                 column=base_col,
                 row=base_row + (idx * row_spacing),
@@ -159,6 +133,7 @@ def _add_case_group_tiles(
                     "case_group_id": case_group_id,
                     "fallgruppe_bezeichnung": title,
                     "fallgruppe_beschreibung": text,
+                    "aenderungsstatus": case_group_status,
                     "process_id": process_id,
                 }
             )
@@ -170,8 +145,13 @@ async def develop_case_groups(
     payload: CaseGroupDevelopmentRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> dict:
-    model = payload.model or settings.default_model
-    session_id, _created = db.upsert_session(payload.app_session_id, model)
+    try:
+        session_id, _created, model = db.ensure_session(
+            payload.app_session_id,
+            payload.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     existing = db.list_case_groups_for_session(session_id)
     if existing:
         processes = db.list_processes_for_session(session_id)
@@ -182,6 +162,7 @@ async def develop_case_groups(
                     "case_group_id": row["case_group_id"],
                     "fallgruppe_bezeichnung": row["case_group"],
                     "fallgruppe_beschreibung": row["description"],
+                    "aenderungsstatus": row["change_status"],
                 }
             )
         return {
@@ -190,6 +171,7 @@ async def develop_case_groups(
                     "process_id": process["process_id"],
                     "prozess_bezeichnung": process["process"],
                     "prozess_beschreibung": process["description"],
+                    "aenderungsstatus": process["change_status"],
                     "fallgruppen": grouped.get(process["process_id"], []),
                 }
                 for process in processes
@@ -201,11 +183,14 @@ async def develop_case_groups(
     processes = db.list_processes_for_session(session_id)
     if not processes:
         raise HTTPException(status_code=400, detail="No processes for session")
+    current_law_text, proposed_law_text = db.get_session_law_texts(session_id)
     regulations = db.list_regulations_for_session(session_id)
-    prozesse_payload = _build_prozesse_payload(processes, regulations)
+    prozesse_payload = build_processes_payload_with_regulations(processes, regulations)
 
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
+        gesetz_gueltig=current_law_text,
+        gesetz_vorschlag=proposed_law_text,
         prozesse_json=json.dumps(prozesse_payload, ensure_ascii=False),
     )
     response_text = await query_llm(
@@ -246,6 +231,7 @@ async def develop_case_groups(
                 "case_group_id": entry["case_group_id"],
                 "fallgruppe_bezeichnung": entry["fallgruppe_bezeichnung"],
                 "fallgruppe_beschreibung": entry["fallgruppe_beschreibung"],
+                "aenderungsstatus": entry["aenderungsstatus"],
             }
         )
     return {
@@ -254,6 +240,7 @@ async def develop_case_groups(
                 "process_id": process["process_id"],
                 "prozess_bezeichnung": process["process"],
                 "prozess_beschreibung": process["description"],
+                "aenderungsstatus": process["change_status"],
                 "fallgruppen": grouped.get(process["process_id"], []),
             }
             for process in processes
