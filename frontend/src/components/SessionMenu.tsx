@@ -343,7 +343,9 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         if (progress.status === "completed" && progress.ok) {
           setStatus("Alle Schritte wurden ausgeführt.");
         } else if (progress.status === "cancelled") {
-          setStatus("Ausführung abgebrochen. Session wurde zurückgesetzt.");
+          setStatus(
+            "Ausführung abgebrochen. Bereits abgeschlossene Schritte bleiben erhalten."
+          );
         } else {
           const failedStep = progress.steps.find((step) => step.status === "failed");
           setStatus(
@@ -453,11 +455,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           window.dispatchEvent(new Event("tiles-updated"));
         }
         setStatus(
-          payload.message || "Ausführung abgebrochen. Session wurde zurückgesetzt."
+          payload.message ||
+            "Ausführung abgebrochen. Bereits abgeschlossene Schritte bleiben erhalten."
         );
       } catch (error) {
         logClientError("SessionMenu.runCancelledEvent", error, { runId });
-        setStatus("Ausführung abgebrochen. Session wurde zurückgesetzt.");
+        setStatus(
+          "Ausführung abgebrochen. Bereits abgeschlossene Schritte bleiben erhalten."
+        );
       } finally {
         setIsRunningAll(false);
         setCurrentRunId(null);

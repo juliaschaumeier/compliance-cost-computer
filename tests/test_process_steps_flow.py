@@ -1,4 +1,5 @@
 from backend.core import db
+from backend.core.llm_service import LlmQueryError
 from backend.core.models import Tile
 from backend.routers import process_steps as process_steps_router
 
@@ -199,3 +200,45 @@ def test_analyze_process_steps_normalizes_change_status_variants(test_client, mo
         "eingefuehrt",
         "abgeschafft",
     ]
+
+
+def test_analyze_process_steps_maps_connection_error_to_503(test_client, monkeypatch):
+    session_id, process_id, case_group_id, _step_id = _seed_steps("STEPS-CONN-ERR")
+    db.delete_process_steps_for_session(session_id)
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={
+                "case_group_id": case_group_id,
+                "process_id": process_id,
+            },
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    async def fail_query_llm(*_args, **_kwargs):
+        raise LlmQueryError(
+            provider="deepinfra",
+            model="model-x",
+            reason="provider_connection_error",
+            message="connection dropped",
+        )
+
+    monkeypatch.setattr(process_steps_router, "query_llm", fail_query_llm)
+
+    resp = test_client.post(
+        "/process-steps/analyze",
+        json={
+            "app_session_id": "STEPS-CONN-ERR",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 503
+    assert "provider_connection_error" in resp.json()["detail"]

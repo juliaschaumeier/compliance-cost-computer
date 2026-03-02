@@ -20,6 +20,11 @@ from .models import Tile
 _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=None)
 
 
+LLM_ANSWER_STATE_PENDING = "pending"
+LLM_ANSWER_STATE_ACTIVE = "active"
+LLM_ANSWER_STATE_INVALID = "invalid"
+
+
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -62,6 +67,28 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
         );
         """
     )
+
+
+def _table_has_column(cur: sqlite3.Cursor, table: str, column: str) -> bool:
+    cur.execute(f"PRAGMA table_info({table})")
+    for row in cur.fetchall():
+        name = row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        if name == column:
+            return True
+    return False
+
+
+def _ensure_column(
+    cur: sqlite3.Cursor,
+    table: str,
+    column: str,
+    column_ddl: str,
+) -> None:
+    if _table_has_column(cur, table, column):
+        return
+    cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_ddl}")
+
+
 def get_conn() -> sqlite3.Connection:
     existing = _TX_CONN.get()
     if existing is not None:
@@ -180,12 +207,38 @@ def init_db() -> None:
             model           TEXT NOT NULL,
             answer_text     TEXT NOT NULL,
             metadata        JSON,
+            input_tokens    INTEGER,
+            output_tokens   INTEGER,
+            hidden_thinking_tokens INTEGER,
+            estimated_cost_usd REAL,
+            provider_response_json JSON,
+            answer_state    TEXT NOT NULL DEFAULT 'active',
+            state_reason    TEXT,
             created_at      TEXT NOT NULL DEFAULT current_timestamp,
             FOREIGN KEY (session_id)
             REFERENCES sessions (session_id) 
                 ON UPDATE CASCADE
                 ON DELETE CASCADE
         )
+        """
+    )
+    _ensure_column(cur, "llm_answers", "input_tokens", "INTEGER")
+    _ensure_column(cur, "llm_answers", "output_tokens", "INTEGER")
+    _ensure_column(cur, "llm_answers", "hidden_thinking_tokens", "INTEGER")
+    _ensure_column(cur, "llm_answers", "estimated_cost_usd", "REAL")
+    _ensure_column(cur, "llm_answers", "provider_response_json", "JSON")
+    _ensure_column(
+        cur,
+        "llm_answers",
+        "answer_state",
+        "TEXT NOT NULL DEFAULT 'active'",
+    )
+    _ensure_column(cur, "llm_answers", "state_reason", "TEXT")
+    cur.execute(
+        """
+        UPDATE llm_answers
+        SET answer_state = 'active'
+        WHERE answer_state IS NULL OR answer_state = ''
         """
     )
     # TODO: Maybe add llm_generated, edited, deleted, legal_citation_original, description_original
@@ -387,6 +440,34 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_process_steps_session_id ON process_steps(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_sessions_session_id ON web_sources_sessions(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_answers_session_id ON llm_answers(session_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_answers_session_prompt ON llm_answers(session_id, prompt_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_answers_state ON llm_answers(answer_state)"
+    )
+    # Keep at most one active answer per (session_id, prompt_id).
+    cur.execute(
+        """
+        UPDATE llm_answers
+        SET answer_state = 'invalid',
+            state_reason = COALESCE(state_reason, 'superseded_by_new_attempt')
+        WHERE answer_state = 'active'
+          AND answer_id NOT IN (
+            SELECT MAX(answer_id)
+            FROM llm_answers
+            WHERE answer_state = 'active'
+            GROUP BY session_id, prompt_id
+          )
+        """
+    )
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_llm_answers_one_active
+        ON llm_answers(session_id, prompt_id)
+        WHERE answer_state = 'active'
+        """
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_regulations_regulation_id ON web_sources_regulations(regulation_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_processes_process_id ON web_sources_processes(process_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_case_groups_case_group_id ON web_sources_case_groups(case_group_id)")
@@ -773,13 +854,39 @@ def insert_llm_answer(
     model: str,
     answer_text: str,
     metadata: dict | None = None,
-) -> None:
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    hidden_thinking_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+    provider_response_json: dict | list | None = None,
+    answer_state: str = LLM_ANSWER_STATE_ACTIVE,
+    state_reason: str | None = None,
+) -> int:
+    if answer_state not in {
+        LLM_ANSWER_STATE_PENDING,
+        LLM_ANSWER_STATE_ACTIVE,
+        LLM_ANSWER_STATE_INVALID,
+    }:
+        raise ValueError(f"Invalid llm answer state: {answer_state}")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO llm_answers (session_id, prompt_id, model, answer_text, metadata)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO llm_answers (
+            session_id,
+            prompt_id,
+            model,
+            answer_text,
+            metadata,
+            input_tokens,
+            output_tokens,
+            hidden_thinking_tokens,
+            estimated_cost_usd,
+            provider_response_json,
+            answer_state,
+            state_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -787,8 +894,228 @@ def insert_llm_answer(
             model,
             answer_text,
             json.dumps(metadata, ensure_ascii=False) if metadata else None,
+            input_tokens,
+            output_tokens,
+            hidden_thinking_tokens,
+            estimated_cost_usd,
+            (
+                json.dumps(provider_response_json, ensure_ascii=False)
+                if provider_response_json is not None
+                else None
+            ),
+            answer_state,
+            state_reason,
         ),
     )
+    answer_id = int(cur.lastrowid)
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return answer_id
+
+
+def create_pending_llm_answer(
+    session_id: int,
+    prompt_id: str,
+    model: str,
+    answer_text: str,
+    metadata: dict | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    hidden_thinking_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+    provider_response_json: dict | list | None = None,
+) -> int:
+    invalidate_llm_answers(
+        session_id=session_id,
+        prompt_ids=[prompt_id],
+        states=[LLM_ANSWER_STATE_PENDING],
+        reason="superseded_by_new_attempt",
+    )
+    return insert_llm_answer(
+        session_id=session_id,
+        prompt_id=prompt_id,
+        model=model,
+        answer_text=answer_text,
+        metadata=metadata,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+        estimated_cost_usd=estimated_cost_usd,
+        provider_response_json=provider_response_json,
+        answer_state=LLM_ANSWER_STATE_PENDING,
+        state_reason="waiting_for_session_update",
+    )
+
+
+def invalidate_llm_answer(
+    answer_id: int,
+    reason: str,
+) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE llm_answers
+        SET answer_state = ?, state_reason = ?
+        WHERE answer_id = ?
+        """,
+        (LLM_ANSWER_STATE_INVALID, reason, answer_id),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def invalidate_llm_answers(
+    session_id: int,
+    prompt_ids: Iterable[str],
+    states: Iterable[str] | None = None,
+    reason: str = "invalidated",
+    exclude_answer_id: int | None = None,
+) -> int:
+    ids = [pid for pid in prompt_ids if pid]
+    if not ids:
+        return 0
+    target_states = list(states or [LLM_ANSWER_STATE_ACTIVE, LLM_ANSWER_STATE_PENDING])
+    if not target_states:
+        return 0
+    placeholders_ids = ", ".join(["?"] * len(ids))
+    placeholders_states = ", ".join(["?"] * len(target_states))
+    params: list = [LLM_ANSWER_STATE_INVALID, reason, session_id, *ids, *target_states]
+    sql = f"""
+        UPDATE llm_answers
+        SET answer_state = ?, state_reason = ?
+        WHERE session_id = ?
+          AND prompt_id IN ({placeholders_ids})
+          AND answer_state IN ({placeholders_states})
+    """
+    if exclude_answer_id is not None:
+        sql += " AND answer_id <> ?"
+        params.append(exclude_answer_id)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    updated = int(cur.rowcount or 0)
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return updated
+
+
+def get_reusable_pending_llm_answer(
+    *,
+    session_id: int,
+    prompt_id: str,
+    model: str,
+    provider: str | None,
+    prompt_sha256: str,
+) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT answer_id, answer_text, metadata, state_reason
+        FROM llm_answers
+        WHERE session_id = ?
+          AND prompt_id = ?
+          AND model = ?
+          AND answer_state = ?
+        ORDER BY answer_id DESC
+        """,
+        (session_id, prompt_id, model, LLM_ANSWER_STATE_PENDING),
+    )
+    rows = cur.fetchall()
+    _maybe_close(conn)
+    for row in rows:
+        metadata = json.loads(row["metadata"] or "{}")
+        if not isinstance(metadata, dict):
+            continue
+        if metadata.get("provider") != provider:
+            continue
+        if metadata.get("prompt_sha256") != prompt_sha256:
+            continue
+        return {
+            "answer_id": int(row["answer_id"]),
+            "answer_text": str(row["answer_text"]),
+            "state_reason": row["state_reason"],
+            "metadata": metadata,
+        }
+    return None
+
+
+def update_llm_answer_state_reason(
+    answer_id: int,
+    reason: str,
+    *,
+    state: str | None = None,
+) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    if state:
+        cur.execute(
+            """
+            UPDATE llm_answers
+            SET state_reason = ?
+            WHERE answer_id = ? AND answer_state = ?
+            """,
+            (reason, answer_id, state),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE llm_answers
+            SET state_reason = ?
+            WHERE answer_id = ?
+            """,
+            (reason, answer_id),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def activate_llm_answer(
+    answer_id: int,
+    session_id: int,
+    prompt_id: str,
+    reason: str = "session_updated",
+) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE llm_answers
+        SET answer_state = ?, state_reason = ?
+        WHERE session_id = ?
+          AND prompt_id = ?
+          AND answer_state IN (?, ?)
+          AND answer_id <> ?
+        """,
+        (
+            LLM_ANSWER_STATE_INVALID,
+            "superseded_by_new_attempt",
+            session_id,
+            prompt_id,
+            LLM_ANSWER_STATE_ACTIVE,
+            LLM_ANSWER_STATE_PENDING,
+            answer_id,
+        ),
+    )
+    cur.execute(
+        """
+        UPDATE llm_answers
+        SET answer_state = ?, state_reason = ?
+        WHERE answer_id = ? AND session_id = ? AND prompt_id = ?
+        """,
+        (
+            LLM_ANSWER_STATE_ACTIVE,
+            reason,
+            answer_id,
+            session_id,
+            prompt_id,
+        ),
+    )
+    if cur.rowcount == 0:
+        raise ValueError(
+            f"Could not activate llm answer {answer_id} for session {session_id} and prompt {prompt_id}"
+        )
     _maybe_commit(conn)
     _maybe_close(conn)
 

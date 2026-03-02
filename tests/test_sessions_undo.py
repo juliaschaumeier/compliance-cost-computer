@@ -207,10 +207,10 @@ def test_undo_effort_is_atomic_on_failure(test_client, monkeypatch):
         answer_text="effort",
     )
 
-    def _raise_delete(*_args, **_kwargs):
-        raise RuntimeError("forced delete failure")
+    def _raise_invalidate(*_args, **_kwargs):
+        raise RuntimeError("forced invalidation failure")
 
-    monkeypatch.setattr(db, "delete_llm_answers", _raise_delete)
+    monkeypatch.setattr(db, "invalidate_llm_answers", _raise_invalidate)
 
     with pytest.raises(RuntimeError):
         test_client.post("/sessions/undo", json={"app_session_id": "UNDO-ATOMIC"})
@@ -243,3 +243,62 @@ def test_undo_effort_is_atomic_on_failure(test_client, monkeypatch):
     assert step["time_required_in_min_a_proposed"] == 30
     assert step["expenses_proposed"] == 5
     conn.close()
+
+
+def test_undo_effort_invalidates_llm_answers_instead_of_deleting(test_client):
+    seeded = _seed_flow("UNDO-LLM-INVALIDATE")
+    session_id = seeded["session_id"]
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_id"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=5,
+        execution_per_case=None,
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id=PromptId.CASES_CALCULATION,
+        model="test-model",
+        answer_text="cases",
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id=PromptId.EFFORT_CALCULATION,
+        model="test-model",
+        answer_text="effort",
+    )
+
+    resp = test_client.post("/sessions/undo", json={"app_session_id": "UNDO-LLM-INVALIDATE"})
+    assert resp.status_code == 200
+    assert resp.json()["undone_step"] == "effort"
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT prompt_id, answer_state, state_reason
+        FROM llm_answers
+        WHERE session_id = ?
+        ORDER BY answer_id
+        """,
+        (session_id,),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    assert [row["prompt_id"] for row in rows] == [
+        PromptId.CASES_CALCULATION,
+        PromptId.EFFORT_CALCULATION,
+    ]
+    assert all(row["answer_state"] == "invalid" for row in rows)
+    assert all(row["state_reason"] == "session_reverted" for row in rows)

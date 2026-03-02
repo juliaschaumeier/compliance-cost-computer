@@ -8,12 +8,20 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
+from backend.core.llm_attempts import (
+    mark_llm_answer_applied,
+)
 from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import build_processes_payload_with_regulations
 from backend.core.prompts import PromptId, render_prompt
+from backend.routers._llm_router_utils import (
+    ensure_session_or_400,
+    query_and_stage_or_http,
+    run_with_answer_apply_guard,
+)
 
 
 router = APIRouter(prefix="/case-groups", tags=["case-groups"])
@@ -145,13 +153,10 @@ async def develop_case_groups(
     payload: CaseGroupDevelopmentRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> dict:
-    try:
-        session_id, _created, model = db.ensure_session(
-            payload.app_session_id,
-            payload.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
     existing = db.list_case_groups_for_session(session_id)
     if existing:
         processes = db.list_processes_for_session(session_id)
@@ -193,37 +198,44 @@ async def develop_case_groups(
         gesetz_vorschlag=proposed_law_text,
         prozesse_json=json.dumps(prozesse_payload, ensure_ascii=False),
     )
-    response_text = await query_llm(
-        prompt,
+    answer_id, llm_result = await query_and_stage_or_http(
+        session_id=session_id,
+        prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
+        prompt=prompt,
         api_keys=api_keys,
         model=model,
         provider=payload.provider,
+        query_fn=query_llm,
     )
-    parsed = _parse_case_groups(response_text)
-    if not parsed:
-        raise HTTPException(status_code=422, detail="No case groups parsed")
+    response_text = llm_result.text
 
-    process_ids = {row["process_id"] for row in processes}
-    missing_ids = [
-        str(entry["prozess_id"])
-        for entry in parsed
-        if entry["prozess_id"] not in process_ids
-    ]
-    if missing_ids:
-        raise HTTPException(
-            status_code=422,
-            detail="Unknown process_id values: " + ", ".join(missing_ids),
-        )
+    def _apply() -> list[dict]:
+        parsed = _parse_case_groups(response_text)
+        if not parsed:
+            raise HTTPException(status_code=422, detail="No case groups parsed")
 
-    with db.transaction():
-        db.insert_llm_answer(
-            session_id=session_id,
-            prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
-            model=model,
-            answer_text=response_text,
-            metadata={"provider": payload.provider},
-        )
-        created = _add_case_group_tiles(session_id, parsed)
+        process_ids = {row["process_id"] for row in processes}
+        missing_ids = [
+            str(entry["prozess_id"])
+            for entry in parsed
+            if entry["prozess_id"] not in process_ids
+        ]
+        if missing_ids:
+            raise HTTPException(
+                status_code=422,
+                detail="Unknown process_id values: " + ", ".join(missing_ids),
+            )
+
+        with db.transaction():
+            created_local = _add_case_group_tiles(session_id, parsed)
+            mark_llm_answer_applied(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
+            )
+        return created_local
+
+    created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
     grouped: dict[int, list[dict]] = {}
     for entry in created:
         grouped.setdefault(entry["process_id"], []).append(

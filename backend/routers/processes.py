@@ -8,11 +8,19 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
+from backend.core.llm_attempts import (
+    mark_llm_answer_applied,
+)
 from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.parsing import parse_first_int
 from backend.core.prompts import PromptId, render_prompt
+from backend.routers._llm_router_utils import (
+    ensure_session_or_400,
+    query_and_stage_or_http,
+    run_with_answer_apply_guard,
+)
 
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -203,13 +211,10 @@ async def compile_processes(
     payload: ProcessCompilationRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> dict:
-    try:
-        session_id, _created, model = db.ensure_session(
-            payload.app_session_id,
-            payload.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
     existing = db.list_processes_for_session(session_id)
     if existing:
         return {
@@ -245,24 +250,31 @@ async def compile_processes(
         gesetz_vorschlag=proposed_law_text,
         vorgaben_json=json.dumps(vorgaben_payload, ensure_ascii=False),
     )
-    response_text = await query_llm(
-        prompt,
+    answer_id, llm_result = await query_and_stage_or_http(
+        session_id=session_id,
+        prompt_id=PromptId.PROCESS_COMPILATION,
+        prompt=prompt,
         api_keys=api_keys,
         model=model,
         provider=payload.provider,
+        query_fn=query_llm,
     )
-    processes = _parse_processes(response_text)
-    if not processes:
-        raise HTTPException(status_code=422, detail="No processes parsed")
-    regulation_lookup = {row["regulation_id"]: row for row in regulations}
-    _validate_vorgaben(processes, regulation_lookup)
-    with db.transaction():
-        db.insert_llm_answer(
-            session_id=session_id,
-            prompt_id=PromptId.PROCESS_COMPILATION,
-            model=model,
-            answer_text=response_text,
-            metadata={"provider": payload.provider},
-        )
-        created = _add_process_tiles(session_id, processes, regulation_lookup)
+    response_text = llm_result.text
+
+    def _apply() -> list[dict]:
+        processes = _parse_processes(response_text)
+        if not processes:
+            raise HTTPException(status_code=422, detail="No processes parsed")
+        regulation_lookup = {row["regulation_id"]: row for row in regulations}
+        _validate_vorgaben(processes, regulation_lookup)
+        with db.transaction():
+            created_local = _add_process_tiles(session_id, processes, regulation_lookup)
+            mark_llm_answer_applied(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.PROCESS_COMPILATION,
+            )
+        return created_local
+
+    created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
     return {"prozesse": created}

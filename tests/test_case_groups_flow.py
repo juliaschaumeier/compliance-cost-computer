@@ -1,4 +1,5 @@
 from backend.core import db
+from backend.core.llm_service import LlmQueryError
 from backend.core.models import Tile
 from backend.routers import case_groups as case_groups_router
 
@@ -290,3 +291,44 @@ def test_develop_case_groups_normalizes_change_status_variants(test_client, monk
         "geaendert",
         "abgeschafft",
     ]
+
+
+def test_develop_case_groups_maps_rate_limit_to_429(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("CASE-RATE-LIMIT", "test-model")
+    process_id = db.insert_process(session_id, "Process 1", "Desc 1")
+    db.insert_regulation(session_id, "Section 1", "Reg 1", process_id=process_id)
+    db.upsert_tile(
+        Tile(
+            id=f"process_{process_id}",
+            title="Process 1",
+            text="",
+            meta_information={"process_id": process_id},
+            column=0,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    async def fail_query_llm(*_args, **_kwargs):
+        raise LlmQueryError(
+            provider="openai",
+            model="gpt-5.2",
+            reason="rate_limit",
+            message="quota exceeded",
+            status_code=429,
+        )
+
+    monkeypatch.setattr(case_groups_router, "query_llm", fail_query_llm)
+
+    resp = test_client.post(
+        "/case-groups/develop",
+        json={
+            "app_session_id": "CASE-RATE-LIMIT",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 429
+    assert "rate_limit" in resp.json()["detail"]

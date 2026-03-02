@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     default_model: str = "gpt-4o"
     enable_web_search: bool = True
+    openai_max_tokens: int = 125000
     deepinfra_max_tokens: int = 0
     deepinfra_temperature: float = 0.4
     db_path: Path = DEFAULT_DB_PATH

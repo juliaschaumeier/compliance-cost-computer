@@ -11,10 +11,18 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.config import settings
 from backend.core import db
+from backend.core.llm_attempts import (
+    mark_llm_answer_applied,
+)
 from backend.core.llm_json import clean_llm_payload, parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.models import Tile
+from backend.routers._llm_router_utils import (
+    ensure_session_or_400,
+    query_and_stage_or_http,
+    run_with_answer_apply_guard,
+)
 
 
 router = APIRouter(prefix="/regulations", tags=["regulations"])
@@ -226,13 +234,10 @@ async def identify_regulations(
     if not proposed_law:
         raise HTTPException(status_code=404, detail="Proposed file not found")
 
-    try:
-        session_id, _created, model = db.ensure_session(
-            payload.app_session_id,
-            payload.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
     db.update_session_documents(
         payload.app_session_id,
         current_filename,
@@ -261,26 +266,31 @@ async def identify_regulations(
         gesetz_gueltig=current_text,
         gesetz_vorschlag=proposed_text,
     )
-    response_text = await query_llm(
-        prompt,
+    answer_id, llm_result = await query_and_stage_or_http(
+        session_id=session_id,
+        prompt_id=PromptId.REGULATIONS_IDENTIFICATION,
+        prompt=prompt,
         api_keys=api_keys,
         model=model,
         provider=payload.provider,
+        query_fn=query_llm,
     )
-    vorgaben = _parse_vorgaben(response_text)
-    if not vorgaben:
-        raise HTTPException(status_code=422, detail="No vorgaben parsed")
-    with db.transaction():
-        db.insert_llm_answer(
-            session_id=session_id,
-            prompt_id=PromptId.REGULATIONS_IDENTIFICATION,
-            model=model,
-            answer_text=response_text,
-            metadata={
-                "provider": payload.provider,
-            },
-        )
-        created = _add_vorgaben_tiles(session_id, vorgaben)
+    response_text = llm_result.text
+
+    def _apply() -> list[dict]:
+        vorgaben = _parse_vorgaben(response_text)
+        if not vorgaben:
+            raise HTTPException(status_code=422, detail="No vorgaben parsed")
+        with db.transaction():
+            created_local = _add_vorgaben_tiles(session_id, vorgaben)
+            mark_llm_answer_applied(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.REGULATIONS_IDENTIFICATION,
+            )
+        return created_local
+
+    created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
     return {"vorgaben": created}
 
 
@@ -319,64 +329,60 @@ async def summarize_regulation(
     )
 
     if payload.app_session_id:
-        try:
-            session_id, _created, model = db.ensure_session(
-                payload.app_session_id,
-                payload.model,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session_id, _created, model = ensure_session_or_400(
+            payload.app_session_id,
+            payload.model,
+        )
     else:
         model = str(payload.model or "").strip()
         if not model:
             raise HTTPException(status_code=400, detail="Model is required")
-        session_id = None
-    response_text = await query_llm(
-        prompt,
+        latest = db.get_latest_session()
+        if latest:
+            session_id = int(latest["session_id"])
+        else:
+            session_id, _created = db.upsert_session("SUMMARY-AUTO", model)
+    answer_id, llm_result = await query_and_stage_or_http(
+        session_id=session_id,
+        prompt_id=PromptId.LAW_SUMMARY,
+        prompt=prompt,
         api_keys=api_keys,
         model=model,
         provider=payload.provider,
+        query_fn=query_llm,
     )
+    response_text = llm_result.text
     title, blurb = _parse_summary(response_text)
     if not title:
         title = filename
-    with db.transaction():
-        if payload.app_session_id:
-            try:
-                db.update_session_documents(
-                    payload.app_session_id,
-                    current_filename,
-                    filename,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=404, detail=str(exc)) from exc
-        else:
-            latest = db.get_latest_session()
-            if latest:
-                session_id = int(latest["session_id"])
-            else:
-                session_id, _created = db.upsert_session("SUMMARY-AUTO", model)
-        assert session_id is not None
-        _clear_existing_tiles(session_id)
-        if session_id is not None:
-            db.insert_llm_answer(
+
+    def _apply() -> None:
+        with db.transaction():
+            if payload.app_session_id:
+                try:
+                    db.update_session_documents(
+                        payload.app_session_id,
+                        current_filename,
+                        filename,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=404, detail=str(exc)) from exc
+            _clear_existing_tiles(session_id)
+            _update_law_tile(
+                session_id,
+                title,
+                blurb,
+                filename,
+                model,
+                current_filename=current_filename,
+            )
+            if payload.app_session_id:
+                db.update_session_summary(payload.app_session_id, title, blurb)
+            mark_llm_answer_applied(
+                answer_id=answer_id,
                 session_id=session_id,
                 prompt_id=PromptId.LAW_SUMMARY,
-                model=model,
-                answer_text=response_text,
-                metadata={
-                    "provider": payload.provider,
-                },
             )
-        _update_law_tile(
-            session_id,
-            title,
-            blurb,
-            filename,
-            model,
-            current_filename=current_filename,
-        )
-        if payload.app_session_id:
-            db.update_session_summary(payload.app_session_id, title, blurb)
 
+    run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
     return {"title": title, "blurb": blurb, "filename": filename}

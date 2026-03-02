@@ -38,35 +38,56 @@ def _undo_total_cost(session_id: int) -> None:
 
 def _undo_effort(session_id: int) -> None:
     db.clear_effort_metrics(session_id)
-    db.delete_llm_answers(
+    db.invalidate_llm_answers(
         session_id,
         [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],
+        reason="session_reverted",
     )
 
 
 def _undo_process_steps(session_id: int) -> None:
     db.delete_process_steps_for_session(session_id)
-    db.delete_llm_answers(session_id, [PromptId.PROCESS_STEP_ANALYSIS])
+    db.invalidate_llm_answers(
+        session_id,
+        [PromptId.PROCESS_STEP_ANALYSIS],
+        reason="session_reverted",
+    )
 
 
 def _undo_case_groups(session_id: int) -> None:
     db.delete_case_groups_for_session(session_id)
-    db.delete_llm_answers(session_id, [PromptId.CASE_GROUP_DEVELOPMENT])
+    db.invalidate_llm_answers(
+        session_id,
+        [PromptId.CASE_GROUP_DEVELOPMENT],
+        reason="session_reverted",
+    )
 
 
 def _undo_processes(session_id: int) -> None:
     db.delete_processes_for_session(session_id)
-    db.delete_llm_answers(session_id, [PromptId.PROCESS_COMPILATION])
+    db.invalidate_llm_answers(
+        session_id,
+        [PromptId.PROCESS_COMPILATION],
+        reason="session_reverted",
+    )
 
 
 def _undo_regulations(session_id: int) -> None:
     db.delete_regulations_for_session(session_id)
-    db.delete_llm_answers(session_id, [PromptId.REGULATIONS_IDENTIFICATION])
+    db.invalidate_llm_answers(
+        session_id,
+        [PromptId.REGULATIONS_IDENTIFICATION],
+        reason="session_reverted",
+    )
 
 
 def _undo_summary(session_id: int) -> None:
     db.clear_session_summary(session_id)
-    db.delete_llm_answers(session_id, [PromptId.LAW_SUMMARY])
+    db.invalidate_llm_answers(
+        session_id,
+        [PromptId.LAW_SUMMARY],
+        reason="session_reverted",
+    )
 
 
 _UNDO_HANDLERS: dict[str, Callable[[int], None]] = {

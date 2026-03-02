@@ -36,7 +36,7 @@
   - Polling endpoint: `GET /sessions/run-all/{run_id}`
   - SSE endpoint: `GET /sessions/run-all/{run_id}/events`
 - Cancel: `POST /sessions/run-all/{run_id}/cancel`
-- Cancellation is a true abort and rolls session state back to the last completed step baseline.
+- Cancellation is a true abort that stops in-flight work and keeps already completed session state.
 
 ## Frontend State Notes
 - Main state lives in `frontend/src/contexts/AppContext.tsx`.

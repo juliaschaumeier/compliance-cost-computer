@@ -507,3 +507,156 @@ def test_calculate_effort_rejects_unknown_step(test_client, monkeypatch):
     )
     assert resp.status_code == 422
     assert "Unknown taetigkeiten_id values" in resp.json()["detail"]
+
+
+def test_calculate_effort_partial_query_failure_keeps_audit_rows(
+    test_client, monkeypatch
+):
+    session_id, _ = db.upsert_session("EFFORT-PARTIAL-FAIL", "test-model")
+    _process_id, case_group_id = _seed_case_group(session_id)
+    _step_one, _step_two = _seed_steps(session_id, case_group_id)
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "1"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(prompt, *_args, **_kwargs):
+        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
+            return cases_response
+        raise RuntimeError("effort query failed upstream")
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-PARTIAL-FAIL",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 502
+    assert "EFFORT_CALCULATION query failed" in resp.json()["detail"]
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT prompt_id, answer_state, state_reason
+        FROM llm_answers
+        WHERE session_id = ?
+        ORDER BY prompt_id
+        """,
+        (session_id,),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+
+    by_prompt = {row["prompt_id"]: row for row in rows}
+    assert by_prompt["cases_calculation"]["answer_state"] == "pending"
+    assert by_prompt["cases_calculation"]["state_reason"] == "waiting_for_paired_retry"
+    assert by_prompt["effort_calculation"]["answer_state"] == "invalid"
+    assert by_prompt["effort_calculation"]["state_reason"] == "query_failed"
+
+
+def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("EFFORT-RETRY-REUSE", "test-model")
+    _process_id, case_group_id = _seed_case_group(session_id)
+    step_one, _step_two = _seed_steps(session_id, case_group_id)
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "1"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_one}",
+                  "stundenlohn_satz_a_vorschlag": "10",
+                  "zeitaufwand_in_min_a_vorschlag": "6",
+                  "sachaufwand_vorschlag": "2"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    calls = {"cases": 0, "effort": 0}
+
+    async def fake_query_llm_first(prompt, *_args, **_kwargs):
+        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
+            calls["cases"] += 1
+            return cases_response
+        calls["effort"] += 1
+        raise RuntimeError("effort query failed upstream")
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm_first)
+
+    first = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-RETRY-REUSE",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert first.status_code == 502
+    assert calls == {"cases": 1, "effort": 1}
+
+    async def fake_query_llm_second(prompt, *_args, **_kwargs):
+        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
+            calls["cases"] += 1
+            return cases_response
+        calls["effort"] += 1
+        return effort_response
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm_second)
+
+    second = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-RETRY-REUSE",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert second.status_code == 200
+    assert second.json()["case_groups_updated"] == 1
+    assert second.json()["steps_updated"] == 1
+    # CASES_CALCULATION was reused from pending, only effort query was re-run.
+    assert calls == {"cases": 1, "effort": 2}

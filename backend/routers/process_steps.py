@@ -8,12 +8,20 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
+from backend.core.llm_attempts import (
+    mark_llm_answer_applied,
+)
 from backend.core.llm_json import extract_fallgruppen, parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
 from backend.core.payload_builders import build_case_groups_payload
 from backend.core.prompts import PromptId, render_prompt
+from backend.routers._llm_router_utils import (
+    ensure_session_or_400,
+    query_and_stage_or_http,
+    run_with_answer_apply_guard,
+)
 
 
 router = APIRouter(prefix="/process-steps", tags=["process-steps"])
@@ -218,13 +226,10 @@ async def analyze_process_steps(
     payload: ProcessStepAnalysisRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> dict:
-    try:
-        session_id, _created, model = db.ensure_session(
-            payload.app_session_id,
-            payload.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
     existing = db.list_process_steps_for_session(session_id)
     if existing:
         return {"steps": existing, "status": "existing"}
@@ -247,35 +252,42 @@ async def analyze_process_steps(
         gesetz_vorschlag=proposed_law_text,
         case_groups_json=json.dumps(payload_groups, ensure_ascii=False),
     )
-    response_text = await query_llm(
-        prompt,
+    answer_id, llm_result = await query_and_stage_or_http(
+        session_id=session_id,
+        prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
+        prompt=prompt,
         api_keys=api_keys,
         model=model,
         provider=payload.provider,
+        query_fn=query_llm,
     )
-    parsed = _parse_process_steps(response_text)
-    if not parsed:
-        raise HTTPException(status_code=422, detail="No process steps parsed")
+    response_text = llm_result.text
 
-    case_group_lookup = {row["case_group_id"]: row for row in case_groups}
-    missing = [
-        str(entry["case_group_id"])
-        for entry in parsed
-        if entry["case_group_id"] not in case_group_lookup
-    ]
-    if missing:
-        raise HTTPException(
-            status_code=422,
-            detail="Unknown fallgruppen_id values: " + ", ".join(missing),
-        )
+    def _apply() -> list[dict]:
+        parsed = _parse_process_steps(response_text)
+        if not parsed:
+            raise HTTPException(status_code=422, detail="No process steps parsed")
 
-    with db.transaction():
-        db.insert_llm_answer(
-            session_id=session_id,
-            prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
-            model=model,
-            answer_text=response_text,
-            metadata={"provider": payload.provider},
-        )
-        created = _add_step_tiles(session_id, parsed, case_group_lookup)
+        case_group_lookup = {row["case_group_id"]: row for row in case_groups}
+        missing = [
+            str(entry["case_group_id"])
+            for entry in parsed
+            if entry["case_group_id"] not in case_group_lookup
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail="Unknown fallgruppen_id values: " + ", ".join(missing),
+            )
+
+        with db.transaction():
+            created_local = _add_step_tiles(session_id, parsed, case_group_lookup)
+            mark_llm_answer_applied(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
+            )
+        return created_local
+
+    created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
     return {"steps": created}

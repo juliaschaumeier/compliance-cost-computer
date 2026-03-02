@@ -404,7 +404,9 @@ def test_run_all_events_stream_emits_terminal_event(test_client, monkeypatch):
     assert "run_completed" in seen_events
 
 
-def test_run_all_cancel_reverts_to_baseline_and_allows_restart(test_client, monkeypatch):
+def test_run_all_cancel_preserves_completed_steps_and_allows_restart(
+    test_client, monkeypatch
+):
     app_session_id = "RUNALL-CANCEL"
     current_name = "current_cancel.txt"
     proposed_name = "proposed_cancel.txt"

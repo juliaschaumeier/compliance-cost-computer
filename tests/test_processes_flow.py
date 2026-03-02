@@ -1,4 +1,9 @@
+import json
+
+import pytest
+
 from backend.core import db
+from backend.core.llm_service import LlmQueryError, LlmResult
 from backend.core.models import Tile
 from backend.routers import processes as processes_router
 
@@ -296,3 +301,184 @@ def test_compile_processes_requires_regulations(test_client):
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "No regulations for session"
+
+
+def test_compile_processes_stores_query_failed_attempt(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("PROC-QUERY-FAILED", "test-model")
+    reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
+    db.upsert_tile(
+        Tile(id=f"regulation_{reg_one}", title="Regelung 1"),
+        session_id=session_id,
+    )
+
+    async def fail_query_llm(*_args, **_kwargs):
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr(processes_router, "query_llm", fail_query_llm)
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-QUERY-FAILED",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 502
+    assert "LLM query failed" in resp.json()["detail"]
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT prompt_id, answer_state, state_reason, metadata
+        FROM llm_answers
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    )
+    row = dict(cur.fetchone())
+    conn.close()
+    assert row["prompt_id"] == "process_compilation"
+    assert row["answer_state"] == "invalid"
+    assert row["state_reason"] == "query_failed"
+    metadata = json.loads(row["metadata"])
+    assert "provider exploded" in metadata.get("error", "")
+
+
+def test_compile_processes_invalidates_on_parse_failure(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("PROC-PARSE-FAILED", "test-model")
+    reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
+    db.upsert_tile(
+        Tile(id=f"regulation_{reg_one}", title="Regelung 1"),
+        session_id=session_id,
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return '{"prozesse": []}'
+
+    monkeypatch.setattr(processes_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-PARSE-FAILED",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "No processes parsed"
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT prompt_id, answer_state, state_reason
+        FROM llm_answers
+        WHERE session_id = ?
+        ORDER BY answer_id
+        """,
+        (session_id,),
+    )
+    row = dict(cur.fetchone())
+    conn.close()
+    assert row["prompt_id"] == "process_compilation"
+    assert row["answer_state"] == "invalid"
+    assert row["state_reason"].startswith("session_update_failed:")
+
+
+def test_compile_processes_maps_provider_timeout_to_504(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("PROC-TIMEOUT", "test-model")
+    reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
+    db.upsert_tile(
+        Tile(id=f"regulation_{reg_one}", title="Regelung 1"),
+        session_id=session_id,
+    )
+
+    async def fail_query_llm(*_args, **_kwargs):
+        raise LlmQueryError(
+            provider="openai",
+            model="gpt-5.2",
+            reason="provider_timeout",
+            message="upstream timeout",
+        )
+
+    monkeypatch.setattr(processes_router, "query_llm", fail_query_llm)
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-TIMEOUT",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 504
+    assert "provider_timeout" in resp.json()["detail"]
+
+
+def test_compile_processes_persists_usage_and_raw_response(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("PROC-USAGE", "test-model")
+    reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
+    db.upsert_tile(
+        Tile(id=f"regulation_{reg_one}", title="Regelung 1"),
+        session_id=session_id,
+    )
+
+    response_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_bezeichnung": "Prozess A",
+          "prozess_beschreibung": "Beschreibung Prozess A",
+          "vorgaben": [
+            {{"vorgaben_id": "{reg_one}", "normzitat": "Section 1", "beschreibung": "Beschreibung A"}}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return LlmResult(
+            text=response_text,
+            input_tokens=111,
+            output_tokens=210,
+            hidden_thinking_tokens=45,
+            estimated_cost_usd=0.0042,
+            provider_response_json={"usage": {"total_tokens": 321}},
+        )
+
+    monkeypatch.setattr(processes_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-USAGE",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT input_tokens, output_tokens, hidden_thinking_tokens, estimated_cost_usd, provider_response_json
+        FROM llm_answers
+        WHERE session_id = ?
+        ORDER BY answer_id DESC
+        LIMIT 1
+        """,
+        (session_id,),
+    )
+    row = dict(cur.fetchone())
+    conn.close()
+    assert row["input_tokens"] == 111
+    assert row["output_tokens"] == 210
+    assert row["hidden_thinking_tokens"] == 45
+    assert row["estimated_cost_usd"] == pytest.approx(0.0042)
+    raw = json.loads(row["provider_response_json"])
+    assert raw["usage"]["total_tokens"] == 321

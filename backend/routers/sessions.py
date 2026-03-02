@@ -16,6 +16,7 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import get_last_completed_step, undo_step
+from backend.routers._llm_router_utils import ensure_session_or_400
 from backend.routers import (
     case_groups as case_groups_router,
     costs as costs_router,
@@ -160,8 +161,6 @@ class _RunRecord:
     events: list[tuple[str, dict]] = field(default_factory=list)
     subscribers: set[asyncio.Queue[tuple[str, dict]]] = field(default_factory=set)
     task: asyncio.Task[None] | None = None
-    baseline_step_key: str | None = None
-    cancel_requested: bool = False
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -245,44 +244,6 @@ async def _trim_finished_runs() -> None:
         overflow = len(_RUNS_BY_ID) - _MAX_STORED_RUNS
         for record in finished[:overflow]:
             _RUNS_BY_ID.pop(record.run_id, None)
-
-
-def _rebuild_session_tiles(app_session_id: str) -> None:
-    session = db.get_session_by_app_id(app_session_id)
-    if not session:
-        return
-    session_id = int(session["session_id"])
-    tiles = build_session_tiles_snapshot(session)
-    with db.transaction():
-        db.clear_tiles(session_id=session_id)
-        for tile in tiles:
-            db.upsert_tile(tile, session_id=session_id)
-
-
-def _rollback_to_baseline_step(
-    app_session_id: str,
-    baseline_step_key: str | None,
-) -> SessionStatusResponse | None:
-    session = db.get_session_by_app_id(app_session_id)
-    if not session:
-        return None
-    session_id = int(session["session_id"])
-    for _ in range(len(RUN_ALL_STEPS) + 1):
-        status = db.get_session_status(app_session_id)
-        if not status:
-            return None
-        current = get_last_completed_step(status)
-        current_key = current.key if current else None
-        if current_key == baseline_step_key:
-            _rebuild_session_tiles(app_session_id)
-            return _as_session_status_response(app_session_id)
-        if current is None:
-            _rebuild_session_tiles(app_session_id)
-            return _as_session_status_response(app_session_id)
-        with db.transaction():
-            undo_step(session_id, current.key)
-    _rebuild_session_tiles(app_session_id)
-    return _as_session_status_response(app_session_id)
 
 
 def _as_session_status_response(app_session_id: str) -> SessionStatusResponse:
@@ -708,23 +669,21 @@ async def _run_all_background(
         async with _RUN_REGISTRY_LOCK:
             record = _RUNS_BY_ID.get(run_id)
             if record is not None:
-                baseline_step_key = record.baseline_step_key
-                record.cancel_requested = True
                 if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
                     _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-            else:
-                baseline_step_key = None
 
-        rolled_back_status = _rollback_to_baseline_step(
-            payload.app_session_id, baseline_step_key
-        )
+        final_status: SessionStatusResponse | None = None
+        try:
+            final_status = _as_session_status_response(payload.app_session_id)
+        except HTTPException:
+            final_status = None
         async with _RUN_REGISTRY_LOCK:
             record = _RUNS_BY_ID.get(run_id)
             if record is not None:
                 record.status = "cancelled"
                 record.ok = False
                 record.updated_at = time.time()
-                record.final_status = rolled_back_status
+                record.final_status = final_status
                 if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
                     _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
                 steps = [step.model_dump() for step in record.steps]
@@ -737,10 +696,8 @@ async def _run_all_background(
             {
                 "ok": False,
                 "steps": steps,
-                "final_status": (
-                    rolled_back_status.model_dump() if rolled_back_status else None
-                ),
-                "message": "Run aborted and reverted to previous completed step",
+                "final_status": final_status.model_dump() if final_status else None,
+                "message": "Run cancelled by user",
             },
         )
         await _trim_finished_runs()
@@ -801,15 +758,10 @@ async def start_run_all_steps(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> SessionRunAllStartResponse:
-    try:
-        _session_id, _created, model = db.ensure_session(
-            payload.app_session_id,
-            payload.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    start_status = db.get_session_status(payload.app_session_id)
-    baseline_step = get_last_completed_step(start_status or {})
+    _session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
 
     async with _RUN_REGISTRY_LOCK:
         active_run_id = _ACTIVE_RUN_BY_SESSION.get(payload.app_session_id)
@@ -828,7 +780,6 @@ async def start_run_all_steps(
         record = _RunRecord(
             run_id=run_id,
             app_session_id=payload.app_session_id,
-            baseline_step_key=baseline_step.key if baseline_step else None,
         )
         _RUNS_BY_ID[run_id] = record
         _ACTIVE_RUN_BY_SESSION[payload.app_session_id] = run_id
@@ -860,7 +811,6 @@ async def cancel_run_all(run_id: str) -> SessionRunCancelResponse:
                 accepted=False,
                 message="Run is not running",
             )
-        record.cancel_requested = True
         record.updated_at = time.time()
         task = record.task
 

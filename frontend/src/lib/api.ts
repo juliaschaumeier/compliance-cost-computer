@@ -96,6 +96,70 @@ function createApiClientError(
   return error;
 }
 
+async function parseErrorPayload(response: Response): Promise<{
+  detail: unknown;
+  errorBody: unknown;
+  rawText: string;
+}> {
+  let errorBody: unknown = null;
+  let rawText = "";
+  try {
+    rawText = await response.text();
+    errorBody = rawText ? JSON.parse(rawText) : null;
+  } catch {
+    errorBody = null;
+  }
+  return {
+    detail: isRecord(errorBody) ? errorBody.detail : undefined,
+    errorBody,
+    rawText,
+  };
+}
+
+function resolveDetailMessage(detail: unknown, rawText: string): string | null {
+  return (typeof detail === "string" ? detail : null) || rawText || null;
+}
+
+function extractDetailError(detail: unknown): string | null {
+  if (!isRecord(detail)) {
+    return null;
+  }
+  return typeof detail.error === "string" ? detail.error : null;
+}
+
+type ApiErrorOptions = {
+  includeStatusLabel?: boolean;
+  prefixWithFallback?: boolean;
+  preferDetailErrorField?: boolean;
+};
+
+async function throwApiClientErrorFromResponse(
+  response: Response,
+  fallbackMessage: string,
+  options: ApiErrorOptions = {}
+): Promise<never> {
+  const { detail, errorBody, rawText } = await parseErrorPayload(response);
+  const detailMessage =
+    (options.preferDetailErrorField ? extractDetailError(detail) : null) ||
+    resolveDetailMessage(detail, rawText);
+
+  const statusLabel = `${response.status} ${response.statusText}`.trim();
+  const baseMessage = options.includeStatusLabel
+    ? `${fallbackMessage} (${statusLabel})`
+    : fallbackMessage;
+  const message = options.prefixWithFallback
+    ? detailMessage
+      ? `${baseMessage}: ${detailMessage}`
+      : baseMessage
+    : detailMessage || baseMessage;
+
+  throw createApiClientError(message, {
+    status: response.status,
+    details: detail ?? errorBody ?? rawText,
+    raw: rawText,
+  });
+}
+
 export const apiClient = {
   async upsertSession(
     appSessionId: string,
@@ -112,7 +176,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to upsert session");
+      await throwApiClientErrorFromResponse(response, "Failed to upsert session");
     }
     return response.json();
   },
@@ -121,7 +185,10 @@ export const apiClient = {
       headers: buildKeyHeaders(keys),
     });
     if (!response.ok) {
-      throw new Error("Failed to load organized models");
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to load organized models"
+      );
     }
     return response.json();
   },
@@ -130,7 +197,7 @@ export const apiClient = {
     const query = `?app_session_id=${encodeURIComponent(appSessionId)}`;
     const response = await fetch(`${API_BASE_URL}/tiles${query}`);
     if (!response.ok) {
-      throw new Error("Failed to load tiles");
+      await throwApiClientErrorFromResponse(response, "Failed to load tiles");
     }
     return response.json();
   },
@@ -145,7 +212,7 @@ export const apiClient = {
       body: JSON.stringify(tile),
     });
     if (!response.ok) {
-      throw new Error("Failed to save tile");
+      await throwApiClientErrorFromResponse(response, "Failed to save tile");
     }
     return response.json();
   },
@@ -156,7 +223,7 @@ export const apiClient = {
       method: "DELETE",
     });
     if (!response.ok) {
-      throw new Error("Failed to delete tile");
+      await throwApiClientErrorFromResponse(response, "Failed to delete tile");
     }
   },
 
@@ -171,7 +238,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to rebuild tiles");
+      await throwApiClientErrorFromResponse(response, "Failed to rebuild tiles");
     }
     return response.json();
   },
@@ -179,7 +246,7 @@ export const apiClient = {
   async fetchRegulations(): Promise<RegulationsResponse> {
     const response = await fetch(`${API_BASE_URL}/regulations`);
     if (!response.ok) {
-      throw new Error("Failed to load regulations");
+      await throwApiClientErrorFromResponse(response, "Failed to load regulations");
     }
     return response.json();
   },
@@ -187,7 +254,7 @@ export const apiClient = {
   async listSessions(limit = 50): Promise<SessionsResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions?limit=${limit}`);
     if (!response.ok) {
-      throw new Error("Failed to load sessions");
+      await throwApiClientErrorFromResponse(response, "Failed to load sessions");
     }
     return response.json();
   },
@@ -199,24 +266,7 @@ export const apiClient = {
       )}`
     );
     if (!response.ok) {
-      let errorBody: unknown = null;
-      let rawText = "";
-      try {
-        rawText = await response.text();
-        errorBody = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        errorBody = null;
-      }
-      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
-      const detailMessage =
-        (typeof detail === "string" ? detail : null) ||
-        rawText ||
-        "Failed to load session status";
-      throw createApiClientError(detailMessage, {
-        status: response.status,
-        details: detail ?? errorBody ?? rawText,
-        raw: rawText,
-      });
+      await throwApiClientErrorFromResponse(response, "Failed to load session status");
     }
     return response.json();
   },
@@ -230,7 +280,7 @@ export const apiClient = {
       body: JSON.stringify({ app_session_id: appSessionId }),
     });
     if (!response.ok) {
-      throw new Error("Failed to undo last step");
+      await throwApiClientErrorFromResponse(response, "Failed to undo last step");
     }
     return response.json();
   },
@@ -243,7 +293,7 @@ export const apiClient = {
       )}`
     );
     if (!response.ok) {
-      throw new Error("Failed to export session");
+      await throwApiClientErrorFromResponse(response, "Failed to export session");
     }
     return response.json();
   },
@@ -272,24 +322,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      let errorBody: unknown = null;
-      let rawText = "";
-      try {
-        rawText = await response.text();
-        errorBody = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        errorBody = null;
-      }
-      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
-      const detailMessage =
-        (typeof detail === "string" ? detail : null) ||
-        rawText ||
-        "Failed to start run-all steps";
-      throw createApiClientError(detailMessage, {
-        status: response.status,
-        details: detail ?? errorBody ?? rawText,
-        raw: rawText,
-      });
+      await throwApiClientErrorFromResponse(response, "Failed to start run-all steps");
     }
     return response.json();
   },
@@ -298,24 +331,7 @@ export const apiClient = {
       `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}`
     );
     if (!response.ok) {
-      let errorBody: unknown = null;
-      let rawText = "";
-      try {
-        rawText = await response.text();
-        errorBody = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        errorBody = null;
-      }
-      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
-      const detailMessage =
-        (typeof detail === "string" ? detail : null) ||
-        rawText ||
-        "Failed to load run-all status";
-      throw createApiClientError(detailMessage, {
-        status: response.status,
-        details: detail ?? errorBody ?? rawText,
-        raw: rawText,
-      });
+      await throwApiClientErrorFromResponse(response, "Failed to load run-all status");
     }
     return response.json();
   },
@@ -330,24 +346,7 @@ export const apiClient = {
       }
     );
     if (!response.ok) {
-      let errorBody: unknown = null;
-      let rawText = "";
-      try {
-        rawText = await response.text();
-        errorBody = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        errorBody = null;
-      }
-      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
-      const detailMessage =
-        (typeof detail === "string" ? detail : null) ||
-        rawText ||
-        "Failed to cancel run-all";
-      throw createApiClientError(detailMessage, {
-        status: response.status,
-        details: detail ?? errorBody ?? rawText,
-        raw: rawText,
-      });
+      await throwApiClientErrorFromResponse(response, "Failed to cancel run-all");
     }
     return response.json();
   },
@@ -365,22 +364,9 @@ export const apiClient = {
       body: formData,
     });
     if (!response.ok) {
-      let errorBody: unknown = null;
-      try {
-        errorBody = await response.json();
-      } catch {
-        errorBody = null;
-      }
-      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
-      const detailError =
-        isRecord(detail) && typeof detail.error === "string" ? detail.error : null;
-      throw createApiClientError(
-        detailError || "Failed to upload regulation",
-        {
-          status: response.status,
-          details: detail ?? errorBody,
-        }
-      );
+      await throwApiClientErrorFromResponse(response, "Failed to upload regulation", {
+        preferDetailErrorField: true,
+      });
     }
     return response.json();
   },
@@ -410,30 +396,11 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      let errorBody: unknown = null;
-      let rawText = "";
-      try {
-        rawText = await response.text();
-        errorBody = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        errorBody = null;
-      }
-      const statusLabel = `${response.status} ${response.statusText}`.trim();
-      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
-      const detailMessage =
-        (isRecord(detail) && typeof detail.error === "string" ? detail.error : null) ||
-        (typeof detail === "string" ? detail : null) ||
-        rawText;
-      throw createApiClientError(
-        detailMessage
-          ? `Failed to summarize regulation (${statusLabel}): ${detailMessage}`
-          : `Failed to summarize regulation (${statusLabel})`,
-        {
-          status: response.status,
-          details: detail ?? errorBody ?? rawText,
-          raw: rawText,
-        }
-      );
+      await throwApiClientErrorFromResponse(response, "Failed to summarize regulation", {
+        includeStatusLabel: true,
+        prefixWithFallback: true,
+        preferDetailErrorField: true,
+      });
     }
     return response.json();
   },
@@ -462,7 +429,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to identify regulations");
+      await throwApiClientErrorFromResponse(response, "Failed to identify regulations");
     }
     return response.json();
   },
@@ -487,7 +454,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to compile processes");
+      await throwApiClientErrorFromResponse(response, "Failed to compile processes");
     }
     return response.json();
   },
@@ -513,7 +480,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to develop case groups");
+      await throwApiClientErrorFromResponse(response, "Failed to develop case groups");
     }
     return response.json();
   },
@@ -539,7 +506,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to analyze process steps");
+      await throwApiClientErrorFromResponse(response, "Failed to analyze process steps");
     }
     return response.json();
   },
@@ -565,24 +532,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      let errorBody: unknown = null;
-      let rawText = "";
-      try {
-        rawText = await response.text();
-        errorBody = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        errorBody = null;
-      }
-      const detail = isRecord(errorBody) ? errorBody.detail : undefined;
-      const detailMessage =
-        (typeof detail === "string" ? detail : null) ||
-        rawText ||
-        "Failed to calculate effort";
-      throw createApiClientError(detailMessage, {
-        status: response.status,
-        details: detail ?? errorBody ?? rawText,
-        raw: rawText,
-      });
+      await throwApiClientErrorFromResponse(response, "Failed to calculate effort");
     }
     return response.json();
   },
@@ -600,7 +550,7 @@ export const apiClient = {
       }),
     });
     if (!response.ok) {
-      throw new Error("Failed to compute total cost");
+      await throwApiClientErrorFromResponse(response, "Failed to compute total cost");
     }
     return response.json();
   },

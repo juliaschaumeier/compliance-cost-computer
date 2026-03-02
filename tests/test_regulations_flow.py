@@ -66,10 +66,21 @@ def test_identify_regulations_flow(test_client, monkeypatch):
 
     conn = db.get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT prompt_id FROM llm_answers ORDER BY answer_id")
-    prompt_ids = [row["prompt_id"] for row in cur.fetchall()]
+    cur.execute(
+        """
+        SELECT prompt_id, answer_state, state_reason
+        FROM llm_answers
+        ORDER BY answer_id
+        """
+    )
+    answer_rows = [dict(row) for row in cur.fetchall()]
     conn.close()
-    assert prompt_ids == ["law_summary", "regulations_identification"]
+    assert [row["prompt_id"] for row in answer_rows] == [
+        "law_summary",
+        "regulations_identification",
+    ]
+    assert all(row["answer_state"] == "active" for row in answer_rows)
+    assert all(row["state_reason"] == "session_updated" for row in answer_rows)
 
     async def fail_query_llm(*_args, **_kwargs):
         raise AssertionError("LLM should not be called on repeat identify")
@@ -152,4 +163,65 @@ def test_identify_regulations_normalizes_change_status_variants(test_client, mon
         "eingefuehrt",
         "geaendert",
         "abgeschafft",
+    ]
+
+
+def test_summary_supersedes_previous_active_answer(test_client, monkeypatch):
+    db.insert_law("summary-current.txt", "aktuelles gesetz")
+    db.insert_law("summary-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz 1", "blurb": "Ein Satz 1."}',
+            '{"title": "Kurz 2", "blurb": "Ein Satz 2."}',
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    first = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "summary-proposed.txt",
+            "current_filename": "summary-current.txt",
+            "app_session_id": "SUMMARY-SUPERSEDE",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert first.status_code == 200
+
+    second = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "summary-proposed.txt",
+            "current_filename": "summary-current.txt",
+            "app_session_id": "SUMMARY-SUPERSEDE",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert second.status_code == 200
+
+    session_id = db.get_session_id_by_app_id("SUMMARY-SUPERSEDE")
+    assert session_id is not None
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT answer_state, state_reason
+        FROM llm_answers
+        WHERE session_id = ? AND prompt_id = 'law_summary'
+        ORDER BY answer_id
+        """,
+        (session_id,),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    assert rows == [
+        {"answer_state": "invalid", "state_reason": "superseded_by_new_attempt"},
+        {"answer_state": "active", "state_reason": "session_updated"},
     ]
