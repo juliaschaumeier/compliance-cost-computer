@@ -5,6 +5,7 @@ describe("changeStatus helpers", () => {
     expect(normalizeChangeStatus("eingeführt")).toBe("eingefuehrt");
     expect(normalizeChangeStatus("changed")).toBe("geaendert");
     expect(normalizeChangeStatus("removed")).toBe("abgeschafft");
+    expect(normalizeChangeStatus("unchanged")).toBe("unveraendert");
   });
 
   it("returns null for unknown values", () => {
@@ -16,5 +17,6 @@ describe("changeStatus helpers", () => {
     expect(getChangeStatusLabel("eingefuehrt")).toBe("Neu");
     expect(getChangeStatusLabel("geaendert")).toBe("Geändert");
     expect(getChangeStatusLabel("abgeschafft")).toBe("Abgeschafft");
+    expect(getChangeStatusLabel("unveraendert")).toBe("Unverändert");
   });
 });

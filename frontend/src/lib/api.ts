@@ -16,6 +16,8 @@ import {
   RunAllStatusResponse,
   RunAllCancelResponse,
   Model,
+  LlmMonitorSnapshotResponse,
+  LlmMonitorStreamAttemptResponse,
 } from "@/types";
 
 const API_BASE_URL =
@@ -350,6 +352,50 @@ export const apiClient = {
     }
     return response.json();
   },
+  async getLlmMonitorSnapshot(options: {
+    appSessionId: string;
+    limit?: number;
+  }): Promise<LlmMonitorSnapshotResponse> {
+    const limit = Math.min(Math.max(options.limit ?? 80, 1), 500);
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/llm-monitor?app_session_id=${encodeURIComponent(
+        options.appSessionId
+      )}&limit=${limit}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to load LLM monitor snapshot"
+      );
+    }
+    return response.json();
+  },
+  getLlmMonitorEventsUrl(options: {
+    appSessionId: string;
+    limit?: number;
+  }): string {
+    const limit = Math.min(Math.max(options.limit ?? 80, 1), 500);
+    return `${API_BASE_URL}/sessions/llm-monitor/events?app_session_id=${encodeURIComponent(
+      options.appSessionId
+    )}&limit=${limit}`;
+  },
+  async getLlmMonitorStreamAttempt(options: {
+    appSessionId: string;
+    attemptId: string;
+  }): Promise<LlmMonitorStreamAttemptResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/llm-monitor/stream/${encodeURIComponent(
+        options.attemptId
+      )}?app_session_id=${encodeURIComponent(options.appSessionId)}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to load LLM stream attempt"
+      );
+    }
+    return response.json();
+  },
   async uploadRegulation(
     file: File,
     filenameOverride?: string
@@ -380,7 +426,7 @@ export const apiClient = {
       provider?: string;
       keys?: ApiKeys;
     } = {}
-  ): Promise<{ title: string; blurb: string; filename: string }> {
+  ): Promise<{ title: string; summary: string; blurb?: string; filename: string }> {
     const response = await fetch(`${API_BASE_URL}/regulations/summary`, {
       method: "POST",
       headers: {
@@ -406,8 +452,6 @@ export const apiClient = {
   },
   async identifyRegulations(
     options: {
-      currentFilename: string;
-      proposedFilename: string;
       appSessionId: string;
       model?: string;
       provider?: string;
@@ -421,8 +465,6 @@ export const apiClient = {
         ...buildKeyHeaders(options.keys || {}),
       },
       body: JSON.stringify({
-        current_filename: options.currentFilename,
-        proposed_filename: options.proposedFilename,
         app_session_id: options.appSessionId,
         model: options.model,
         provider: options.provider,

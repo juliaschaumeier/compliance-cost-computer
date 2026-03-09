@@ -18,9 +18,7 @@ export default function RegulationsPanel() {
     state.summaryReady &&
     !state.regulationsReady &&
     !isBusy &&
-    Boolean(state.selectedModel) &&
-    Boolean(state.selectedCurrentLaw) &&
-    Boolean(state.selectedRegulation);
+    Boolean(state.selectedModel);
 
   const handleIdentify = async () => {
     if (!state.selectedModel) {
@@ -38,8 +36,6 @@ export default function RegulationsPanel() {
     });
     try {
       await apiClient.identifyRegulations({
-        currentFilename: state.selectedCurrentLaw,
-        proposedFilename: state.selectedRegulation,
         appSessionId: state.appSessionId,
         model: llm.model,
         provider: llm.provider,

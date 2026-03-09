@@ -43,3 +43,23 @@ def test_rebuild_tiles_keeps_step_order(test_client):
     by_id = {tile.id: tile for tile in step_tiles}
     assert by_id[f"step_{step_one}"].column < by_id[f"step_{step_two}"].column
     assert by_id[f"step_{step_two}"].column < by_id[f"step_{step_three}"].column
+
+
+def test_rebuild_uses_blurb_for_law_tile_text(test_client):
+    app_session_id = "TILES-REBUILD-BLURB"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.insert_law("rebuild-current.txt", "current law")
+    db.insert_law("rebuild-proposed.txt", "proposed law")
+    db.update_session_documents(app_session_id, "rebuild-current.txt", "rebuild-proposed.txt")
+    db.update_session_summary(
+        app_session_id,
+        "Titel",
+        "Lange Zusammenfassung fuer Prompt-Kontext",
+        law_diff_blurb="Kurzer Blurb fuer Anzeige",
+    )
+
+    resp = test_client.post("/tiles/rebuild", json={"app_session_id": app_session_id})
+    assert resp.status_code == 200
+
+    law_tile = next(tile for tile in db.fetch_tiles(session_id=session_id) if tile.id == "law_tile")
+    assert law_tile.text == "Kurzer Blurb fuer Anzeige"

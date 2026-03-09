@@ -50,8 +50,6 @@ def test_end_to_end_flow_and_undo(test_client, monkeypatch):
     identify_resp = test_client.post(
         "/regulations/identify",
         json={
-            "current_filename": "current.txt",
-            "proposed_filename": "proposed.txt",
             "app_session_id": app_id,
             "model": "test-model",
             "provider": "openai",

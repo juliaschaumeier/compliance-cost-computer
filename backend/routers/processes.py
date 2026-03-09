@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -15,6 +13,7 @@ from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.parsing import parse_first_int
+from backend.core.payload_builders import build_vorgaben_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
@@ -233,22 +232,12 @@ async def compile_processes(
     regulations = db.list_regulations_for_session(session_id)
     if not regulations:
         raise HTTPException(status_code=400, detail="No regulations for session")
-    current_law_text, proposed_law_text = db.get_session_law_texts(session_id)
-    vorgaben_payload = [
-        {
-            "vorgaben_id": row["regulation_id"],
-            "normzitat": row["legal_citation"],
-            "beschreibung": row["description"],
-            "aenderungsstatus": row["change_status"],
-        }
-        for row in regulations
-    ]
+    vorgaben_payload = build_vorgaben_payload(regulations)
 
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
-        gesetz_gueltig=current_law_text,
-        gesetz_vorschlag=proposed_law_text,
-        vorgaben_json=json.dumps(vorgaben_payload, ensure_ascii=False),
+        session_id=session_id,
+        vorgaben_json=dump_prompt_json(vorgaben_payload),
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,

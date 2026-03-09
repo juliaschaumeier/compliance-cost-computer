@@ -43,8 +43,6 @@ class RegulationSummaryRequest(BaseModel):
 
 
 class RegulationIdentifyRequest(BaseModel):
-    current_filename: str
-    proposed_filename: str
     app_session_id: str
     model: str | None = None
     provider: str | None = None
@@ -81,25 +79,30 @@ async def upload_regulation(
     return {"ok": True, "filename": desired_name, "document_id": document_id}
 
 
-def _parse_summary(payload: str) -> tuple[str, str]:
+def _parse_summary(payload: str) -> tuple[str, str, str]:
     payload = payload.strip()
     if not payload:
-        return "", ""
+        return "", "", ""
 
     cleaned = clean_llm_payload(payload)
     data = parse_json_object(payload)
     if data:
         title = str(data.get("title", "")).strip()
         blurb = str(data.get("blurb", "")).strip()
-        if title or blurb:
-            return title, blurb
+        summary = str(data.get("summary", "")).strip()
+        if not summary:
+            summary = blurb
+        if not blurb:
+            blurb = summary
+        if title or blurb or summary:
+            return title, blurb, summary
 
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     if not lines:
-        return "", ""
+        return "", "", ""
     title = lines[0][:120]
-    blurb = " ".join(lines[1:]).strip()
-    return title, blurb
+    body = " ".join(lines[1:]).strip()
+    return title, body, body
 
 
 def _parse_vorgaben(payload: str) -> list[dict]:
@@ -222,30 +225,16 @@ async def identify_regulations(
     payload: RegulationIdentifyRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
 ) -> dict:
-    current_filename = Path(payload.current_filename).name
-    proposed_filename = Path(payload.proposed_filename).name
-    if not current_filename or not proposed_filename:
-        raise HTTPException(status_code=400, detail="Invalid filenames")
-
-    current_law = db.get_law_by_filename(current_filename)
-    if not current_law:
-        raise HTTPException(status_code=404, detail="Current file not found")
-    proposed_law = db.get_law_by_filename(proposed_filename)
-    if not proposed_law:
-        raise HTTPException(status_code=404, detail="Proposed file not found")
-
     session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
     )
-    db.update_session_documents(
-        payload.app_session_id,
-        current_filename,
-        proposed_filename,
-    )
     current_text, proposed_text = db.get_session_law_texts(session_id)
     if not current_text or not proposed_text:
-        raise HTTPException(status_code=400, detail="Empty file")
+        raise HTTPException(
+            status_code=422,
+            detail="Law files not selected for session. Run summary first.",
+        )
     existing = db.list_regulations_for_session(session_id)
     if existing:
         return {
@@ -263,6 +252,7 @@ async def identify_regulations(
 
     prompt = render_prompt(
         PromptId.REGULATIONS_IDENTIFICATION,
+        session_id=session_id,
         gesetz_gueltig=current_text,
         gesetz_vorschlag=proposed_text,
     )
@@ -352,7 +342,7 @@ async def summarize_regulation(
         query_fn=query_llm,
     )
     response_text = llm_result.text
-    title, blurb = _parse_summary(response_text)
+    title, blurb, summary = _parse_summary(response_text)
     if not title:
         title = filename
 
@@ -377,7 +367,12 @@ async def summarize_regulation(
                 current_filename=current_filename,
             )
             if payload.app_session_id:
-                db.update_session_summary(payload.app_session_id, title, blurb)
+                db.update_session_summary(
+                    payload.app_session_id,
+                    title,
+                    summary,
+                    law_diff_blurb=blurb,
+                )
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,
@@ -385,4 +380,9 @@ async def summarize_regulation(
             )
 
     run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
-    return {"title": title, "blurb": blurb, "filename": filename}
+    return {
+        "title": title,
+        "summary": summary,
+        "blurb": blurb,
+        "filename": filename,
+    }

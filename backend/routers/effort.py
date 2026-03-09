@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -21,6 +19,7 @@ from backend.core.parsing import parse_first_int, parse_optional_number
 from backend.core.payload_builders import (
     build_case_groups_payload,
     build_step_analysis_payload,
+    dump_prompt_json,
 )
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.tile_refresh import refresh_case_group_tiles, refresh_step_tiles
@@ -203,6 +202,7 @@ async def calculate_effort(
     )
 
     processes = db.list_processes_for_session(session_id)
+    regulations = db.list_regulations_for_session(session_id)
     case_groups = db.list_case_groups_for_session(session_id)
     steps = db.list_process_steps_for_session(session_id)
     if not case_groups:
@@ -219,26 +219,24 @@ async def calculate_effort(
     case_groups_payload = build_case_groups_payload(
         processes=processes,
         case_groups=case_groups,
-        include_metrics=True,
+        regulations=regulations,
     )
     steps_payload = build_step_analysis_payload(
         processes=processes,
         case_groups=case_groups,
         steps=steps,
+        regulations=regulations,
     )
-    current_law_text, proposed_law_text = db.get_session_law_texts(session_id)
 
     cases_prompt = render_prompt(
         PromptId.CASES_CALCULATION,
-        gesetz_gueltig=current_law_text,
-        gesetz_vorschlag=proposed_law_text,
-        case_groups_json=json.dumps(case_groups_payload, ensure_ascii=False),
+        session_id=session_id,
+        case_groups_json=dump_prompt_json(case_groups_payload),
     )
     effort_prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,
-        gesetz_gueltig=current_law_text,
-        gesetz_vorschlag=proposed_law_text,
-        step_analysis_json=json.dumps(steps_payload, ensure_ascii=False),
+        session_id=session_id,
+        step_analysis_json=dump_prompt_json(steps_payload),
     )
 
     all_specs = [

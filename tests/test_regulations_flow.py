@@ -1,6 +1,5 @@
-from pathlib import Path
-
 from backend.core import db
+from backend.core.prompts import PromptId, render_prompt
 from backend.routers import regulations as regulations_router
 
 
@@ -42,8 +41,6 @@ def test_identify_regulations_flow(test_client, monkeypatch):
     identify_resp = test_client.post(
         "/regulations/identify",
         json={
-            "current_filename": "current.txt",
-            "proposed_filename": "proposed.txt",
             "app_session_id": "ABC123",
             "model": "test-model",
             "provider": "deepinfra",
@@ -90,8 +87,6 @@ def test_identify_regulations_flow(test_client, monkeypatch):
     repeat_resp = test_client.post(
         "/regulations/identify",
         json={
-            "current_filename": "current.txt",
-            "proposed_filename": "proposed.txt",
             "app_session_id": "ABC123",
             "model": "test-model",
             "provider": "deepinfra",
@@ -141,8 +136,6 @@ def test_identify_regulations_normalizes_change_status_variants(test_client, mon
     resp = test_client.post(
         "/regulations/identify",
         json={
-            "current_filename": "status-current.txt",
-            "proposed_filename": "status-proposed.txt",
             "app_session_id": "REG-STATUS-VARIANTS",
             "model": "test-model",
             "provider": "deepinfra",
@@ -164,6 +157,26 @@ def test_identify_regulations_normalizes_change_status_variants(test_client, mon
         "geaendert",
         "abgeschafft",
     ]
+
+
+def test_identify_requires_session_law_selection(test_client, monkeypatch):
+    db.upsert_session("NO-LAW-IDS", "test-model")
+
+    async def fail_query_llm(*_args, **_kwargs):
+        raise AssertionError("LLM should not be called when laws are missing")
+
+    monkeypatch.setattr(regulations_router, "query_llm", fail_query_llm)
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "NO-LAW-IDS",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Law files not selected for session. Run summary first."
 
 
 def test_summary_supersedes_previous_active_answer(test_client, monkeypatch):
@@ -225,3 +238,119 @@ def test_summary_supersedes_previous_active_answer(test_client, monkeypatch):
         {"answer_state": "invalid", "state_reason": "superseded_by_new_attempt"},
         {"answer_state": "active", "state_reason": "session_updated"},
     ]
+
+
+def test_summary_separates_blurb_and_summary_storage_and_display(test_client, monkeypatch):
+    db.insert_law("sep-current.txt", "aktuelles gesetz")
+    db.insert_law("sep-proposed.txt", "neuer entwurf")
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return (
+            '{"title": "Kurz", "blurb": "Kurzer Satz.", '
+            '"summary": "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext."}'
+        )
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "sep-proposed.txt",
+            "current_filename": "sep-current.txt",
+            "app_session_id": "SUMMARY-SEPARATION",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["blurb"] == "Kurzer Satz."
+    assert payload["summary"] == "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext."
+
+    session = db.get_session_by_app_id("SUMMARY-SEPARATION")
+    assert session is not None
+    assert session["law_diff_blurb"] == "Kurzer Satz."
+    assert session["law_diff_summary"] == "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext."
+
+    session_id = int(session["session_id"])
+    law_tile = next(tile for tile in db.fetch_tiles(session_id=session_id) if tile.id == "law_tile")
+    assert law_tile.text == "Kurzer Satz."
+
+    prompt = render_prompt(
+        PromptId.PROCESS_COMPILATION,
+        session_id=session_id,
+        vorgaben_json="[]",
+    )
+    assert "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext." in prompt
+    assert "Kurzer Satz." not in prompt
+
+
+def test_identify_prompt_contains_session_summary_and_law_texts(test_client, monkeypatch):
+    current_text = "CURRENT_TEXT_UNIQUE_4711"
+    proposed_text = "PROPOSED_TEXT_UNIQUE_815"
+    summary_text = "SUMMARY_CONTEXT_UNIQUE_996"
+    db.insert_law("prompt-current.txt", current_text)
+    db.insert_law("prompt-proposed.txt", proposed_text)
+
+    prompts: list[str] = []
+
+    async def fake_query_llm(prompt: str, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return (
+                '{"title": "Kurz", "blurb": "Ein Satz.", "summary": "'
+                + summary_text
+                + '"}'
+            )
+        return (
+            '{"vorgaben": ['
+            '{"normzitat": "§ 1", "beschreibung": "Vorgabe A"}'
+            "]}"
+        )
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "prompt-proposed.txt",
+            "current_filename": "prompt-current.txt",
+            "app_session_id": "PROMPT-CONTEXT-CHECK",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    identify_resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "PROMPT-CONTEXT-CHECK",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert identify_resp.status_code == 200
+    assert len(prompts) == 2
+
+    identify_prompt = prompts[1]
+    assert summary_text in identify_prompt
+    assert current_text in identify_prompt
+    assert proposed_text in identify_prompt
+
+
+def test_prompt_opening_falls_back_to_blurb_when_summary_empty(test_client):
+    session_id, _ = db.upsert_session("PROMPT-BLURB-FALLBACK", "test-model")
+    db.update_session_summary(
+        "PROMPT-BLURB-FALLBACK",
+        "Titel",
+        "",
+        law_diff_blurb="Fallback Blurb Text",
+    )
+
+    prompt = render_prompt(
+        PromptId.PROCESS_COMPILATION,
+        session_id=session_id,
+        vorgaben_json="[]",
+    )
+    assert "Fallback Blurb Text" in prompt

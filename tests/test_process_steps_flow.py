@@ -156,7 +156,7 @@ def test_analyze_process_steps_normalizes_change_status_variants(test_client, mo
             {{
               "fallgruppen_id": "{case_group_id}",
               "change_status": "updated",
-              "taetigkeiten": [
+                "taetigkeiten": [
                 {{
                   "taetigkeit": "Neuer Schritt A",
                   "beschreibung": "Beschreibung A",
@@ -166,6 +166,11 @@ def test_analyze_process_steps_normalizes_change_status_variants(test_client, mo
                   "taetigkeit": "Neuer Schritt B",
                   "beschreibung": "Beschreibung B",
                   "status": "deleted"
+                }},
+                {{
+                  "taetigkeit": "Neuer Schritt C",
+                  "beschreibung": "Beschreibung C",
+                  "aenderungsstatus": "unveraendert"
                 }}
               ]
             }}
@@ -193,12 +198,14 @@ def test_analyze_process_steps_normalizes_change_status_variants(test_client, mo
     assert [row["aenderungsstatus"] for row in payload["steps"]] == [
         "eingefuehrt",
         "abgeschafft",
+        "unveraendert",
     ]
 
     rows = db.list_process_steps_for_session(session_id)
     assert [row["change_status"] for row in rows] == [
         "eingefuehrt",
         "abgeschafft",
+        "unveraendert",
     ]
 
 

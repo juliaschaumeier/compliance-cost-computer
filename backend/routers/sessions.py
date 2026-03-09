@@ -8,12 +8,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Annotated, AsyncGenerator, Awaitable, Callable, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
-from backend.core import db
+from backend.core import db, llm_monitor
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import get_last_completed_step, undo_step
 from backend.routers._llm_router_utils import ensure_session_or_400
@@ -135,6 +135,19 @@ class SessionRunCancelResponse(BaseModel):
     status: Literal["cancelling", "completed", "failed", "cancelled"]
     accepted: bool
     message: str | None = None
+
+
+class SessionLlmMonitorSnapshotResponse(BaseModel):
+    app_session_id: str
+    pending: list[dict]
+    recent: list[dict]
+    events: list[dict] | None = None
+    stream_attempts: list[dict] | None = None
+
+
+class SessionLlmMonitorStreamAttemptResponse(BaseModel):
+    app_session_id: str
+    attempt: dict
 
 
 RUN_ALL_STEPS: tuple[tuple[str, str, str], ...] = (
@@ -320,21 +333,7 @@ async def _run_single_step(
         return
 
     if step_key == "regulations":
-        current_filename, proposed_filename = _resolve_filenames(
-            payload.app_session_id,
-            payload.current_filename,
-            payload.proposed_filename,
-        )
-        if not current_filename or not proposed_filename:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Missing current_filename/proposed_filename for regulations step"
-                ),
-            )
         identify_payload = regulations_router.RegulationIdentifyRequest(
-            current_filename=current_filename,
-            proposed_filename=proposed_filename,
             app_session_id=payload.app_session_id,
             model=model,
             provider=payload.provider,
@@ -845,7 +844,7 @@ async def get_run_all_status(run_id: str) -> SessionRunStatusResponse:
 
 
 @router.get("/run-all/{run_id}/events")
-async def stream_run_all_events(run_id: str) -> StreamingResponse:
+async def stream_run_all_events(run_id: str, request: Request) -> StreamingResponse:
     await _get_run_record(run_id)
 
     async def _event_generator() -> AsyncGenerator[str, None]:
@@ -864,12 +863,16 @@ async def stream_run_all_events(run_id: str) -> StreamingResponse:
                 yield _format_sse_event(event_name, payload)
 
             while True:
+                if await request.is_disconnected():
+                    break
                 try:
                     event_name, payload = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield _format_sse_event(event_name, payload)
                     if event_name in {"run_completed", "run_failed", "run_cancelled"}:
                         break
                 except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
                     async with _RUN_REGISTRY_LOCK:
                         latest = _RUNS_BY_ID.get(run_id)
                         if latest is None:
@@ -891,4 +894,103 @@ async def stream_run_all_events(run_id: str) -> StreamingResponse:
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@router.get("/llm-monitor", response_model=SessionLlmMonitorSnapshotResponse)
+async def get_llm_monitor_snapshot(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    limit: int = Query(default=80, ge=1, le=500),
+) -> SessionLlmMonitorSnapshotResponse:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    pending = await llm_monitor.get_pending(app_session_id)
+    recent = db.list_recent_llm_answers_for_session(session_id, limit=limit)
+    events = await llm_monitor.get_recent_events(app_session_id, limit=limit)
+    stream_attempts = await llm_monitor.get_stream_attempts(
+        app_session_id,
+        limit=limit,
+    )
+    return SessionLlmMonitorSnapshotResponse(
+        app_session_id=app_session_id,
+        pending=pending,
+        recent=recent,
+        events=events,
+        stream_attempts=stream_attempts,
+    )
+
+
+@router.get("/llm-monitor/events")
+async def stream_llm_monitor_events(
+    request: Request,
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    limit: int = Query(default=80, ge=1, le=500),
+    once: bool = Query(default=False),
+) -> StreamingResponse:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+
+    async def _event_generator() -> AsyncGenerator[str, None]:
+        queue, monitor_snapshot = await llm_monitor.subscribe(app_session_id)
+        try:
+            yield _format_sse_event(
+                "snapshot",
+                {
+                    "app_session_id": app_session_id,
+                    "pending": monitor_snapshot["pending"],
+                    "events": monitor_snapshot["events"],
+                    "stream_attempts": monitor_snapshot["stream_attempts"],
+                    "recent": db.list_recent_llm_answers_for_session(
+                        session_id,
+                        limit=limit,
+                    ),
+                },
+            )
+            if once:
+                return
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=2.0)
+                    yield _format_sse_event("llm_event", payload)
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
+                    yield ": keep-alive\n\n"
+        finally:
+            await llm_monitor.unsubscribe(app_session_id, queue)
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/llm-monitor/stream/{attempt_id}",
+    response_model=SessionLlmMonitorStreamAttemptResponse,
+)
+async def get_llm_monitor_stream_attempt(
+    attempt_id: str,
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+) -> SessionLlmMonitorStreamAttemptResponse:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    attempt = await llm_monitor.get_stream_attempt(app_session_id, attempt_id)
+    if attempt is None:
+        raise HTTPException(status_code=404, detail="Stream attempt not found")
+    return SessionLlmMonitorStreamAttemptResponse(
+        app_session_id=app_session_id,
+        attempt=attempt,
     )

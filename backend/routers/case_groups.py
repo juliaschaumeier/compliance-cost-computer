@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -15,7 +13,10 @@ from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.parsing import parse_first_int
-from backend.core.payload_builders import build_processes_payload_with_regulations
+from backend.core.payload_builders import (
+    build_processes_payload_with_regulations,
+    dump_prompt_json,
+)
 from backend.core.prompts import PromptId, render_prompt
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
@@ -188,15 +189,13 @@ async def develop_case_groups(
     processes = db.list_processes_for_session(session_id)
     if not processes:
         raise HTTPException(status_code=400, detail="No processes for session")
-    current_law_text, proposed_law_text = db.get_session_law_texts(session_id)
     regulations = db.list_regulations_for_session(session_id)
     prozesse_payload = build_processes_payload_with_regulations(processes, regulations)
 
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
-        gesetz_gueltig=current_law_text,
-        gesetz_vorschlag=proposed_law_text,
-        prozesse_json=json.dumps(prozesse_payload, ensure_ascii=False),
+        session_id=session_id,
+        prozesse_json=dump_prompt_json(prozesse_payload),
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,

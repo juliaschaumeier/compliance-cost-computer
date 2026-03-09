@@ -3,17 +3,22 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import hashlib
+import inspect
 import time
-from typing import Awaitable, Callable, Iterable
+from typing import Any, Awaitable, Callable, Iterable
+import uuid
 
 from backend.core import db
 from backend.core.auth import ApiKeys
+from backend.core import llm_monitor
+from backend.core.config import settings
 from backend.core.llm_service import (
     LlmQueryError,
     LlmResult,
     coerce_llm_result,
     query_llm,
 )
+from backend.core.request_context import get_request_context
 
 
 def _provider_metadata(provider: str | None) -> dict[str, str | None]:
@@ -39,6 +44,59 @@ def _attempt_metadata(
     return metadata
 
 
+def _normalize_app_session_id(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text or text == "-":
+        return None
+    return text
+
+
+def _resolve_app_session_id(
+    session_id: int,
+    request_context: dict[str, str | None],
+) -> str | None:
+    session = db.get_session_by_id(session_id)
+    if session:
+        resolved = _normalize_app_session_id(str(session.get("app_session_id") or ""))
+        if resolved:
+            return resolved
+    return _normalize_app_session_id(request_context.get("app_session_id"))
+
+
+async def _publish_monitor_event(
+    *,
+    app_session_id: str | None,
+    event: dict[str, Any],
+) -> None:
+    if not app_session_id:
+        return
+    try:
+        await llm_monitor.publish_llm_event(
+            app_session_id=app_session_id,
+            event=event,
+        )
+    except Exception:
+        # Monitoring must never break the execution path.
+        return
+
+
+def _publish_monitor_event_sync(
+    *,
+    app_session_id: str | None,
+    event: dict[str, Any],
+) -> None:
+    if not app_session_id:
+        return
+    try:
+        llm_monitor.publish_llm_event_from_sync(
+            app_session_id=app_session_id,
+            event=event,
+        )
+    except Exception:
+        # Monitoring must never break the execution path.
+        return
+
+
 def _error_detail(exc: Exception) -> str:
     detail = getattr(exc, "detail", None)
     if isinstance(detail, str) and detail.strip():
@@ -54,6 +112,20 @@ def _jsonable(value):
     if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
     return str(value)
+
+
+def _supports_keyword_argument(
+    fn: Callable[..., Any],
+    keyword: str,
+) -> bool:
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return True
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+    return keyword in signature.parameters
 
 
 def llm_query_error_to_status_detail(exc: Exception) -> tuple[int, str]:
@@ -99,7 +171,10 @@ def mark_llm_query_failed(
     prompt: str,
     exc: Exception,
     elapsed_ms: int | None = None,
+    attempt_id: str | None = None,
+    request_context: dict[str, str | None] | None = None,
 ) -> None:
+    request_context = request_context or {}
     error_kind = getattr(exc, "reason", None)
     error_status_code = getattr(exc, "status_code", None)
     error_details = _jsonable(getattr(exc, "details", None))
@@ -110,6 +185,10 @@ def mark_llm_query_failed(
         "error_type": exc.__class__.__name__,
         "error_module": exc.__class__.__module__,
         "error_details": error_details,
+        "attempt_id": attempt_id,
+        "request_id": request_context.get("request_id"),
+        "route_method": request_context.get("route_method"),
+        "route_path": request_context.get("route_path"),
     }
     if elapsed_ms is not None:
         metadata_extra["elapsed_ms"] = elapsed_ms
@@ -137,8 +216,18 @@ def stage_llm_response(
     provider: str | None,
     llm_result: LlmResult,
     elapsed_ms: int | None = None,
+    attempt_id: str | None = None,
+    request_context: dict[str, str | None] | None = None,
 ) -> int:
-    metadata_extra = {"elapsed_ms": elapsed_ms} if elapsed_ms is not None else None
+    request_context = request_context or {}
+    metadata_extra: dict[str, Any] = {
+        "attempt_id": attempt_id,
+        "request_id": request_context.get("request_id"),
+        "route_method": request_context.get("route_method"),
+        "route_path": request_context.get("route_path"),
+    }
+    if elapsed_ms is not None:
+        metadata_extra["elapsed_ms"] = elapsed_ms
     return db.create_pending_llm_answer(
         session_id=session_id,
         prompt_id=prompt_id,
@@ -147,7 +236,7 @@ def stage_llm_response(
         metadata=_attempt_metadata(
             provider=provider,
             prompt=prompt,
-            extra=metadata_extra,
+            extra=metadata_extra or None,
         ),
         input_tokens=llm_result.input_tokens,
         output_tokens=llm_result.output_tokens,
@@ -168,14 +257,84 @@ async def query_and_stage_llm_answer(
     query_fn: Callable[..., Awaitable[str | LlmResult]] | None = None,
 ) -> tuple[int, LlmResult]:
     query_impl = query_fn or query_llm
+    request_ctx = get_request_context()
+    app_session_id = _resolve_app_session_id(session_id, request_ctx)
+    attempt_id = uuid.uuid4().hex
+    await _publish_monitor_event(
+        app_session_id=app_session_id,
+        event={
+            "event_type": "llm_query_started",
+            "attempt_id": attempt_id,
+            "session_id": session_id,
+            "prompt_id": prompt_id,
+            "model": model,
+            "provider": provider,
+            "request_id": request_ctx.get("request_id"),
+            "route_method": request_ctx.get("route_method"),
+            "route_path": request_ctx.get("route_path"),
+            "prompt_chars": len(prompt),
+            "stream_mode": "requested",
+        },
+    )
+
+    async def _on_stream_event(stream_event: dict[str, Any]) -> None:
+        if not settings.llm_stream_debug_enabled:
+            return
+        if not isinstance(stream_event, dict):
+            return
+        event_type = str(stream_event.get("event_type") or "").strip()
+        if not event_type:
+            return
+        await _publish_monitor_event(
+            app_session_id=app_session_id,
+            event={
+                "event_type": event_type,
+                "attempt_id": attempt_id,
+                "session_id": session_id,
+                "prompt_id": prompt_id,
+                "model": model,
+                "provider": provider,
+                "request_id": request_ctx.get("request_id"),
+                "route_method": request_ctx.get("route_method"),
+                "route_path": request_ctx.get("route_path"),
+                **stream_event,
+            },
+        )
+
     started = time.perf_counter()
     try:
+        supports_stream = _supports_keyword_argument(query_impl, "stream")
+        supports_on_event = _supports_keyword_argument(query_impl, "on_event")
+        query_kwargs: dict[str, Any] = {
+            "api_keys": api_keys,
+            "model": model,
+            "provider": provider,
+        }
+        if supports_stream:
+            query_kwargs["stream"] = True
+        else:
+            await _publish_monitor_event(
+                app_session_id=app_session_id,
+                event={
+                    "event_type": "llm_stream_fallback",
+                    "attempt_id": attempt_id,
+                    "session_id": session_id,
+                    "prompt_id": prompt_id,
+                    "model": model,
+                    "provider": provider,
+                    "request_id": request_ctx.get("request_id"),
+                    "route_method": request_ctx.get("route_method"),
+                    "route_path": request_ctx.get("route_path"),
+                    "stream_mode": "fallback_non_stream",
+                    "reason": "query_fn_no_stream_argument",
+                },
+            )
+        if supports_on_event:
+            query_kwargs["on_event"] = _on_stream_event
         llm_result = coerce_llm_result(
             await query_impl(
                 prompt,
-                api_keys=api_keys,
-                model=model,
-                provider=provider,
+                **query_kwargs,
             )
         )
     except Exception as exc:
@@ -187,8 +346,29 @@ async def query_and_stage_llm_answer(
             prompt=prompt,
             exc=exc,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
+            attempt_id=attempt_id,
+            request_context=request_ctx,
+        )
+        await _publish_monitor_event(
+            app_session_id=app_session_id,
+            event={
+                "event_type": "llm_query_failed",
+                "attempt_id": attempt_id,
+                "session_id": session_id,
+                "prompt_id": prompt_id,
+                "model": model,
+                "provider": provider,
+                "request_id": request_ctx.get("request_id"),
+                "route_method": request_ctx.get("route_method"),
+                "route_path": request_ctx.get("route_path"),
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                "error": str(exc),
+                "error_kind": getattr(exc, "reason", None),
+                "error_status_code": getattr(exc, "status_code", None),
+            },
         )
         raise
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
     answer_id = stage_llm_response(
         session_id=session_id,
         prompt_id=prompt_id,
@@ -196,7 +376,29 @@ async def query_and_stage_llm_answer(
         model=model,
         provider=provider,
         llm_result=llm_result,
-        elapsed_ms=int((time.perf_counter() - started) * 1000),
+        elapsed_ms=elapsed_ms,
+        attempt_id=attempt_id,
+        request_context=request_ctx,
+    )
+    await _publish_monitor_event(
+        app_session_id=app_session_id,
+        event={
+            "event_type": "llm_query_succeeded",
+            "attempt_id": attempt_id,
+            "answer_id": answer_id,
+            "session_id": session_id,
+            "prompt_id": prompt_id,
+            "model": model,
+            "provider": provider,
+            "request_id": request_ctx.get("request_id"),
+            "route_method": request_ctx.get("route_method"),
+            "route_path": request_ctx.get("route_path"),
+            "elapsed_ms": elapsed_ms,
+            "input_tokens": llm_result.input_tokens,
+            "output_tokens": llm_result.output_tokens,
+            "hidden_thinking_tokens": llm_result.hidden_thinking_tokens,
+            "estimated_cost_usd": llm_result.estimated_cost_usd,
+        },
     )
     return answer_id, llm_result
 
@@ -255,6 +457,38 @@ def mark_llm_answer_applied(
         prompt_id=prompt_id,
         reason="session_updated",
     )
+    answer = db.get_llm_answer_by_id(answer_id)
+    if not answer:
+        return
+    metadata = answer.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    session = db.get_session_by_id(int(answer["session_id"]))
+    app_session_id = None
+    if session is not None:
+        app_session_id = _normalize_app_session_id(str(session.get("app_session_id") or ""))
+    _publish_monitor_event_sync(
+        app_session_id=app_session_id,
+        event={
+            "event_type": "llm_apply_succeeded",
+            "attempt_id": metadata.get("attempt_id"),
+            "answer_id": int(answer_id),
+            "session_id": int(answer["session_id"]),
+            "prompt_id": str(answer.get("prompt_id") or prompt_id),
+            "model": str(answer.get("model") or ""),
+            "provider": metadata.get("provider"),
+            "request_id": metadata.get("request_id"),
+            "route_method": metadata.get("route_method"),
+            "route_path": metadata.get("route_path"),
+            "answer_state": db.LLM_ANSWER_STATE_ACTIVE,
+            "state_reason": "session_updated",
+            "elapsed_ms": metadata.get("elapsed_ms"),
+            "input_tokens": answer.get("input_tokens"),
+            "output_tokens": answer.get("output_tokens"),
+            "hidden_thinking_tokens": answer.get("hidden_thinking_tokens"),
+            "estimated_cost_usd": answer.get("estimated_cost_usd"),
+        },
+    )
 
 
 def mark_llm_answer_apply_failed(
@@ -262,9 +496,38 @@ def mark_llm_answer_apply_failed(
     answer_id: int,
     exc: Exception,
 ) -> None:
+    answer = db.get_llm_answer_by_id(answer_id)
     db.invalidate_llm_answer(
         answer_id,
         reason=f"session_update_failed: {_error_detail(exc)}",
+    )
+    if not answer:
+        return
+    metadata = answer.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    session = db.get_session_by_id(int(answer["session_id"]))
+    app_session_id = None
+    if session is not None:
+        app_session_id = _normalize_app_session_id(str(session.get("app_session_id") or ""))
+    _publish_monitor_event_sync(
+        app_session_id=app_session_id,
+        event={
+            "event_type": "llm_apply_failed",
+            "attempt_id": metadata.get("attempt_id"),
+            "answer_id": int(answer_id),
+            "session_id": int(answer["session_id"]),
+            "prompt_id": str(answer.get("prompt_id") or ""),
+            "model": str(answer.get("model") or ""),
+            "provider": metadata.get("provider"),
+            "request_id": metadata.get("request_id"),
+            "route_method": metadata.get("route_method"),
+            "route_path": metadata.get("route_path"),
+            "answer_state": db.LLM_ANSWER_STATE_INVALID,
+            "state_reason": f"session_update_failed: {_error_detail(exc)}",
+            "elapsed_ms": metadata.get("elapsed_ms"),
+            "error": str(exc),
+        },
     )
 
 

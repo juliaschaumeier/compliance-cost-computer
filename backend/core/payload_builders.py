@@ -1,41 +1,131 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class _PromptPayloadModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class VorgabePayload(_PromptPayloadModel):
+    vorgaben_id: int
+    normzitat: str
+    beschreibung: str
+    aenderungsstatus: str | None = None
+
+
+class FallgruppePayload(_PromptPayloadModel):
+    fallgruppen_id: int
+    fallgruppe_bezeichnung: str
+    fallgruppe_beschreibung: str
+    aenderungsstatus: str | None = None
+
+
+class TaetigkeitPayload(_PromptPayloadModel):
+    taetigkeiten_id: int
+    taetigkeit: str
+    beschreibung: str
+    aenderungsstatus: str | None = None
+
+
+class ProzessWithVorgabenPayload(_PromptPayloadModel):
+    prozess_id: int
+    prozess_bezeichnung: str
+    prozess_beschreibung: str
+    aenderungsstatus: str | None = None
+    vorgaben: list[VorgabePayload] = Field(default_factory=list)
+
+
+class ProzessWithFallgruppenPayload(ProzessWithVorgabenPayload):
+    fallgruppen: list[FallgruppePayload] = Field(default_factory=list)
+
+
+class FallgruppeWithTaetigkeitenPayload(FallgruppePayload):
+    taetigkeiten: list[TaetigkeitPayload] = Field(default_factory=list)
+
+
+class ProzessStepAnalysisPayload(ProzessWithVorgabenPayload):
+    fallgruppen: list[FallgruppeWithTaetigkeitenPayload] = Field(default_factory=list)
+
+
+def dump_prompt_json(payload: Any) -> str:
+    """Serialize prompt input payloads with stable unicode handling."""
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_regulations_by_process(
+    regulations: list[dict] | None,
+) -> dict[int, list[dict]]:
+    regs_by_process: dict[int, list[dict]] = {}
+    for regulation in regulations or []:
+        process_id = regulation.get("process_id")
+        if process_id is None:
+            continue
+        regs_by_process.setdefault(int(process_id), []).append(regulation)
+    return regs_by_process
+
+
+def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
+    payload: list[dict] = []
+    for row in regulations:
+        payload.append(
+            VorgabePayload(
+                vorgaben_id=int(row["regulation_id"]),
+                normzitat=str(row.get("legal_citation") or ""),
+                beschreibung=str(row.get("description") or ""),
+                aenderungsstatus=row.get("change_status"),
+            ).model_dump()
+        )
+    return payload
+
+
+def _serialize_process_regulations(
+    regs_by_process: dict[int, list[dict]],
+    process_id: int,
+) -> list[VorgabePayload]:
+    return [
+        VorgabePayload(
+            vorgaben_id=int(row["regulation_id"]),
+            normzitat=str(row.get("legal_citation") or ""),
+            beschreibung=str(row.get("description") or ""),
+            aenderungsstatus=row.get("change_status"),
+        )
+        for row in regs_by_process.get(process_id, [])
+    ]
+
 
 def build_case_groups_payload(
     processes: list[dict],
     case_groups: list[dict],
-    include_metrics: bool,
+    regulations: list[dict] | None = None,
 ) -> list[dict]:
-    groups_by_process: dict[int, list[dict]] = {}
+    groups_by_process: dict[int, list[FallgruppePayload]] = {}
+    regs_by_process = _build_regulations_by_process(regulations)
     for group in case_groups:
         process_id = int(group["process_id"])
-        group_payload = {
-            "fallgruppen_id": group["case_group_id"],
-            "fallgruppe_bezeichnung": group["case_group"],
-            "fallgruppe_beschreibung": group["description"],
-            "aenderungsstatus": group.get("change_status"),
-        }
-        if include_metrics:
-            group_payload |= {
-                "anzahl_betroffene_gueltig": group.get("addressees_current"),
-                "haeufigkeit_pro_jahr_gueltig": group.get("annual_frequency_current"),
-                "anzahl_betroffene_vorschlag": group.get("addressees_proposed"),
-                "haeufigkeit_pro_jahr_vorschlag": group.get("annual_frequency_proposed"),
-            }
+        group_payload = FallgruppePayload(
+            fallgruppen_id=int(group["case_group_id"]),
+            fallgruppe_bezeichnung=str(group.get("case_group") or ""),
+            fallgruppe_beschreibung=str(group.get("description") or ""),
+            aenderungsstatus=group.get("change_status"),
+        )
         groups_by_process.setdefault(process_id, []).append(group_payload)
 
     payload: list[dict] = []
     for process in processes:
         process_id = int(process["process_id"])
-        payload.append(
-            {
-                "prozess_id": process_id,
-                "prozess_bezeichnung": process["process"],
-                "prozess_beschreibung": process["description"],
-                "aenderungsstatus": process.get("change_status"),
-                "fallgruppen": groups_by_process.get(process_id, []),
-            }
+        process_payload = ProzessWithFallgruppenPayload(
+            prozess_id=process_id,
+            prozess_bezeichnung=str(process.get("process") or ""),
+            prozess_beschreibung=str(process.get("description") or ""),
+            aenderungsstatus=process.get("change_status"),
+            vorgaben=_serialize_process_regulations(regs_by_process, process_id),
+            fallgruppen=groups_by_process.get(process_id, []),
         )
+        payload.append(process_payload.model_dump())
     return payload
 
 
@@ -43,33 +133,19 @@ def build_processes_payload_with_regulations(
     processes: list[dict],
     regulations: list[dict],
 ) -> list[dict]:
-    regs_by_process: dict[int, list[dict]] = {}
-    for regulation in regulations:
-        process_id = regulation.get("process_id")
-        if process_id is None:
-            continue
-        regs_by_process.setdefault(int(process_id), []).append(regulation)
+    regs_by_process = _build_regulations_by_process(regulations)
 
     payload: list[dict] = []
     for process in processes:
         process_id = int(process["process_id"])
-        payload.append(
-            {
-                "prozess_id": process_id,
-                "prozess_bezeichnung": process["process"],
-                "prozess_beschreibung": process["description"],
-                "aenderungsstatus": process["change_status"],
-                "vorgaben": [
-                    {
-                        "vorgaben_id": row["regulation_id"],
-                        "normzitat": row["legal_citation"],
-                        "beschreibung": row["description"],
-                        "aenderungsstatus": row["change_status"],
-                    }
-                    for row in regs_by_process.get(process_id, [])
-                ],
-            }
+        process_payload = ProzessWithVorgabenPayload(
+            prozess_id=process_id,
+            prozess_bezeichnung=str(process.get("process") or ""),
+            prozess_beschreibung=str(process.get("description") or ""),
+            aenderungsstatus=process.get("change_status"),
+            vorgaben=_serialize_process_regulations(regs_by_process, process_id),
         )
+        payload.append(process_payload.model_dump())
     return payload
 
 
@@ -98,8 +174,10 @@ def build_step_analysis_payload(
     processes: list[dict],
     case_groups: list[dict],
     steps: list[dict],
+    regulations: list[dict] | None = None,
 ) -> list[dict]:
     groups_by_process: dict[int, list[dict]] = {}
+    regs_by_process = _build_regulations_by_process(regulations)
     for group in case_groups:
         process_id = int(group["process_id"])
         groups_by_process.setdefault(process_id, []).append(group)
@@ -111,54 +189,35 @@ def build_step_analysis_payload(
     payload: list[dict] = []
     for process in processes:
         process_id = int(process["process_id"])
-        fallgruppen_payload: list[dict] = []
+        fallgruppen_payload: list[FallgruppeWithTaetigkeitenPayload] = []
         for group in groups_by_process.get(process_id, []):
             case_group_id = int(group["case_group_id"])
             ordered_steps = _order_steps(steps_by_group.get(case_group_id, []))
             taetigkeiten = [
-                {
-                    "taetigkeiten_id": step["step_id"],
-                    "taetigkeit": step["step"],
-                    "beschreibung": step["description"],
-                    "aenderungsstatus": step.get("change_status"),
-                    "stundenlohn_satz_a_gueltig": step.get("hourly_rate_a_current"),
-                    "stundenlohn_satz_b_gueltig": step.get("hourly_rate_b_current"),
-                    "stundenlohn_satz_c_gueltig": step.get("hourly_rate_c_current"),
-                    "stundenlohn_satz_d_gueltig": step.get("hourly_rate_d_current"),
-                    "zeitaufwand_in_min_a_gueltig": step.get("time_required_in_min_a_current"),
-                    "zeitaufwand_in_min_b_gueltig": step.get("time_required_in_min_b_current"),
-                    "zeitaufwand_in_min_c_gueltig": step.get("time_required_in_min_c_current"),
-                    "zeitaufwand_in_min_d_gueltig": step.get("time_required_in_min_d_current"),
-                    "sachaufwand_gueltig": step.get("expenses_current"),
-                    "stundenlohn_satz_a_vorschlag": step.get("hourly_rate_a_proposed"),
-                    "stundenlohn_satz_b_vorschlag": step.get("hourly_rate_b_proposed"),
-                    "stundenlohn_satz_c_vorschlag": step.get("hourly_rate_c_proposed"),
-                    "stundenlohn_satz_d_vorschlag": step.get("hourly_rate_d_proposed"),
-                    "zeitaufwand_in_min_a_vorschlag": step.get("time_required_in_min_a_proposed"),
-                    "zeitaufwand_in_min_b_vorschlag": step.get("time_required_in_min_b_proposed"),
-                    "zeitaufwand_in_min_c_vorschlag": step.get("time_required_in_min_c_proposed"),
-                    "zeitaufwand_in_min_d_vorschlag": step.get("time_required_in_min_d_proposed"),
-                    "sachaufwand_vorschlag": step.get("expenses_proposed"),
-                    "ausfuehrung_pro_einzelfall": step.get("execution_per_case"),
-                }
+                TaetigkeitPayload(
+                    taetigkeiten_id=int(step["step_id"]),
+                    taetigkeit=str(step.get("step") or ""),
+                    beschreibung=str(step.get("description") or ""),
+                    aenderungsstatus=step.get("change_status"),
+                )
                 for step in ordered_steps
             ]
             fallgruppen_payload.append(
-                {
-                    "fallgruppen_id": case_group_id,
-                    "fallgruppe_bezeichnung": group["case_group"],
-                    "fallgruppe_beschreibung": group["description"],
-                    "aenderungsstatus": group.get("change_status"),
-                    "taetigkeiten": taetigkeiten,
-                }
+                FallgruppeWithTaetigkeitenPayload(
+                    fallgruppen_id=case_group_id,
+                    fallgruppe_bezeichnung=str(group.get("case_group") or ""),
+                    fallgruppe_beschreibung=str(group.get("description") or ""),
+                    aenderungsstatus=group.get("change_status"),
+                    taetigkeiten=taetigkeiten,
+                )
             )
-        payload.append(
-            {
-                "prozess_id": process_id,
-                "prozess_bezeichnung": process["process"],
-                "prozess_beschreibung": process["description"],
-                "aenderungsstatus": process.get("change_status"),
-                "fallgruppen": fallgruppen_payload,
-            }
+        process_payload = ProzessStepAnalysisPayload(
+            prozess_id=process_id,
+            prozess_bezeichnung=str(process.get("process") or ""),
+            prozess_beschreibung=str(process.get("description") or ""),
+            aenderungsstatus=process.get("change_status"),
+            vorgaben=_serialize_process_regulations(regs_by_process, process_id),
+            fallgruppen=fallgruppen_payload,
         )
+        payload.append(process_payload.model_dump())
     return payload

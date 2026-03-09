@@ -34,7 +34,9 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         proposed_law = db.get_law_by_id(int(session["proposed_law_id"]))
 
     title = (session.get("law_diff_title") or "").strip()
+    blurb = (session.get("law_diff_blurb") or "").strip()
     summary = (session.get("law_diff_summary") or "").strip()
+    law_tile_text = blurb or summary
     if not title:
         title = (
             (proposed_law or {}).get("file_name")
@@ -46,7 +48,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         Tile(
             id="law_tile",
             title=title,
-            text=summary,
+            text=law_tile_text,
             meta_information={
                 "source_file": (proposed_law or {}).get("file_name"),
                 "source_current_file": (current_law or {}).get("file_name"),

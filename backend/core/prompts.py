@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Any, Dict
 
 
 class PromptId:
@@ -22,41 +22,53 @@ LEGIST_PROMPT_OPENING = (
     pro Fall die wesentlichen Tätigkeiten identifiziert, die zur Erfüllung 
     einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese 
     schließen Tätigkeiten ein, welche neu hinzukommen, welche sich ändern und 
-    welche wegfallen. Für diese Tätigkeiten werden die zu erwartenden Änderungen des  
+    welche wegfallen. Für diese Tätigkeiten werden die zu erwartenden Änderungen des 
     Zeit-, Personal- sowie Sachaufwands ermittelt.
 
-    Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
-
-    Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
+    Die wesentlichen Unterschiede der Gesetzesänderung sind wie folgt 
+    zusammengefasst: {law_summary}
 
     """
 )
 
 
 PROMPT_TEMPLATES: Dict[str, str] = {
+    # Input contract:
+    # - gesetz_gueltig: str
+    # - gesetz_vorschlag: str
     PromptId.LAW_SUMMARY: (
         """
         Sie sind Legist im deutschen Bundestag. 
 
         Vergleichen Sie den derzeit gueltigen Gesetzestext mit dem vorgeschlagenen 
         Gesetzesvorschlag. Leiten Sie daraus ab, was der Gesetzgeber erreichen möchte. 
-        Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\"}}. 
+        Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\", \"summary\": \"...\"}}.
 
-        Der 'title' soll ein kurzer Titel sein (max. 12 Wörter), der 'blurb' soll genau ein Satz sein.
+        Der 'title' soll ein kurzer Titel sein (max. 12 Wörter), der 'blurb' soll genau ein Satz sein. Für die 'summary' geben Sie bitte eine 
+        ausführliche Zusammenfassung an, mit Hilfe derer man die Ziele und wesentlichen Unterschiede der Gesetzesänderung verstehen kann ohne 
+        die zwei Gesetzestexte vorliegen zu haben.
 
         Geltendes Gesetz: {gesetz_gueltig}
 
         Gesetzesvorschlag: {gesetz_vorschlag}
         """
     ),
-    # TODO: Auch Vorgaben identifizieren, bei denen z.B. Betroffene wegfallen, weil sie jetzt den neuen Prozess durchlaufen??
+    # Input contract:
+    # - gesetz_gueltig: str
+    # - gesetz_vorschlag: str
     PromptId.REGULATIONS_IDENTIFICATION: (
         LEGIST_PROMPT_OPENING
         + """ 
-        Ihre Aufgabe ist, ausgehend, von den konsolidierten Versionen die Gesetzesänderungen herauszuarbeiten und alle darin enthaltenen Vorgaben 
-        (Einzelregelungen) im nachfolgendem Sinne zu identifizieren. 
+        Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
+
+        Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
+
+        Ihre Aufgabe ist, ausgehend von den konsolidierten Versionen die Gesetzesänderungen herauszuarbeiten und alle darin enthaltenen Vorgaben 
+        (Einzelregelungen) im nachfolgenden Sinne zu identifizieren. 
         Wichtig: Jede Gesetzesänderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle für die Verwaltung zu beachtenden Vorgaben 
         und geben Sie den Status an, also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung handelt.
+        Berücksichtigen Sie dabei auch implizite Änderungen von Vorgaben, bei denen bisher Betroffene wegfallen, weil sie künftig stattdessen einem neuen
+        Prozess unterliegen; solche Fälle sind ebenfalls als eigene relevante Vorgaben mit passendem Änderungsstatus auszuweisen.
 
         Verwaltung sind alle die mit der Wahrnehmung von Verwaltungsaufgaben betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen 
         des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen hoheitlichen Kompetenzen). Soweit Körperschaften/Anstalten des 
@@ -91,6 +103,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
+    # Input contract:
+    # - gesetz_gueltig: str
+    # - gesetz_vorschlag: str
+    # - vorgaben_json: JSON string of list[VorgabePayload]
     PromptId.PROCESS_COMPILATION: (
         LEGIST_PROMPT_OPENING
         + """
@@ -144,6 +160,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
+    # Input contract:
+    # - gesetz_gueltig: str
+    # - gesetz_vorschlag: str
+    # - prozesse_json: JSON string of list[ProzessWithVorgabenPayload]
     PromptId.CASE_GROUP_DEVELOPMENT: (
         LEGIST_PROMPT_OPENING
         + """
@@ -155,7 +175,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie außerdem den Status an, also ob es sich um entweder eine Einführung, 
         eine Änderung, oder eine Streichung/Löschung der Fallgruppe handelt.
 
-        Soweit eine Bildung von Fallgruppen aus dem jeweiligem Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
+        Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
 
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
@@ -221,6 +241,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         """
     ),
     # TODO: ausfuehrung_pro_einzelfall bereits hier abfragen und nicht erst in effort_calculation??
+    # Input contract:
+    # - gesetz_gueltig: str
+    # - gesetz_vorschlag: str
+    # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
     PromptId.PROCESS_STEP_ANALYSIS: (
         LEGIST_PROMPT_OPENING
         + """
@@ -228,39 +252,39 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Fallgruppen differenziert werden: {case_groups_json}
 
         Ihre Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten der Verwaltungsträger zur Erfüllung eines Prozesses pro Fallgruppe 
-        zu identifizieren. Auf dieser Grundlage werden später der anfallende Personal- und ggf. Sachaufwand bestimmt. Geben Sie außerdem den Status an, 
-        also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung des Prozessschrittes handelt. Orientieren Sie sich dabei an den 
-        vorhandenen Statusangaben.
+        zu identifizieren. Auf dieser Grundlage werden später der anfallende Personal- und ggf. Sachaufwand bestimmt. Die einzelnen Tätigkeiten können vor und nach
+        der Gesetzesänderung unterschiedlich sein, hinzukommen oder wegfallen, einige Tätigkeiten des Prozess können beibehalten bleiben. Geben Sie diesen 
+        Änderungsstatus an, orientieren Sie sich dabei wenn nötig an den vorhandenen Statusangaben in den Fallgruppen und Prozessen.
 
         Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die Checkliste mit den möglichen Tätigkeiten der Verwaltung zur Erfüllung 
         von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.
 
         Checkliste:
-        • Mit der Vorgabe vertraut machen  
-        • Beratung, Führen von Vorgesprächen mit Antragstellerinnen und Antragstellern  
-        • Formelle Prüfung, Daten und Informationen sichten und zusammenstellen, Vollständigkeitsprüfung  
-        • Eingangsbestätigung oder fehlende Daten/Informationen einholen  
-        • Inhaltliche Prüfung, Berechnungen und Bewertungen durchführen  
-        • Interne oder externe Besprechungen (z. B. Anhörungen)  
-        • Formulare ausfüllen bzw. vervollständigen, Daten erfassen, Kennzeichnungen vornehmen  
-        • Ergebnisse/Berechnungen prüfen und ggf. korrigieren  
-        • Datenübermittlung und Veröffentlichung  
-        • Zahlungen anweisen  
-        • Korrektur (z. B. aufgrund von Beteiligungsverfahren) bzw. weitere Informationen bei Rückfragen vorlegen  
-        • Informationen abschließend aufbereiten  
-        • Bescheid erstellen  
-        • Kopieren, verteilen, archivieren, dokumentieren  
-        • Überwachungs- und Aufsichtsmaßnahmen, Risikoklassifizierung  
-        • Beschaffen von Waren, Dienstleistungen und/oder zusätzlichem Personal  
-        • Anpassen von internen Prozessabläufen  
-        • Teilnahme an Fortbildungen und Schulungen  
-        • Wege zu anderen Behörden, Organisationen oder Unternehmen
+        • Mit der Vorgabe vertraut machen 
+        • Beratung, Führen von Vorgesprächen mit Antragstellerinnen und Antragstellern 
+        • Formelle Prüfung, Daten und Informationen sichten und zusammenstellen, Vollständigkeitsprüfung 
+        • Eingangsbestätigung oder fehlende Daten/Informationen einholen 
+        • Inhaltliche Prüfung, Berechnungen und Bewertungen durchführen 
+        • Interne oder externe Besprechungen (z. B. Anhörungen) 
+        • Formulare ausfüllen bzw. vervollständigen, Daten erfassen, Kennzeichnungen vornehmen 
+        • Ergebnisse/Berechnungen prüfen und ggf. korrigieren 
+        • Datenübermittlung und Veröffentlichung 
+        • Zahlungen anweisen 
+        • Korrektur (z. B. aufgrund von Beteiligungsverfahren) bzw. weitere Informationen bei Rückfragen vorlegen 
+        • Informationen abschließend aufbereiten 
+        • Bescheid erstellen 
+        • Kopieren, verteilen, archivieren, dokumentieren 
+        • Überwachungs- und Aufsichtsmaßnahmen, Risikoklassifizierung 
+        • Beschaffen von Waren, Dienstleistungen und/oder zusätzlichem Personal 
+        • Anpassen von internen Prozessabläufen 
+        • Teilnahme an Fortbildungen und Schulungen 
+        • Wege zu anderen Behörden, Organisationen oder Unternehmen 
 
         In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. 
         gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen.
         
         Bei Daueraufgaben oder wenn gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, kann es zweckmäßig 
-        sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu  ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
+        sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
         befüllt.
         
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
@@ -272,6 +296,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
             "aenderungsstatus": "",
+            "vorgaben": [
+                {{
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }}
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
@@ -282,12 +314,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }},
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }}
                     ]
                 }},
@@ -300,7 +332,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }}
                     ]
                 }}
@@ -311,6 +343,20 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
             "aenderungsstatus": "",
+            "vorgaben": [
+                {{
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }},
+                {{
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }}
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
@@ -321,12 +367,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }},
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }}
                     ]
                 }}
@@ -338,6 +384,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         """
     ),
+    # Input contract:
+    # - gesetz_gueltig: str
+    # - gesetz_vorschlag: str
+    # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
@@ -351,7 +401,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Allgemein gilt: Bei periodisch zu erfüllenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Häufigkeit mit der Anzahl 
         der Betroffenen. Die Häufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie häufig der damit einhergehende 
         Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Anträgen anlassbezogen erfüllt werden, sollte die Zahl der 
-        jährlich zu erwartenden Anträge als Fallzahl zugrunde  gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl 
+        jährlich zu erwartenden Anträge als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl 
         für Überwachungs- und Kontrollmaßnahmen ist in der Regel wesentlich geringer.
         Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur ein Mal innerhalb einer Einrichtung der Verwaltung anfällt, wird als 
         einmaliger Erfüllungsaufwand bezeichnet und ist gesondert auszuweisen.
@@ -439,6 +489,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     ),
     # TODO: How to add this? Die Bereitstellung und Wartung von Informationstechnologie aufgrund der Änderung von 
     #                        Vorgaben kann jedoch zusätzlichen Sach- und Personalaufwand erzeugen.
+    # Input contract:
+    # - gesetz_gueltig: str
+    # - gesetz_vorschlag: str
+    # - step_analysis_json: JSON string of list[ProzessStepAnalysisPayload]
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
@@ -457,26 +511,26 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Bearbeitungszeiten dargestellt. Dabei zählen Gemeinkosten nicht zum Erfüllungsaufwand.
 
         Personalaufwand wird grundsätzlich über die zu erwartende Arbeitszeit pro Tätigkeit (in Minuten) und Fall dargestellt und mit den laufbahnspezifischen 
-        Lohnsätzen der mit der Bearbeitung zu  betrauenden Mitarbeiterinnen und Mitarbeitern multipliziert. Die zu erwartende Arbeitszeit pro Fall 
+        Lohnsätzen der mit der Bearbeitung zu betrauenden Mitarbeiterinnen und Mitarbeitern multipliziert. Die zu erwartende Arbeitszeit pro Fall 
         (Zeitaufwand) kann z. B. anhand von Erfahrungswerten, Organisationsuntersuchungen oder Daten der Kosten- und Leistungsrechnung ermittelt werden.
         Die laufbahnspezifischen Lohnsätze ergeben sich aus der Lohnkostentabelle des StBA (siehe Anhang 8: Lohnkostentabelle Verwaltung). Es sind hierbei jeweils 
         nur die Lohnsatz/Zeitaufwand Paare anzugeben, welche tatsächlich bei der Erfüllung der Tätigkeit relevant sind.
 
         Wenn der zu erfüllende Prozess nicht in Einzeltätigkeiten (oder lediglich eine Einzeltätigkeit) zerlegt wurde, etwa bei Daueraufgaben oder wenn 
-        gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, ermittelt man Zeitaufwand in  Personentagen oder 
-        Personenmonaten und rechnet ihn dann um. Den Berechnungen ist dann die Minutenzahl pro Jahr zugrunde zu legen, die  durchschnittlich der tatsächlichen 
-        Leistungserbringung je Behörde zugerechnet werden kann.  
-        Für die Beschäftigten im öffentlichen Dienst sind Richtwerte bei einer 40-Stunden-Woche:  
-        • 1 Personentag: 8 Stunden (zu je 60 min),  
-        • 1 Personenmonat: 134 Stunden,  
+        gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, ermittelt man Zeitaufwand in Personentagen oder 
+        Personenmonaten und rechnet ihn dann um. Den Berechnungen ist dann die Minutenzahl pro Jahr zugrunde zu legen, die durchschnittlich der tatsächlichen 
+        Leistungserbringung je Behörde zugerechnet werden kann. 
+        Für die Beschäftigten im öffentlichen Dienst sind Richtwerte bei einer 40-Stunden-Woche: 
+        • 1 Personentag: 8 Stunden (zu je 60 min), 
+        • 1 Personenmonat: 134 Stunden, 
         • 1 Personenjahr: 200 Arbeitstage.
 
         Unter Sachaufwand fällt der Betriebs-, Unterhaltungs- und Investitionsaufwand, der zur Erfüllung einer Vorgabe oder eines Prozesses zu erwarten ist. 
-        Gemeinkosten zählen hingegen nicht zum Erfüllungsaufwand. Darüber hinaus notwendige Investitionsaufwendungen für die Verwaltung sollten bei der  
-        Aufwandsermittlung ebenfalls konkret aufgeschlüsselt werden. Hierzu zählen beispielsweise:  
-        • Aufwand für die Inanspruchnahme Dritter (z. B. Handwerkerleistungen),  
-        • Aufwand für die Beschaffung von spezieller Informations- und Kommunikationstechnik,  
-        • Aufwand für die Nachrüstung von Anlagen,  
+        Gemeinkosten zählen hingegen nicht zum Erfüllungsaufwand. Darüber hinaus notwendige Investitionsaufwendungen für die Verwaltung sollten bei der 
+        Aufwandsermittlung ebenfalls konkret aufgeschlüsselt werden. Hierzu zählen beispielsweise: 
+        • Aufwand für die Inanspruchnahme Dritter (z. B. Handwerkerleistungen), 
+        • Aufwand für die Beschaffung von spezieller Informations- und Kommunikationstechnik, 
+        • Aufwand für die Nachrüstung von Anlagen, 
         • Sachaufwand für Wege zu anderen Behörden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
 
         Außerdem soll angegeben werden, ob die Tätigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgeführt wird (=0).
@@ -498,6 +552,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
             "aenderungsstatus": "",
+            "vorgaben": [
+                {{
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }}
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
@@ -597,6 +659,20 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "prozess_bezeichnung": "",
             "prozess_beschreibung": "",
             "aenderungsstatus": "",
+            "vorgaben": [
+                {{
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }},
+                {{
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }}
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
@@ -666,14 +742,60 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 }
 
 
-def render_prompt(prompt_id: str, **kwargs: str) -> str:
+def _resolve_session_id(kwargs: dict[str, Any]) -> int | None:
+    raw_session_id = kwargs.get("session_id")
+    if raw_session_id is not None:
+        try:
+            return int(raw_session_id)
+        except (TypeError, ValueError):
+            return None
+
+    app_session_id = kwargs.get("app_session_id")
+    if not app_session_id:
+        return None
+    from backend.core import db
+
+    return db.get_session_id_by_app_id(str(app_session_id))
+
+
+def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     template = PROMPT_TEMPLATES[prompt_id]
     appendix_values = {
         name: value
         for name, value in Appendix.__dict__.items()
         if not name.startswith("_") and isinstance(value, str)
     }
-    return template.format(**appendix_values, **kwargs)
+    render_values = dict(kwargs)
+
+    needs_law_summary = "{law_summary}" in template and not render_values.get("law_summary")
+    needs_regulation_laws = (
+        prompt_id == PromptId.REGULATIONS_IDENTIFICATION
+        and (
+            ("{gesetz_gueltig}" in template and not render_values.get("gesetz_gueltig"))
+            or ("{gesetz_vorschlag}" in template and not render_values.get("gesetz_vorschlag"))
+        )
+    )
+
+    if needs_law_summary or needs_regulation_laws:
+        session_id = _resolve_session_id(render_values)
+        if session_id is not None:
+            from backend.core import db
+
+            if needs_law_summary:
+                session = db.get_session_by_id(session_id) or {}
+                law_summary = (
+                    str(session.get("law_diff_summary") or "").strip()
+                    or str(session.get("law_diff_blurb") or "").strip()
+                    or str(session.get("law_diff_title") or "").strip()
+                )
+                render_values.setdefault("law_summary", law_summary)
+
+            if needs_regulation_laws:
+                current_text, proposed_text = db.get_session_law_texts(session_id)
+                render_values.setdefault("gesetz_gueltig", current_text)
+                render_values.setdefault("gesetz_vorschlag", proposed_text)
+
+    return template.format(**appendix_values, **render_values)
 
 
 class Appendix:

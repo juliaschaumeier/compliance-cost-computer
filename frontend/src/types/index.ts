@@ -97,6 +97,125 @@ export interface RunAllCancelResponse {
   message?: string | null;
 }
 
+export interface LlmMonitorEvent {
+  event_type: string;
+  attempt_id?: string | null;
+  answer_id?: number | null;
+  app_session_id?: string | null;
+  session_id?: number | null;
+  prompt_id?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  request_id?: string | null;
+  route_method?: string | null;
+  route_path?: string | null;
+  elapsed_ms?: number | null;
+  error?: string | null;
+  error_kind?: string | null;
+  error_status_code?: number | null;
+  answer_state?: string | null;
+  state_reason?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  hidden_thinking_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+  timestamp_ms?: number | null;
+  sequence?: number | null;
+}
+
+export interface LlmMonitorPendingCall {
+  attempt_id?: string | null;
+  app_session_id?: string | null;
+  session_id?: number | null;
+  prompt_id?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  request_id?: string | null;
+  route_method?: string | null;
+  route_path?: string | null;
+  started_at_ms?: number | null;
+  status?: string | null;
+  answer_id?: number | null;
+  elapsed_ms?: number | null;
+}
+
+export interface LlmMonitorStreamChunk {
+  sequence?: number | null;
+  timestamp_ms?: number | null;
+  delta_text?: string | null;
+  delta_chars?: number | null;
+  cumulative_chars?: number | null;
+}
+
+export interface LlmMonitorStreamAttempt {
+  attempt_id?: string | null;
+  app_session_id?: string | null;
+  session_id?: number | null;
+  prompt_id?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  request_id?: string | null;
+  route_method?: string | null;
+  route_path?: string | null;
+  started_at_ms?: number | null;
+  updated_at_ms?: number | null;
+  completed_at_ms?: number | null;
+  status?: string | null;
+  answer_id?: number | null;
+  elapsed_ms?: number | null;
+  streaming?: boolean | null;
+  stream_mode?: string | null;
+  stream_fallback_reason?: string | null;
+  chunk_count?: number | null;
+  text?: string | null;
+  text_chars?: number | null;
+  error?: string | null;
+  error_kind?: string | null;
+  error_status_code?: number | null;
+  answer_state?: string | null;
+  state_reason?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  hidden_thinking_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+  chunks?: LlmMonitorStreamChunk[] | null;
+}
+
+export interface LlmMonitorRecentCall {
+  answer_id?: number | null;
+  prompt_id: string;
+  model: string;
+  provider?: string | null;
+  attempt_id?: string | null;
+  request_id?: string | null;
+  route_method?: string | null;
+  route_path?: string | null;
+  elapsed_ms?: number | null;
+  answer_state: string;
+  state_reason?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  hidden_thinking_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+  error_kind?: string | null;
+  error_status_code?: number | null;
+  error?: string | null;
+  created_at?: string | null;
+}
+
+export interface LlmMonitorSnapshotResponse {
+  app_session_id: string;
+  pending: LlmMonitorPendingCall[];
+  recent: LlmMonitorRecentCall[];
+  events?: LlmMonitorEvent[] | null;
+  stream_attempts?: LlmMonitorStreamAttempt[] | null;
+}
+
+export interface LlmMonitorStreamAttemptResponse {
+  app_session_id: string;
+  attempt: LlmMonitorStreamAttempt;
+}
+
 export interface RegulationsResponse {
   files: string[];
 }

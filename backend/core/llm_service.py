@@ -20,7 +20,7 @@ DB integration:
 import asyncio
 from dataclasses import dataclass
 import json
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 from openai import (
@@ -85,11 +85,27 @@ class _UsageStats:
     total_tokens: int | None = None
 
 
+StreamEventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
+
+
+async def _emit_stream_event(
+    on_event: StreamEventHandler | None,
+    payload: dict[str, Any],
+) -> None:
+    if on_event is None:
+        return
+    maybe_awaitable = on_event(payload)
+    if asyncio.iscoroutine(maybe_awaitable):
+        await maybe_awaitable
+
+
 async def query_llm(
     prompt: str,
     api_keys: ApiKeys,
     model: str,
     provider: Optional[str] = None,
+    stream: bool = False,
+    on_event: StreamEventHandler | None = None,
 ) -> LlmResult:
     """Route one prompt to the selected provider and return normalized usage/cost."""
     provider = (provider or "").lower().strip()
@@ -102,17 +118,249 @@ async def query_llm(
             provider = "openai"
 
     if provider == "deepinfra":
-        return await query_deepinfra(prompt, api_keys.deepinfra_api_key, model)
+        return await query_deepinfra(
+            prompt,
+            api_keys.deepinfra_api_key,
+            model,
+            stream=stream,
+            on_event=on_event,
+        )
     if provider == "gemini":
-        return await query_gemini_openai(prompt, api_keys.gemini_api_key, model)
-    return await query_openai(prompt, api_keys.openai_api_key, model)
+        return await query_gemini_openai(
+            prompt,
+            api_keys.gemini_api_key,
+            model,
+            stream=stream,
+            on_event=on_event,
+        )
+    return await query_openai(
+        prompt,
+        api_keys.openai_api_key,
+        model,
+        stream=stream,
+        on_event=on_event,
+    )
 
 
-async def query_openai(prompt: str, api_key: str, model: str) -> LlmResult:
+def _is_stream_unsupported_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "stream" not in message:
+        return False
+    keywords = [
+        "unsupported",
+        "not support",
+        "unknown parameter",
+        "invalid parameter",
+        "not available",
+    ]
+    if any(keyword in message for keyword in keywords):
+        return True
+    status_code = getattr(exc, "status_code", None)
+    return status_code in {400, 404, 422}
+
+
+def _extract_stream_delta_text(chunk_json: dict[str, Any] | None) -> str:
+    if not isinstance(chunk_json, dict):
+        return ""
+    choices = chunk_json.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    choice0 = choices[0]
+    if not isinstance(choice0, dict):
+        return ""
+    delta = choice0.get("delta")
+    if not isinstance(delta, dict):
+        return ""
+    content = delta.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        pieces: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                pieces.append(part)
+            elif isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    pieces.append(text)
+        return "".join(pieces)
+    return ""
+
+
+async def _query_chat_completions_once(
+    *,
+    provider: str,
+    client: AsyncOpenAI,
+    payload: dict[str, Any],
+    model: str,
+) -> LlmResult:
+    response = await client.chat.completions.create(**payload)
+    text = response.choices[0].message.content or ""
+    usage = _extract_chat_usage(response)
+    response_json = _to_jsonable_response(response)
+    hidden_thinking_tokens = _extract_hidden_thinking_tokens(
+        provider=provider,
+        response_json=response_json,
+    )
+    provider_reported_cost_usd = _extract_provider_reported_cost_usd(response_json)
+    billable_output_tokens = _resolve_billable_output_tokens(
+        provider=provider,
+        output_tokens=usage.output_tokens,
+        response_json=response_json,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+    )
+    return LlmResult(
+        text=text,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+        estimated_cost_usd=_resolve_estimated_cost_usd(
+            provider=provider,
+            model=model,
+            input_tokens=usage.input_tokens,
+            output_tokens=billable_output_tokens,
+            provider_reported_cost_usd=provider_reported_cost_usd,
+        ),
+        provider_response_json=response_json,
+    )
+
+
+async def _query_chat_completions_stream(
+    *,
+    provider: str,
+    client: AsyncOpenAI,
+    payload: dict[str, Any],
+    model: str,
+    on_event: StreamEventHandler | None,
+) -> LlmResult:
+    stream_payload = {**payload, "stream": True}
+    stream_payload.setdefault("stream_options", {"include_usage": True})
+    await _emit_stream_event(
+        on_event,
+        {
+            "event_type": "llm_stream_started",
+            "stream_mode": "provider_stream",
+        },
+    )
+
+    chunk_index = 0
+    collected: list[str] = []
+    cumulative_chars = 0
+    usage = _UsageStats()
+    last_chunk_json: dict[str, Any] | None = None
+
+    try:
+        stream_handle = await client.chat.completions.create(**stream_payload)
+        async for chunk in stream_handle:
+            chunk_index += 1
+            chunk_json_raw = _to_jsonable_response(chunk)
+            chunk_json = chunk_json_raw if isinstance(chunk_json_raw, dict) else None
+            if chunk_json is not None:
+                last_chunk_json = chunk_json
+            delta_text = _extract_stream_delta_text(chunk_json)
+            if delta_text:
+                collected.append(delta_text)
+                cumulative_chars += len(delta_text)
+                await _emit_stream_event(
+                    on_event,
+                    {
+                        "event_type": "llm_stream_delta",
+                        "chunk_index": chunk_index,
+                        "delta_text": delta_text,
+                        "delta_chars": len(delta_text),
+                        "cumulative_chars": cumulative_chars,
+                    },
+                )
+
+            chunk_usage = _extract_chat_usage(chunk)
+            if any(
+                value is not None
+                for value in [
+                    chunk_usage.input_tokens,
+                    chunk_usage.output_tokens,
+                    chunk_usage.total_tokens,
+                ]
+            ):
+                usage = chunk_usage
+    except Exception as exc:
+        await _emit_stream_event(
+            on_event,
+            {
+                "event_type": "llm_stream_failed",
+                "error": str(exc),
+            },
+        )
+        raise
+
+    text = "".join(collected)
+    response_json: dict[str, Any] = {
+        "streamed": True,
+        "chunk_count": chunk_index,
+        "final_chunk": last_chunk_json,
+    }
+    hidden_thinking_tokens = _extract_hidden_thinking_tokens(
+        provider=provider,
+        response_json=response_json,
+    )
+    provider_reported_cost_usd = _extract_provider_reported_cost_usd(response_json)
+    billable_output_tokens = _resolve_billable_output_tokens(
+        provider=provider,
+        output_tokens=usage.output_tokens,
+        response_json=response_json,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+    )
+    estimated_cost_usd = _resolve_estimated_cost_usd(
+        provider=provider,
+        model=model,
+        input_tokens=usage.input_tokens,
+        output_tokens=billable_output_tokens,
+        provider_reported_cost_usd=provider_reported_cost_usd,
+    )
+    await _emit_stream_event(
+        on_event,
+        {
+            "event_type": "llm_stream_completed",
+            "chunk_count": chunk_index,
+            "output_chars": len(text),
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "hidden_thinking_tokens": hidden_thinking_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+        },
+    )
+    return LlmResult(
+        text=text,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+        estimated_cost_usd=estimated_cost_usd,
+        provider_response_json=response_json,
+    )
+
+
+async def query_openai(
+    prompt: str,
+    api_key: str,
+    model: str,
+    *,
+    stream: bool = False,
+    on_event: StreamEventHandler | None = None,
+) -> LlmResult:
     if not api_key:
         raise ValueError("Missing OpenAI API key")
     client = AsyncOpenAI(api_key=api_key)
     if model.lower().startswith("gpt-5"):
+        if stream:
+            await _emit_stream_event(
+                on_event,
+                {
+                    "event_type": "llm_stream_fallback",
+                    "stream_mode": "fallback_non_stream",
+                    "reason": "responses_api_stream_not_implemented",
+                },
+            )
         return await _query_openai_responses(client, prompt, model)
 
     payload = {
@@ -123,60 +371,105 @@ async def query_openai(prompt: str, api_key: str, model: str) -> LlmResult:
         payload["max_tokens"] = settings.openai_max_tokens
     if settings.enable_web_search:
         payload["tools"] = [{"type": "web_search"}]
+    async def _run_once(local_payload: dict[str, Any]) -> LlmResult:
+        if stream:
+            return await _query_chat_completions_stream(
+                provider="openai",
+                client=client,
+                payload=local_payload,
+                model=model,
+                on_event=on_event,
+            )
+        return await _query_chat_completions_once(
+            provider="openai",
+            client=client,
+            payload=local_payload,
+            model=model,
+        )
+
     try:
-        response = await client.chat.completions.create(**payload)
+        return await _run_once(payload)
     except NotFoundError as exc:
         if "not a chat model" in str(exc).lower():
+            if stream:
+                await _emit_stream_event(
+                    on_event,
+                    {
+                        "event_type": "llm_stream_fallback",
+                        "stream_mode": "fallback_non_stream",
+                        "reason": "chat_api_not_supported",
+                    },
+                )
             return await _query_openai_responses(client, prompt, model)
         raise
     except Exception as exc:
         if not settings.enable_web_search:
-            raise _normalize_llm_exception(
-                provider="openai",
-                model=model,
-                exc=exc,
-            ) from exc
+            if stream and _is_stream_unsupported_error(exc):
+                await _emit_stream_event(
+                    on_event,
+                    {
+                        "event_type": "llm_stream_fallback",
+                        "stream_mode": "fallback_non_stream",
+                        "reason": "provider_rejected_stream",
+                        "error": str(exc),
+                    },
+                )
+                try:
+                    return await _query_chat_completions_once(
+                        provider="openai",
+                        client=client,
+                        payload=payload,
+                        model=model,
+                    )
+                except Exception as fallback_exc:
+                    raise _normalize_llm_exception(
+                        provider="openai",
+                        model=model,
+                        exc=fallback_exc,
+                    ) from fallback_exc
+            raise _normalize_llm_exception(provider="openai", model=model, exc=exc) from exc
         payload.pop("tools", None)
         try:
-            response = await client.chat.completions.create(**payload)
+            return await _run_once(payload)
         except Exception as retry_exc:
+            if stream and _is_stream_unsupported_error(retry_exc):
+                await _emit_stream_event(
+                    on_event,
+                    {
+                        "event_type": "llm_stream_fallback",
+                        "stream_mode": "fallback_non_stream",
+                        "reason": "provider_rejected_stream",
+                        "error": str(retry_exc),
+                    },
+                )
+                try:
+                    return await _query_chat_completions_once(
+                        provider="openai",
+                        client=client,
+                        payload=payload,
+                        model=model,
+                    )
+                except Exception as fallback_exc:
+                    raise _normalize_llm_exception(
+                        provider="openai",
+                        model=model,
+                        exc=fallback_exc,
+                    ) from fallback_exc
             raise _normalize_llm_exception(
                 provider="openai",
                 model=model,
                 exc=retry_exc,
             ) from retry_exc
-    text = response.choices[0].message.content or ""
-    usage = _extract_chat_usage(response)
-    response_json = _to_jsonable_response(response)
-    hidden_thinking_tokens = _extract_hidden_thinking_tokens(
-        provider="openai",
-        response_json=response_json,
-    )
-    provider_reported_cost_usd = _extract_provider_reported_cost_usd(response_json)
-    billable_output_tokens = _resolve_billable_output_tokens(
-        provider="openai",
-        output_tokens=usage.output_tokens,
-        response_json=response_json,
-        hidden_thinking_tokens=hidden_thinking_tokens,
-    )
-    return LlmResult(
-        text=text,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        total_tokens=usage.total_tokens,
-        hidden_thinking_tokens=hidden_thinking_tokens,
-        estimated_cost_usd=_resolve_estimated_cost_usd(
-            provider="openai",
-            model=model,
-            input_tokens=usage.input_tokens,
-            output_tokens=billable_output_tokens,
-            provider_reported_cost_usd=provider_reported_cost_usd,
-        ),
-        provider_response_json=response_json,
-    )
 
 
-async def query_gemini_openai(prompt: str, api_key: str, model: str) -> LlmResult:
+async def query_gemini_openai(
+    prompt: str,
+    api_key: str,
+    model: str,
+    *,
+    stream: bool = False,
+    on_event: StreamEventHandler | None = None,
+) -> LlmResult:
     if not api_key:
         raise ValueError("Missing Gemini API key")
     client = AsyncOpenAI(api_key=api_key, base_url=GEMINI_OPENAI_BASE_URL)
@@ -186,10 +479,48 @@ async def query_gemini_openai(prompt: str, api_key: str, model: str) -> LlmResul
     }
     if settings.enable_web_search:
         payload["tools"] = [{"type": "web_search"}]
+    async def _run_once(local_payload: dict[str, Any]) -> LlmResult:
+        if stream:
+            return await _query_chat_completions_stream(
+                provider="gemini",
+                client=client,
+                payload=local_payload,
+                model=model,
+                on_event=on_event,
+            )
+        return await _query_chat_completions_once(
+            provider="gemini",
+            client=client,
+            payload=local_payload,
+            model=model,
+        )
     try:
-        response = await client.chat.completions.create(**payload)
+        return await _run_once(payload)
     except Exception as exc:
         if not settings.enable_web_search:
+            if stream and _is_stream_unsupported_error(exc):
+                await _emit_stream_event(
+                    on_event,
+                    {
+                        "event_type": "llm_stream_fallback",
+                        "stream_mode": "fallback_non_stream",
+                        "reason": "provider_rejected_stream",
+                        "error": str(exc),
+                    },
+                )
+                try:
+                    return await _query_chat_completions_once(
+                        provider="gemini",
+                        client=client,
+                        payload=payload,
+                        model=model,
+                    )
+                except Exception as fallback_exc:
+                    raise _normalize_llm_exception(
+                        provider="gemini",
+                        model=model,
+                        exc=fallback_exc,
+                    ) from fallback_exc
             raise _normalize_llm_exception(
                 provider="gemini",
                 model=model,
@@ -197,42 +528,36 @@ async def query_gemini_openai(prompt: str, api_key: str, model: str) -> LlmResul
             ) from exc
         payload.pop("tools", None)
         try:
-            response = await client.chat.completions.create(**payload)
+            return await _run_once(payload)
         except Exception as retry_exc:
+            if stream and _is_stream_unsupported_error(retry_exc):
+                await _emit_stream_event(
+                    on_event,
+                    {
+                        "event_type": "llm_stream_fallback",
+                        "stream_mode": "fallback_non_stream",
+                        "reason": "provider_rejected_stream",
+                        "error": str(retry_exc),
+                    },
+                )
+                try:
+                    return await _query_chat_completions_once(
+                        provider="gemini",
+                        client=client,
+                        payload=payload,
+                        model=model,
+                    )
+                except Exception as fallback_exc:
+                    raise _normalize_llm_exception(
+                        provider="gemini",
+                        model=model,
+                        exc=fallback_exc,
+                    ) from fallback_exc
             raise _normalize_llm_exception(
                 provider="gemini",
                 model=model,
                 exc=retry_exc,
             ) from retry_exc
-    text = response.choices[0].message.content or ""
-    usage = _extract_chat_usage(response)
-    response_json = _to_jsonable_response(response)
-    hidden_thinking_tokens = _extract_hidden_thinking_tokens(
-        provider="gemini",
-        response_json=response_json,
-    )
-    provider_reported_cost_usd = _extract_provider_reported_cost_usd(response_json)
-    billable_output_tokens = _resolve_billable_output_tokens(
-        provider="gemini",
-        output_tokens=usage.output_tokens,
-        response_json=response_json,
-        hidden_thinking_tokens=hidden_thinking_tokens,
-    )
-    return LlmResult(
-        text=text,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        total_tokens=usage.total_tokens,
-        hidden_thinking_tokens=hidden_thinking_tokens,
-        estimated_cost_usd=_resolve_estimated_cost_usd(
-            provider="gemini",
-            model=model,
-            input_tokens=usage.input_tokens,
-            output_tokens=billable_output_tokens,
-            provider_reported_cost_usd=provider_reported_cost_usd,
-        ),
-        provider_response_json=response_json,
-    )
 
 
 async def _query_openai_responses(
@@ -309,9 +634,69 @@ def _extract_response_text(response) -> str:
     return "\n".join(collected).strip()
 
 
-async def query_deepinfra(prompt: str, api_key: str, model: str) -> LlmResult:
-    if not api_key:
-        raise ValueError("Missing DeepInfra API key")
+def _extract_deepinfra_delta_text(result: dict[str, Any]) -> str:
+    choices = result.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0]
+    if not isinstance(first, dict):
+        return ""
+    delta = first.get("delta")
+    if not isinstance(delta, dict):
+        return ""
+    content = delta.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        pieces: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                pieces.append(part)
+            elif isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    pieces.append(text)
+        return "".join(pieces)
+    return ""
+
+
+def _raise_deepinfra_http_error(
+    *,
+    model: str,
+    response: httpx.Response,
+) -> None:
+    response_json: dict[str, Any] | list[Any] | None = None
+    try:
+        response_json = response.json()
+    except Exception:
+        response_json = None
+    raise LlmQueryError(
+        provider="deepinfra",
+        model=model,
+        reason=(
+            "rate_limit"
+            if response.status_code == 429
+            else "provider_timeout"
+            if response.status_code in {408, 504}
+            else "provider_http_error"
+        ),
+        status_code=response.status_code,
+        message=response.text or "DeepInfra API error",
+        details={
+            "http_status": response.status_code,
+            "response_headers": dict(response.headers or {}),
+            "response_json": response_json,
+            "response_text": response.text or "",
+        },
+    )
+
+
+async def _query_deepinfra_non_stream(
+    *,
+    prompt: str,
+    api_key: str,
+    model: str,
+) -> LlmResult:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -325,43 +710,13 @@ async def query_deepinfra(prompt: str, api_key: str, model: str) -> LlmResult:
         payload["max_tokens"] = settings.deepinfra_max_tokens
     timeout = httpx.Timeout(600.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.post(
-                DEEPINFRA_BASE_URL,
-                headers=headers,
-                json=payload,
-            )
-        except Exception as exc:
-            raise _normalize_llm_exception(
-                provider="deepinfra",
-                model=model,
-                exc=exc,
-            ) from exc
+        response = await client.post(
+            DEEPINFRA_BASE_URL,
+            headers=headers,
+            json=payload,
+        )
         if response.status_code != 200:
-            response_json: dict[str, Any] | list[Any] | None = None
-            try:
-                response_json = response.json()
-            except Exception:
-                response_json = None
-            raise LlmQueryError(
-                provider="deepinfra",
-                model=model,
-                reason=(
-                    "rate_limit"
-                    if response.status_code == 429
-                    else "provider_timeout"
-                    if response.status_code in {408, 504}
-                    else "provider_http_error"
-                ),
-                status_code=response.status_code,
-                message=response.text or "DeepInfra API error",
-                details={
-                    "http_status": response.status_code,
-                    "response_headers": dict(response.headers or {}),
-                    "response_json": response_json,
-                    "response_text": response.text or "",
-                },
-            )
+            _raise_deepinfra_http_error(model=model, response=response)
         result = response.json()
         if "choices" not in result or not result["choices"]:
             raise RuntimeError("Unexpected DeepInfra response format")
@@ -392,6 +747,215 @@ async def query_deepinfra(prompt: str, api_key: str, model: str) -> LlmResult:
             ),
             provider_response_json=result,
         )
+
+
+async def _query_deepinfra_stream(
+    *,
+    prompt: str,
+    api_key: str,
+    model: str,
+    on_event: StreamEventHandler | None,
+) -> LlmResult:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": settings.deepinfra_temperature,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    if settings.deepinfra_max_tokens > 0:
+        payload["max_tokens"] = settings.deepinfra_max_tokens
+    timeout = httpx.Timeout(600.0)
+    await _emit_stream_event(
+        on_event,
+        {
+            "event_type": "llm_stream_started",
+            "stream_mode": "provider_stream",
+        },
+    )
+    text_parts: list[str] = []
+    chunk_count = 0
+    usage = _UsageStats()
+    last_chunk: dict[str, Any] | None = None
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                DEEPINFRA_BASE_URL,
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status_code != 200:
+                    raw_text = await response.aread()
+                    text = raw_text.decode("utf-8", errors="replace")
+                    fake_response = httpx.Response(
+                        status_code=response.status_code,
+                        headers=response.headers,
+                        text=text,
+                    )
+                    _raise_deepinfra_http_error(model=model, response=fake_response)
+
+                cumulative_chars = 0
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    trimmed = line.strip()
+                    if not trimmed.startswith("data:"):
+                        continue
+                    data = trimmed[5:].strip()
+                    if not data or data == "[DONE]":
+                        continue
+                    try:
+                        chunk_json = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(chunk_json, dict):
+                        continue
+                    chunk_count += 1
+                    last_chunk = chunk_json
+                    delta_text = _extract_deepinfra_delta_text(chunk_json)
+                    if delta_text:
+                        text_parts.append(delta_text)
+                        cumulative_chars += len(delta_text)
+                        await _emit_stream_event(
+                            on_event,
+                            {
+                                "event_type": "llm_stream_delta",
+                                "chunk_index": chunk_count,
+                                "delta_text": delta_text,
+                                "delta_chars": len(delta_text),
+                                "cumulative_chars": cumulative_chars,
+                            },
+                        )
+                    chunk_usage = _extract_deepinfra_usage(chunk_json)
+                    if any(
+                        value is not None
+                        for value in [
+                            chunk_usage.input_tokens,
+                            chunk_usage.output_tokens,
+                            chunk_usage.total_tokens,
+                        ]
+                    ):
+                        usage = chunk_usage
+    except Exception as exc:
+        await _emit_stream_event(
+            on_event,
+            {
+                "event_type": "llm_stream_failed",
+                "error": str(exc),
+            },
+        )
+        raise
+
+    full_text = "".join(text_parts)
+    response_json: dict[str, Any] = {
+        "streamed": True,
+        "chunk_count": chunk_count,
+        "final_chunk": last_chunk,
+    }
+    hidden_thinking_tokens = _extract_hidden_thinking_tokens(
+        provider="deepinfra",
+        response_json=response_json,
+    )
+    provider_reported_cost_usd = _extract_provider_reported_cost_usd(response_json)
+    billable_output_tokens = _resolve_billable_output_tokens(
+        provider="deepinfra",
+        output_tokens=usage.output_tokens,
+        response_json=response_json,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+    )
+    estimated_cost_usd = _resolve_estimated_cost_usd(
+        provider="deepinfra",
+        model=model,
+        input_tokens=usage.input_tokens,
+        output_tokens=billable_output_tokens,
+        provider_reported_cost_usd=provider_reported_cost_usd,
+    )
+    await _emit_stream_event(
+        on_event,
+        {
+            "event_type": "llm_stream_completed",
+            "chunk_count": chunk_count,
+            "output_chars": len(full_text),
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "hidden_thinking_tokens": hidden_thinking_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+        },
+    )
+    return LlmResult(
+        text=full_text,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+        estimated_cost_usd=estimated_cost_usd,
+        provider_response_json=response_json,
+    )
+
+
+async def query_deepinfra(
+    prompt: str,
+    api_key: str,
+    model: str,
+    *,
+    stream: bool = False,
+    on_event: StreamEventHandler | None = None,
+) -> LlmResult:
+    if not api_key:
+        raise ValueError("Missing DeepInfra API key")
+    if not stream:
+        try:
+            return await _query_deepinfra_non_stream(
+                prompt=prompt,
+                api_key=api_key,
+                model=model,
+            )
+        except Exception as exc:
+            raise _normalize_llm_exception(
+                provider="deepinfra",
+                model=model,
+                exc=exc,
+            ) from exc
+    try:
+        return await _query_deepinfra_stream(
+            prompt=prompt,
+            api_key=api_key,
+            model=model,
+            on_event=on_event,
+        )
+    except Exception as exc:
+        if _is_stream_unsupported_error(exc):
+            await _emit_stream_event(
+                on_event,
+                {
+                    "event_type": "llm_stream_fallback",
+                    "stream_mode": "fallback_non_stream",
+                    "reason": "provider_rejected_stream",
+                    "error": str(exc),
+                },
+            )
+            try:
+                return await _query_deepinfra_non_stream(
+                    prompt=prompt,
+                    api_key=api_key,
+                    model=model,
+                )
+            except Exception as fallback_exc:
+                raise _normalize_llm_exception(
+                    provider="deepinfra",
+                    model=model,
+                    exc=fallback_exc,
+                ) from fallback_exc
+        raise _normalize_llm_exception(
+            provider="deepinfra",
+            model=model,
+            exc=exc,
+        ) from exc
 
 
 def coerce_llm_result(result: str | LlmResult) -> LlmResult:

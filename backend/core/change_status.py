@@ -8,6 +8,18 @@ CHANGE_STATUS_KEYS = ("aenderungsstatus", "change_status", "status_change", "sta
 
 def normalize_change_status(value: object) -> str:
     raw = str(value or "").strip().lower()
+    if raw in {
+        "unveraendert",
+        "unverändert",
+        "gleich",
+        "gleichbleibend",
+        "unveraendert geblieben",
+        "unchanged",
+        "same",
+        "no_change",
+        "no change",
+    }:
+        return "unveraendert"
     if raw in {"eingefuehrt", "eingeführt", "introduced", "new"}:
         return "eingefuehrt"
     if raw in {"abgeschafft", "entfallen", "entfaellt", "obsolete", "deleted", "removed"}:

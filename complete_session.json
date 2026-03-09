@@ -1,0 +1,265 @@
+{
+    "prozesse": [
+        {
+        "prozess_id": "",
+        "prozess_bezeichnung": "",
+        "prozess_beschreibung": "",
+        "aenderungsstatus": "",
+        "vorgaben": [
+            {
+                "vorgaben_id": "",
+                "normzitat": "",
+                "beschreibung": "",
+                "aenderungsstatus": ""
+            }
+        ], 
+        "fallgruppen": [
+            {
+                "fallgruppen_id": "",
+                "fallgruppe_bezeichnung": "",
+                "fallgruppe_beschreibung": "",
+                "aenderungsstatus": "",
+                "anzahl_betroffene_gueltig": "",
+                "haeufigkeit_pro_jahr_gueltig": "",
+                "anzahl_betroffene_vorschlag": "",
+                "haeufigkeit_pro_jahr_vorschlag": "",
+                "taetigkeiten": [ 
+                    {
+                        "taetigkeiten_id": "",
+                        "taetigkeit": "",
+                        "beschreibung": "",
+                        "aenderungsstatus": "",
+                        "stundenlohn_satz_a_gueltig": "",
+                        "stundenlohn_satz_b_gueltig": "",
+                        "stundenlohn_satz_c_gueltig": "",
+                        "stundenlohn_satz_d_gueltig": "",
+                        "zeitaufwand_in_min_a_gueltig": "",
+                        "zeitaufwand_in_min_b_gueltig": "",
+                        "zeitaufwand_in_min_c_gueltig": "",
+                        "zeitaufwand_in_min_d_gueltig": "",
+                        "sachaufwand_gueltig": "",
+                        "stundenlohn_satz_a_vorschlag": "",
+                        "stundenlohn_satz_b_vorschlag": "",
+                        "stundenlohn_satz_c_vorschlag": "",
+                        "stundenlohn_satz_d_vorschlag": "",
+                        "zeitaufwand_in_min_a_vorschlag": "",
+                        "zeitaufwand_in_min_b_vorschlag": "",
+                        "zeitaufwand_in_min_c_vorschlag": "",
+                        "zeitaufwand_in_min_d_vorschlag": "",
+                        "sachaufwand_vorschlag": "",
+                        "ausfuehrung_pro_einzelfall": "0 | 1"
+                    },
+                    {
+                        "taetigkeiten_id": "",
+                        "taetigkeit": "",
+                        "beschreibung": "",
+                        "aenderungsstatus": "",
+                        "stundenlohn_satz_a_gueltig": "",
+                        "stundenlohn_satz_b_gueltig": "",
+                        "stundenlohn_satz_c_gueltig": "",
+                        "stundenlohn_satz_d_gueltig": "",
+                        "zeitaufwand_in_min_a_gueltig": "",
+                        "zeitaufwand_in_min_b_gueltig": "",
+                        "zeitaufwand_in_min_c_gueltig": "",
+                        "zeitaufwand_in_min_d_gueltig": "",
+                        "sachaufwand_gueltig": "",
+                        "stundenlohn_satz_a_vorschlag": "",
+                        "stundenlohn_satz_b_vorschlag": "",
+                        "stundenlohn_satz_c_vorschlag": "",
+                        "stundenlohn_satz_d_vorschlag": "",
+                        "zeitaufwand_in_min_a_vorschlag": "",
+                        "zeitaufwand_in_min_b_vorschlag": "",
+                        "zeitaufwand_in_min_c_vorschlag": "",
+                        "zeitaufwand_in_min_d_vorschlag": "",
+                        "sachaufwand_vorschlag": "",
+                        "ausfuehrung_pro_einzelfall": "0 | 1"
+                    }
+                ]
+            },
+            {
+                "fallgruppen_id": "",
+                "fallgruppe_bezeichnung": "",
+                "fallgruppe_beschreibung": "",
+                "aenderungsstatus": "",
+                "anzahl_betroffene_gueltig": "",
+                "haeufigkeit_pro_jahr_gueltig": "",
+                "anzahl_betroffene_vorschlag": "",
+                "haeufigkeit_pro_jahr_vorschlag": "",
+                "taetigkeiten": [ 
+                    {
+                        "taetigkeiten_id": "",
+                        "taetigkeit": "",
+                        "beschreibung": "",
+                        "aenderungsstatus": "",
+                        "stundenlohn_satz_a_gueltig": "",
+                        "stundenlohn_satz_b_gueltig": "",
+                        "stundenlohn_satz_c_gueltig": "",
+                        "stundenlohn_satz_d_gueltig": "",
+                        "zeitaufwand_in_min_a_gueltig": "",
+                        "zeitaufwand_in_min_b_gueltig": "",
+                        "zeitaufwand_in_min_c_gueltig": "",
+                        "zeitaufwand_in_min_d_gueltig": "",
+                        "sachaufwand_gueltig": "",
+                        "stundenlohn_satz_a_vorschlag": "",
+                        "stundenlohn_satz_b_vorschlag": "",
+                        "stundenlohn_satz_c_vorschlag": "",
+                        "stundenlohn_satz_d_vorschlag": "",
+                        "zeitaufwand_in_min_a_vorschlag": "",
+                        "zeitaufwand_in_min_b_vorschlag": "",
+                        "zeitaufwand_in_min_c_vorschlag": "",
+                        "zeitaufwand_in_min_d_vorschlag": "",
+                        "sachaufwand_vorschlag": "",
+                        "ausfuehrung_pro_einzelfall": "0 | 1"
+                    }
+                ]
+            }
+        ]
+        },
+        {
+        "prozess_id": "",
+        "prozess_bezeichnung": "",
+        "prozess_beschreibung": "",
+        "aenderungsstatus": "",
+        "vorgaben": [
+            {
+                "vorgaben_id": "",
+                "normzitat": "",
+                "beschreibung": "",
+                "aenderungsstatus": ""
+            },
+            {
+                "vorgaben_id": "",
+                "normzitat": "",
+                "beschreibung": "",
+                "aenderungsstatus": ""
+            }
+        ],
+        "fallgruppen": [
+            {
+                "fallgruppen_id": "",
+                "fallgruppe_bezeichnung": "",
+                "fallgruppe_beschreibung": "",
+                "aenderungsstatus": "",
+                "anzahl_betroffene_gueltig": "",
+                "haeufigkeit_pro_jahr_gueltig": "",
+                "anzahl_betroffene_vorschlag": "",
+                "haeufigkeit_pro_jahr_vorschlag": "",
+                "taetigkeiten": [ 
+                    {
+                        "taetigkeiten_id": "",
+                        "taetigkeit": "",
+                        "beschreibung": "",
+                        "aenderungsstatus": "",
+                        "stundenlohn_satz_a_gueltig": "",
+                        "stundenlohn_satz_b_gueltig": "",
+                        "stundenlohn_satz_c_gueltig": "",
+                        "stundenlohn_satz_d_gueltig": "",
+                        "zeitaufwand_in_min_a_gueltig": "",
+                        "zeitaufwand_in_min_b_gueltig": "",
+                        "zeitaufwand_in_min_c_gueltig": "",
+                        "zeitaufwand_in_min_d_gueltig": "",
+                        "sachaufwand_gueltig": "",
+                        "stundenlohn_satz_a_vorschlag": "",
+                        "stundenlohn_satz_b_vorschlag": "",
+                        "stundenlohn_satz_c_vorschlag": "",
+                        "stundenlohn_satz_d_vorschlag": "",
+                        "zeitaufwand_in_min_a_vorschlag": "",
+                        "zeitaufwand_in_min_b_vorschlag": "",
+                        "zeitaufwand_in_min_c_vorschlag": "",
+                        "zeitaufwand_in_min_d_vorschlag": "",
+                        "sachaufwand_vorschlag": "",
+                        "ausfuehrung_pro_einzelfall": "0 | 1"
+                    },
+                    {
+                        "taetigkeiten_id": "",
+                        "taetigkeit": "",
+                        "beschreibung": "",
+                        "aenderungsstatus": "",
+                        "stundenlohn_satz_a_gueltig": "",
+                        "stundenlohn_satz_b_gueltig": "",
+                        "stundenlohn_satz_c_gueltig": "",
+                        "stundenlohn_satz_d_gueltig": "",
+                        "zeitaufwand_in_min_a_gueltig": "",
+                        "zeitaufwand_in_min_b_gueltig": "",
+                        "zeitaufwand_in_min_c_gueltig": "",
+                        "zeitaufwand_in_min_d_gueltig": "",
+                        "sachaufwand_gueltig": "",
+                        "stundenlohn_satz_a_vorschlag": "",
+                        "stundenlohn_satz_b_vorschlag": "",
+                        "stundenlohn_satz_c_vorschlag": "",
+                        "stundenlohn_satz_d_vorschlag": "",
+                        "zeitaufwand_in_min_a_vorschlag": "",
+                        "zeitaufwand_in_min_b_vorschlag": "",
+                        "zeitaufwand_in_min_c_vorschlag": "",
+                        "zeitaufwand_in_min_d_vorschlag": "",
+                        "sachaufwand_vorschlag": "",
+                        "ausfuehrung_pro_einzelfall": "0 | 1"
+                    }
+                ]
+            }
+        ]
+        }
+    ]
+}
+
+
+
+
+
+{
+    "prozesse": [
+        {
+        "prozess_id": "",
+        "prozess_bezeichnung": "",
+        "prozess_beschreibung": "",
+        "aenderungsstatus": "",
+        "vorgaben": [
+            {
+                "vorgaben_id": "",
+                "normzitat": "",
+                "beschreibung": "",
+                "aenderungsstatus": ""
+            }
+        ], 
+        "fallgruppen": [
+            {
+                "fallgruppen_id": "",
+                "fallgruppe_bezeichnung": "",
+                "fallgruppe_beschreibung": "",
+                "aenderungsstatus": "",
+                "anzahl_betroffene_gueltig": "",
+                "haeufigkeit_pro_jahr_gueltig": "",
+                "anzahl_betroffene_vorschlag": "",
+                "haeufigkeit_pro_jahr_vorschlag": "",
+                "taetigkeiten": [ 
+                    {
+                        "taetigkeiten_id": "",
+                        "taetigkeit": "",
+                        "beschreibung": "",
+                        "aenderungsstatus": "",
+                        "stundenlohn_satz_a_gueltig": "",
+                        "stundenlohn_satz_b_gueltig": "",
+                        "stundenlohn_satz_c_gueltig": "",
+                        "stundenlohn_satz_d_gueltig": "",
+                        "zeitaufwand_in_min_a_gueltig": "",
+                        "zeitaufwand_in_min_b_gueltig": "",
+                        "zeitaufwand_in_min_c_gueltig": "",
+                        "zeitaufwand_in_min_d_gueltig": "",
+                        "sachaufwand_gueltig": "",
+                        "stundenlohn_satz_a_vorschlag": "",
+                        "stundenlohn_satz_b_vorschlag": "",
+                        "stundenlohn_satz_c_vorschlag": "",
+                        "stundenlohn_satz_d_vorschlag": "",
+                        "zeitaufwand_in_min_a_vorschlag": "",
+                        "zeitaufwand_in_min_b_vorschlag": "",
+                        "zeitaufwand_in_min_c_vorschlag": "",
+                        "zeitaufwand_in_min_d_vorschlag": "",
+                        "sachaufwand_vorschlag": "",
+                        "ausfuehrung_pro_einzelfall": "0 | 1"
+                    }                    
+                ]
+            }
+        ]
+        }
+    ]
+}

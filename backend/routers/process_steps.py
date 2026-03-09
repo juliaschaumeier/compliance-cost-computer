@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -15,7 +13,7 @@ from backend.core.llm_json import extract_fallgruppen, parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
-from backend.core.payload_builders import build_case_groups_payload
+from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
@@ -183,7 +181,6 @@ def _add_step_tiles(
                 description=description,
                 change_status=step_status,
                 previous_id=prev_step_id,
-                execution_per_case=None,
             )
             if prev_step_id is not None:
                 db.update_process_step_next(prev_step_id, step_id)
@@ -239,18 +236,17 @@ async def analyze_process_steps(
         raise HTTPException(status_code=400, detail="No case groups for session")
 
     processes = db.list_processes_for_session(session_id)
-    current_law_text, proposed_law_text = db.get_session_law_texts(session_id)
+    regulations = db.list_regulations_for_session(session_id)
     payload_groups = build_case_groups_payload(
         processes=processes,
         case_groups=case_groups,
-        include_metrics=False,
+        regulations=regulations,
     )
 
     prompt = render_prompt(
         PromptId.PROCESS_STEP_ANALYSIS,
-        gesetz_gueltig=current_law_text,
-        gesetz_vorschlag=proposed_law_text,
-        case_groups_json=json.dumps(payload_groups, ensure_ascii=False),
+        session_id=session_id,
+        case_groups_json=dump_prompt_json(payload_groups),
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,

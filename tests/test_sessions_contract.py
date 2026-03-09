@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from backend.core import db
+from backend.core import db, llm_monitor
 from backend.routers import sessions as sessions_router
 
 
@@ -148,3 +148,90 @@ def test_sessions_run_all_events_contract(test_client):
         assert stream_resp.headers["content-type"].startswith("text/event-stream")
         first_chunk = next(stream_resp.iter_text())
         assert "event: snapshot" in first_chunk
+
+
+def test_sessions_llm_monitor_snapshot_contract(test_client):
+    app_session_id = "CONTRACT-LLM-MONITOR"
+    session_id, _ = db.upsert_session(app_session_id, "gpt-5")
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="regulations_identification",
+        model="gpt-5",
+        answer_text='{"ok": true}',
+        metadata={
+            "provider": "openai",
+            "attempt_id": "attempt-contract-1",
+            "request_id": "request-contract-1",
+            "route_method": "POST",
+            "route_path": "/regulations/identify",
+            "elapsed_ms": 1234,
+        },
+        answer_state=db.LLM_ANSWER_STATE_ACTIVE,
+        state_reason="session_updated",
+    )
+
+    resp = test_client.get(
+        "/sessions/llm-monitor",
+        params={"app_session_id": app_session_id},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    parsed = _parse_contract(sessions_router.SessionLlmMonitorSnapshotResponse, payload)
+    assert parsed.app_session_id == app_session_id
+    assert isinstance(parsed.pending, list)
+    assert isinstance(parsed.recent, list)
+    assert len(parsed.recent) >= 1
+    first = parsed.recent[0]
+    assert first["prompt_id"] == "regulations_identification"
+    assert first["provider"] == "openai"
+
+
+def test_sessions_llm_monitor_events_contract(test_client):
+    app_session_id = "CONTRACT-LLM-MONITOR-EVENTS"
+    db.upsert_session(app_session_id, "gpt-5")
+
+    with test_client.stream(
+        "GET",
+        "/sessions/llm-monitor/events",
+        params={"app_session_id": app_session_id, "once": "true"},
+    ) as stream_resp:
+        assert stream_resp.status_code == 200
+        assert stream_resp.headers["content-type"].startswith("text/event-stream")
+        first_chunk = next(stream_resp.iter_text())
+        assert "event: snapshot" in first_chunk
+
+
+def test_sessions_llm_monitor_stream_attempt_contract(test_client):
+    app_session_id = "CONTRACT-LLM-MONITOR-STREAM-DETAIL"
+    db.upsert_session(app_session_id, "gpt-5")
+    asyncio.run(
+        llm_monitor.publish_llm_event(
+            app_session_id=app_session_id,
+            event={
+                "event_type": "llm_stream_delta",
+                "attempt_id": "attempt-stream-contract-1",
+                "session_id": db.get_session_id_by_app_id(app_session_id),
+                "prompt_id": "law_summary",
+                "model": "gpt-5",
+                "provider": "openai",
+                "request_id": "request-contract-stream-1",
+                "route_method": "POST",
+                "route_path": "/regulations/summary",
+                "delta_text": "chunk-a",
+                "chunk_index": 1,
+                "cumulative_chars": 7,
+            },
+        )
+    )
+
+    stream_resp = test_client.get(
+        "/sessions/llm-monitor/stream/attempt-stream-contract-1",
+        params={"app_session_id": app_session_id},
+    )
+    assert stream_resp.status_code == 200
+    parsed = _parse_contract(
+        sessions_router.SessionLlmMonitorStreamAttemptResponse,
+        stream_resp.json(),
+    )
+    assert parsed.app_session_id == app_session_id
+    assert parsed.attempt["attempt_id"] == "attempt-stream-contract-1"

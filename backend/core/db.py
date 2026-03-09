@@ -23,6 +23,7 @@ _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=
 LLM_ANSWER_STATE_PENDING = "pending"
 LLM_ANSWER_STATE_ACTIVE = "active"
 LLM_ANSWER_STATE_INVALID = "invalid"
+_UNSET = object()
 
 
 def _ensure_parent(path: Path) -> None:
@@ -163,6 +164,7 @@ def init_db() -> None:
             current_law_id      INTEGER,
             proposed_law_id     INTEGER,
             law_diff_title      TEXT,
+            law_diff_blurb      TEXT,
             law_diff_summary    TEXT,
             cc_cost             REAL,
             FOREIGN KEY (current_law_id) 
@@ -176,6 +178,9 @@ def init_db() -> None:
         );
         """
     )
+    _ensure_column(cur, "sessions", "law_diff_title", "TEXT")
+    _ensure_column(cur, "sessions", "law_diff_blurb", "TEXT")
+    _ensure_column(cur, "sessions", "law_diff_summary", "TEXT")
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
@@ -607,6 +612,25 @@ def get_session_by_app_id(app_session_id: str) -> dict | None:
     return dict(row)
 
 
+def get_session_by_id(session_id: int) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT *
+        FROM sessions
+        WHERE session_id = ?
+        LIMIT 1
+        """,
+        (session_id,),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    if row is None:
+        return None
+    return dict(row)
+
+
 def get_session_law_texts(session_id: int) -> tuple[str, str]:
     conn = get_conn()
     cur = conn.cursor()
@@ -720,6 +744,7 @@ def get_session_status(app_session_id: str) -> dict | None:
     _maybe_close(conn)
     summary_ready = bool(
         session.get("law_diff_title")
+        or session.get("law_diff_blurb")
         or session.get("law_diff_summary")
         or session.get("current_law_id")
         or session.get("proposed_law_id")
@@ -1120,6 +1145,109 @@ def activate_llm_answer(
     _maybe_close(conn)
 
 
+def get_llm_answer_by_id(answer_id: int) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            answer_id,
+            session_id,
+            prompt_id,
+            model,
+            metadata,
+            answer_state,
+            state_reason,
+            input_tokens,
+            output_tokens,
+            hidden_thinking_tokens,
+            estimated_cost_usd,
+            created_at
+        FROM llm_answers
+        WHERE answer_id = ?
+        LIMIT 1
+        """,
+        (answer_id,),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    if row is None:
+        return None
+    parsed = dict(row)
+    metadata_raw = parsed.get("metadata")
+    try:
+        metadata = json.loads(metadata_raw) if metadata_raw else {}
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    parsed["metadata"] = metadata
+    return parsed
+
+
+def list_recent_llm_answers_for_session(session_id: int, limit: int = 80) -> list[dict]:
+    safe_limit = max(1, min(limit, 500))
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            answer_id,
+            prompt_id,
+            model,
+            answer_state,
+            state_reason,
+            input_tokens,
+            output_tokens,
+            hidden_thinking_tokens,
+            estimated_cost_usd,
+            created_at,
+            metadata
+        FROM llm_answers
+        WHERE session_id = ?
+        ORDER BY answer_id DESC
+        LIMIT ?
+        """,
+        (session_id, safe_limit),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+
+    normalized: list[dict] = []
+    for row in rows:
+        metadata_raw = row.get("metadata")
+        try:
+            metadata = json.loads(metadata_raw) if metadata_raw else {}
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        normalized.append(
+            {
+                "answer_id": int(row["answer_id"]),
+                "prompt_id": str(row.get("prompt_id") or ""),
+                "model": str(row.get("model") or ""),
+                "provider": metadata.get("provider"),
+                "attempt_id": metadata.get("attempt_id"),
+                "request_id": metadata.get("request_id"),
+                "route_method": metadata.get("route_method"),
+                "route_path": metadata.get("route_path"),
+                "elapsed_ms": metadata.get("elapsed_ms"),
+                "answer_state": str(row.get("answer_state") or ""),
+                "state_reason": row.get("state_reason"),
+                "input_tokens": row.get("input_tokens"),
+                "output_tokens": row.get("output_tokens"),
+                "hidden_thinking_tokens": row.get("hidden_thinking_tokens"),
+                "estimated_cost_usd": row.get("estimated_cost_usd"),
+                "error_kind": metadata.get("error_kind"),
+                "error_status_code": metadata.get("error_status_code"),
+                "error": metadata.get("error"),
+                "created_at": row.get("created_at"),
+            }
+        )
+    return normalized
+
+
 def list_regulations_for_session(session_id: int) -> List[dict]:
     conn = get_conn()
     cur = conn.cursor()
@@ -1302,35 +1430,60 @@ def insert_process_step(
     change_status: str = "geaendert",
     previous_id: int | None = None,
     next_id: int | None = None,
-    execution_per_case: bool | None = None,
+    execution_per_case: bool | None | object = _UNSET,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO process_steps (
-            session_id,
-            case_group_id,
-            step,
-            description,
-            change_status,
-            previous_id,
-            next_id,
-            execution_per_case
+    if execution_per_case is _UNSET:
+        cur.execute(
+            """
+            INSERT INTO process_steps (
+                session_id,
+                case_group_id,
+                step,
+                description,
+                change_status,
+                previous_id,
+                next_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                case_group_id,
+                step,
+                description,
+                change_status,
+                previous_id,
+                next_id,
+            ),
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            session_id,
-            case_group_id,
-            step,
-            description,
-            change_status,
-            previous_id,
-            next_id,
-            execution_per_case,
-        ),
-    )
+    else:
+        cur.execute(
+            """
+            INSERT INTO process_steps (
+                session_id,
+                case_group_id,
+                step,
+                description,
+                change_status,
+                previous_id,
+                next_id,
+                execution_per_case
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                case_group_id,
+                step,
+                description,
+                change_status,
+                previous_id,
+                next_id,
+                execution_per_case,
+            ),
+        )
     _maybe_commit(conn)
     step_id = int(cur.lastrowid)
     _maybe_close(conn)
@@ -1567,16 +1720,18 @@ def update_session_summary(
     app_session_id: str,
     law_diff_title: str,
     law_diff_summary: str,
+    law_diff_blurb: str | None = None,
 ) -> None:
+    blurb = law_diff_blurb if law_diff_blurb is not None else law_diff_summary
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
         UPDATE sessions
-        SET law_diff_title = ?, law_diff_summary = ?
+        SET law_diff_title = ?, law_diff_blurb = ?, law_diff_summary = ?
         WHERE app_session_id = ?
         """,
-        (law_diff_title, law_diff_summary, app_session_id),
+        (law_diff_title, blurb, law_diff_summary, app_session_id),
     )
     _maybe_commit(conn)
     _maybe_close(conn)
@@ -1604,6 +1759,7 @@ def clear_session_summary(session_id: int) -> None:
         """
         UPDATE sessions
         SET law_diff_title = NULL,
+            law_diff_blurb = NULL,
             law_diff_summary = NULL,
             current_law_id = NULL,
             proposed_law_id = NULL

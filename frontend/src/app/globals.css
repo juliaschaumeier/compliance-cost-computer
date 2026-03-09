@@ -126,6 +126,12 @@ body {
   border: 1px solid #fca5a5;
 }
 
+.tile-node .tile-status-unveraendert {
+  background: #e2e8f0;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
 .tile-node .tile-body-row {
   display: flex;
   align-items: flex-end;
