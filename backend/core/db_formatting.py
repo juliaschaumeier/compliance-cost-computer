@@ -110,20 +110,6 @@ def build_process_step_tile_text(
     if base:
         lines.append(base)
 
-    if execution_per_case is None:
-        per_case = True
-    elif isinstance(execution_per_case, str):
-        normalized = execution_per_case.strip().lower()
-        if normalized in {"0", "false", "nein", "no", "n"}:
-            per_case = False
-        elif normalized in {"1", "true", "ja", "yes", "y"}:
-            per_case = True
-        else:
-            per_case = True
-    else:
-        per_case = bool(execution_per_case)
-    scope_suffix = "" if per_case else " (pro Fallgruppe)"
-
     def append_effort_section(
         label: str,
         hourly_rates_value: dict[str, float | None],
@@ -152,13 +138,6 @@ def build_process_step_tile_text(
                 expense_num = None
             if expense_num is not None and abs(expense_num) > 0:
                 lines.append(f"Sachaufwand: {format_number(expense_num)}")
-        if cost_value is not None:
-            try:
-                cost_num = float(cost_value)
-            except (TypeError, ValueError):
-                cost_num = None
-            if cost_num is not None:
-                lines.append(f"Kosten: {format_currency(cost_num)}{scope_suffix}")
 
     append_effort_section(
         "Gültig",
@@ -183,11 +162,4 @@ def build_process_tile_text(description: str, cost: float | None) -> str:
     base = (description or "").strip()
     if base:
         lines.append(base)
-    if cost is not None:
-        try:
-            cost_value = float(cost)
-        except (TypeError, ValueError):
-            cost_value = None
-        if cost_value is not None:
-            lines.append(f"Kosten: {format_currency(cost_value)}")
     return "\n".join(lines).strip()

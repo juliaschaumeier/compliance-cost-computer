@@ -130,6 +130,8 @@ def _add_case_group_tiles(
                     "case_group_id": case_group_id,
                     "process_id": process_id,
                     "change_status": case_group_status,
+                    "cases_current": None,
+                    "cases_proposed": None,
                 },
                 column=base_col,
                 row=base_row + (idx * row_spacing),

@@ -58,6 +58,21 @@ def _apply_change_status(tile: Tile, change_status: object) -> dict:
     return meta_information
 
 
+def _with_case_group_metrics(meta_information: dict, group: dict) -> dict:
+    updated = dict(meta_information)
+    updated["cases_current"] = group.get("cases_current")
+    updated["cases_proposed"] = group.get("cases_proposed")
+    return updated
+
+
+def _with_step_cost_metrics(meta_information: dict, step: dict) -> dict:
+    updated = dict(meta_information)
+    updated["cost_current"] = step.get("cost_current")
+    updated["cost_proposed"] = step.get("cost_proposed")
+    updated["execution_per_case"] = step.get("execution_per_case")
+    return updated
+
+
 def refresh_case_group_tiles(session_id: int, case_groups: list[dict]) -> None:
     tiles = {tile.id: tile for tile in db.fetch_tiles(session_id=session_id)}
     for group in case_groups:
@@ -69,7 +84,10 @@ def refresh_case_group_tiles(session_id: int, case_groups: list[dict]) -> None:
             id=tile.id,
             title=tile.title,
             text=_build_case_group_tile_text(group),
-            meta_information=_apply_change_status(tile, group.get("change_status")),
+            meta_information=_with_case_group_metrics(
+                _apply_change_status(tile, group.get("change_status")),
+                group,
+            ),
             column=tile.column,
             row=tile.row,
             deletable=tile.deletable,
@@ -89,7 +107,10 @@ def refresh_step_tiles(session_id: int, steps: list[dict]) -> None:
             id=tile.id,
             title=tile.title,
             text=_build_step_tile_text(step),
-            meta_information=_apply_change_status(tile, step.get("change_status")),
+            meta_information=_with_step_cost_metrics(
+                _apply_change_status(tile, step.get("change_status")),
+                step,
+            ),
             column=tile.column,
             row=tile.row,
             deletable=tile.deletable,

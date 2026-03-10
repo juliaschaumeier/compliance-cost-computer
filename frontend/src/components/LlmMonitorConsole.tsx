@@ -85,6 +85,17 @@ function attemptKey(attempt: LlmMonitorStreamAttempt): string {
   return String(attempt.attempt_id || "");
 }
 
+function shortAttemptId(value?: string | null): string {
+  const attemptId = String(value || "").trim();
+  if (!attemptId) {
+    return "-";
+  }
+  if (attemptId.length <= 14) {
+    return attemptId;
+  }
+  return `${attemptId.slice(0, 8)}...${attemptId.slice(-4)}`;
+}
+
 function eventToRecentRow(event: LlmMonitorEvent): LlmMonitorRecentCall | null {
   const eventType = String(event.event_type || "");
   if (
@@ -565,6 +576,9 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                         <span className="text-[11px] font-semibold text-slate-800">
                           {row.prompt_id || "-"}
                         </span>
+                        <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+                          {`attempt ${shortAttemptId(row.attempt_id)}`}
+                        </span>
                         <span className="font-mono text-[10px] text-slate-500">
                           {formatDurationMs(row.elapsed_ms)}
                         </span>
@@ -609,6 +623,9 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                         <div className="mt-0.5 text-[10px] opacity-80">
                           {attempt.provider || "?"} · {attempt.model || "?"}
                         </div>
+                        <div className="mt-0.5 font-mono text-[10px] opacity-80">
+                          {`attempt ${shortAttemptId(attempt.attempt_id)}`}
+                        </div>
                         <div className="mt-0.5 text-[10px] opacity-80">
                           {attempt.status || "-"} · {formatClockFromMs(attempt.started_at_ms)}
                         </div>
@@ -643,6 +660,10 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                       </div>
                       <div>
                         <span className="font-semibold">Status:</span> {selectedAttempt.status || "-"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Attempt ID:</span>{" "}
+                        <span className="font-mono">{selectedAttempt.attempt_id || "-"}</span>
                       </div>
                       <div>
                         <span className="font-semibold">Started:</span>{" "}

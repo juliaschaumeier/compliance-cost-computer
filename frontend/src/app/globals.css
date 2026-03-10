@@ -10,6 +10,8 @@
   --accent-1: #0ea5a4;
   --accent-2: #f97316;
   --border-soft: rgba(15, 23, 42, 0.12);
+  --llm-console-fab-left: 12px;
+  --llm-console-fab-top: clamp(96px, 14vh, 156px);
 }
 
 @theme inline {
@@ -79,12 +81,15 @@ body {
   font-weight: 700;
   font-size: 15px;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tile-node .tile-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px;
   margin-bottom: 6px;
 }
@@ -93,6 +98,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .tile-node .tile-status {
@@ -184,11 +191,15 @@ body {
   justify-content: center;
   font-size: 11px;
   line-height: 1;
+  flex: 0 0 auto;
 }
 
 .tile-node .tile-actions {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  justify-content: flex-end;
 }
 
 .tile-node button {
@@ -197,4 +208,66 @@ body {
   background: #f8fafc;
   font-size: 12px;
   padding: 4px 6px;
+}
+
+.tile-node .tile-metric {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f8fafc;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #334155;
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.tile-node .tile-metric-left {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+.tile-node .tile-metric-right {
+  background: #e0f2fe;
+  border-color: #bae6fd;
+  color: #075985;
+}
+
+.llm-console-fab {
+  position: fixed;
+  left: var(--llm-console-fab-left);
+  top: var(--llm-console-fab-top);
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.65);
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  z-index: 120;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  user-select: none;
+}
+
+.llm-console-fab:hover {
+  transform: translateY(-1px);
+  background: rgba(30, 41, 59, 0.96);
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.45);
+}
+
+.llm-console-fab[data-open="true"] {
+  background: rgba(51, 65, 85, 0.98);
+  border-color: rgba(148, 163, 184, 0.9);
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.5);
 }

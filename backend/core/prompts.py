@@ -11,6 +11,7 @@ class PromptId:
     PROCESS_STEP_ANALYSIS = "process_step_analysis"
     CASES_CALCULATION = "cases_calculation"
     EFFORT_CALCULATION = "effort_calculation"
+    TRANSITION_EFFORT = "transition_effort"
 
 
 LEGIST_PROMPT_OPENING = (
@@ -82,11 +83,16 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         * Vorgaben sind Einzelregelungen, die unmittelbar zu Änderungen von Kosten oder Zeitaufwand bei den Normadressaten führen.
         * Sie beruhen auf bundesrechtlichen Regelungen und verpflichten Normadressaten, bestimmte Ziele zu erreichen, Vorgaben einzuhalten oder Handlungen 
           vorzunehmen bzw. zu unterlassen.
-        * Dazu gehören auch Verpflichtungen zu Kooperation, Überwachung, Kontrolle sowie Informationspflichten (als Teilmenge).
+        * Dazu zählen auch Verpflichtungen zur Kooperation mit Dritten sowie zur Überwachung und Kontrolle von Zuständen, Handlungen, numerischen Werten oder 
+          Verhaltensweisen. Informationspflichten bilden eine Teilmenge der Vorgaben.
 
-        Unmittelbarkeit bedeutet, dass der Kosten- oder Zeitaufwand direkt aus der Befolgung der Vorgabe entsteht. Normadressaten müssen die Vorgaben einhalten, 
+        "Unmittelbar" bedeutet, dass der Kosten- oder Zeitaufwand direkt aus der Befolgung der Vorgabe entsteht. Normadressaten müssen die Vorgaben einhalten, 
         um Rechtsverstöße oder den Verlust von Ansprüchen zu vermeiden. Auch Regelungen, die nur Ziele, Grenzwerte oder förderbedingte Verhaltensänderungen 
         vorgeben, gelten als Vorgaben, wenn sie direkt Aufwand auslösen.
+
+        Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum Teil neben  Ge- oder Verboten lediglich Ziele oder Grenzwerte festlegt 
+        oder zum Beispiel durch staatliche Förderungen Verhaltensänderungen erreichen will. Auch solche Einzelregelungen sind  als Vorgaben zu verstehen, weil 
+        sie unmittelbar zur Änderung von Kosten bzw. Zeitaufwand  bei den Normadressaten führen.
 
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
@@ -112,7 +118,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         Die Gesetzesänderung führt zu folgenden Einzelvorgaben für die Verwaltung: {vorgaben_json}
 
-        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, können zu gemeinsamen 
+        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, zu gemeinsamen 
         Prozessen zu bündeln. Soweit eine Bündelung von Vorgaben in Prozesse nicht möglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
         einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschließlich aus einer Vorgabe. Geben Sie außerdem den Status an, 
         also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung des Prozesses handelt. Orientieren Sie sich dazu an den 
@@ -403,8 +409,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Anträgen anlassbezogen erfüllt werden, sollte die Zahl der 
         jährlich zu erwartenden Anträge als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl 
         für Überwachungs- und Kontrollmaßnahmen ist in der Regel wesentlich geringer.
-        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur ein Mal innerhalb einer Einrichtung der Verwaltung anfällt, wird als 
-        einmaliger Erfüllungsaufwand bezeichnet und ist gesondert auszuweisen.
+        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Einrichtung der Verwaltung anfällt, wird als 
+        einmaliger Erfüllungsaufwand bzw. Umstellungsaufwannd bezeichnet und ist gesondert auszuweisen.
 
         Soweit bestehende Regelungen geändert werden, können Fallzahlen unter Umständen auch aus bereits vorliegenden Aufwandsschätzungen und 
         Gesetzesbegründungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) übernommen werden. Bevor solche Angaben verwendet werden, sollten 
@@ -739,6 +745,33 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
+    PromptId.TRANSITION_EFFORT: (
+        LEGIST_PROMPT_OPENING
+        + """
+        Hier erst mal alles aus dem Leitfaden, was mit dem Umstellungsaufwand zu tun hat.
+
+        Allgemein: 
+        Einmaliger Aufwand, der bei der Einführung oder Änderung einer Vorgabe beim Normadressaten anfällt (Umstellungsaufwand), wird gesondert ausgewiesen. 
+        Beispiele dafür sind  die Nachrüstung aller vorhandenen Fahrzeuge mit Katalysatoren oder die Information an  die Bestandskundschaft von 
+        Versicherungen. Ebenfalls einmaligen Aufwand verursacht die Umstellung einer Software aufgrund geänderter rechtlicher Bestimmungen. Eine solche  
+        Änderung wird sich üblicherweise nicht auf künftige Aktualisierungen der Software - z. B.  zur Anpassung an regelmäßig zu erneuernder Hardware oder 
+        Betriebssysteme - auswirken.  Aufwand, der im Abstand von mehreren Jahren absehbar erneut anfällt, ist als laufender  Erfüllungsaufwand anzugeben.
+
+        Wirtschaft:
+        Einmaliger Sachaufwand, der im Rahmen der Umstellung auf ein neues Verfahren, der Einrichtung eines Arbeitsplatzes usw. anfällt, wird als einmaliger 
+        Erfüllungsaufwand ermittelt.  Ein Beispiel hierfür ist die einmalige Umstellung einer Software aufgrund geänderter  rechtlicher Bestimmungen. Dieser 
+        einmalige Aufwand wird nicht dem laufenden Sachaufwand bzw. dem Sachaufwand je Fall zugerechnet, sondern separat ausgewiesen.
+
+        Verwaltung:
+        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur ein Mal innerhalb einer Einrichtung der Verwaltung anfällt, wird als einmaliger 
+        Erfüllungsaufwand bezeichnet und ist gesondert auszuweisen.
+
+        Bürger:
+        Allgemein gilt: Aufwand, der aufgrund der zu untersuchenden Vorgabe(n) oder Prozesse  nur ein Mal bei der Einführung der Regelung bei Bürgerinnen und 
+        Bürgern anfällt, wird als  einmaliger Erfüllungsaufwand bezeichnet und ist gesondert auszuweisen.
+
+        """
+    )
 }
 
 

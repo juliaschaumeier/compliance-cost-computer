@@ -51,9 +51,12 @@ Frontend runs on `http://localhost:3000`.
   - `DEFAULT_MODEL`
   - `DB_PATH`
   - `REGULATIONS_PATH`
+  - `LLM_CONSOLE_ENABLED` (default: `true`; set to `false` to disable monitor endpoints)
+  - `LLM_STREAM_DEBUG_ENABLED` (controls stream debug event capture)
 
 Frontend can override API base URL with:
 - `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_ENABLE_LLM_CONSOLE` (`true`/`false`; default: `true`)
 
 ## Testing
 

@@ -58,3 +58,29 @@ def test_normalize_llm_exception_connection_reason():
     )
     assert normalized.reason == "provider_connection_error"
     assert "gemini:provider_connection_error" in str(normalized)
+
+
+def test_extract_openai_responses_stream_delta_text():
+    event_json = {
+        "type": "response.output_text.delta",
+        "delta": "Teil ",
+    }
+    assert llm_service._extract_openai_responses_stream_delta_text(None, event_json) == "Teil "
+
+
+def test_extract_openai_responses_stream_delta_text_ignores_other_events():
+    event_json = {
+        "type": "response.completed",
+        "delta": "ignored",
+    }
+    assert llm_service._extract_openai_responses_stream_delta_text(None, event_json) == ""
+
+
+def test_extract_openai_responses_stream_error_from_response_failed():
+    event_json = {
+        "type": "response.failed",
+        "response": {"error": {"message": "tool failed"}},
+    }
+    message = llm_service._extract_openai_responses_stream_error(None, event_json)
+    assert message is not None
+    assert "tool failed" in message

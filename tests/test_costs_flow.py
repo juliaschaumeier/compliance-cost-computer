@@ -20,14 +20,27 @@ def _seed_flow(session_id: int) -> dict:
     db.update_process_step_next(step_one, step_two)
     db.upsert_tile(
         Tile(
-            id=f"case_group_{case_group_id}",
-            title="Fallgruppe A",
-            text="Beschreibung Fallgruppe",
-            meta_information={"case_group_id": case_group_id},
-            column=3,
+            id=f"process_{process_id}",
+            title="Prozess A",
+            text="Beschreibung Prozess",
+            meta_information={"process_id": process_id},
+            column=2,
             row=0,
             deletable=True,
             link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={"case_group_id": case_group_id, "process_id": process_id},
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"process_{process_id}"],
         ),
         session_id=session_id,
     )
@@ -169,9 +182,27 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     conn.close()
 
     tiles = db.fetch_tiles(session_id=session_id)
+    process_tile = next(tile for tile in tiles if tile.id == f"process_{seeded['process_id']}")
+    case_group_tile = next(
+        tile for tile in tiles if tile.id == f"case_group_{seeded['case_group_id']}"
+    )
+    step_tile_one = next(tile for tile in tiles if tile.id == f"step_{seeded['step_one']}")
+    step_tile_two = next(tile for tile in tiles if tile.id == f"step_{seeded['step_two']}")
     total_tile = next(tile for tile in tiles if tile.id == "total_cost")
+
+    assert "Kosten:" not in process_tile.text
+    assert process_tile.meta_information.get("cost") == 2000
+    assert case_group_tile.meta_information.get("cases_proposed") == 20
+    assert case_group_tile.meta_information.get("cases_current") == 0
+    assert "Kosten:" not in step_tile_one.text
+    assert "Kosten:" not in step_tile_two.text
+    assert step_tile_one.meta_information.get("cost_current") == 0
+    assert step_tile_one.meta_information.get("cost_proposed") == 40
+    assert step_tile_two.meta_information.get("cost_current") == 0
+    assert step_tile_two.meta_information.get("cost_proposed") == 60
+
     assert "€" in total_tile.text
-    assert "Fälle pro Jahr (Δ): 20" in total_tile.text
+    assert "Fälle pro Jahr (Δ)" not in total_tile.text
     assert f"step_{seeded['step_two']}" in total_tile.link_from_tile
 
 

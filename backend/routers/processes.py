@@ -143,6 +143,7 @@ def _add_process_tiles(
             meta_information={
                 "process_id": process_id,
                 "change_status": process_status,
+                "cost": None,
             },
             column=base_col,
             row=base_row + (idx * row_spacing),

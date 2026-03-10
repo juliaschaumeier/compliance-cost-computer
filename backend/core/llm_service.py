@@ -353,14 +353,30 @@ async def query_openai(
     client = AsyncOpenAI(api_key=api_key)
     if model.lower().startswith("gpt-5"):
         if stream:
-            await _emit_stream_event(
-                on_event,
-                {
-                    "event_type": "llm_stream_fallback",
-                    "stream_mode": "fallback_non_stream",
-                    "reason": "responses_api_stream_not_implemented",
-                },
-            )
+            try:
+                return await _query_openai_responses_stream(
+                    client=client,
+                    prompt=prompt,
+                    model=model,
+                    on_event=on_event,
+                )
+            except Exception as exc:
+                if _is_stream_unsupported_error(exc):
+                    await _emit_stream_event(
+                        on_event,
+                        {
+                            "event_type": "llm_stream_fallback",
+                            "stream_mode": "fallback_non_stream",
+                            "reason": "provider_rejected_stream",
+                            "error": str(exc),
+                        },
+                    )
+                    return await _query_openai_responses(client, prompt, model)
+                raise _normalize_llm_exception(
+                    provider="openai",
+                    model=model,
+                    exc=exc,
+                ) from exc
         return await _query_openai_responses(client, prompt, model)
 
     payload = {
@@ -614,6 +630,221 @@ async def _query_openai_responses(
         ),
         provider_response_json=response_json,
     )
+
+
+def _extract_openai_responses_stream_event_type(
+    event: Any,
+    event_json: dict[str, Any] | None,
+) -> str:
+    if isinstance(event_json, dict):
+        event_type = event_json.get("type")
+        if isinstance(event_type, str):
+            return event_type
+    event_type = getattr(event, "type", None)
+    if isinstance(event_type, str):
+        return event_type
+    return ""
+
+
+def _extract_openai_responses_stream_delta_text(
+    event: Any,
+    event_json: dict[str, Any] | None,
+) -> str:
+    if _extract_openai_responses_stream_event_type(event, event_json) != "response.output_text.delta":
+        return ""
+
+    delta = getattr(event, "delta", None)
+    if isinstance(delta, str):
+        return delta
+
+    if isinstance(event_json, dict):
+        payload_delta = event_json.get("delta")
+        if isinstance(payload_delta, str):
+            return payload_delta
+        if isinstance(payload_delta, dict):
+            text = payload_delta.get("text")
+            if isinstance(text, str):
+                return text
+    return ""
+
+
+def _extract_openai_responses_stream_error(
+    event: Any,
+    event_json: dict[str, Any] | None,
+) -> str | None:
+    event_type = _extract_openai_responses_stream_event_type(event, event_json)
+    if event_type not in {"error", "response.failed"}:
+        return None
+
+    if isinstance(event_json, dict):
+        error_data = event_json.get("error")
+        if error_data:
+            return f"OpenAI responses stream error: {error_data}"
+        response_data = event_json.get("response")
+        if isinstance(response_data, dict):
+            response_error = response_data.get("error")
+            if response_error:
+                return f"OpenAI responses stream error: {response_error}"
+
+    event_error = getattr(event, "error", None)
+    if event_error:
+        return f"OpenAI responses stream error: {event_error}"
+    return f"OpenAI responses stream error event: {event_type}"
+
+
+async def _query_openai_responses_stream_once(
+    *,
+    client: AsyncOpenAI,
+    payload: dict[str, Any],
+    model: str,
+    on_event: StreamEventHandler | None,
+) -> LlmResult:
+    await _emit_stream_event(
+        on_event,
+        {
+            "event_type": "llm_stream_started",
+            "stream_mode": "provider_stream",
+        },
+    )
+
+    collected: list[str] = []
+    delta_count = 0
+    event_count = 0
+    cumulative_chars = 0
+    last_event_json: dict[str, Any] | None = None
+    final_response: Any = None
+
+    try:
+        async with client.responses.stream(**payload) as stream:
+            async for event in stream:
+                event_count += 1
+                event_json_raw = _to_jsonable_response(event)
+                event_json = event_json_raw if isinstance(event_json_raw, dict) else None
+                if event_json is not None:
+                    last_event_json = event_json
+                stream_error = _extract_openai_responses_stream_error(event, event_json)
+                if stream_error:
+                    raise RuntimeError(stream_error)
+                delta_text = _extract_openai_responses_stream_delta_text(event, event_json)
+                if not delta_text:
+                    continue
+                collected.append(delta_text)
+                delta_count += 1
+                cumulative_chars += len(delta_text)
+                await _emit_stream_event(
+                    on_event,
+                    {
+                        "event_type": "llm_stream_delta",
+                        "chunk_index": delta_count,
+                        "delta_text": delta_text,
+                        "delta_chars": len(delta_text),
+                        "cumulative_chars": cumulative_chars,
+                    },
+                )
+            final_response = await stream.get_final_response()
+    except Exception as exc:
+        await _emit_stream_event(
+            on_event,
+            {
+                "event_type": "llm_stream_failed",
+                "error": str(exc),
+            },
+        )
+        raise
+
+    if final_response is None:
+        raise RuntimeError("OpenAI responses stream finished without final response")
+
+    usage = _extract_responses_usage(final_response)
+    final_response_json = _to_jsonable_response(final_response)
+    if isinstance(final_response_json, dict):
+        response_json = dict(final_response_json)
+        response_json["_stream"] = {
+            "event_count": event_count,
+            "delta_count": delta_count,
+            "last_event": last_event_json,
+        }
+    else:
+        response_json = {
+            "streamed": True,
+            "event_count": event_count,
+            "delta_count": delta_count,
+            "last_event": last_event_json,
+            "final_response": final_response_json,
+        }
+    text = "".join(collected)
+    if not text:
+        text = _extract_response_text(final_response)
+    hidden_thinking_tokens = _extract_hidden_thinking_tokens(
+        provider="openai",
+        response_json=response_json,
+    )
+    provider_reported_cost_usd = _extract_provider_reported_cost_usd(response_json)
+    billable_output_tokens = _resolve_billable_output_tokens(
+        provider="openai",
+        output_tokens=usage.output_tokens,
+        response_json=response_json,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+    )
+    estimated_cost_usd = _resolve_estimated_cost_usd(
+        provider="openai",
+        model=model,
+        input_tokens=usage.input_tokens,
+        output_tokens=billable_output_tokens,
+        provider_reported_cost_usd=provider_reported_cost_usd,
+    )
+    await _emit_stream_event(
+        on_event,
+        {
+            "event_type": "llm_stream_completed",
+            "chunk_count": delta_count,
+            "output_chars": len(text),
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "hidden_thinking_tokens": hidden_thinking_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+        },
+    )
+    return LlmResult(
+        text=text,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+        hidden_thinking_tokens=hidden_thinking_tokens,
+        estimated_cost_usd=estimated_cost_usd,
+        provider_response_json=response_json,
+    )
+
+
+async def _query_openai_responses_stream(
+    *,
+    client: AsyncOpenAI,
+    prompt: str,
+    model: str,
+    on_event: StreamEventHandler | None,
+) -> LlmResult:
+    payload = {"model": model, "input": prompt}
+    if settings.openai_max_tokens > 0:
+        payload["max_output_tokens"] = settings.openai_max_tokens
+    if settings.enable_web_search:
+        payload["tools"] = [{"type": "web_search"}]
+    try:
+        return await _query_openai_responses_stream_once(
+            client=client,
+            payload=payload,
+            model=model,
+            on_event=on_event,
+        )
+    except Exception:
+        if not settings.enable_web_search:
+            raise
+        payload.pop("tools", None)
+        return await _query_openai_responses_stream_once(
+            client=client,
+            payload=payload,
+            model=model,
+            on_event=on_event,
+        )
 
 
 def _extract_response_text(response) -> str:
@@ -1302,7 +1533,7 @@ def _to_jsonable_response(response: Any) -> dict[str, Any] | list[Any] | None:
     model_dump_json = getattr(response, "model_dump_json", None)
     if callable(model_dump_json):
         try:
-            dumped = model_dump_json()
+            dumped = model_dump_json(warnings=False)
             loaded = json.loads(dumped)
             if isinstance(loaded, (dict, list)):
                 return loaded
@@ -1312,7 +1543,7 @@ def _to_jsonable_response(response: Any) -> dict[str, Any] | list[Any] | None:
     model_dump = getattr(response, "model_dump", None)
     if callable(model_dump):
         try:
-            dumped = model_dump()
+            dumped = model_dump(mode="json", warnings=False)
             if isinstance(dumped, (dict, list)):
                 return dumped
         except Exception:

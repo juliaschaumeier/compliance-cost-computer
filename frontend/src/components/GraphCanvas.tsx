@@ -33,6 +33,113 @@ const COLUMN_LABELS = [
 ];
 const LANE_HEIGHT = 2000;
 const LANE_TOP_OFFSET = 56;
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/\./g, "").replace(",", ".");
+    const parsed = Number.parseFloat(normalized);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function formatCompactNumber(value: number): string {
+  const absolute = Math.abs(value);
+  if (absolute >= 1000) {
+    return new Intl.NumberFormat("de-DE", {
+      notation: "compact",
+      maximumFractionDigits: absolute >= 100000 ? 0 : 1,
+    }).format(value);
+  }
+  return new Intl.NumberFormat("de-DE", {
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value);
+}
+
+function formatCurrencyCompact(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  const compact = (divisor: number, suffix: string): string => {
+    const scaled = absolute / divisor;
+    const digits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+    const text = new Intl.NumberFormat("de-DE", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: digits,
+    }).format(scaled);
+    return `${sign}${text} ${suffix} €`;
+  };
+
+  if (absolute >= 1_000_000_000) {
+    return compact(1_000_000_000, "Mrd.");
+  }
+  if (absolute >= 1_000_000) {
+    return compact(1_000_000, "Mio.");
+  }
+  if (absolute >= 1_000) {
+    return compact(1_000, "Tsd.");
+  }
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: Number.isInteger(absolute) ? 0 : 2,
+    maximumFractionDigits: Number.isInteger(absolute) ? 0 : 2,
+  }).format(value);
+}
+
+function stripCostLinesFromTileText(tile: Tile): string {
+  if (!(tile.id.startsWith("process_") || tile.id.startsWith("step_"))) {
+    return tile.text;
+  }
+  const cleaned = tile.text
+    .split("\n")
+    .filter((line) => !line.trim().toLowerCase().startsWith("kosten:"))
+    .join("\n")
+    .trim();
+  return cleaned;
+}
+
+function buildTileHeaderMetrics(
+  tile: Tile
+): { left: string | null; right: string | null } {
+  const meta = tile.meta_information || {};
+  if (tile.id.startsWith("process_")) {
+    const processCost = toFiniteNumber(meta.cost);
+    return {
+      left: processCost === null ? null : `Σ ${formatCurrencyCompact(processCost)}`,
+      right: null,
+    };
+  }
+  if (tile.id.startsWith("step_")) {
+    const current = toFiniteNumber(meta.cost_current);
+    const proposed = toFiniteNumber(meta.cost_proposed);
+    if (current === null || proposed === null) {
+      return { left: null, right: null };
+    }
+    return {
+      left: `Δ ${formatCurrencyCompact(proposed - current)}`,
+      right: null,
+    };
+  }
+  if (tile.id.startsWith("case_group_")) {
+    const currentCases = toFiniteNumber(meta.cases_current);
+    const proposedCases = toFiniteNumber(meta.cases_proposed);
+    if (currentCases === null || proposedCases === null) {
+      return { left: null, right: null };
+    }
+    const delta = proposedCases - currentCases;
+    const prefix = delta > 0 ? "+" : "";
+    return {
+      left: `Δ ${prefix}${formatCompactNumber(delta)}`,
+      right: null,
+    };
+  }
+  return { left: null, right: null };
+}
 export default function GraphCanvas() {
   const { state } = useApp();
   const nodeTypesRef = useRef<{ tile: typeof TileNode } | null>(null);
@@ -354,6 +461,7 @@ export default function GraphCanvas() {
       { x: number; y: number; height: number }
     >();
     const columnBottoms = new Map<number, number>();
+    const processYById = new Map<number, number>();
     let maxBottom = 0;
 
     const placeTile = (tile: Tile, y: number) => {
@@ -369,6 +477,12 @@ export default function GraphCanvas() {
       if (bottom > prevColumnBottom) {
         columnBottoms.set(tile.column, bottom);
       }
+      if (tile.id.startsWith("process_")) {
+        const parsed = Number.parseInt(tile.id.replace("process_", ""), 10);
+        if (Number.isFinite(parsed)) {
+          processYById.set(parsed, y);
+        }
+      }
       return height;
     };
 
@@ -383,6 +497,18 @@ export default function GraphCanvas() {
       }
       if (tile.id.startsWith("case_group_")) {
         const parsed = Number.parseInt(tile.id.replace("case_group_", ""), 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    const parseProcessId = (tile: Tile): number | null => {
+      const fromMeta = tile.meta_information?.process_id;
+      if (typeof fromMeta === "number") {
+        return Number.isFinite(fromMeta) ? fromMeta : null;
+      }
+      if (typeof fromMeta === "string") {
+        const parsed = Number.parseInt(fromMeta, 10);
         return Number.isFinite(parsed) ? parsed : null;
       }
       return null;
@@ -413,7 +539,17 @@ export default function GraphCanvas() {
     const caseGroupYById = new Map<number, number>();
     const caseGroupTiles = tiles
       .filter((tile) => tile.id.startsWith("case_group_"))
-      .sort((a, b) => (a.row !== b.row ? a.row - b.row : a.id.localeCompare(b.id)));
+      .sort((a, b) => {
+        const processYA = processYById.get(parseProcessId(a) ?? -1) ?? Number.MAX_SAFE_INTEGER;
+        const processYB = processYById.get(parseProcessId(b) ?? -1) ?? Number.MAX_SAFE_INTEGER;
+        if (processYA !== processYB) {
+          return processYA - processYB;
+        }
+        if (a.row !== b.row) {
+          return a.row - b.row;
+        }
+        return a.id.localeCompare(b.id);
+      });
     const stepTiles = tiles
       .filter((tile) => tile.id.startsWith("step_"))
       .sort((a, b) =>
@@ -440,6 +576,8 @@ export default function GraphCanvas() {
     let anchoredY = 0;
     caseGroupTiles.forEach((tile) => {
       const caseGroupId = parseCaseGroupId(tile);
+      const processId = parseProcessId(tile);
+      const processY = processId === null ? null : processYById.get(processId) ?? null;
       const linkedSteps =
         caseGroupId !== null ? (stepTilesByCaseGroupId.get(caseGroupId) ?? []) : [];
       const rowHeight = linkedSteps.reduce((maxHeight, stepTile) => {
@@ -447,14 +585,15 @@ export default function GraphCanvas() {
         return Math.max(maxHeight, stepHeight);
       }, tileHeights[tile.id] ?? TILE_HEIGHT);
 
-      placeTile(tile, anchoredY);
+      const targetY = Math.max(anchoredY, processY ?? anchoredY);
+      placeTile(tile, targetY);
       if (caseGroupId !== null) {
-        caseGroupYById.set(caseGroupId, anchoredY);
+        caseGroupYById.set(caseGroupId, targetY);
       }
       linkedSteps.forEach((stepTile) => {
-        placeTile(stepTile, anchoredY);
+        placeTile(stepTile, targetY);
       });
-      anchoredY += rowHeight + TILE_GAP;
+      anchoredY = targetY + rowHeight + TILE_GAP;
     });
 
     // 3) Lay out orphan steps (without matching case-group) per column.
@@ -491,6 +630,7 @@ export default function GraphCanvas() {
       : null;
     return tiles.map((tile) => {
       const layoutPos = layout.positions.get(tile.id);
+      const metrics = buildTileHeaderMetrics(tile);
       return {
         id: tile.id,
         position: {
@@ -502,8 +642,10 @@ export default function GraphCanvas() {
         },
         data: {
           title: tile.title,
-          text: tile.text,
+          text: stripCostLinesFromTileText(tile),
           deletable: tile.deletable,
+          headerMetricLeft: metrics.left,
+          headerMetricRight: metrics.right,
           onBodyRef: registerBodyRef,
           onNodeRef: registerNodeRef,
           onDelete: () => handleDelete(tile.id),
@@ -650,19 +792,31 @@ export default function GraphCanvas() {
   const schritteEndCol = maxColForPrefix("step_") ?? schritteStartCol;
   const schritteWidth = Math.max(1, schritteEndCol - schritteStartCol + 1);
   const lanes = [
-    { label: COLUMN_LABELS[0], startCol: lawColumn, width: 1 },
-    { label: COLUMN_LABELS[1], startCol: vorgabenCol, width: 1 },
-    { label: COLUMN_LABELS[2], startCol: prozesseCol, width: 1 },
-    { label: COLUMN_LABELS[3], startCol: fallgruppenCol, width: 1 },
+    { key: "law", label: COLUMN_LABELS[0], startCol: lawColumn, width: 1 },
+    { key: "regulations", label: COLUMN_LABELS[1], startCol: vorgabenCol, width: 1 },
+    { key: "processes", label: COLUMN_LABELS[2], startCol: prozesseCol, width: 1 },
+    { key: "case_groups", label: COLUMN_LABELS[3], startCol: fallgruppenCol, width: 1 },
     {
+      key: "steps",
       label: COLUMN_LABELS[4],
       startCol: schritteStartCol,
       width: schritteWidth,
     },
-    { label: COLUMN_LABELS[5], startCol: schritteEndCol + 1, width: 1 },
-    { label: COLUMN_LABELS[6], startCol: schritteEndCol + 2, width: 1 },
+    { key: "effort", label: COLUMN_LABELS[5], startCol: schritteEndCol + 1, width: 1 },
+    { key: "costs", label: COLUMN_LABELS[6], startCol: schritteEndCol + 2, width: 1 },
   ];
   const visibleLanes = lanes.filter((lane) => lane.startCol <= maxColumn);
+  const laneTitle = (lane: { key: string; label: string; startCol: number; width: number }) => {
+    if (lane.key === "law" || lane.key === "effort") {
+      return lane.label;
+    }
+    const count = tiles.filter(
+      (tile) =>
+        tile.column >= lane.startCol &&
+        tile.column < lane.startCol + lane.width
+    ).length;
+    return `${count} ${lane.label}`;
+  };
   const lanesHeight = Math.max(
     LANE_HEIGHT,
     layout.maxBottom + TILE_GAP + LANE_TOP_OFFSET
@@ -711,7 +865,7 @@ export default function GraphCanvas() {
                 >
                   {visibleLanes.map((lane, index) => (
                     <div
-                      key={lane.label}
+                      key={lane.key}
                       className="absolute top-0 h-full"
                       style={{
                         left: lane.startCol * COLUMN_WIDTH,
@@ -730,7 +884,7 @@ export default function GraphCanvas() {
                         className="px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500"
                         style={{ paddingTop: labelPadding }}
                       >
-                        {lane.label}
+                        {laneTitle(lane)}
                       </div>
                     </div>
                   ))}
@@ -744,7 +898,7 @@ export default function GraphCanvas() {
                     const width = lane.width * COLUMN_WIDTH * viewport.zoom;
                     return (
                       <div
-                        key={lane.label}
+                        key={lane.key}
                         className="absolute"
                         style={{ left, width }}
                       >
@@ -752,7 +906,7 @@ export default function GraphCanvas() {
                           className="px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500"
                           style={{ paddingTop: labelPadding }}
                         >
-                          {lane.label}
+                          {laneTitle(lane)}
                         </div>
                       </div>
                     );

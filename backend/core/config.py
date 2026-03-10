@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     deepinfra_max_tokens: int = 0
     deepinfra_temperature: float = 0.4
     llm_stream_debug_enabled: bool = True
+    llm_console_enabled: bool = True
     db_path: Path = DEFAULT_DB_PATH
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 

@@ -13,6 +13,7 @@ import { logClientError } from "@/lib/errorFeedback";
 import {
   emitRunAllStepCleared,
   emitRunAllStepStarted,
+  type RunAllStepKey,
 } from "@/lib/runAllStepEvents";
 import { deriveTabFromStatus } from "@/lib/sessionStatus";
 import { SessionStatus, SessionSummary } from "@/types";
@@ -31,6 +32,22 @@ type RunFailedEvent = {
   steps?: SessionStepResult[];
 };
 type RunCancelledEvent = { final_status?: SessionStatus; message?: string };
+
+function deriveRunAllStepKeyFromStatus(
+  sessionStatus: SessionStatus | undefined
+): RunAllStepKey | null {
+  if (!sessionStatus) {
+    return null;
+  }
+  if (!sessionStatus.summary_ready) return "summary";
+  if (!sessionStatus.regulations_ready) return "regulations";
+  if (!sessionStatus.processes_ready) return "processes";
+  if (!sessionStatus.case_groups_ready) return "case_groups";
+  if (!sessionStatus.process_steps_ready) return "process_steps";
+  if (!sessionStatus.effort_ready) return "effort";
+  if (!sessionStatus.total_cost_ready) return "total_cost";
+  return null;
+}
 
 export default function SessionMenu({ compact }: SessionMenuProps) {
   const {
@@ -388,6 +405,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         const payload = JSON.parse((event as MessageEvent).data) as RunStepStatusEvent;
         if (payload.session_status) {
           applySessionStatus(payload.session_status);
+          const inferredStep = deriveRunAllStepKeyFromStatus(payload.session_status);
+          if (inferredStep) {
+            emitRunAllStepStarted(inferredStep);
+          }
           window.dispatchEvent(new Event("tiles-updated"));
         }
       } catch (error) {

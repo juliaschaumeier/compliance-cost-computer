@@ -13,6 +13,7 @@ export type RunAllStepKey =
 
 export const RUN_ALL_STEP_STARTED_EVENT = "run-all-step-started";
 export const RUN_ALL_STEP_CLEARED_EVENT = "run-all-step-cleared";
+let currentRunAllStepKey: string | null = null;
 
 type RunAllStepStartedDetail = {
   key?: string;
@@ -22,6 +23,7 @@ export function emitRunAllStepStarted(key?: string | null): void {
   if (typeof window === "undefined") {
     return;
   }
+  currentRunAllStepKey = key ? String(key) : null;
   window.dispatchEvent(
     new CustomEvent<RunAllStepStartedDetail>(RUN_ALL_STEP_STARTED_EVENT, {
       detail: key ? { key } : {},
@@ -33,13 +35,15 @@ export function emitRunAllStepCleared(): void {
   if (typeof window === "undefined") {
     return;
   }
+  currentRunAllStepKey = null;
   window.dispatchEvent(new Event(RUN_ALL_STEP_CLEARED_EVENT));
 }
 
 export function useRunAllStepBusy(stepKey: RunAllStepKey): boolean {
-  const [isBusy, setIsBusy] = useState(false);
+  const [isBusy, setIsBusy] = useState(currentRunAllStepKey === stepKey);
 
   useEffect(() => {
+    setIsBusy(currentRunAllStepKey === stepKey);
     const handleStarted = (event: Event) => {
       const detail = (event as CustomEvent<RunAllStepStartedDetail>).detail;
       setIsBusy(detail?.key === stepKey);

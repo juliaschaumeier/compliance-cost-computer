@@ -2,6 +2,7 @@ import asyncio
 import time
 
 from backend.core import db, llm_monitor
+from backend.core.config import settings
 from backend.routers import sessions as sessions_router
 
 
@@ -235,3 +236,27 @@ def test_sessions_llm_monitor_stream_attempt_contract(test_client):
     )
     assert parsed.app_session_id == app_session_id
     assert parsed.attempt["attempt_id"] == "attempt-stream-contract-1"
+
+
+def test_sessions_llm_monitor_endpoints_disabled(test_client, monkeypatch):
+    app_session_id = "CONTRACT-LLM-MONITOR-DISABLED"
+    db.upsert_session(app_session_id, "gpt-5")
+    monkeypatch.setattr(settings, "llm_console_enabled", False)
+
+    snapshot_resp = test_client.get(
+        "/sessions/llm-monitor",
+        params={"app_session_id": app_session_id},
+    )
+    assert snapshot_resp.status_code == 404
+
+    events_resp = test_client.get(
+        "/sessions/llm-monitor/events",
+        params={"app_session_id": app_session_id, "once": "true"},
+    )
+    assert events_resp.status_code == 404
+
+    stream_resp = test_client.get(
+        "/sessions/llm-monitor/stream/attempt-does-not-matter",
+        params={"app_session_id": app_session_id},
+    )
+    assert stream_resp.status_code == 404

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useApp } from "@/contexts/AppContext";
 import { ApiClientError, apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 type UploadTarget = "current" | "proposed";
 
@@ -33,6 +34,8 @@ export default function UploadPanel() {
     proposed: false,
   });
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const isRunAllBusy = useRunAllStepBusy("summary");
+  const isBusy = isSummarizing || isRunAllBusy;
   const [conflicts, setConflicts] = useState<{
     current: string | null;
     proposed: string | null;
@@ -201,7 +204,7 @@ export default function UploadPanel() {
   const canStart =
     hasCurrent &&
     hasProposed &&
-    !isSummarizing &&
+    !isBusy &&
     !hasConflicts &&
     Boolean(state.selectedModel);
 
@@ -478,7 +481,7 @@ export default function UploadPanel() {
                   : "cursor-not-allowed bg-slate-200 text-slate-500"
               }`}
             >
-              {isSummarizing ? "Bitte warten..." : "CCC starten"}
+              {isBusy ? "Bitte warten..." : "CCC starten"}
             </button>
           </div>
         </div>

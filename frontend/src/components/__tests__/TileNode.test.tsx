@@ -110,4 +110,20 @@ describe("TileNode", () => {
     expect(nodeNullCall).toBeUndefined();
     expect(bodyNullCall).toBeUndefined();
   });
+
+  it("renders header metrics around the delete action", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("step_4", {
+          deletable: true,
+          headerMetricLeft: "Δ 120 €",
+          headerMetricRight: "Δ Fälle/Jahr +5",
+        })}
+      />
+    );
+
+    expect(screen.getByText("Δ 120 €")).toBeInTheDocument();
+    expect(screen.getByText("Δ Fälle/Jahr +5")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "×" })).toBeInTheDocument();
+  });
 });

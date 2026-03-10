@@ -14,6 +14,7 @@ from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db, llm_monitor
+from backend.core.config import settings
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import get_last_completed_step, undo_step
 from backend.routers._llm_router_utils import ensure_session_or_400
@@ -182,6 +183,12 @@ _RUNS_BY_ID: dict[str, _RunRecord] = {}
 _ACTIVE_RUN_BY_SESSION: dict[str, str] = {}
 _RUN_REGISTRY_LOCK = asyncio.Lock()
 _MAX_STORED_RUNS = 200
+
+
+def _ensure_llm_console_enabled() -> None:
+    if settings.llm_console_enabled:
+        return
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 def _get_run_all_lock(app_session_id: str) -> asyncio.Lock:
@@ -902,6 +909,7 @@ async def get_llm_monitor_snapshot(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     limit: int = Query(default=80, ge=1, le=500),
 ) -> SessionLlmMonitorSnapshotResponse:
+    _ensure_llm_console_enabled()
     session = db.get_session_by_app_id(app_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -929,6 +937,7 @@ async def stream_llm_monitor_events(
     limit: int = Query(default=80, ge=1, le=500),
     once: bool = Query(default=False),
 ) -> StreamingResponse:
+    _ensure_llm_console_enabled()
     session = db.get_session_by_app_id(app_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -984,6 +993,7 @@ async def get_llm_monitor_stream_attempt(
     attempt_id: str,
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
 ) -> SessionLlmMonitorStreamAttemptResponse:
+    _ensure_llm_console_enabled()
     session = db.get_session_by_app_id(app_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")

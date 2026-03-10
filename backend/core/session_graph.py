@@ -104,6 +104,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
             meta_information={
                 "process_id": process_id,
                 "change_status": process.get("change_status"),
+                "cost": process.get("cost"),
             },
             column=process_col,
             row=idx,
@@ -142,6 +143,8 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                     "case_group_id": case_group_id,
                     "process_id": process_id,
                     "change_status": group.get("change_status"),
+                    "cases_current": group.get("cases_current"),
+                    "cases_proposed": group.get("cases_proposed"),
                 },
                 column=case_group_col,
                 row=base_row + idx,
@@ -213,6 +216,9 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                         "case_group_id": case_group_id,
                         "process_id": case_group_tile.meta_information.get("process_id"),
                         "change_status": step.get("change_status"),
+                        "cost_current": step.get("cost_current"),
+                        "cost_proposed": step.get("cost_proposed"),
+                        "execution_per_case": step.get("execution_per_case"),
                     },
                     column=case_group_tile.column + 1 + idx,
                     row=case_group_tile.row,
@@ -228,15 +234,6 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         max_step_col = max((tile.column for tile in step_tiles), default=None)
         max_col = max((tile.column for tile in tiles), default=case_group_col)
         total_col = (max_step_col if max_step_col is not None else max_col) + 1
-
-        total_cases_delta = 0.0
-        for group in case_groups:
-            try:
-                proposed = float(group.get("cases_proposed") or 0)
-                current = float(group.get("cases_current") or 0)
-                total_cases_delta += proposed - current
-            except (TypeError, ValueError):
-                continue
 
         last_steps: list[int] = []
         for step_map in steps_by_group.values():
@@ -254,12 +251,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
             Tile(
                 id="total_cost",
                 title="Jährliche Kosten",
-                text="\n".join(
-                    [
-                        db.format_currency(float(session["cc_cost"])),
-                        f"Fälle pro Jahr (Δ): {db.format_number(round(total_cases_delta))}",
-                    ]
-                ),
+                text=db.format_currency(float(session["cc_cost"])),
                 meta_information=(
                     {"app_session_id": session["app_session_id"]}
                     if session.get("app_session_id")

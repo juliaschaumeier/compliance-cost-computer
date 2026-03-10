@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 import GraphCanvas from "@/components/GraphCanvas";
 import { useApp } from "@/contexts/AppContext";
@@ -104,5 +104,14 @@ describe("GraphCanvas", () => {
         "translate(120px, -40px) scale(1.5)"
       )
     );
+  });
+
+  it("shows swimlane tile counts for non-law lanes", async () => {
+    render(<GraphCanvas />);
+
+    await waitFor(() => expect(mockFetchTiles).toHaveBeenCalled());
+
+    const matches = await screen.findAllByText(/1 Vorgaben/i);
+    expect(matches.length).toBeGreaterThan(0);
   });
 });

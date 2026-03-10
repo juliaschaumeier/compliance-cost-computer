@@ -71,13 +71,6 @@ def _last_step_ids(steps: list[dict]) -> list[int]:
     return last_ids
 
 
-def _total_yearly_cases_delta(case_groups: list[dict]) -> float:
-    total = 0.0
-    for group in case_groups:
-        total += _compute_cases(group, "proposed") - _compute_cases(group, "current")
-    return total
-
-
 def _refresh_process_tiles(
     session_id: int,
     processes: list[dict],
@@ -99,7 +92,10 @@ def _refresh_process_tiles(
             id=tile.id,
             title=tile.title,
             text=text,
-            meta_information=tile.meta_information,
+            meta_information={
+                **dict(tile.meta_information or {}),
+                "cost": cost,
+            },
             column=tile.column,
             row=tile.row,
             deletable=tile.deletable,
@@ -220,7 +216,6 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
 
         total_cost = sum(process_costs.values())
         db.update_session_cost(session_id, total_cost)
-        total_cases_delta = _total_yearly_cases_delta(case_groups)
         refresh_case_group_tiles(session_id, case_groups)
         refresh_step_tiles(session_id, steps)
         _refresh_process_tiles(session_id, processes, process_costs)
@@ -234,12 +229,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         total_tile = Tile(
             id="total_cost",
             title="Jährliche Kosten",
-            text="\n".join(
-                [
-                    db.format_currency(total_cost),
-                    f"Fälle pro Jahr (Δ): {db.format_number(round(total_cases_delta))}",
-                ]
-            ),
+            text=db.format_currency(total_cost),
             meta_information={"app_session_id": payload.app_session_id},
             column=total_col,
             row=0,

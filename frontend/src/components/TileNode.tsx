@@ -8,6 +8,8 @@ export interface TileNodeData {
   title: string;
   text: string;
   deletable: boolean;
+  headerMetricLeft?: string | null;
+  headerMetricRight?: string | null;
   onBodyRef: (id: string, element: HTMLParagraphElement | null) => void;
   onNodeRef: (id: string, element: HTMLDivElement | null) => void;
   onDelete: () => void;
@@ -53,16 +55,23 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
           )}
           <h4>{data.title}</h4>
         </div>
-        {data.deletable && (
+        {(data.deletable || data.headerMetricLeft || data.headerMetricRight) && (
           <div className="tile-actions">
+            {data.headerMetricLeft && (
+              <span className="tile-metric tile-metric-left">{data.headerMetricLeft}</span>
+            )}
             <button
               onClick={(event) => {
                 event.stopPropagation();
                 data.onDelete();
               }}
+              disabled={!data.deletable}
             >
               ×
             </button>
+            {data.headerMetricRight && (
+              <span className="tile-metric tile-metric-right">{data.headerMetricRight}</span>
+            )}
           </div>
         )}
       </div>
