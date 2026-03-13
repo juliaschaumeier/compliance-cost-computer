@@ -95,5 +95,4 @@ npm --prefix frontend run lint -- --max-warnings=0
 - API keys entered in the UI are kept in browser storage and removed when fields are cleared.
 
 ## Notes
-- Legacy modules are kept under `backend/legacy/` for reference/testing, but current app flow uses `backend/main.py` + `backend/routers/*`.
 - If `next build` fails offline due to Google Fonts fetch, run development server or provide network access for font fetch at build time.

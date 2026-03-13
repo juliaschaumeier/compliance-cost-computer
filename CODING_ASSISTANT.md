@@ -65,11 +65,6 @@
 - Frontend unit tests: `npm --prefix frontend test -- --runInBand`
 - Frontend lint: `npm --prefix frontend run lint -- --max-warnings=0`
 
-## Legacy Code
-- `backend/legacy/` and some legacy tests still exist.
-- Do not base new feature work on legacy modules unless explicitly requested.
-- When possible, keep cleanup scoped and safe (remove dead code only when verified unused).
-
 ## Preferred Change Style
 - Keep API contracts stable; update tests with any contract changes.
 - Prefer small, focused refactors over broad rewrites.

@@ -39,3 +39,6 @@ pnpm-debug.log*
 
 # Notes
 open_issues.md
+
+# Local legacy code (kept on disk, not tracked)
+backend/legacy/
