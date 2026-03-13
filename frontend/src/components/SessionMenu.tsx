@@ -134,9 +134,12 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             hour: "2-digit",
             minute: "2-digit",
           });
+      const usedModels = (session.used_llm_models || "").trim();
       return {
         ...session,
-        label: `${session.app_session_id} · ${label}`,
+        label: usedModels
+          ? `${session.app_session_id} · ${label} · ${usedModels}`
+          : `${session.app_session_id} · ${label}`,
       };
     });
   }, [sessions]);

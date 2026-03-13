@@ -40,7 +40,9 @@ def test_list_sessions_response_shape(test_client):
     assert isinstance(payload["sessions"], list)
     assert payload["sessions"]
     first = payload["sessions"][0]
-    assert {"app_session_id", "created_at", "llm_model"}.issubset(first.keys())
+    assert {"app_session_id", "created_at", "llm_model", "used_llm_models"}.issubset(
+        first.keys()
+    )
 
 
 def test_export_rejects_invalid_app_session_id_query(test_client):

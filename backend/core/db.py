@@ -70,6 +70,78 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
     )
 
 
+def _used_models_expr(session_id_sql: str) -> str:
+    return f"""
+        (
+            SELECT GROUP_CONCAT(t.model, ', ')
+            FROM (
+                SELECT DISTINCT a.model AS model
+                FROM llm_answers a
+                WHERE a.session_id = {session_id_sql}
+                ORDER BY a.model
+            ) AS t
+        )
+    """
+
+
+def _create_used_models_triggers(cur: sqlite3.Cursor) -> None:
+    """Create permanent triggers that keep sessions.used_llm_models in sync.
+
+    These triggers are runtime behavior (not a one-off migration) and should
+    remain in production.
+    """
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_llm_answers_used_models_ai
+        AFTER INSERT ON llm_answers
+        BEGIN
+            UPDATE sessions
+            SET used_llm_models = {_used_models_expr('NEW.session_id')}
+            WHERE session_id = NEW.session_id;
+        END
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_llm_answers_used_models_au
+        AFTER UPDATE OF session_id, model ON llm_answers
+        BEGIN
+            UPDATE sessions
+            SET used_llm_models = {_used_models_expr('OLD.session_id')}
+            WHERE session_id = OLD.session_id;
+            UPDATE sessions
+            SET used_llm_models = {_used_models_expr('NEW.session_id')}
+            WHERE session_id = NEW.session_id;
+        END
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_llm_answers_used_models_ad
+        AFTER DELETE ON llm_answers
+        BEGIN
+            UPDATE sessions
+            SET used_llm_models = {_used_models_expr('OLD.session_id')}
+            WHERE session_id = OLD.session_id;
+        END
+        """
+    )
+
+
+def _refresh_all_session_used_models(cur: sqlite3.Cursor) -> None:
+    """One-off backfill for existing rows in dev/legacy databases.
+
+    Safe to remove once production starts from an empty DB that already has the
+    final schema and triggers in place.
+    """
+    cur.execute(
+        f"""
+        UPDATE sessions
+        SET used_llm_models = {_used_models_expr('sessions.session_id')}
+        """
+    )
+
+
 def _table_has_column(cur: sqlite3.Cursor, table: str, column: str) -> bool:
     cur.execute(f"PRAGMA table_info({table})")
     for row in cur.fetchall():
@@ -161,6 +233,7 @@ def init_db() -> None:
             app_session_id      TEXT NOT NULL,
             created_at          TEXT NOT NULL DEFAULT current_timestamp,
             llm_model           TEXT NOT NULL,
+            used_llm_models     TEXT,
             current_law_id      INTEGER,
             proposed_law_id     INTEGER,
             law_diff_title      TEXT,
@@ -178,9 +251,13 @@ def init_db() -> None:
         );
         """
     )
+    # Migration shim for legacy/dev DBs. New production DBs created from scratch
+    # already include these columns in CREATE TABLE and do not need this block.
+    needs_used_models_backfill = not _table_has_column(cur, "sessions", "used_llm_models")
     _ensure_column(cur, "sessions", "law_diff_title", "TEXT")
     _ensure_column(cur, "sessions", "law_diff_blurb", "TEXT")
     _ensure_column(cur, "sessions", "law_diff_summary", "TEXT")
+    _ensure_column(cur, "sessions", "used_llm_models", "TEXT")
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
@@ -239,6 +316,7 @@ def init_db() -> None:
         "TEXT NOT NULL DEFAULT 'active'",
     )
     _ensure_column(cur, "llm_answers", "state_reason", "TEXT")
+    _create_used_models_triggers(cur)
     cur.execute(
         """
         UPDATE llm_answers
@@ -480,6 +558,9 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tiles_session_id ON tiles(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_target ON links(session_id, target)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_source ON links(session_id, source)")
+    if needs_used_models_backfill:
+        # One-off migration backfill for pre-existing sessions rows.
+        _refresh_all_session_used_models(cur)
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -714,9 +795,13 @@ def list_sessions(limit: int = 50) -> List[dict]:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT app_session_id, created_at, llm_model
-        FROM sessions
-        ORDER BY created_at DESC, session_id DESC
+        SELECT
+            s.app_session_id,
+            s.created_at,
+            s.llm_model,
+            s.used_llm_models
+        FROM sessions AS s
+        ORDER BY s.created_at DESC, s.session_id DESC
         LIMIT ?
         """,
         (limit,),

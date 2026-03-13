@@ -41,6 +41,7 @@ export interface SessionSummary {
   app_session_id: string;
   created_at: string;
   llm_model: string;
+  used_llm_models?: string | null;
 }
 
 export interface SessionsResponse {

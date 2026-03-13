@@ -69,6 +69,7 @@ class SessionSummary(BaseModel):
     app_session_id: str
     created_at: str
     llm_model: str
+    used_llm_models: str | None = None
 
 
 class SessionListResponse(BaseModel):

@@ -40,6 +40,79 @@ def test_sessions_upsert_and_list_contract(test_client):
     assert listed.sessions[0].app_session_id == "CONTRACT-UPSERT"
 
 
+def test_sessions_list_includes_used_llm_models(test_client):
+    app_session_id = "CONTRACT-USED-MODELS"
+    upsert_resp = test_client.post(
+        "/sessions",
+        json={"app_session_id": app_session_id, "llm_model": "gpt-5"},
+    )
+    assert upsert_resp.status_code == 200
+
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    db.insert_llm_answer(session_id, "law_summary", "gpt-5-mini", "{}")
+    db.insert_llm_answer(session_id, "regulations_identification", "gpt-5", "{}")
+    db.insert_llm_answer(
+        session_id,
+        "process_compilation",
+        "gpt-5-mini",
+        "{}",
+        answer_state=db.LLM_ANSWER_STATE_INVALID,
+        state_reason="query_failed",
+    )
+
+    list_resp = test_client.get("/sessions", params={"limit": 10})
+    assert list_resp.status_code == 200
+    payload = list_resp.json()
+    sessions = payload.get("sessions", [])
+    session = next(s for s in sessions if s["app_session_id"] == app_session_id)
+    label = str(session.get("used_llm_models") or "")
+    used_models = {part.strip() for part in label.split(",") if part.strip()}
+    assert used_models == {"gpt-5-mini", "gpt-5"}
+
+
+def test_sessions_used_llm_models_triggers_update_and_delete(test_client):
+    app_session_id = "CONTRACT-USED-MODELS-TRIGGERS"
+    upsert_resp = test_client.post(
+        "/sessions",
+        json={"app_session_id": app_session_id, "llm_model": "gpt-5"},
+    )
+    assert upsert_resp.status_code == 200
+
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    answer_id_a = db.insert_llm_answer(session_id, "law_summary", "gpt-5", "{}")
+    answer_id_b = db.insert_llm_answer(session_id, "process_compilation", "gpt-5-mini", "{}")
+    assert answer_id_a > 0
+    assert answer_id_b > 0
+
+    with db.transaction() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE llm_answers SET model = ? WHERE answer_id = ?",
+            ("gemini-2.5-pro", answer_id_b),
+        )
+
+    session = db.get_session_by_app_id(app_session_id)
+    assert session is not None
+    used_after_update = str(session.get("used_llm_models") or "")
+    assert {part.strip() for part in used_after_update.split(",") if part.strip()} == {
+        "gpt-5",
+        "gemini-2.5-pro",
+    }
+
+    with db.transaction() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM llm_answers WHERE answer_id = ?", (answer_id_a,))
+
+    session = db.get_session_by_app_id(app_session_id)
+    assert session is not None
+    used_after_delete = str(session.get("used_llm_models") or "")
+    assert {part.strip() for part in used_after_delete.split(",") if part.strip()} == {
+        "gemini-2.5-pro",
+    }
+
+
 def test_sessions_status_contract(test_client):
     test_client.post(
         "/sessions",
