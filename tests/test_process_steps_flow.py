@@ -249,3 +249,66 @@ def test_analyze_process_steps_maps_connection_error_to_503(test_client, monkeyp
     )
     assert resp.status_code == 503
     assert "provider_connection_error" in resp.json()["detail"]
+
+
+def test_analyze_process_steps_logs_flattened_fallback(test_client, monkeypatch):
+    session_id, process_id, case_group_id, _step_id = _seed_steps("STEPS-FALLBACK-LOG")
+    db.delete_process_steps_for_session(session_id)
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={
+                "case_group_id": case_group_id,
+                "process_id": process_id,
+            },
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    response_text = f"""
+    {{
+      "fallgruppen": [
+        {{
+          "fallgruppen_id": "{case_group_id}",
+          "taetigkeiten": [
+            {{
+              "taetigkeit": "Fallback Schritt",
+              "beschreibung": "Aus fallback parser"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return response_text
+
+    fallback_kinds: list[str] = []
+
+    def fake_mark_llm_parse_fallback(*, fallback_kind, **_kwargs):
+        fallback_kinds.append(str(fallback_kind))
+
+    monkeypatch.setattr(process_steps_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        process_steps_router,
+        "mark_llm_parse_fallback",
+        fake_mark_llm_parse_fallback,
+    )
+
+    resp = test_client.post(
+        "/process-steps/analyze",
+        json={
+            "app_session_id": "STEPS-FALLBACK-LOG",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 200
+    assert "process_steps_flattened_fallgruppen" in fallback_kinds

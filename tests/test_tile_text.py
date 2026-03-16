@@ -13,7 +13,6 @@ def test_build_process_step_tile_text_omits_cost_lines():
         time_required_proposed={"a": None, "b": None, "c": None, "d": None},
         expenses_proposed=None,
         cost_proposed=100,
-        execution_per_case=0,
     )
     assert "Beschreibung" in text
     assert "Kosten:" not in text

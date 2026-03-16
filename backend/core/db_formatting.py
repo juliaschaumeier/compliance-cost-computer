@@ -98,7 +98,6 @@ def build_process_step_tile_text(
     time_required_proposed: dict[str, float | None] | None = None,
     expenses_proposed: float | None = None,
     cost_proposed: float | None = None,
-    execution_per_case: bool | None = None,
 ) -> str:
     hourly_rates_current = hourly_rates_current or {}
     time_required_current = time_required_current or {}

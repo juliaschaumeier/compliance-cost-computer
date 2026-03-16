@@ -47,7 +47,6 @@ def _build_step_tile_text(step: dict) -> str:
         },
         expenses_proposed=step.get("expenses_proposed"),
         cost_proposed=step.get("cost_proposed"),
-        execution_per_case=step.get("execution_per_case"),
     )
 
 
@@ -69,7 +68,6 @@ def _with_step_cost_metrics(meta_information: dict, step: dict) -> dict:
     updated = dict(meta_information)
     updated["cost_current"] = step.get("cost_current")
     updated["cost_proposed"] = step.get("cost_proposed")
-    updated["execution_per_case"] = step.get("execution_per_case")
     return updated
 
 

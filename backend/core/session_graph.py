@@ -204,7 +204,6 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 time_required_proposed=time_required_proposed,
                 expenses_proposed=step.get("expenses_proposed"),
                 cost_proposed=step.get("cost_proposed"),
-                execution_per_case=step.get("execution_per_case"),
             )
             tiles.append(
                 Tile(
@@ -218,7 +217,6 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                         "change_status": step.get("change_status"),
                         "cost_current": step.get("cost_current"),
                         "cost_proposed": step.get("cost_proposed"),
-                        "execution_per_case": step.get("execution_per_case"),
                     },
                     column=case_group_tile.column + 1 + idx,
                     row=case_group_tile.row,

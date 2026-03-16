@@ -41,7 +41,6 @@ def test_undo_total_cost_clears_costs_only(test_client):
         hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
         expenses_proposed=5,
-        execution_per_case=None,
     )
     db.update_process_step_cost(session_id, seeded["step_id"], None, 25)
     db.update_case_group_cost(session_id, seeded["case_group_id"], 50)
@@ -129,7 +128,6 @@ def test_undo_effort_clears_metrics(test_client):
         hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
         expenses_proposed=5,
-        execution_per_case=None,
     )
 
     resp = test_client.post(
@@ -192,7 +190,6 @@ def test_undo_effort_is_atomic_on_failure(test_client, monkeypatch):
         hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
         expenses_proposed=5,
-        execution_per_case=None,
     )
     db.insert_llm_answer(
         session_id=session_id,
@@ -264,7 +261,6 @@ def test_undo_effort_invalidates_llm_answers_instead_of_deleting(test_client):
         hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
         expenses_proposed=5,
-        execution_per_case=None,
     )
     db.insert_llm_answer(
         session_id=session_id,

@@ -81,17 +81,27 @@ body {
   font-weight: 700;
   font-size: 15px;
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
 }
 
 .tile-node .tile-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   margin-bottom: 6px;
+}
+
+.tile-node .tile-meta-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
 }
 
 .tile-node .tile-title-wrap {
@@ -100,6 +110,7 @@ body {
   gap: 4px;
   flex: 1 1 auto;
   min-width: 0;
+  width: 100%;
 }
 
 .tile-node .tile-status {

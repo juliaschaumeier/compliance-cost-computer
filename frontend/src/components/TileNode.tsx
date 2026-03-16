@@ -47,33 +47,39 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
     <div ref={setNodeRef} className={`tile-node ${highlightClass}`}>
       <Handle type="target" position={Position.Left} />
       <div className="tile-header">
-        <div className="tile-title-wrap">
-          {data.changeStatus && (
-            <span className={`tile-status tile-status-${data.changeStatus}`}>
-              {getChangeStatusLabel(data.changeStatus)}
-            </span>
-          )}
-          <h4>{data.title}</h4>
-        </div>
-        {(data.deletable || data.headerMetricLeft || data.headerMetricRight) && (
-          <div className="tile-actions">
-            {data.headerMetricLeft && (
-              <span className="tile-metric tile-metric-left">{data.headerMetricLeft}</span>
+        {(data.changeStatus || data.deletable || data.headerMetricLeft || data.headerMetricRight) && (
+          <div className="tile-meta-row">
+            {data.changeStatus ? (
+              <span className={`tile-status tile-status-${data.changeStatus}`}>
+                {getChangeStatusLabel(data.changeStatus)}
+              </span>
+            ) : (
+              <span />
             )}
-            <button
-              onClick={(event) => {
-                event.stopPropagation();
-                data.onDelete();
-              }}
-              disabled={!data.deletable}
-            >
-              ×
-            </button>
-            {data.headerMetricRight && (
-              <span className="tile-metric tile-metric-right">{data.headerMetricRight}</span>
+            {(data.deletable || data.headerMetricLeft || data.headerMetricRight) && (
+              <div className="tile-actions">
+                {data.headerMetricLeft && (
+                  <span className="tile-metric tile-metric-left">{data.headerMetricLeft}</span>
+                )}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    data.onDelete();
+                  }}
+                  disabled={!data.deletable}
+                >
+                  ×
+                </button>
+                {data.headerMetricRight && (
+                  <span className="tile-metric tile-metric-right">{data.headerMetricRight}</span>
+                )}
+              </div>
             )}
           </div>
         )}
+        <div className="tile-title-wrap">
+          <h4>{data.title}</h4>
+        </div>
       </div>
       <div className="tile-body-row">
         <p
