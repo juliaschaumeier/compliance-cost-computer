@@ -1483,18 +1483,45 @@ def list_case_groups_for_session(session_id: int) -> List[dict]:
 def list_process_steps_for_session(session_id: int) -> List[dict]:
     conn = get_conn()
     cur = conn.cursor()
+    # Migration compatibility helper (dev/legacy DBs only):
+    # Build the SELECT list defensively so older local DB files with partial
+    # schema drift don't fail hard if deprecated columns differ.
+    # Safe to remove when production runs from a clean DB at final schema.
+    columns = [
+        "step_id",
+        "case_group_id",
+        "step",
+        "description",
+        "previous_id",
+        "next_id",
+        "change_status",
+        "hourly_rate_a_current",
+        "hourly_rate_b_current",
+        "hourly_rate_c_current",
+        "hourly_rate_d_current",
+        "time_required_in_min_a_current",
+        "time_required_in_min_b_current",
+        "time_required_in_min_c_current",
+        "time_required_in_min_d_current",
+        "expenses_current",
+        "hourly_rate_a_proposed",
+        "hourly_rate_b_proposed",
+        "hourly_rate_c_proposed",
+        "hourly_rate_d_proposed",
+        "time_required_in_min_a_proposed",
+        "time_required_in_min_b_proposed",
+        "time_required_in_min_c_proposed",
+        "time_required_in_min_d_proposed",
+        "expenses_proposed",
+        "cost_current",
+        "cost_proposed",
+    ]
+    if _table_has_column(cur, "process_steps", "execution_per_case"):
+        columns.append("execution_per_case")
+    select_columns = ", ".join(columns)
     cur.execute(
-        """
-        SELECT step_id, case_group_id, step, description, previous_id, next_id,
-               change_status,
-               hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
-               time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
-               expenses_current,
-               hourly_rate_a_proposed, hourly_rate_b_proposed, hourly_rate_c_proposed, hourly_rate_d_proposed,
-               time_required_in_min_a_proposed, time_required_in_min_b_proposed, time_required_in_min_c_proposed, time_required_in_min_d_proposed,
-               expenses_proposed,
-               cost_current,
-               cost_proposed
+        f"""
+        SELECT {select_columns}
         FROM process_steps
         WHERE session_id = ?
         ORDER BY step_id
