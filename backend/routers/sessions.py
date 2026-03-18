@@ -18,6 +18,10 @@ from backend.core.config import settings
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import get_last_completed_step, undo_step
 from backend.routers._llm_router_utils import ensure_session_or_400
+from backend.routers._session_validation import (
+    APP_SESSION_ID_QUERY_VALIDATION,
+    AppSessionId,
+)
 from backend.routers import (
     case_groups as case_groups_router,
     costs as costs_router,
@@ -30,25 +34,10 @@ from backend.routers import (
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
-AppSessionId = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
-    ),
-]
 ModelName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
 ]
-APP_SESSION_ID_QUERY_VALIDATION = Query(
-    ...,
-    min_length=1,
-    max_length=64,
-    pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
-)
 
 
 class SessionUpsertRequest(BaseModel):
@@ -86,6 +75,39 @@ class SessionStatusResponse(BaseModel):
     total_cost_ready: bool
     last_completed_step: str | None = None
     last_completed_label: str | None = None
+
+
+class SessionPayRatesUpdateRequest(BaseModel):
+    app_session_id: AppSessionId
+    administration_level: str | None = None
+    edited_a: float | None
+    edited_b: float | None
+    edited_c: float | None
+    edited_d: float | None
+
+
+class SessionPayRatesResponse(BaseModel):
+    app_session_id: str
+    administration_level: str
+    defaults: dict[str, float]
+    edited: dict[str, float | None]
+    active: dict[str, float]
+
+
+class SessionEditAuditRow(BaseModel):
+    audit_id: int
+    session_id: int
+    entity_type: str
+    entity_id: int | None = None
+    field_name: str
+    old_value: str | None = None
+    new_value: str | None = None
+    edited_at: str
+
+
+class SessionEditAuditResponse(BaseModel):
+    app_session_id: str
+    rows: list[SessionEditAuditRow]
 
 
 class SessionExportResponse(BaseModel):
@@ -277,6 +299,55 @@ def _as_session_status_response(app_session_id: str) -> SessionStatusResponse:
         last_completed_step=step.key if step else None,
         last_completed_label=step.label if step else None,
     )
+
+
+def _as_session_pay_rates_response(app_session_id: str) -> SessionPayRatesResponse:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    pay_rates = db.get_session_pay_rates(session_id)
+    if pay_rates is None:
+        raise HTTPException(status_code=404, detail="Session pay rates not found")
+    return SessionPayRatesResponse(
+        app_session_id=app_session_id,
+        administration_level=str(pay_rates["administration_level"]),
+        defaults={key: float(value) for key, value in pay_rates["defaults"].items()},
+        edited={
+            key: (None if value is None else float(value))
+            for key, value in pay_rates["edited"].items()
+        },
+        active={key: float(value) for key, value in pay_rates["active"].items()},
+    )
+
+
+def _validate_pay_rates_update_payload(payload: SessionPayRatesUpdateRequest) -> None:
+    if payload.administration_level is not None:
+        requested_level = payload.administration_level.strip().lower()
+        allowed_levels = {
+            str(row.get("administration_level") or "").strip().lower()
+            for row in db.list_pay_rate_defaults()
+        }
+        if requested_level not in allowed_levels:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Unknown administration_level. Allowed values: "
+                    + ", ".join(sorted(level for level in allowed_levels if level))
+                ),
+            )
+
+    edited = {
+        "edited_a": payload.edited_a,
+        "edited_b": payload.edited_b,
+        "edited_c": payload.edited_c,
+        "edited_d": payload.edited_d,
+    }
+    invalid = [field for field, value in edited.items() if value is not None and value < 0]
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail="Edited values must be non-negative: " + ", ".join(invalid),
+        )
 
 
 def _resolve_filenames(
@@ -544,6 +615,51 @@ async def session_status(
         last_completed_step=step.key if step else None,
         last_completed_label=step.label if step else None,
     )
+
+
+@router.get("/pay-rates", response_model=SessionPayRatesResponse)
+async def session_pay_rates(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+) -> SessionPayRatesResponse:
+    return _as_session_pay_rates_response(app_session_id)
+
+
+@router.post("/pay-rates", response_model=SessionPayRatesResponse)
+async def session_pay_rates_update(
+    payload: SessionPayRatesUpdateRequest,
+) -> SessionPayRatesResponse:
+    _validate_pay_rates_update_payload(payload)
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        changed = db.update_session_pay_rate_edits(
+            session_id=session_id,
+            administration_level=payload.administration_level,
+            edited={
+                "a": payload.edited_a,
+                "b": payload.edited_b,
+                "c": payload.edited_c,
+                "d": payload.edited_d,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not changed:
+        raise HTTPException(status_code=422, detail="No changes in payload")
+    return _as_session_pay_rates_response(payload.app_session_id)
+
+
+@router.get("/edit-audit", response_model=SessionEditAuditResponse)
+async def session_edit_audit(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> SessionEditAuditResponse:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    rows = db.list_edit_audit_for_session(session_id=session_id, limit=limit)
+    return SessionEditAuditResponse(app_session_id=app_session_id, rows=rows)
 
 
 @router.get("/export", response_model=SessionExportResponse)

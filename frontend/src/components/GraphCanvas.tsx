@@ -15,6 +15,11 @@ import { apiClient } from "@/lib/api";
 import { normalizeChangeStatus } from "@/lib/changeStatus";
 import { logClientError } from "@/lib/errorFeedback";
 import { normalizeAndAlignTiles } from "@/lib/graphLayout";
+import {
+  buildTileBodyText,
+  buildTileHeaderMetrics,
+  buildTileMetricTable,
+} from "@/components/tileMetrics";
 import { Tile } from "@/types";
 import { TileNode } from "@/components/TileNode";
 
@@ -34,112 +39,6 @@ const COLUMN_LABELS = [
 const LANE_HEIGHT = 2000;
 const LANE_TOP_OFFSET = 56;
 
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().replace(/\./g, "").replace(",", ".");
-    const parsed = Number.parseFloat(normalized);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function formatCompactNumber(value: number): string {
-  const absolute = Math.abs(value);
-  if (absolute >= 1000) {
-    return new Intl.NumberFormat("de-DE", {
-      notation: "compact",
-      maximumFractionDigits: absolute >= 100000 ? 0 : 1,
-    }).format(value);
-  }
-  return new Intl.NumberFormat("de-DE", {
-    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
-  }).format(value);
-}
-
-function formatCurrencyCompact(value: number): string {
-  const sign = value < 0 ? "-" : "";
-  const absolute = Math.abs(value);
-  const compact = (divisor: number, suffix: string): string => {
-    const scaled = absolute / divisor;
-    const digits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
-    const text = new Intl.NumberFormat("de-DE", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: digits,
-    }).format(scaled);
-    return `${sign}${text} ${suffix} €`;
-  };
-
-  if (absolute >= 1_000_000_000) {
-    return compact(1_000_000_000, "Mrd.");
-  }
-  if (absolute >= 1_000_000) {
-    return compact(1_000_000, "Mio.");
-  }
-  if (absolute >= 1_000) {
-    return compact(1_000, "Tsd.");
-  }
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: Number.isInteger(absolute) ? 0 : 2,
-    maximumFractionDigits: Number.isInteger(absolute) ? 0 : 2,
-  }).format(value);
-}
-
-function stripCostLinesFromTileText(tile: Tile): string {
-  if (!(tile.id.startsWith("process_") || tile.id.startsWith("step_"))) {
-    return tile.text;
-  }
-  const cleaned = tile.text
-    .split("\n")
-    .filter((line) => !line.trim().toLowerCase().startsWith("kosten:"))
-    .join("\n")
-    .trim();
-  return cleaned;
-}
-
-function buildTileHeaderMetrics(
-  tile: Tile
-): { left: string | null; right: string | null } {
-  const meta = tile.meta_information || {};
-  if (tile.id.startsWith("process_")) {
-    const processCost = toFiniteNumber(meta.cost);
-    return {
-      left: processCost === null ? null : `Σ ${formatCurrencyCompact(processCost)}`,
-      right: null,
-    };
-  }
-  if (tile.id.startsWith("step_")) {
-    const current = toFiniteNumber(meta.cost_current);
-    const proposed = toFiniteNumber(meta.cost_proposed);
-    if (current === null || proposed === null) {
-      return { left: null, right: null };
-    }
-    return {
-      left: `Δ ${formatCurrencyCompact(proposed - current)}`,
-      right: null,
-    };
-  }
-  if (tile.id.startsWith("case_group_")) {
-    const currentCases = toFiniteNumber(meta.cases_current);
-    const proposedCases = toFiniteNumber(meta.cases_proposed);
-    if (currentCases === null || proposedCases === null) {
-      return { left: null, right: null };
-    }
-    const delta = proposedCases - currentCases;
-    const prefix = delta > 0 ? "+" : "";
-    return {
-      left: `Δ ${prefix}${formatCompactNumber(delta)}`,
-      right: null,
-    };
-  }
-  return { left: null, right: null };
-}
 export default function GraphCanvas() {
   const { state } = useApp();
   const nodeTypesRef = useRef<{ tile: typeof TileNode } | null>(null);
@@ -642,10 +541,11 @@ export default function GraphCanvas() {
         },
         data: {
           title: tile.title,
-          text: stripCostLinesFromTileText(tile),
+          text: buildTileBodyText(tile),
           deletable: tile.deletable,
           headerMetricLeft: metrics.left,
           headerMetricRight: metrics.right,
+          metricTable: buildTileMetricTable(tile),
           onBodyRef: registerBodyRef,
           onNodeRef: registerNodeRef,
           onDelete: () => handleDelete(tile.id),

@@ -154,13 +154,125 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     tiles = db.fetch_tiles(session_id=session_id)
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tile = next(tile for tile in tiles if tile.id == f"step_{step_one}")
-    assert "Gültig:" in case_tile.text
-    assert "Vorschlag:" in case_tile.text
-    assert "Betroffene: 120" in case_tile.text
-    assert "Häufigkeit/Jahr: 2" in case_tile.text
-    assert "Lohnsatz A: 45" in step_tile.text
-    assert "Zeitaufwand A: 1.5" in step_tile.text
-    assert "Sachaufwand: 12" in step_tile.text
+    assert case_tile.text == "Beschreibung Fallgruppe"
+    assert case_tile.meta_information["addressees_current"] == 100
+    assert case_tile.meta_information["annual_frequency_current"] == 2
+    assert case_tile.meta_information["cases_current"] == 200
+    assert case_tile.meta_information["addressees_proposed"] == 120
+    assert case_tile.meta_information["annual_frequency_proposed"] == 2
+    assert case_tile.meta_information["cases_proposed"] == 240
+
+    assert step_tile.text == "Beschreibung Schritt 1"
+    assert step_tile.meta_information["time_required_current"]["a"] == 1
+    assert step_tile.meta_information["time_required_proposed"]["a"] == 1.5
+    assert step_tile.meta_information["expenses_current"] == 10
+    assert step_tile.meta_information["expenses_proposed"] == 12
+
+
+def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatch):
+    """E-B behavior: existing base values are preserved, missing values are filled."""
+    session_id, _ = db.upsert_session("EFFORT-PRESERVE", "test-model")
+    _process_id, case_group_id = _seed_case_group(session_id)
+    step_one, _step_two = _seed_steps(session_id, case_group_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        addressees_current=100,
+        annual_frequency_current=None,
+        addressees_proposed=None,
+        annual_frequency_proposed=None,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=step_one,
+        hourly_rates_current={"a": 50, "b": None, "c": None, "d": None},
+        time_required_current={"a": 5, "b": None, "c": None, "d": None},
+        expenses_current=7,
+        hourly_rates_proposed={"a": None, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "prozess_bezeichnung": "Prozess A",
+          "prozess_beschreibung": "Beschreibung Prozess",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_current": "200",
+              "haeufigkeit_pro_jahr_current": "3",
+              "anzahl_betroffene_proposed": "220",
+              "haeufigkeit_pro_jahr_proposed": "4"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "prozess_bezeichnung": "Prozess A",
+          "prozess_beschreibung": "Beschreibung Prozess",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_one}",
+                  "stundenlohn_satz_a_current": "99",
+                  "zeitaufwand_in_min_a_current": "9",
+                  "sachaufwand_current": "11",
+                  "stundenlohn_satz_a_proposed": "44",
+                  "zeitaufwand_in_min_a_proposed": "6",
+                  "sachaufwand_proposed": "8"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(prompt, *_args, **_kwargs):
+        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
+            return cases_response
+        return effort_response
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(effort_router.db, "has_effort_metrics", lambda _sid: False)
+
+    response = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-PRESERVE",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert response.status_code == 200
+
+    case_group = db.list_case_groups_for_session(session_id)[0]
+    assert case_group["addressees_current"] == 100  # preserved existing base value
+    assert case_group["annual_frequency_current"] == 3  # filled missing base value
+    assert case_group["addressees_proposed"] == 220  # filled missing base value
+    assert case_group["annual_frequency_proposed"] == 4  # filled missing base value
+
+    step = db.list_process_steps_for_session(session_id)[0]
+    assert step["hourly_rate_a_current"] == 50  # preserved existing base value
+    assert step["time_required_in_min_a_current"] == 5  # preserved existing base value
+    assert step["expenses_current"] == 7  # preserved existing base value
+    assert step["hourly_rate_a_proposed"] == 44  # filled missing base value
+    assert step["time_required_in_min_a_proposed"] == 6  # filled missing base value
+    assert step["expenses_proposed"] == 8  # filled missing base value
 
 
 def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeypatch):

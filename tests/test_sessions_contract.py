@@ -129,6 +129,38 @@ def test_sessions_status_contract(test_client):
     assert status.last_completed_label is None
 
 
+def test_sessions_edit_audit_contract(test_client):
+    app_session_id = "CONTRACT-EDIT-AUDIT"
+    test_client.post(
+        "/sessions",
+        json={"app_session_id": app_session_id, "llm_model": "gpt-5"},
+    )
+
+    update_resp = test_client.post(
+        "/sessions/pay-rates",
+        json={
+            "app_session_id": app_session_id,
+            "administration_level": "bund",
+            "edited_a": 77,
+            "edited_b": None,
+            "edited_c": None,
+            "edited_d": None,
+        },
+    )
+    assert update_resp.status_code == 200
+
+    resp = test_client.get(
+        "/sessions/edit-audit",
+        params={"app_session_id": app_session_id, "limit": 20},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    parsed = _parse_contract(sessions_router.SessionEditAuditResponse, payload)
+    assert parsed.app_session_id == app_session_id
+    assert len(parsed.rows) >= 1
+    assert parsed.rows[0].entity_type in {"pay_rate", "case_group", "process_step"}
+
+
 def test_sessions_export_contract(test_client):
     _seed_exportable_session("CONTRACT-EXPORT")
 

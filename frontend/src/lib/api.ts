@@ -18,6 +18,10 @@ import {
   Model,
   LlmMonitorSnapshotResponse,
   LlmMonitorStreamAttemptResponse,
+  SessionPayRatesResponse,
+  SessionEditAuditResponse,
+  EditableCaseGroupsResponse,
+  EditableProcessStepsResponse,
 } from "@/types";
 
 const API_BASE_URL =
@@ -593,6 +597,152 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to compute total cost");
+    }
+    return response.json();
+  },
+
+  async getSessionPayRates(options: {
+    appSessionId: string;
+  }): Promise<SessionPayRatesResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/pay-rates?app_session_id=${encodeURIComponent(
+        options.appSessionId
+      )}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load session pay rates");
+    }
+    return response.json();
+  },
+
+  async updateSessionPayRates(options: {
+    appSessionId: string;
+    administrationLevel?: string;
+    editedA: number | null;
+    editedB: number | null;
+    editedC: number | null;
+    editedD: number | null;
+  }): Promise<SessionPayRatesResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/pay-rates`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        administration_level: options.administrationLevel,
+        edited_a: options.editedA,
+        edited_b: options.editedB,
+        edited_c: options.editedC,
+        edited_d: options.editedD,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update session pay rates");
+    }
+    return response.json();
+  },
+
+  async getSessionEditAudit(options: {
+    appSessionId: string;
+    limit?: number;
+  }): Promise<SessionEditAuditResponse> {
+    const params = new URLSearchParams();
+    params.set("app_session_id", options.appSessionId);
+    if (typeof options.limit === "number") {
+      params.set("limit", String(options.limit));
+    }
+    const response = await fetch(`${API_BASE_URL}/sessions/edit-audit?${params.toString()}`);
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load session edit audit");
+    }
+    return response.json();
+  },
+
+  async getEditableCaseGroups(options: {
+    appSessionId: string;
+  }): Promise<EditableCaseGroupsResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/case-groups/editable?app_session_id=${encodeURIComponent(
+        options.appSessionId
+      )}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load editable case groups");
+    }
+    return response.json();
+  },
+
+  async bulkUpdateCaseGroups(options: {
+    appSessionId: string;
+    rows: Array<{
+      case_group_id: number;
+      addressees_current: number | null;
+      annual_frequency_current: number | null;
+      addressees_proposed: number | null;
+      annual_frequency_proposed: number | null;
+    }>;
+  }): Promise<{ updated: number }> {
+    const response = await fetch(`${API_BASE_URL}/case-groups/bulk-update`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        rows: options.rows,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update case groups");
+    }
+    return response.json();
+  },
+
+  async getEditableProcessSteps(options: {
+    appSessionId: string;
+    caseGroupId?: number;
+  }): Promise<EditableProcessStepsResponse> {
+    const params = new URLSearchParams();
+    params.set("app_session_id", options.appSessionId);
+    if (typeof options.caseGroupId === "number") {
+      params.set("case_group_id", String(options.caseGroupId));
+    }
+    const response = await fetch(`${API_BASE_URL}/process-steps/editable?${params.toString()}`);
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load editable process steps");
+    }
+    return response.json();
+  },
+
+  async bulkUpdateProcessSteps(options: {
+    appSessionId: string;
+    rows: Array<{
+      step_id: number;
+      time_required_in_min_a_current: number | null;
+      time_required_in_min_b_current: number | null;
+      time_required_in_min_c_current: number | null;
+      time_required_in_min_d_current: number | null;
+      expenses_current: number | null;
+      time_required_in_min_a_proposed: number | null;
+      time_required_in_min_b_proposed: number | null;
+      time_required_in_min_c_proposed: number | null;
+      time_required_in_min_d_proposed: number | null;
+      expenses_proposed: number | null;
+    }>;
+  }): Promise<{ updated: number }> {
+    const response = await fetch(`${API_BASE_URL}/process-steps/bulk-update`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        rows: options.rows,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update process steps");
     }
     return response.json();
   },
