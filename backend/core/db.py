@@ -441,6 +441,160 @@ def _migrate_process_steps_drop_execution_per_case(cur: sqlite3.Cursor) -> None:
         cur.execute("PRAGMA foreign_keys = ON;")
 
 
+def _backfill_administration_case_group_metrics(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        INSERT INTO case_group_metrics_by_addressee (
+            session_id,
+            case_group_id,
+            norm_addressee,
+            addressees_current,
+            annual_frequency_current,
+            cases_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_proposed
+        )
+        SELECT
+            session_id,
+            case_group_id,
+            'administration',
+            addressees_current,
+            annual_frequency_current,
+            cases_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_proposed
+        FROM case_groups
+        WHERE norm_addressee = 'administration'
+        ON CONFLICT(session_id, case_group_id, norm_addressee) DO UPDATE SET
+            addressees_current = excluded.addressees_current,
+            annual_frequency_current = excluded.annual_frequency_current,
+            cases_current = excluded.cases_current,
+            addressees_proposed = excluded.addressees_proposed,
+            annual_frequency_proposed = excluded.annual_frequency_proposed,
+            cases_proposed = excluded.cases_proposed
+        """
+    )
+
+
+def _backfill_administration_process_step_effort_metrics(cur: sqlite3.Cursor) -> None:
+    execution_per_case_expr = (
+        "execution_per_case"
+        if _table_has_column(cur, "process_steps", "execution_per_case")
+        else "NULL"
+    )
+    cur.execute(
+        f"""
+        INSERT INTO process_step_effort_metrics_by_addressee (
+            session_id,
+            step_id,
+            norm_addressee,
+            hourly_rate_a_current,
+            hourly_rate_b_current,
+            hourly_rate_c_current,
+            hourly_rate_d_current,
+            time_required_in_min_a_current,
+            time_required_in_min_b_current,
+            time_required_in_min_c_current,
+            time_required_in_min_d_current,
+            expenses_current,
+            hourly_rate_a_proposed,
+            hourly_rate_b_proposed,
+            hourly_rate_c_proposed,
+            hourly_rate_d_proposed,
+            time_required_in_min_a_proposed,
+            time_required_in_min_b_proposed,
+            time_required_in_min_c_proposed,
+            time_required_in_min_d_proposed,
+            expenses_proposed,
+            execution_per_case
+        )
+        SELECT
+            session_id,
+            step_id,
+            'administration',
+            hourly_rate_a_current,
+            hourly_rate_b_current,
+            hourly_rate_c_current,
+            hourly_rate_d_current,
+            time_required_in_min_a_current,
+            time_required_in_min_b_current,
+            time_required_in_min_c_current,
+            time_required_in_min_d_current,
+            expenses_current,
+            hourly_rate_a_proposed,
+            hourly_rate_b_proposed,
+            hourly_rate_c_proposed,
+            hourly_rate_d_proposed,
+            time_required_in_min_a_proposed,
+            time_required_in_min_b_proposed,
+            time_required_in_min_c_proposed,
+            time_required_in_min_d_proposed,
+            expenses_proposed,
+            {execution_per_case_expr}
+        FROM process_steps
+        WHERE norm_addressee = 'administration'
+        ON CONFLICT(session_id, step_id, norm_addressee) DO UPDATE SET
+            hourly_rate_a_current = excluded.hourly_rate_a_current,
+            hourly_rate_b_current = excluded.hourly_rate_b_current,
+            hourly_rate_c_current = excluded.hourly_rate_c_current,
+            hourly_rate_d_current = excluded.hourly_rate_d_current,
+            time_required_in_min_a_current = excluded.time_required_in_min_a_current,
+            time_required_in_min_b_current = excluded.time_required_in_min_b_current,
+            time_required_in_min_c_current = excluded.time_required_in_min_c_current,
+            time_required_in_min_d_current = excluded.time_required_in_min_d_current,
+            expenses_current = excluded.expenses_current,
+            hourly_rate_a_proposed = excluded.hourly_rate_a_proposed,
+            hourly_rate_b_proposed = excluded.hourly_rate_b_proposed,
+            hourly_rate_c_proposed = excluded.hourly_rate_c_proposed,
+            hourly_rate_d_proposed = excluded.hourly_rate_d_proposed,
+            time_required_in_min_a_proposed = excluded.time_required_in_min_a_proposed,
+            time_required_in_min_b_proposed = excluded.time_required_in_min_b_proposed,
+            time_required_in_min_c_proposed = excluded.time_required_in_min_c_proposed,
+            time_required_in_min_d_proposed = excluded.time_required_in_min_d_proposed,
+            expenses_proposed = excluded.expenses_proposed,
+            execution_per_case = COALESCE(
+                excluded.execution_per_case,
+                process_step_effort_metrics_by_addressee.execution_per_case
+            )
+        """
+    )
+
+
+def _backfill_administration_process_step_costs(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        INSERT INTO process_step_costs_by_addressee (
+            session_id,
+            step_id,
+            norm_addressee,
+            cost_current,
+            cost_proposed,
+            bureaucracy_cost_current,
+            bureaucracy_cost_proposed,
+            other_cost_current,
+            other_cost_proposed
+        )
+        SELECT
+            session_id,
+            step_id,
+            'administration',
+            cost_current,
+            cost_proposed,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+        FROM process_steps
+        WHERE norm_addressee = 'administration'
+        ON CONFLICT(session_id, step_id, norm_addressee) DO UPDATE SET
+            cost_current = excluded.cost_current,
+            cost_proposed = excluded.cost_proposed
+        """
+    )
+
+
 def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     """Migration helper: run one-off in-place upgrades for legacy/dev DB files.
 
@@ -569,6 +723,10 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
 
     if needs_used_models_backfill:
         _refresh_all_session_used_models(cur)
+
+    _backfill_administration_case_group_metrics(cur)
+    _backfill_administration_process_step_effort_metrics(cur)
+    _backfill_administration_process_step_costs(cur)
 
 
 def get_conn() -> sqlite3.Connection:
@@ -1496,76 +1654,6 @@ def has_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) ->
         _maybe_close(conn)
         return False
 
-    if resolved == ADMINISTRATION:
-        cur.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM case_groups
-            WHERE session_id = ? AND norm_addressee = ?
-              AND (
-                addressees_current IS NOT NULL OR annual_frequency_current IS NOT NULL
-                OR addressees_current_edited IS NOT NULL
-                OR annual_frequency_current_edited IS NOT NULL
-                OR addressees_proposed IS NOT NULL OR annual_frequency_proposed IS NOT NULL
-                OR addressees_proposed_edited IS NOT NULL
-                OR annual_frequency_proposed_edited IS NOT NULL
-              )
-            """,
-            (session_id, resolved),
-        )
-        groups_with_metrics = int(cur.fetchone()["count"])
-        cur.execute(
-            """
-            SELECT COUNT(*) AS total_count
-            FROM process_steps
-            WHERE session_id = ? AND norm_addressee = ?
-            """,
-            (session_id, resolved),
-        )
-        total_steps = int(cur.fetchone()["total_count"] or 0)
-        cur.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM process_steps
-            WHERE session_id = ? AND norm_addressee = ?
-              AND (
-                hourly_rate_a_current IS NOT NULL OR hourly_rate_b_current IS NOT NULL
-                OR hourly_rate_c_current IS NOT NULL OR hourly_rate_d_current IS NOT NULL
-                OR time_required_in_min_a_current IS NOT NULL
-                OR time_required_in_min_b_current IS NOT NULL
-                OR time_required_in_min_c_current IS NOT NULL
-                OR time_required_in_min_d_current IS NOT NULL
-                OR time_required_in_min_a_current_edited IS NOT NULL
-                OR time_required_in_min_b_current_edited IS NOT NULL
-                OR time_required_in_min_c_current_edited IS NOT NULL
-                OR time_required_in_min_d_current_edited IS NOT NULL
-                OR expenses_current IS NOT NULL
-                OR expenses_current_edited IS NOT NULL
-                OR hourly_rate_a_proposed IS NOT NULL OR hourly_rate_b_proposed IS NOT NULL
-                OR hourly_rate_c_proposed IS NOT NULL OR hourly_rate_d_proposed IS NOT NULL
-                OR time_required_in_min_a_proposed IS NOT NULL
-                OR time_required_in_min_b_proposed IS NOT NULL
-                OR time_required_in_min_c_proposed IS NOT NULL
-                OR time_required_in_min_d_proposed IS NOT NULL
-                OR time_required_in_min_a_proposed_edited IS NOT NULL
-                OR time_required_in_min_b_proposed_edited IS NOT NULL
-                OR time_required_in_min_c_proposed_edited IS NOT NULL
-                OR time_required_in_min_d_proposed_edited IS NOT NULL
-                OR expenses_proposed IS NOT NULL
-                OR expenses_proposed_edited IS NOT NULL
-              )
-            """,
-            (session_id, resolved),
-        )
-        steps_with_metrics = int(cur.fetchone()["count"])
-        _maybe_close(conn)
-        return (
-            total_case_groups > 0
-            and total_steps > 0
-            and groups_with_metrics == total_case_groups
-            and steps_with_metrics == total_steps
-        )
-
     cur.execute(
         """
         SELECT COUNT(*) AS count
@@ -1608,6 +1696,7 @@ def has_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) ->
             OR time_required_in_min_c_proposed IS NOT NULL
             OR time_required_in_min_d_proposed IS NOT NULL
             OR expenses_proposed IS NOT NULL
+            OR execution_per_case IS NOT NULL
           )
         """,
         (session_id, resolved),
@@ -2280,26 +2369,25 @@ def list_case_groups_for_session_and_addressee(
         (session_id, resolved),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    if resolved != ADMINISTRATION:
-        cur.execute(
-            """
-            SELECT *
-            FROM case_group_metrics_by_addressee
-            WHERE session_id = ? AND norm_addressee = ?
-            """,
-            (session_id, resolved),
-        )
-        metrics = {int(row["case_group_id"]): dict(row) for row in cur.fetchall()}
-        for row in rows:
-            metric = metrics.get(int(row["case_group_id"]))
-            if not metric:
-                continue
-            row["addressees_current"] = metric.get("addressees_current")
-            row["annual_frequency_current"] = metric.get("annual_frequency_current")
-            row["cases_current"] = metric.get("cases_current")
-            row["addressees_proposed"] = metric.get("addressees_proposed")
-            row["annual_frequency_proposed"] = metric.get("annual_frequency_proposed")
-            row["cases_proposed"] = metric.get("cases_proposed")
+    cur.execute(
+        """
+        SELECT *
+        FROM case_group_metrics_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    metrics = {int(row["case_group_id"]): dict(row) for row in cur.fetchall()}
+    for row in rows:
+        metric = metrics.get(int(row["case_group_id"]))
+        if not metric:
+            continue
+        row["addressees_current"] = metric.get("addressees_current")
+        row["annual_frequency_current"] = metric.get("annual_frequency_current")
+        row["cases_current"] = metric.get("cases_current")
+        row["addressees_proposed"] = metric.get("addressees_proposed")
+        row["annual_frequency_proposed"] = metric.get("annual_frequency_proposed")
+        row["cases_proposed"] = metric.get("cases_proposed")
     _maybe_close(conn)
     return rows
 
@@ -2379,55 +2467,54 @@ def list_process_steps_for_session_and_addressee(
         (session_id, resolved),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    if resolved != ADMINISTRATION:
-        cur.execute(
-            """
-            SELECT *
-            FROM process_step_effort_metrics_by_addressee
-            WHERE session_id = ? AND norm_addressee = ?
-            """,
-            (session_id, resolved),
-        )
-        effort_metrics = {int(row["step_id"]): dict(row) for row in cur.fetchall()}
-        cur.execute(
-            """
-            SELECT *
-            FROM process_step_costs_by_addressee
-            WHERE session_id = ? AND norm_addressee = ?
-            """,
-            (session_id, resolved),
-        )
-        cost_metrics = {int(row["step_id"]): dict(row) for row in cur.fetchall()}
-        for row in rows:
-            step_id = int(row["step_id"])
-            effort = effort_metrics.get(step_id)
-            if effort:
-                for key in (
-                    "hourly_rate_a_current",
-                    "hourly_rate_b_current",
-                    "hourly_rate_c_current",
-                    "hourly_rate_d_current",
-                    "time_required_in_min_a_current",
-                    "time_required_in_min_b_current",
-                    "time_required_in_min_c_current",
-                    "time_required_in_min_d_current",
-                    "expenses_current",
-                    "hourly_rate_a_proposed",
-                    "hourly_rate_b_proposed",
-                    "hourly_rate_c_proposed",
-                    "hourly_rate_d_proposed",
-                    "time_required_in_min_a_proposed",
-                    "time_required_in_min_b_proposed",
-                    "time_required_in_min_c_proposed",
-                    "time_required_in_min_d_proposed",
-                    "expenses_proposed",
-                    "execution_per_case",
-                ):
-                    row[key] = effort.get(key)
-            cost_row = cost_metrics.get(step_id)
-            if cost_row:
-                row["cost_current"] = cost_row.get("cost_current")
-                row["cost_proposed"] = cost_row.get("cost_proposed")
+    cur.execute(
+        """
+        SELECT *
+        FROM process_step_effort_metrics_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    effort_metrics = {int(row["step_id"]): dict(row) for row in cur.fetchall()}
+    cur.execute(
+        """
+        SELECT *
+        FROM process_step_costs_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    cost_metrics = {int(row["step_id"]): dict(row) for row in cur.fetchall()}
+    for row in rows:
+        step_id = int(row["step_id"])
+        effort = effort_metrics.get(step_id)
+        if effort:
+            for key in (
+                "hourly_rate_a_current",
+                "hourly_rate_b_current",
+                "hourly_rate_c_current",
+                "hourly_rate_d_current",
+                "time_required_in_min_a_current",
+                "time_required_in_min_b_current",
+                "time_required_in_min_c_current",
+                "time_required_in_min_d_current",
+                "expenses_current",
+                "hourly_rate_a_proposed",
+                "hourly_rate_b_proposed",
+                "hourly_rate_c_proposed",
+                "hourly_rate_d_proposed",
+                "time_required_in_min_a_proposed",
+                "time_required_in_min_b_proposed",
+                "time_required_in_min_c_proposed",
+                "time_required_in_min_d_proposed",
+                "expenses_proposed",
+                "execution_per_case",
+            ):
+                row[key] = effort.get(key)
+        cost_row = cost_metrics.get(step_id)
+        if cost_row:
+            row["cost_current"] = cost_row.get("cost_current")
+            row["cost_proposed"] = cost_row.get("cost_proposed")
     _maybe_close(conn)
     return rows
 
@@ -2935,6 +3022,10 @@ def upsert_case_group_metrics_by_addressee(
     cases_proposed: float | None = None,
 ) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
+    if cases_current is None and addressees_current is not None and annual_frequency_current is not None:
+        cases_current = addressees_current * annual_frequency_current
+    if cases_proposed is None and addressees_proposed is not None and annual_frequency_proposed is not None:
+        cases_proposed = addressees_proposed * annual_frequency_proposed
     if resolved == ADMINISTRATION:
         update_case_group_metrics(
             session_id=session_id,
@@ -2946,11 +3037,6 @@ def upsert_case_group_metrics_by_addressee(
             cases_current=cases_current,
             cases_proposed=cases_proposed,
         )
-        return
-    if cases_current is None and addressees_current is not None and annual_frequency_current is not None:
-        cases_current = addressees_current * annual_frequency_current
-    if cases_proposed is None and addressees_proposed is not None and annual_frequency_proposed is not None:
-        cases_proposed = addressees_proposed * annual_frequency_proposed
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -3065,22 +3151,14 @@ def upsert_process_step_effort_split_by_addressee(
             time_required_proposed=time_required_proposed,
             expenses_proposed=expenses_proposed,
         )
-        conn = get_conn()
-        cur = conn.cursor()
-        has_execution_per_case = _table_has_column(cur, "process_steps", "execution_per_case")
-        _maybe_close(conn)
-        if execution_per_case is not None and has_execution_per_case:
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE process_steps SET execution_per_case = ? WHERE step_id = ? AND session_id = ?",
-                (int(bool(execution_per_case)), step_id, session_id),
-            )
-            _maybe_commit(conn)
-            _maybe_close(conn)
-        return
     conn = get_conn()
     cur = conn.cursor()
+    has_execution_per_case = _table_has_column(cur, "process_steps", "execution_per_case")
+    if resolved == ADMINISTRATION and execution_per_case is not None and has_execution_per_case:
+        cur.execute(
+            "UPDATE process_steps SET execution_per_case = ? WHERE step_id = ? AND session_id = ?",
+            (int(bool(execution_per_case)), step_id, session_id),
+        )
     cur.execute(
         """
         INSERT INTO process_step_effort_metrics_by_addressee (
@@ -3162,7 +3240,6 @@ def upsert_process_step_cost_by_addressee(
     resolved = normalize_norm_addressee(norm_addressee)
     if resolved == ADMINISTRATION:
         update_process_step_cost(session_id, step_id, cost_current, cost_proposed)
-        return
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
