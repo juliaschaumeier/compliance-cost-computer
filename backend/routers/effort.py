@@ -10,10 +10,11 @@ from backend.core.llm_attempts import (
     LlmPromptSpec,
     mark_llm_answer_applied,
     mark_llm_answers_apply_failed,
+    mark_llm_parse_fallback,
     prompt_sha256,
     query_and_stage_llm_answers_parallel,
 )
-from backend.core.llm_json import extract_fallgruppen, parse_json_object
+from backend.core.llm_json import extract_fallgruppen, parse_json_object_with_mode
 from backend.core.llm_service import LlmResult, query_llm
 from backend.core.parsing import parse_first_int, parse_optional_number
 from backend.core.payload_builders import (
@@ -35,10 +36,36 @@ class EffortCalculationRequest(BaseModel):
     provider: str | None = None
 
 
-def _parse_cases_payload(payload: str) -> list[dict]:
-    data = parse_json_object(payload)
+def _has_meaningful_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    return True
+
+
+def _value_from_keys(
+    payload: dict[str, object],
+    primary_key: str,
+    fallback_keys: tuple[str, ...],
+) -> tuple[object | None, str | None]:
+    primary = payload.get(primary_key)
+    if _has_meaningful_value(primary):
+        return primary, None
+    for key in fallback_keys:
+        candidate = payload.get(key)
+        if _has_meaningful_value(candidate):
+            return candidate, key
+    return None, None
+
+
+def _parse_cases_payload(payload: str) -> tuple[list[dict], set[str]]:
+    data, parse_mode = parse_json_object_with_mode(payload)
+    fallback_kinds: set[str] = set()
+    if parse_mode == "extract_last_json_object":
+        fallback_kinds.add("json_extract_last_object")
     if not isinstance(data, dict):
-        return []
+        return [], fallback_kinds
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -52,21 +79,47 @@ def _parse_cases_payload(payload: str) -> list[dict]:
         )
         if case_group_id is None:
             continue
+        addressees_current_raw, current_alias = _value_from_keys(
+            fallgruppe,
+            "anzahl_betroffene_current",
+            ("anzahl_betroffene_gueltig",),
+        )
+        annual_frequency_current_raw, frequency_current_alias = _value_from_keys(
+            fallgruppe,
+            "haeufigkeit_pro_jahr_current",
+            ("haeufigkeit_pro_jahr_gueltig",),
+        )
+        addressees_proposed_raw, proposed_alias = _value_from_keys(
+            fallgruppe,
+            "anzahl_betroffene_proposed",
+            ("anzahl_betroffene_vorschlag",),
+        )
+        annual_frequency_proposed_raw, frequency_proposed_alias = _value_from_keys(
+            fallgruppe,
+            "haeufigkeit_pro_jahr_proposed",
+            ("haeufigkeit_pro_jahr_vorschlag",),
+        )
+        if any(
+            alias is not None
+            for alias in (
+                current_alias,
+                frequency_current_alias,
+                proposed_alias,
+                frequency_proposed_alias,
+            )
+        ):
+            fallback_kinds.add("cases_legacy_key_alias")
         addressees_current = parse_optional_number(
-            fallgruppe.get("anzahl_betroffene_current")
-            or fallgruppe.get("anzahl_betroffene_gueltig")
+            addressees_current_raw
         )
         annual_frequency_current = parse_optional_number(
-            fallgruppe.get("haeufigkeit_pro_jahr_current")
-            or fallgruppe.get("haeufigkeit_pro_jahr_gueltig")
+            annual_frequency_current_raw
         )
         addressees_proposed = parse_optional_number(
-            fallgruppe.get("anzahl_betroffene_proposed")
-            or fallgruppe.get("anzahl_betroffene_vorschlag")
+            addressees_proposed_raw
         )
         annual_frequency_proposed = parse_optional_number(
-            fallgruppe.get("haeufigkeit_pro_jahr_proposed")
-            or fallgruppe.get("haeufigkeit_pro_jahr_vorschlag")
+            annual_frequency_proposed_raw
         )
         if (
             addressees_current is None
@@ -85,13 +138,16 @@ def _parse_cases_payload(payload: str) -> list[dict]:
                 "aenderungsstatus": extract_change_status(fallgruppe),
             }
         )
-    return parsed
+    return parsed, fallback_kinds
 
 
-def _parse_effort_payload(payload: str) -> list[dict]:
-    data = parse_json_object(payload)
+def _parse_effort_payload(payload: str) -> tuple[list[dict], set[str]]:
+    data, parse_mode = parse_json_object_with_mode(payload)
+    fallback_kinds: set[str] = set()
+    if parse_mode == "extract_last_json_object":
+        fallback_kinds.add("json_extract_last_object")
     if not isinstance(data, dict):
-        return []
+        return [], fallback_kinds
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -117,55 +173,82 @@ def _parse_effort_payload(payload: str) -> list[dict]:
             time_required_current = {}
             time_required_proposed = {}
             for key in ["a", "b", "c", "d"]:
+                hourly_rates_current_raw, current_rate_alias = _value_from_keys(
+                    entry,
+                    f"stundenlohn_satz_{key}_current",
+                    (
+                        f"stundenlohn_satz_{key}_gueltig",
+                        f"stundenlohn_satz_{key.upper()}_current",
+                        f"stundenlohn_satz_{key.upper()}_gueltig",
+                    ),
+                )
+                hourly_rates_proposed_raw, proposed_rate_alias = _value_from_keys(
+                    entry,
+                    f"stundenlohn_satz_{key}_proposed",
+                    (
+                        f"stundenlohn_satz_{key}_vorschlag",
+                        f"stundenlohn_satz_{key.upper()}_proposed",
+                        f"stundenlohn_satz_{key.upper()}_vorschlag",
+                    ),
+                )
+                time_required_current_raw, current_time_alias = _value_from_keys(
+                    entry,
+                    f"zeitaufwand_in_min_{key}_current",
+                    (
+                        f"zeitaufwand_in_min_{key}_gueltig",
+                        f"zeitaufwand_in_min_{key.upper()}_current",
+                        f"zeitaufwand_in_min_{key.upper()}_gueltig",
+                    ),
+                )
+                time_required_proposed_raw, proposed_time_alias = _value_from_keys(
+                    entry,
+                    f"zeitaufwand_in_min_{key}_proposed",
+                    (
+                        f"zeitaufwand_in_min_{key}_vorschlag",
+                        f"zeitaufwand_in_min_{key.upper()}_proposed",
+                        f"zeitaufwand_in_min_{key.upper()}_vorschlag",
+                    ),
+                )
+                if any(
+                    alias is not None
+                    for alias in (
+                        current_rate_alias,
+                        proposed_rate_alias,
+                        current_time_alias,
+                        proposed_time_alias,
+                    )
+                ):
+                    fallback_kinds.add("effort_legacy_key_alias")
                 hourly_rates_current[key] = parse_optional_number(
-                    entry.get(f"stundenlohn_satz_{key}_current")
-                    or entry.get(f"stundenlohn_satz_{key}_gueltig")
-                    or entry.get(f"stundenlohn_satz_{key.upper()}_current")
-                    or entry.get(f"stundenlohn_satz_{key.upper()}_gueltig")
+                    hourly_rates_current_raw
                 )
                 hourly_rates_proposed[key] = parse_optional_number(
-                    entry.get(f"stundenlohn_satz_{key}_proposed")
-                    or entry.get(f"stundenlohn_satz_{key}_vorschlag")
-                    or entry.get(f"stundenlohn_satz_{key.upper()}_proposed")
-                    or entry.get(f"stundenlohn_satz_{key.upper()}_vorschlag")
+                    hourly_rates_proposed_raw
                 )
                 time_required_current[key] = parse_optional_number(
-                    entry.get(f"zeitaufwand_in_min_{key}_current")
-                    or entry.get(f"zeitaufwand_in_min_{key}_gueltig")
-                    or entry.get(f"zeitaufwand_in_min_{key.upper()}_current")
-                    or entry.get(f"zeitaufwand_in_min_{key.upper()}_gueltig")
+                    time_required_current_raw
                 )
                 time_required_proposed[key] = parse_optional_number(
-                    entry.get(f"zeitaufwand_in_min_{key}_proposed")
-                    or entry.get(f"zeitaufwand_in_min_{key}_vorschlag")
-                    or entry.get(f"zeitaufwand_in_min_{key.upper()}_proposed")
-                    or entry.get(f"zeitaufwand_in_min_{key.upper()}_vorschlag")
+                    time_required_proposed_raw
                 )
+            expenses_current_raw, expenses_current_alias = _value_from_keys(
+                entry,
+                "sachaufwand_current",
+                ("sachaufwand_gueltig",),
+            )
+            expenses_proposed_raw, expenses_proposed_alias = _value_from_keys(
+                entry,
+                "sachaufwand_proposed",
+                ("sachaufwand_vorschlag",),
+            )
+            if expenses_current_alias is not None or expenses_proposed_alias is not None:
+                fallback_kinds.add("effort_legacy_key_alias")
             expenses_current = parse_optional_number(
-                entry.get("sachaufwand_current")
-                or entry.get("sachaufwand_gueltig")
+                expenses_current_raw
             )
             expenses_proposed = parse_optional_number(
-                entry.get("sachaufwand_proposed")
-                or entry.get("sachaufwand_vorschlag")
+                expenses_proposed_raw
             )
-            raw_execution = entry.get("execution_per_case")
-            if raw_execution is None:
-                raw_execution = entry.get("ausfuehrung_pro_einzelfall")
-            if isinstance(raw_execution, bool):
-                execution_per_case = raw_execution
-            elif isinstance(raw_execution, (int, float)):
-                execution_per_case = bool(raw_execution)
-            elif isinstance(raw_execution, str):
-                normalized = raw_execution.strip().lower()
-                if normalized in {"1", "true", "ja", "yes", "y"}:
-                    execution_per_case = True
-                elif normalized in {"0", "false", "nein", "no", "n"}:
-                    execution_per_case = False
-                else:
-                    execution_per_case = None
-            else:
-                execution_per_case = None
             if (
                 all(value is None for value in hourly_rates_current.values())
                 and all(value is None for value in hourly_rates_proposed.values())
@@ -184,11 +267,10 @@ def _parse_effort_payload(payload: str) -> list[dict]:
                     "time_required_proposed": time_required_proposed,
                     "expenses_current": expenses_current,
                     "expenses_proposed": expenses_proposed,
-                    "execution_per_case": execution_per_case,
                     "aenderungsstatus": extract_change_status(entry),
                 }
             )
-    return parsed
+    return parsed, fallback_kinds
 
 
 @router.post("/calculate")
@@ -295,10 +377,24 @@ async def calculate_effort(
     effort_result = query_results[PromptId.EFFORT_CALCULATION]
 
     try:
-        parsed_cases = _parse_cases_payload(cases_result.text)
+        parsed_cases, cases_fallback_kinds = _parse_cases_payload(cases_result.text)
+        for fallback_kind in sorted(cases_fallback_kinds):
+            mark_llm_parse_fallback(
+                answer_id=pending_answer_ids[PromptId.CASES_CALCULATION],
+                session_id=session_id,
+                prompt_id=PromptId.CASES_CALCULATION,
+                fallback_kind=fallback_kind,
+            )
         if not parsed_cases:
             raise HTTPException(status_code=422, detail="No case group metrics parsed")
-        parsed_effort = _parse_effort_payload(effort_result.text)
+        parsed_effort, effort_fallback_kinds = _parse_effort_payload(effort_result.text)
+        for fallback_kind in sorted(effort_fallback_kinds):
+            mark_llm_parse_fallback(
+                answer_id=pending_answer_ids[PromptId.EFFORT_CALCULATION],
+                session_id=session_id,
+                prompt_id=PromptId.EFFORT_CALCULATION,
+                fallback_kind=fallback_kind,
+            )
         if not parsed_effort:
             raise HTTPException(status_code=422, detail="No effort metrics parsed")
 
@@ -366,7 +462,6 @@ async def calculate_effort(
                     hourly_rates_proposed=entry["hourly_rates_proposed"],
                     time_required_proposed=entry["time_required_proposed"],
                     expenses_proposed=entry.get("expenses_proposed"),
-                    execution_per_case=entry.get("execution_per_case"),
                 )
 
             mark_llm_answer_applied(

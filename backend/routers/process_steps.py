@@ -7,9 +7,10 @@ from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_attempts import (
+    mark_llm_parse_fallback,
     mark_llm_answer_applied,
 )
-from backend.core.llm_json import extract_fallgruppen, parse_json_object
+from backend.core.llm_json import extract_fallgruppen, parse_json_object_with_mode
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
@@ -30,10 +31,13 @@ class ProcessStepAnalysisRequest(BaseModel):
     provider: str | None = None
 
 
-def _parse_process_steps(payload: str) -> list[dict]:
-    data = parse_json_object(payload)
+def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
+    data, parse_mode = parse_json_object_with_mode(payload)
+    fallback_kinds: set[str] = set()
+    if parse_mode == "extract_last_json_object":
+        fallback_kinds.add("json_extract_last_object")
     if not isinstance(data, dict):
-        return []
+        return [], fallback_kinds
 
     parsed: list[dict] = []
     processes = data.get("prozesse")
@@ -97,7 +101,7 @@ def _parse_process_steps(payload: str) -> list[dict]:
                 )
 
     if parsed:
-        return parsed
+        return parsed, fallback_kinds
 
     fallgruppen = extract_fallgruppen(data)
     for fallgruppe in fallgruppen:
@@ -146,7 +150,9 @@ def _parse_process_steps(payload: str) -> list[dict]:
                     "taetigkeiten": steps,
                 }
             )
-    return parsed
+    if parsed:
+        fallback_kinds.add("process_steps_flattened_fallgruppen")
+    return parsed, fallback_kinds
 
 
 def _add_step_tiles(
@@ -200,7 +206,6 @@ def _add_step_tiles(
                     "change_status": step_status,
                     "cost_current": None,
                     "cost_proposed": None,
-                    "execution_per_case": None,
                 },
                 column=case_group_tile.column + 1 + idx,
                 row=case_group_tile.row,
@@ -263,7 +268,14 @@ async def analyze_process_steps(
     response_text = llm_result.text
 
     def _apply() -> list[dict]:
-        parsed = _parse_process_steps(response_text)
+        parsed, fallback_kinds = _parse_process_steps(response_text)
+        for fallback_kind in sorted(fallback_kinds):
+            mark_llm_parse_fallback(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
+                fallback_kind=fallback_kind,
+            )
         if not parsed:
             raise HTTPException(status_code=422, detail="No process steps parsed")
 

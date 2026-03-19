@@ -23,7 +23,6 @@ _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=
 LLM_ANSWER_STATE_PENDING = "pending"
 LLM_ANSWER_STATE_ACTIVE = "active"
 LLM_ANSWER_STATE_INVALID = "invalid"
-_UNSET = object()
 
 
 def _ensure_parent(path: Path) -> None:
@@ -129,10 +128,11 @@ def _create_used_models_triggers(cur: sqlite3.Cursor) -> None:
 
 
 def _refresh_all_session_used_models(cur: sqlite3.Cursor) -> None:
-    """One-off backfill for existing rows in dev/legacy databases.
+    """Migration helper: one-off backfill for existing sessions rows.
 
-    Safe to remove once production starts from an empty DB that already has the
-    final schema and triggers in place.
+    This is only needed for in-place upgrades of non-empty dev/legacy DBs.
+    Safe to remove once production starts from an empty DB with final schema
+    and triggers in place from day one.
     """
     cur.execute(
         f"""
@@ -157,9 +157,146 @@ def _ensure_column(
     column: str,
     column_ddl: str,
 ) -> None:
+    """Migration helper: add a column if missing on legacy/dev databases.
+
+    This is only needed for in-place schema upgrades. Safe to remove once
+    production starts from an empty DB with the final CREATE TABLE definitions.
+    """
     if _table_has_column(cur, table, column):
         return
     cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_ddl}")
+
+
+def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_steps") -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            step_id                         INTEGER PRIMARY KEY,
+            case_group_id                   INTEGER NOT NULL,
+            session_id                      INTEGER NOT NULL,
+            step                            TEXT NOT NULL,
+            description                     TEXT NOT NULL,
+            change_status                   TEXT NOT NULL,
+            created_at                      TEXT NOT NULL DEFAULT current_timestamp,
+            previous_id                     INTEGER,
+            next_id                         INTEGER,
+            hourly_rate_a_current           REAL,
+            hourly_rate_b_current           REAL,
+            hourly_rate_c_current           REAL,
+            hourly_rate_d_current           REAL,
+            time_required_in_min_a_current  REAL,
+            time_required_in_min_b_current  REAL,
+            time_required_in_min_c_current  REAL,
+            time_required_in_min_d_current  REAL,
+            expenses_current                REAL,
+            hourly_rate_a_proposed          REAL,
+            hourly_rate_b_proposed          REAL,
+            hourly_rate_c_proposed          REAL,
+            hourly_rate_d_proposed          REAL,
+            time_required_in_min_a_proposed REAL,
+            time_required_in_min_b_proposed REAL,
+            time_required_in_min_c_proposed REAL,
+            time_required_in_min_d_proposed REAL,
+            expenses_proposed               REAL,
+            cost_current                    REAL,
+            cost_proposed                   REAL,
+            FOREIGN KEY (case_group_id)
+            REFERENCES case_groups
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _migrate_process_steps_drop_execution_per_case(cur: sqlite3.Cursor) -> None:
+    """Migration helper: rebuild process_steps without execution_per_case.
+
+    This is a one-off compatibility migration for legacy/dev DB files that
+    still contain the deprecated column. Safe to remove once production starts
+    from an empty DB with the final schema.
+    """
+    if not _table_has_column(cur, "process_steps", "execution_per_case"):
+        return
+
+    cur.execute("PRAGMA foreign_keys = OFF;")
+    try:
+        cur.execute("DROP TABLE IF EXISTS process_steps_new")
+        _create_process_steps_table(cur, "process_steps_new")
+        cur.execute(
+            """
+            INSERT INTO process_steps_new (
+                step_id, case_group_id, session_id, step, description, change_status,
+                created_at, previous_id, next_id,
+                hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
+                time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
+                expenses_current,
+                hourly_rate_a_proposed, hourly_rate_b_proposed, hourly_rate_c_proposed, hourly_rate_d_proposed,
+                time_required_in_min_a_proposed, time_required_in_min_b_proposed, time_required_in_min_c_proposed, time_required_in_min_d_proposed,
+                expenses_proposed,
+                cost_current, cost_proposed
+            )
+            SELECT
+                step_id, case_group_id, session_id, step, description, change_status,
+                created_at, previous_id, next_id,
+                hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
+                time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
+                expenses_current,
+                hourly_rate_a_proposed, hourly_rate_b_proposed, hourly_rate_c_proposed, hourly_rate_d_proposed,
+                time_required_in_min_a_proposed, time_required_in_min_b_proposed, time_required_in_min_c_proposed, time_required_in_min_d_proposed,
+                expenses_proposed,
+                cost_current, cost_proposed
+            FROM process_steps
+            """
+        )
+        cur.execute("DROP TABLE process_steps")
+        cur.execute("ALTER TABLE process_steps_new RENAME TO process_steps")
+    finally:
+        cur.execute("PRAGMA foreign_keys = ON;")
+
+
+def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
+    """Migration helper: run one-off in-place upgrades for legacy/dev DB files.
+
+    This helper exists solely for non-empty databases created before the final
+    schema. Safe to remove when production starts from an empty DB and no
+    in-place upgrade path is required.
+    """
+    needs_used_models_backfill = not _table_has_column(cur, "sessions", "used_llm_models")
+
+    _ensure_column(cur, "sessions", "law_diff_title", "TEXT")
+    _ensure_column(cur, "sessions", "law_diff_blurb", "TEXT")
+    _ensure_column(cur, "sessions", "law_diff_summary", "TEXT")
+    _ensure_column(cur, "sessions", "used_llm_models", "TEXT")
+
+    _ensure_column(cur, "llm_answers", "input_tokens", "INTEGER")
+    _ensure_column(cur, "llm_answers", "output_tokens", "INTEGER")
+    _ensure_column(cur, "llm_answers", "hidden_thinking_tokens", "INTEGER")
+    _ensure_column(cur, "llm_answers", "estimated_cost_usd", "REAL")
+    _ensure_column(cur, "llm_answers", "provider_response_json", "JSON")
+    _ensure_column(
+        cur,
+        "llm_answers",
+        "answer_state",
+        "TEXT NOT NULL DEFAULT 'active'",
+    )
+    _ensure_column(cur, "llm_answers", "state_reason", "TEXT")
+    cur.execute(
+        """
+        UPDATE llm_answers
+        SET answer_state = 'active'
+        WHERE answer_state IS NULL OR answer_state = ''
+        """
+    )
+
+    _migrate_process_steps_drop_execution_per_case(cur)
+
+    if needs_used_models_backfill:
+        _refresh_all_session_used_models(cur)
 
 
 def get_conn() -> sqlite3.Connection:
@@ -251,13 +388,6 @@ def init_db() -> None:
         );
         """
     )
-    # Migration shim for legacy/dev DBs. New production DBs created from scratch
-    # already include these columns in CREATE TABLE and do not need this block.
-    needs_used_models_backfill = not _table_has_column(cur, "sessions", "used_llm_models")
-    _ensure_column(cur, "sessions", "law_diff_title", "TEXT")
-    _ensure_column(cur, "sessions", "law_diff_blurb", "TEXT")
-    _ensure_column(cur, "sessions", "law_diff_summary", "TEXT")
-    _ensure_column(cur, "sessions", "used_llm_models", "TEXT")
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
@@ -302,26 +432,6 @@ def init_db() -> None:
                 ON UPDATE CASCADE
                 ON DELETE CASCADE
         )
-        """
-    )
-    _ensure_column(cur, "llm_answers", "input_tokens", "INTEGER")
-    _ensure_column(cur, "llm_answers", "output_tokens", "INTEGER")
-    _ensure_column(cur, "llm_answers", "hidden_thinking_tokens", "INTEGER")
-    _ensure_column(cur, "llm_answers", "estimated_cost_usd", "REAL")
-    _ensure_column(cur, "llm_answers", "provider_response_json", "JSON")
-    _ensure_column(
-        cur,
-        "llm_answers",
-        "answer_state",
-        "TEXT NOT NULL DEFAULT 'active'",
-    )
-    _ensure_column(cur, "llm_answers", "state_reason", "TEXT")
-    _create_used_models_triggers(cur)
-    cur.execute(
-        """
-        UPDATE llm_answers
-        SET answer_state = 'active'
-        WHERE answer_state IS NULL OR answer_state = ''
         """
     )
     # TODO: Maybe add llm_generated, edited, deleted, legal_citation_original, description_original
@@ -450,50 +560,9 @@ def init_db() -> None:
     )
     # TODO: Handle list insertion, possibly change to position list instead of linked list? Does it need to be doubly linked? Single just seems easier.
     # TODO: Change prozessschritt mit tätigkeiten?
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS process_steps (
-            step_id                         INTEGER PRIMARY KEY,
-            case_group_id                   INTEGER NOT NULL,
-            session_id                      INTEGER NOT NULL,
-            step                            TEXT NOT NULL,
-            description                     TEXT NOT NULL,
-            change_status                   TEXT NOT NULL,
-            created_at                      TEXT NOT NULL DEFAULT current_timestamp,
-            previous_id                     INTEGER,
-            next_id                         INTEGER,
-            hourly_rate_a_current           REAL,
-            hourly_rate_b_current           REAL,
-            hourly_rate_c_current           REAL,
-            hourly_rate_d_current           REAL,
-            time_required_in_min_a_current  REAL,
-            time_required_in_min_b_current  REAL,
-            time_required_in_min_c_current  REAL,
-            time_required_in_min_d_current  REAL,
-            expenses_current                REAL,
-            hourly_rate_a_proposed          REAL,
-            hourly_rate_b_proposed          REAL,
-            hourly_rate_c_proposed          REAL,
-            hourly_rate_d_proposed          REAL,
-            time_required_in_min_a_proposed REAL,
-            time_required_in_min_b_proposed REAL,
-            time_required_in_min_c_proposed REAL,
-            time_required_in_min_d_proposed REAL,
-            expenses_proposed               REAL,
-            execution_per_case              BIT,
-            cost_current                    REAL,
-            cost_proposed                   REAL,
-            FOREIGN KEY (case_group_id)
-            REFERENCES case_groups
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id) 
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
+    _create_process_steps_table(cur)
+    _run_legacy_migrations(cur)
+    _create_used_models_triggers(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_process_steps (
@@ -558,9 +627,6 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_tiles_session_id ON tiles(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_target ON links(session_id, target)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_source ON links(session_id, source)")
-    if needs_used_models_backfill:
-        # One-off migration backfill for pre-existing sessions rows.
-        _refresh_all_session_used_models(cur)
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -1417,19 +1483,45 @@ def list_case_groups_for_session(session_id: int) -> List[dict]:
 def list_process_steps_for_session(session_id: int) -> List[dict]:
     conn = get_conn()
     cur = conn.cursor()
+    # Migration compatibility helper (dev/legacy DBs only):
+    # Build the SELECT list defensively so older local DB files with partial
+    # schema drift don't fail hard if deprecated columns differ.
+    # Safe to remove when production runs from a clean DB at final schema.
+    columns = [
+        "step_id",
+        "case_group_id",
+        "step",
+        "description",
+        "previous_id",
+        "next_id",
+        "change_status",
+        "hourly_rate_a_current",
+        "hourly_rate_b_current",
+        "hourly_rate_c_current",
+        "hourly_rate_d_current",
+        "time_required_in_min_a_current",
+        "time_required_in_min_b_current",
+        "time_required_in_min_c_current",
+        "time_required_in_min_d_current",
+        "expenses_current",
+        "hourly_rate_a_proposed",
+        "hourly_rate_b_proposed",
+        "hourly_rate_c_proposed",
+        "hourly_rate_d_proposed",
+        "time_required_in_min_a_proposed",
+        "time_required_in_min_b_proposed",
+        "time_required_in_min_c_proposed",
+        "time_required_in_min_d_proposed",
+        "expenses_proposed",
+        "cost_current",
+        "cost_proposed",
+    ]
+    if _table_has_column(cur, "process_steps", "execution_per_case"):
+        columns.append("execution_per_case")
+    select_columns = ", ".join(columns)
     cur.execute(
-        """
-        SELECT step_id, case_group_id, step, description, previous_id, next_id,
-               change_status,
-               hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
-               time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
-               expenses_current,
-               hourly_rate_a_proposed, hourly_rate_b_proposed, hourly_rate_c_proposed, hourly_rate_d_proposed,
-               time_required_in_min_a_proposed, time_required_in_min_b_proposed, time_required_in_min_c_proposed, time_required_in_min_d_proposed,
-               expenses_proposed,
-               cost_current,
-               cost_proposed,
-               execution_per_case
+        f"""
+        SELECT {select_columns}
         FROM process_steps
         WHERE session_id = ?
         ORDER BY step_id
@@ -1515,60 +1607,32 @@ def insert_process_step(
     change_status: str = "geaendert",
     previous_id: int | None = None,
     next_id: int | None = None,
-    execution_per_case: bool | None | object = _UNSET,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
-    if execution_per_case is _UNSET:
-        cur.execute(
-            """
-            INSERT INTO process_steps (
-                session_id,
-                case_group_id,
-                step,
-                description,
-                change_status,
-                previous_id,
-                next_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                case_group_id,
-                step,
-                description,
-                change_status,
-                previous_id,
-                next_id,
-            ),
+    cur.execute(
+        """
+        INSERT INTO process_steps (
+            session_id,
+            case_group_id,
+            step,
+            description,
+            change_status,
+            previous_id,
+            next_id
         )
-    else:
-        cur.execute(
-            """
-            INSERT INTO process_steps (
-                session_id,
-                case_group_id,
-                step,
-                description,
-                change_status,
-                previous_id,
-                next_id,
-                execution_per_case
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                case_group_id,
-                step,
-                description,
-                change_status,
-                previous_id,
-                next_id,
-                execution_per_case,
-            ),
-        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            session_id,
+            case_group_id,
+            step,
+            description,
+            change_status,
+            previous_id,
+            next_id,
+        ),
+    )
     _maybe_commit(conn)
     step_id = int(cur.lastrowid)
     _maybe_close(conn)
@@ -1635,7 +1699,6 @@ def update_process_step_effort_split(
     hourly_rates_proposed: dict[str, float | None],
     time_required_proposed: dict[str, float | None],
     expenses_proposed: float | None,
-    execution_per_case: bool | None,
 ) -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -1647,8 +1710,7 @@ def update_process_step_effort_split(
             expenses_current = ?,
             hourly_rate_a_proposed = ?, hourly_rate_b_proposed = ?, hourly_rate_c_proposed = ?, hourly_rate_d_proposed = ?,
             time_required_in_min_a_proposed = ?, time_required_in_min_b_proposed = ?, time_required_in_min_c_proposed = ?, time_required_in_min_d_proposed = ?,
-            expenses_proposed = ?,
-            execution_per_case = COALESCE(?, execution_per_case)
+            expenses_proposed = ?
         WHERE step_id = ? AND session_id = ?
         """,
         (
@@ -1670,7 +1732,6 @@ def update_process_step_effort_split(
             time_required_proposed.get("c"),
             time_required_proposed.get("d"),
             expenses_proposed,
-            execution_per_case,
             step_id,
             session_id,
         ),

@@ -163,7 +163,6 @@ classDiagram
     REAL time_required_in_min_c_proposed
     REAL time_required_in_min_d_proposed
     REAL expenses_proposed
-    BIT execution_per_case
     REAL cost_current
     REAL cost_proposed
   }

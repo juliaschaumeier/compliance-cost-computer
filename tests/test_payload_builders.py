@@ -327,7 +327,6 @@ def test_build_step_analysis_payload_omits_null_effort_fields():
             "time_required_in_min_c_proposed": None,
             "time_required_in_min_d_proposed": None,
             "expenses_proposed": None,
-            "execution_per_case": None,
         }
     ]
 
@@ -407,7 +406,6 @@ def test_build_step_analysis_payload_omits_effort_fields_even_when_present():
             "time_required_in_min_c_proposed": 8,
             "time_required_in_min_d_proposed": 9,
             "expenses_proposed": 10,
-            "execution_per_case": 1,
         }
     ]
 

@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 import hashlib
 import inspect
+import logging
 import time
 from typing import Any, Awaitable, Callable, Iterable
 import uuid
@@ -19,6 +20,8 @@ from backend.core.llm_service import (
     query_llm,
 )
 from backend.core.request_context import get_request_context
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def _provider_metadata(provider: str | None) -> dict[str, str | None]:
@@ -555,3 +558,60 @@ def mark_llm_answers_apply_failed(
 ) -> None:
     for answer_id in answer_ids:
         mark_llm_answer_apply_failed(answer_id=answer_id, exc=exc)
+
+
+def mark_llm_parse_fallback(
+    *,
+    session_id: int,
+    prompt_id: str,
+    fallback_kind: str,
+    answer_id: int | None = None,
+    detail: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    answer: dict[str, Any] | None = None
+    metadata: dict[str, Any] = {}
+    if answer_id is not None:
+        answer = db.get_llm_answer_by_id(answer_id)
+        raw_metadata = answer.get("metadata") if isinstance(answer, dict) else None
+        if isinstance(raw_metadata, dict):
+            metadata = raw_metadata
+    request_ctx = get_request_context()
+    session = db.get_session_by_id(session_id)
+    app_session_id = None
+    if session is not None:
+        app_session_id = _normalize_app_session_id(str(session.get("app_session_id") or ""))
+
+    event: dict[str, Any] = {
+        "event_type": "llm_parse_fallback",
+        "fallback_kind": fallback_kind,
+        "session_id": session_id,
+        "prompt_id": prompt_id,
+        "attempt_id": metadata.get("attempt_id"),
+        "answer_id": answer_id,
+        "model": str(answer.get("model") or "") if isinstance(answer, dict) else None,
+        "provider": metadata.get("provider"),
+        "request_id": metadata.get("request_id") or request_ctx.get("request_id"),
+        "route_method": metadata.get("route_method") or request_ctx.get("route_method"),
+        "route_path": metadata.get("route_path") or request_ctx.get("route_path"),
+    }
+    if detail:
+        event["detail"] = detail
+    if extra:
+        event.update(_jsonable(extra))
+
+    logger.warning(
+        (
+            "LLM parse fallback | session=%s prompt=%s answer=%s attempt=%s "
+            "kind=%s detail=%s route=%s %s"
+        ),
+        session_id,
+        prompt_id,
+        answer_id if answer_id is not None else "-",
+        event.get("attempt_id") or "-",
+        fallback_kind,
+        detail or "-",
+        event.get("route_method") or "-",
+        event.get("route_path") or "-",
+    )
+    _publish_monitor_event_sync(app_session_id=app_session_id, event=event)

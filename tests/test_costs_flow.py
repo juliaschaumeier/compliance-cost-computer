@@ -125,7 +125,6 @@ def test_compute_costs_updates_db_and_tiles(test_client):
         hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
         expenses_proposed=10,
-        execution_per_case=None,
     )
     db.update_process_step_effort_split(
         session_id=session_id,
@@ -136,7 +135,6 @@ def test_compute_costs_updates_db_and_tiles(test_client):
         hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
         expenses_proposed=None,
-        execution_per_case=None,
     )
 
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-OK"})
@@ -146,10 +144,6 @@ def test_compute_costs_updates_db_and_tiles(test_client):
 
     conn = db.get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "UPDATE process_steps SET execution_per_case = 0 WHERE step_id = ?",
-        (seeded["step_two"],),
-    )
     cur.execute(
         "SELECT cost_current, cost_proposed FROM process_steps WHERE step_id = ?",
         (seeded["step_one"],),
@@ -206,15 +200,15 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     assert f"step_{seeded['step_two']}" in total_tile.link_from_tile
 
 
-def test_compute_costs_honors_execution_per_case_flag(test_client):
-    """Per-group steps are not multiplied by case counts."""
+def test_compute_costs_multiplies_all_steps_by_case_counts(test_client):
+    """All step costs are multiplied by per-group yearly case counts."""
     session_id, _ = db.upsert_session("COST-PER-GROUP", "test-model")
     seeded = _seed_flow(session_id)
 
     db.update_case_group_metrics(
         session_id=session_id,
         case_group_id=seeded["case_group_id"],
-        addressees_proposed=10,
+        addressees_proposed=3,
         annual_frequency_proposed=2,
     )
     db.update_process_step_effort_split(
@@ -226,7 +220,6 @@ def test_compute_costs_honors_execution_per_case_flag(test_client):
         hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
         expenses_proposed=10,
-        execution_per_case=None,
     )
     db.update_process_step_effort_split(
         session_id=session_id,
@@ -237,19 +230,9 @@ def test_compute_costs_honors_execution_per_case_flag(test_client):
         hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
         expenses_proposed=None,
-        execution_per_case=None,
     )
-
-    conn = db.get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE process_steps SET execution_per_case = 0 WHERE step_id = ?",
-        (seeded["step_two"],),
-    )
-    conn.commit()
-    conn.close()
 
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-PER-GROUP"})
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["total_cost"] == 860
+    assert payload["total_cost"] == 600

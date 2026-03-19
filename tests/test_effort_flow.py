@@ -103,8 +103,7 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
                   "sachaufwand_gueltig": "10",
                   "stundenlohn_satz_a_vorschlag": "45",
                   "zeitaufwand_in_min_a_vorschlag": "1.5",
-                  "sachaufwand_vorschlag": "12",
-                  "ausfuehrung_pro_einzelfall": "0"
+                  "sachaufwand_vorschlag": "12"
                 }}
               ]
             }}
@@ -151,7 +150,6 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     assert steps[0]["hourly_rate_a_proposed"] == 45
     assert steps[0]["time_required_in_min_a_proposed"] == 1.5
     assert steps[0]["expenses_proposed"] == 12
-    assert steps[0]["execution_per_case"] in (0, False)
 
     tiles = db.fetch_tiles(session_id=session_id)
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
@@ -379,6 +377,85 @@ def test_calculate_effort_requires_steps(test_client):
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "No process steps for session"
+
+
+def test_calculate_effort_logs_parse_fallback_for_alias_keys(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("EFFORT-FALLBACK-LOG", "test-model")
+    _process_id, case_group_id = _seed_case_group(session_id)
+    step_one, _step_two = _seed_steps(session_id, case_group_id)
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_gueltig": "10",
+              "haeufigkeit_pro_jahr_gueltig": "3",
+              "anzahl_betroffene_vorschlag": "12",
+              "haeufigkeit_pro_jahr_vorschlag": "4"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_one}",
+                  "stundenlohn_satz_a_gueltig": "20",
+                  "zeitaufwand_in_min_a_gueltig": "15",
+                  "sachaufwand_gueltig": "5",
+                  "stundenlohn_satz_a_vorschlag": "25",
+                  "zeitaufwand_in_min_a_vorschlag": "10",
+                  "sachaufwand_vorschlag": "6"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(prompt, *_args, **_kwargs):
+        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
+            return cases_response
+        return effort_response
+
+    fallback_kinds: list[str] = []
+
+    def fake_mark_llm_parse_fallback(*, fallback_kind, **_kwargs):
+        fallback_kinds.append(str(fallback_kind))
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        effort_router,
+        "mark_llm_parse_fallback",
+        fake_mark_llm_parse_fallback,
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-FALLBACK-LOG",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 200
+    assert "cases_legacy_key_alias" in fallback_kinds
+    assert "effort_legacy_key_alias" in fallback_kinds
 
 
 def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):

@@ -55,7 +55,6 @@ def test_session_status_progression(test_client):
         hourly_rates_proposed={"a": 10, "b": None, "c": None, "d": None},
         time_required_proposed={"a": 5, "b": None, "c": None, "d": None},
         expenses_proposed=None,
-        execution_per_case=None,
     )
 
     resp = test_client.get("/sessions/status", params={"app_session_id": "STATUS-OK"})

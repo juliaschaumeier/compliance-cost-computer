@@ -246,7 +246,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
-    # TODO: ausfuehrung_pro_einzelfall bereits hier abfragen und nicht erst in effort_calculation??
     # Input contract:
     # - gesetz_gueltig: str
     # - gesetz_vorschlag: str
@@ -539,8 +538,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         • Aufwand für die Nachrüstung von Anlagen, 
         • Sachaufwand für Wege zu anderen Behörden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
 
-        Außerdem soll angegeben werden, ob die Tätigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgeführt wird (=0).
-
+        Bitte nur Prozessschritte aufnehmen, die für jeden einzelnen Fall dieser Fallgruppe ausgeführt werden müssen.
+        
         Anhang:
 
         {Wegezeiten_Wegesachkosten}
@@ -596,7 +595,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "zeitaufwand_in_min_c_vorschlag": "",
                             "zeitaufwand_in_min_d_vorschlag": "",
                             "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }},
                         {{
                             "taetigkeiten_id": "",
@@ -621,7 +619,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "zeitaufwand_in_min_c_vorschlag": "",
                             "zeitaufwand_in_min_d_vorschlag": "",
                             "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }},
@@ -654,7 +651,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "zeitaufwand_in_min_c_vorschlag": "",
                             "zeitaufwand_in_min_d_vorschlag": "",
                             "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }}
@@ -709,7 +705,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "zeitaufwand_in_min_c_vorschlag": "",
                             "zeitaufwand_in_min_d_vorschlag": "",
                             "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }},
                         {{
                             "taetigkeiten_id": "",
@@ -734,7 +729,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "zeitaufwand_in_min_c_vorschlag": "",
                             "zeitaufwand_in_min_d_vorschlag": "",
                             "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }}

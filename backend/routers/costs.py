@@ -147,7 +147,6 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
     with db.transaction():
         step_costs_current: dict[int, float] = {}
         step_costs_proposed: dict[int, float] = {}
-        per_case_flags: dict[int, bool] = {}
         for step in steps:
             cost_current = _compute_step_cost(step, "current")
             cost_proposed = _compute_step_cost(step, "proposed")
@@ -156,8 +155,6 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
             step_costs_proposed[step_id] = cost_proposed
             step["cost_current"] = cost_current
             step["cost_proposed"] = cost_proposed
-            raw_flag = step.get("execution_per_case")
-            per_case_flags[step_id] = bool(raw_flag) if raw_flag is not None else True
             db.update_process_step_cost(session_id, step_id, cost_current, cost_proposed)
 
         steps_by_group: dict[int, list[int]] = {}
@@ -187,12 +184,8 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
             for step_id in case_steps:
                 step_cost_current = step_costs_current.get(step_id, 0.0)
                 step_cost_proposed = step_costs_proposed.get(step_id, 0.0)
-                if per_case_flags.get(step_id, True):
-                    cost_current += step_cost_current * cases_current
-                    cost_proposed += step_cost_proposed * cases_proposed
-                else:
-                    cost_current += step_cost_current
-                    cost_proposed += step_cost_proposed
+                cost_current += step_cost_current * cases_current
+                cost_proposed += step_cost_proposed * cases_proposed
             cost_delta = cost_proposed - cost_current
             group["cases_current"] = cases_current
             group["cases_proposed"] = cases_proposed

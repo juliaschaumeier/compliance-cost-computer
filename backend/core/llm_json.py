@@ -33,14 +33,22 @@ def extract_last_json_object(payload: str) -> dict[str, Any] | None:
 
 
 def parse_json_object(payload: str) -> dict[str, Any] | None:
+    data, _parse_mode = parse_json_object_with_mode(payload)
+    return data
+
+
+def parse_json_object_with_mode(payload: str) -> tuple[dict[str, Any] | None, str]:
     cleaned = clean_llm_payload(payload)
     try:
         data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data, "direct_json_loads"
     except Exception:
-        data = extract_last_json_object(cleaned)
+        pass
+    data = extract_last_json_object(cleaned)
     if not isinstance(data, dict):
-        return None
-    return data
+        return None, "no_json_object"
+    return data, "extract_last_json_object"
 
 
 def extract_fallgruppen(data: dict[str, Any]) -> list[dict[str, Any]]:
