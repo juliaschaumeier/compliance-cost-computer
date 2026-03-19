@@ -281,3 +281,99 @@ export interface EffortCalculationResponse {
 export interface TotalCostResponse {
   total_cost: number;
 }
+
+export interface SessionPayRatesResponse {
+  app_session_id: string;
+  administration_level: string;
+  defaults: Record<string, number>;
+  edited: Record<string, number | null>;
+  active: Record<string, number>;
+}
+
+export interface SessionEditAuditRow {
+  audit_id: number;
+  session_id: number;
+  entity_type: string;
+  entity_id: number | null;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  edited_at: string;
+}
+
+export interface SessionEditAuditResponse {
+  app_session_id: string;
+  rows: SessionEditAuditRow[];
+}
+
+export interface EditableCaseGroupRow {
+  case_group_id: number;
+  process_id: number;
+  case_group: string;
+  description: string;
+  change_status: string;
+  addressees_current: number | null;
+  annual_frequency_current: number | null;
+  cases_current: number | null;
+  addressees_current_edited: number | null;
+  annual_frequency_current_edited: number | null;
+  cases_current_edited: number | null;
+  addressees_proposed: number | null;
+  annual_frequency_proposed: number | null;
+  cases_proposed: number | null;
+  addressees_proposed_edited: number | null;
+  annual_frequency_proposed_edited: number | null;
+  cases_proposed_edited: number | null;
+  addressees_current_effective: number | null;
+  annual_frequency_current_effective: number | null;
+  cases_current_effective: number | null;
+  addressees_proposed_effective: number | null;
+  annual_frequency_proposed_effective: number | null;
+  cases_proposed_effective: number | null;
+}
+
+export interface EditableCaseGroupsResponse {
+  rows: EditableCaseGroupRow[];
+}
+
+export interface EditableProcessStepRow {
+  step_id: number;
+  case_group_id: number;
+  step: string;
+  description: string;
+  change_status: string;
+  time_required_in_min_a_current: number | null;
+  time_required_in_min_b_current: number | null;
+  time_required_in_min_c_current: number | null;
+  time_required_in_min_d_current: number | null;
+  expenses_current: number | null;
+  time_required_in_min_a_current_edited: number | null;
+  time_required_in_min_b_current_edited: number | null;
+  time_required_in_min_c_current_edited: number | null;
+  time_required_in_min_d_current_edited: number | null;
+  expenses_current_edited: number | null;
+  time_required_in_min_a_proposed: number | null;
+  time_required_in_min_b_proposed: number | null;
+  time_required_in_min_c_proposed: number | null;
+  time_required_in_min_d_proposed: number | null;
+  expenses_proposed: number | null;
+  time_required_in_min_a_proposed_edited: number | null;
+  time_required_in_min_b_proposed_edited: number | null;
+  time_required_in_min_c_proposed_edited: number | null;
+  time_required_in_min_d_proposed_edited: number | null;
+  expenses_proposed_edited: number | null;
+  time_required_in_min_a_current_effective: number | null;
+  time_required_in_min_b_current_effective: number | null;
+  time_required_in_min_c_current_effective: number | null;
+  time_required_in_min_d_current_effective: number | null;
+  expenses_current_effective: number | null;
+  time_required_in_min_a_proposed_effective: number | null;
+  time_required_in_min_b_proposed_effective: number | null;
+  time_required_in_min_c_proposed_effective: number | null;
+  time_required_in_min_d_proposed_effective: number | null;
+  expenses_proposed_effective: number | null;
+}
+
+export interface EditableProcessStepsResponse {
+  rows: EditableProcessStepRow[];
+}

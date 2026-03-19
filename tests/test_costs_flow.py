@@ -1,3 +1,5 @@
+import pytest
+
 from backend.core import db
 from backend.core.models import Tile
 
@@ -140,7 +142,7 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-OK"})
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["total_cost"] == 2000
+    assert payload["total_cost"] == 1214
 
     conn = db.get_conn()
     cur = conn.cursor()
@@ -150,29 +152,29 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     )
     step_one_cost = cur.fetchone()
     assert step_one_cost["cost_current"] == 0
-    assert step_one_cost["cost_proposed"] == 40
+    assert step_one_cost["cost_proposed"] == 26.9
     cur.execute(
         "SELECT cost_current, cost_proposed FROM process_steps WHERE step_id = ?",
         (seeded["step_two"],),
     )
     step_two_cost = cur.fetchone()
     assert step_two_cost["cost_current"] == 0
-    assert step_two_cost["cost_proposed"] == 60
+    assert step_two_cost["cost_proposed"] == 33.8
     cur.execute(
         "SELECT cost FROM case_groups WHERE case_group_id = ?",
         (seeded["case_group_id"],),
     )
-    assert cur.fetchone()["cost"] == 2000
+    assert cur.fetchone()["cost"] == 1214
     cur.execute(
         "SELECT cost FROM processes WHERE process_id = ?",
         (seeded["process_id"],),
     )
-    assert cur.fetchone()["cost"] == 2000
+    assert cur.fetchone()["cost"] == 1214
     cur.execute(
         "SELECT cc_cost FROM sessions WHERE session_id = ?",
         (session_id,),
     )
-    assert cur.fetchone()["cc_cost"] == 2000
+    assert cur.fetchone()["cc_cost"] == 1214
     conn.close()
 
     tiles = db.fetch_tiles(session_id=session_id)
@@ -185,15 +187,15 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     total_tile = next(tile for tile in tiles if tile.id == "total_cost")
 
     assert "Kosten:" not in process_tile.text
-    assert process_tile.meta_information.get("cost") == 2000
+    assert process_tile.meta_information.get("cost") == 1214
     assert case_group_tile.meta_information.get("cases_proposed") == 20
-    assert case_group_tile.meta_information.get("cases_current") == 0
+    assert case_group_tile.meta_information.get("cases_current") is None
     assert "Kosten:" not in step_tile_one.text
     assert "Kosten:" not in step_tile_two.text
     assert step_tile_one.meta_information.get("cost_current") == 0
-    assert step_tile_one.meta_information.get("cost_proposed") == 40
+    assert step_tile_one.meta_information.get("cost_proposed") == 26.9
     assert step_tile_two.meta_information.get("cost_current") == 0
-    assert step_tile_two.meta_information.get("cost_proposed") == 60
+    assert step_tile_two.meta_information.get("cost_proposed") == 33.8
 
     assert "€" in total_tile.text
     assert "Fälle pro Jahr (Δ)" not in total_tile.text
@@ -235,4 +237,72 @@ def test_compute_costs_multiplies_all_steps_by_case_counts(test_client):
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-PER-GROUP"})
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["total_cost"] == 600
+    assert payload["total_cost"] == pytest.approx(364.2)
+
+
+def test_compute_costs_uses_edited_case_and_step_values(test_client):
+    session_id, _ = db.upsert_session("COST-USES-EDITS", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=0,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=0,
+    )
+
+    updated_case_groups, missing_case_groups = db.bulk_update_case_group_edits(
+        session_id,
+        [
+            {
+                "case_group_id": seeded["case_group_id"],
+                "addressees_proposed": 5,
+                "annual_frequency_proposed": 1,
+            }
+        ],
+    )
+    assert updated_case_groups == 1
+    assert missing_case_groups == []
+
+    updated_steps, missing_steps = db.bulk_update_process_step_edits(
+        session_id,
+        [
+            {
+                "step_id": seeded["step_one"],
+                "time_required_in_min_a_proposed": 30,
+                "expenses_proposed": 0,
+            },
+            {
+                "step_id": seeded["step_two"],
+                "time_required_in_min_a_proposed": 30,
+                "expenses_proposed": 0,
+            },
+        ],
+    )
+    assert updated_steps == 2
+    assert missing_steps == []
+
+    resp = test_client.post("/costs/compute", json={"app_session_id": "COST-USES-EDITS"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total_cost"] == pytest.approx(169.0)

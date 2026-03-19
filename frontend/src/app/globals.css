@@ -156,6 +156,10 @@ body {
   gap: 6px;
 }
 
+.tile-node .tile-body-placeholder {
+  flex: 1 1 auto;
+}
+
 .tile-node .tile-body-text {
   margin: 0;
   font-size: 13px;
@@ -191,6 +195,56 @@ body {
   justify-content: center;
   color: var(--text-muted);
   vertical-align: baseline;
+}
+
+.tile-node .tile-data-table-wrap {
+  margin-top: 6px;
+  overflow-x: auto;
+}
+
+.tile-node .tile-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  color: #334155;
+}
+
+.tile-node .tile-data-table thead th {
+  background: #f1f5f9;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  padding: 4px 5px;
+  text-align: right;
+  font-weight: 700;
+}
+
+.tile-node .tile-data-table thead th:first-child {
+  text-align: left;
+  width: 42%;
+}
+
+.tile-node .tile-data-table tbody th,
+.tile-node .tile-data-table tbody td {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  padding: 4px 5px;
+  vertical-align: middle;
+}
+
+.tile-node .tile-data-table tbody th {
+  text-align: left;
+  font-weight: 600;
+  color: #475569;
+  background: #f8fafc;
+}
+
+.tile-node .tile-data-table tbody td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile-node .tile-data-table tbody tr.tile-data-table-row-break th,
+.tile-node .tile-data-table tbody tr.tile-data-table-row-break td {
+  border-top-width: 2px;
+  border-top-color: rgba(15, 23, 42, 0.24);
 }
 
 .tile-node .tile-actions button {

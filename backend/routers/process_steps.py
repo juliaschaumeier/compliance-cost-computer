@@ -16,19 +16,111 @@ from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
 from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
+from backend.core.tile_refresh import refresh_step_tiles
+from backend.routers._edit_schemas import (
+    BulkUpdateResponse,
+    EditableProcessStepsResponse,
+)
+from backend.routers._edit_validation import validate_non_negative_fields
+from backend.routers._edit_validation import validate_non_empty_rows
+from backend.routers._edit_validation import validate_non_noop_update_count
+from backend.routers._edit_validation import validate_unique_ids
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
     run_with_answer_apply_guard,
+)
+from backend.routers._session_validation import (
+    APP_SESSION_ID_QUERY_VALIDATION,
+    AppSessionId,
 )
 
 
 router = APIRouter(prefix="/process-steps", tags=["process-steps"])
 
 class ProcessStepAnalysisRequest(BaseModel):
-    app_session_id: str
+    app_session_id: AppSessionId
     model: str | None = None
     provider: str | None = None
+
+
+class ProcessStepEditRow(BaseModel):
+    step_id: int
+    time_required_in_min_a_current: float | None = None
+    time_required_in_min_b_current: float | None = None
+    time_required_in_min_c_current: float | None = None
+    time_required_in_min_d_current: float | None = None
+    expenses_current: float | None = None
+    time_required_in_min_a_proposed: float | None = None
+    time_required_in_min_b_proposed: float | None = None
+    time_required_in_min_c_proposed: float | None = None
+    time_required_in_min_d_proposed: float | None = None
+    expenses_proposed: float | None = None
+
+
+class ProcessStepBulkUpdateRequest(BaseModel):
+    app_session_id: AppSessionId
+    rows: list[ProcessStepEditRow]
+
+
+@router.get("/editable", response_model=EditableProcessStepsResponse)
+async def list_editable_process_steps(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    case_group_id: int | None = None,
+) -> EditableProcessStepsResponse:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    rows = db.list_editable_process_steps(session_id, case_group_id=case_group_id)
+    return EditableProcessStepsResponse(rows=rows)
+
+
+@router.post("/bulk-update", response_model=BulkUpdateResponse)
+async def bulk_update_process_steps(
+    payload: ProcessStepBulkUpdateRequest,
+) -> BulkUpdateResponse:
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    validate_non_empty_rows(payload.rows)
+    validate_unique_ids(
+        payload.rows,
+        id_field="step_id",
+        entity_label="step_id",
+    )
+    updates: list[dict] = []
+    for row in payload.rows:
+        validate_non_negative_fields(
+            row,
+            field_names=(
+                "time_required_in_min_a_current",
+                "time_required_in_min_b_current",
+                "time_required_in_min_c_current",
+                "time_required_in_min_d_current",
+                "expenses_current",
+                "time_required_in_min_a_proposed",
+                "time_required_in_min_b_proposed",
+                "time_required_in_min_c_proposed",
+                "time_required_in_min_d_proposed",
+                "expenses_proposed",
+            ),
+            id_field="step_id",
+            entity_label="step_id",
+        )
+        updates.append(row.model_dump())
+    with db.transaction():
+        updated, missing_ids = db.bulk_update_process_step_edits(session_id, updates)
+        if missing_ids:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Unknown step_id values for this session: "
+                    + ", ".join(str(step_id) for step_id in missing_ids)
+                ),
+            )
+        validate_non_noop_update_count(updated)
+        refresh_step_tiles(session_id, db.list_process_steps_for_session(session_id))
+    return BulkUpdateResponse(updated=updated)
 
 
 def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
@@ -203,7 +295,12 @@ def _add_step_tiles(
                     "step_id": step_id,
                     "case_group_id": case_group_id,
                     "process_id": case_group_lookup[case_group_id]["process_id"],
+                    "description": description,
                     "change_status": step_status,
+                    "time_required_current": {"a": None, "b": None, "c": None, "d": None},
+                    "time_required_proposed": {"a": None, "b": None, "c": None, "d": None},
+                    "expenses_current": None,
+                    "expenses_proposed": None,
                     "cost_current": None,
                     "cost_proposed": None,
                 },

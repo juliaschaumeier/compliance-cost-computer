@@ -18,19 +18,96 @@ from backend.core.payload_builders import (
     dump_prompt_json,
 )
 from backend.core.prompts import PromptId, render_prompt
+from backend.core.tile_refresh import refresh_case_group_tiles
+from backend.routers._edit_schemas import (
+    BulkUpdateResponse,
+    EditableCaseGroupsResponse,
+)
+from backend.routers._edit_validation import validate_non_negative_fields
+from backend.routers._edit_validation import validate_non_empty_rows
+from backend.routers._edit_validation import validate_non_noop_update_count
+from backend.routers._edit_validation import validate_unique_ids
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
     run_with_answer_apply_guard,
+)
+from backend.routers._session_validation import (
+    APP_SESSION_ID_QUERY_VALIDATION,
+    AppSessionId,
 )
 
 
 router = APIRouter(prefix="/case-groups", tags=["case-groups"])
 
 class CaseGroupDevelopmentRequest(BaseModel):
-    app_session_id: str
+    app_session_id: AppSessionId
     model: str | None = None
     provider: str | None = None
+
+
+class CaseGroupEditRow(BaseModel):
+    case_group_id: int
+    addressees_current: float | None = None
+    annual_frequency_current: float | None = None
+    addressees_proposed: float | None = None
+    annual_frequency_proposed: float | None = None
+
+
+class CaseGroupBulkUpdateRequest(BaseModel):
+    app_session_id: AppSessionId
+    rows: list[CaseGroupEditRow]
+
+
+@router.get("/editable", response_model=EditableCaseGroupsResponse)
+async def list_editable_case_groups(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+) -> EditableCaseGroupsResponse:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    rows = db.list_editable_case_groups(session_id)
+    return EditableCaseGroupsResponse(rows=rows)
+
+
+@router.post("/bulk-update", response_model=BulkUpdateResponse)
+async def bulk_update_case_groups(payload: CaseGroupBulkUpdateRequest) -> BulkUpdateResponse:
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    validate_non_empty_rows(payload.rows)
+    validate_unique_ids(
+        payload.rows,
+        id_field="case_group_id",
+        entity_label="case_group_id",
+    )
+    updates: list[dict] = []
+    for row in payload.rows:
+        validate_non_negative_fields(
+            row,
+            field_names=(
+                "addressees_current",
+                "annual_frequency_current",
+                "addressees_proposed",
+                "annual_frequency_proposed",
+            ),
+            id_field="case_group_id",
+            entity_label="case_group_id",
+        )
+        updates.append(row.model_dump())
+    with db.transaction():
+        updated, missing_ids = db.bulk_update_case_group_edits(session_id, updates)
+        if missing_ids:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Unknown case_group_id values for this session: "
+                    + ", ".join(str(case_group_id) for case_group_id in missing_ids)
+                ),
+            )
+        validate_non_noop_update_count(updated)
+        refresh_case_group_tiles(session_id, db.list_case_groups_for_session(session_id))
+    return BulkUpdateResponse(updated=updated)
 
 
 def _parse_case_groups(payload: str) -> list[dict]:
@@ -129,8 +206,13 @@ def _add_case_group_tiles(
                 meta_information={
                     "case_group_id": case_group_id,
                     "process_id": process_id,
+                    "description": text,
                     "change_status": case_group_status,
+                    "addressees_current": None,
+                    "annual_frequency_current": None,
                     "cases_current": None,
+                    "addressees_proposed": None,
+                    "annual_frequency_proposed": None,
                     "cases_proposed": None,
                 },
                 column=base_col,

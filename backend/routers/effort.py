@@ -424,11 +424,31 @@ async def calculate_effort(
             )
 
         with db.transaction():
+            case_groups_by_id = {
+                int(group["case_group_id"]): group for group in case_groups
+            }
             for entry in parsed_cases:
-                addressees_current = entry.get("addressees_current")
-                annual_frequency_current = entry.get("annual_frequency_current")
-                addressees_proposed = entry.get("addressees_proposed")
-                annual_frequency_proposed = entry.get("annual_frequency_proposed")
+                existing_group = case_groups_by_id[int(entry["case_group_id"])]
+                addressees_current = (
+                    existing_group.get("addressees_current")
+                    if existing_group.get("addressees_current") is not None
+                    else entry.get("addressees_current")
+                )
+                annual_frequency_current = (
+                    existing_group.get("annual_frequency_current")
+                    if existing_group.get("annual_frequency_current") is not None
+                    else entry.get("annual_frequency_current")
+                )
+                addressees_proposed = (
+                    existing_group.get("addressees_proposed")
+                    if existing_group.get("addressees_proposed") is not None
+                    else entry.get("addressees_proposed")
+                )
+                annual_frequency_proposed = (
+                    existing_group.get("annual_frequency_proposed")
+                    if existing_group.get("annual_frequency_proposed") is not None
+                    else entry.get("annual_frequency_proposed")
+                )
                 cases_current = (
                     addressees_current * annual_frequency_current
                     if addressees_current is not None
@@ -452,16 +472,60 @@ async def calculate_effort(
                     cases_proposed=cases_proposed,
                 )
 
+            steps_by_id = {int(step["step_id"]): step for step in steps}
             for entry in parsed_effort:
+                existing_step = steps_by_id[int(entry["step_id"])]
+                hourly_rates_current = {
+                    key: (
+                        existing_step.get(f"hourly_rate_{key}_current")
+                        if existing_step.get(f"hourly_rate_{key}_current") is not None
+                        else entry["hourly_rates_current"].get(key)
+                    )
+                    for key in ["a", "b", "c", "d"]
+                }
+                hourly_rates_proposed = {
+                    key: (
+                        existing_step.get(f"hourly_rate_{key}_proposed")
+                        if existing_step.get(f"hourly_rate_{key}_proposed") is not None
+                        else entry["hourly_rates_proposed"].get(key)
+                    )
+                    for key in ["a", "b", "c", "d"]
+                }
+                time_required_current = {
+                    key: (
+                        existing_step.get(f"time_required_in_min_{key}_current")
+                        if existing_step.get(f"time_required_in_min_{key}_current") is not None
+                        else entry["time_required_current"].get(key)
+                    )
+                    for key in ["a", "b", "c", "d"]
+                }
+                time_required_proposed = {
+                    key: (
+                        existing_step.get(f"time_required_in_min_{key}_proposed")
+                        if existing_step.get(f"time_required_in_min_{key}_proposed") is not None
+                        else entry["time_required_proposed"].get(key)
+                    )
+                    for key in ["a", "b", "c", "d"]
+                }
+                expenses_current = (
+                    existing_step.get("expenses_current")
+                    if existing_step.get("expenses_current") is not None
+                    else entry.get("expenses_current")
+                )
+                expenses_proposed = (
+                    existing_step.get("expenses_proposed")
+                    if existing_step.get("expenses_proposed") is not None
+                    else entry.get("expenses_proposed")
+                )
                 db.update_process_step_effort_split(
                     session_id=session_id,
                     step_id=entry["step_id"],
-                    hourly_rates_current=entry["hourly_rates_current"],
-                    time_required_current=entry["time_required_current"],
-                    expenses_current=entry.get("expenses_current"),
-                    hourly_rates_proposed=entry["hourly_rates_proposed"],
-                    time_required_proposed=entry["time_required_proposed"],
-                    expenses_proposed=entry.get("expenses_proposed"),
+                    hourly_rates_current=hourly_rates_current,
+                    time_required_current=time_required_current,
+                    expenses_current=expenses_current,
+                    hourly_rates_proposed=hourly_rates_proposed,
+                    time_required_proposed=time_required_proposed,
+                    expenses_proposed=expenses_proposed,
                 )
 
             mark_llm_answer_applied(

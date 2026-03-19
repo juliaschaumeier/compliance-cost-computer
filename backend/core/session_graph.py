@@ -126,15 +126,8 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         base_row = process_tiles.get(process_id).row if process_id in process_tiles else 0
         for idx, group in enumerate(groups_by_process.get(process_id, [])):
             case_group_id = int(group["case_group_id"])
-            case_group_text = db.build_case_group_tile_text(
-                description=group["description"],
-                addressees_current=group.get("addressees_current"),
-                annual_frequency_current=group.get("annual_frequency_current"),
-                addressees_proposed=group.get("addressees_proposed"),
-                annual_frequency_proposed=group.get("annual_frequency_proposed"),
-                cases_current=group.get("cases_current"),
-                cases_proposed=group.get("cases_proposed"),
-            )
+            effective_group = db.resolve_effective_case_group_metrics(group)
+            case_group_text = (effective_group.get("description") or "").strip()
             tile = Tile(
                 id=f"case_group_{case_group_id}",
                 title=group["case_group"],
@@ -142,9 +135,22 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 meta_information={
                     "case_group_id": case_group_id,
                     "process_id": process_id,
+                    "description": effective_group.get("description"),
                     "change_status": group.get("change_status"),
-                    "cases_current": group.get("cases_current"),
-                    "cases_proposed": group.get("cases_proposed"),
+                    "addressees_current": effective_group.get(
+                        "addressees_current_effective"
+                    ),
+                    "annual_frequency_current": effective_group.get(
+                        "annual_frequency_current_effective"
+                    ),
+                    "cases_current": effective_group.get("cases_current_effective"),
+                    "addressees_proposed": effective_group.get(
+                        "addressees_proposed_effective"
+                    ),
+                    "annual_frequency_proposed": effective_group.get(
+                        "annual_frequency_proposed_effective"
+                    ),
+                    "cases_proposed": effective_group.get("cases_proposed_effective"),
                 },
                 column=case_group_col,
                 row=base_row + idx,
@@ -170,41 +176,32 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         ordered = _ordered_step_ids(step_map)
         for idx, step_id in enumerate(ordered):
             step = step_map[step_id]
+            effective_step = db.resolve_effective_process_step_metrics(step)
             hourly_rates_current = {
-                "a": step.get("hourly_rate_a_current"),
-                "b": step.get("hourly_rate_b_current"),
-                "c": step.get("hourly_rate_c_current"),
-                "d": step.get("hourly_rate_d_current"),
+                "a": effective_step.get("hourly_rate_a_current"),
+                "b": effective_step.get("hourly_rate_b_current"),
+                "c": effective_step.get("hourly_rate_c_current"),
+                "d": effective_step.get("hourly_rate_d_current"),
             }
             time_required_current = {
-                "a": step.get("time_required_in_min_a_current"),
-                "b": step.get("time_required_in_min_b_current"),
-                "c": step.get("time_required_in_min_c_current"),
-                "d": step.get("time_required_in_min_d_current"),
+                "a": effective_step.get("time_required_in_min_a_current_effective"),
+                "b": effective_step.get("time_required_in_min_b_current_effective"),
+                "c": effective_step.get("time_required_in_min_c_current_effective"),
+                "d": effective_step.get("time_required_in_min_d_current_effective"),
             }
             hourly_rates_proposed = {
-                "a": step.get("hourly_rate_a_proposed"),
-                "b": step.get("hourly_rate_b_proposed"),
-                "c": step.get("hourly_rate_c_proposed"),
-                "d": step.get("hourly_rate_d_proposed"),
+                "a": effective_step.get("hourly_rate_a_proposed"),
+                "b": effective_step.get("hourly_rate_b_proposed"),
+                "c": effective_step.get("hourly_rate_c_proposed"),
+                "d": effective_step.get("hourly_rate_d_proposed"),
             }
             time_required_proposed = {
-                "a": step.get("time_required_in_min_a_proposed"),
-                "b": step.get("time_required_in_min_b_proposed"),
-                "c": step.get("time_required_in_min_c_proposed"),
-                "d": step.get("time_required_in_min_d_proposed"),
+                "a": effective_step.get("time_required_in_min_a_proposed_effective"),
+                "b": effective_step.get("time_required_in_min_b_proposed_effective"),
+                "c": effective_step.get("time_required_in_min_c_proposed_effective"),
+                "d": effective_step.get("time_required_in_min_d_proposed_effective"),
             }
-            step_text = db.build_process_step_tile_text(
-                description=step["description"],
-                hourly_rates_current=hourly_rates_current,
-                time_required_current=time_required_current,
-                expenses_current=step.get("expenses_current"),
-                cost_current=step.get("cost_current"),
-                hourly_rates_proposed=hourly_rates_proposed,
-                time_required_proposed=time_required_proposed,
-                expenses_proposed=step.get("expenses_proposed"),
-                cost_proposed=step.get("cost_proposed"),
-            )
+            step_text = (step.get("description") or "").strip()
             tiles.append(
                 Tile(
                     id=f"step_{step_id}",
@@ -214,7 +211,14 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                         "step_id": step_id,
                         "case_group_id": case_group_id,
                         "process_id": case_group_tile.meta_information.get("process_id"),
+                        "description": step.get("description"),
                         "change_status": step.get("change_status"),
+                        "time_required_current": time_required_current,
+                        "time_required_proposed": time_required_proposed,
+                        "expenses_current": effective_step.get("expenses_current_effective"),
+                        "expenses_proposed": effective_step.get(
+                            "expenses_proposed_effective"
+                        ),
                         "cost_current": step.get("cost_current"),
                         "cost_proposed": step.get("cost_proposed"),
                     },

@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Iterable, List
 
 from .config import settings
+from . import db_edit_metrics
+from .edit_audit import insert_edit_audit_row, value_changed
 from .db_formatting import (
-    build_case_group_tile_text,
-    build_process_step_tile_text,
     build_process_tile_text,
     format_currency,
     format_number,
@@ -23,6 +23,15 @@ _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=
 LLM_ANSWER_STATE_PENDING = "pending"
 LLM_ANSWER_STATE_ACTIVE = "active"
 LLM_ANSWER_STATE_INVALID = "invalid"
+
+PAY_RATE_LEVEL_BUND = "bund"
+PAY_RATE_KEYS = ("a", "b", "c", "d")
+PAY_RATE_BUND_DEFAULTS: dict[str, float] = {
+    "a": 33.8,
+    "b": 40.4,
+    "c": 67.6,
+    "d": 44.4,
+}
 
 
 def _ensure_parent(path: Path) -> None:
@@ -67,6 +76,66 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
         );
         """
     )
+
+
+def _create_pay_rate_defaults_table(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pay_rate_defaults (
+            administration_level TEXT PRIMARY KEY,
+            hourly_rate_a        REAL NOT NULL,
+            hourly_rate_b        REAL NOT NULL,
+            hourly_rate_c        REAL NOT NULL,
+            hourly_rate_d        REAL NOT NULL
+        )
+        """
+    )
+
+
+def _seed_pay_rate_defaults(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        INSERT OR IGNORE INTO pay_rate_defaults (
+            administration_level,
+            hourly_rate_a,
+            hourly_rate_b,
+            hourly_rate_c,
+            hourly_rate_d
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            PAY_RATE_LEVEL_BUND,
+            PAY_RATE_BUND_DEFAULTS["a"],
+            PAY_RATE_BUND_DEFAULTS["b"],
+            PAY_RATE_BUND_DEFAULTS["c"],
+            PAY_RATE_BUND_DEFAULTS["d"],
+        ),
+    )
+
+
+def _resolve_pay_rate_defaults(
+    cur: sqlite3.Cursor,
+    administration_level: str | None,
+) -> dict[str, float]:
+    level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
+    cur.execute(
+        """
+        SELECT hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
+        FROM pay_rate_defaults
+        WHERE administration_level = ?
+        """,
+        (level,),
+    )
+    row = cur.fetchone()
+    if row:
+        return {
+            "a": float(row["hourly_rate_a"]),
+            "b": float(row["hourly_rate_b"]),
+            "c": float(row["hourly_rate_c"]),
+            "d": float(row["hourly_rate_d"]),
+        }
+    return dict(PAY_RATE_BUND_DEFAULTS)
 
 
 def _used_models_expr(session_id_sql: str) -> str:
@@ -188,7 +257,12 @@ def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_
             time_required_in_min_b_current  REAL,
             time_required_in_min_c_current  REAL,
             time_required_in_min_d_current  REAL,
+            time_required_in_min_a_current_edited  REAL,
+            time_required_in_min_b_current_edited  REAL,
+            time_required_in_min_c_current_edited  REAL,
+            time_required_in_min_d_current_edited  REAL,
             expenses_current                REAL,
+            expenses_current_edited         REAL,
             hourly_rate_a_proposed          REAL,
             hourly_rate_b_proposed          REAL,
             hourly_rate_c_proposed          REAL,
@@ -197,9 +271,15 @@ def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_
             time_required_in_min_b_proposed REAL,
             time_required_in_min_c_proposed REAL,
             time_required_in_min_d_proposed REAL,
+            time_required_in_min_a_proposed_edited REAL,
+            time_required_in_min_b_proposed_edited REAL,
+            time_required_in_min_c_proposed_edited REAL,
+            time_required_in_min_d_proposed_edited REAL,
             expenses_proposed               REAL,
+            expenses_proposed_edited        REAL,
             cost_current                    REAL,
             cost_proposed                   REAL,
+            last_edited_at                  TEXT,
             FOREIGN KEY (case_group_id)
             REFERENCES case_groups
                 ON UPDATE CASCADE
@@ -272,6 +352,36 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     _ensure_column(cur, "sessions", "law_diff_blurb", "TEXT")
     _ensure_column(cur, "sessions", "law_diff_summary", "TEXT")
     _ensure_column(cur, "sessions", "used_llm_models", "TEXT")
+    _ensure_column(
+        cur,
+        "sessions",
+        "pay_rate_administration_level",
+        f"TEXT NOT NULL DEFAULT '{PAY_RATE_LEVEL_BUND}'",
+    )
+    _ensure_column(cur, "sessions", "pay_rate_default_a", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_default_b", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_default_c", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_default_d", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_edited_a", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_edited_b", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_edited_c", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_edited_d", "REAL")
+    _ensure_column(cur, "sessions", "pay_rate_last_edited_at", "TEXT")
+    if all(
+        _table_has_column(cur, "sessions", f"pay_rate_override_{key}")
+        for key in PAY_RATE_KEYS
+    ):
+        # Migration helper: preserve existing non-empty DB overrides in the new
+        # *_edited columns. Safe to remove once production starts from empty DB.
+        cur.execute(
+            """
+            UPDATE sessions
+            SET pay_rate_edited_a = COALESCE(pay_rate_edited_a, pay_rate_override_a),
+                pay_rate_edited_b = COALESCE(pay_rate_edited_b, pay_rate_override_b),
+                pay_rate_edited_c = COALESCE(pay_rate_edited_c, pay_rate_override_c),
+                pay_rate_edited_d = COALESCE(pay_rate_edited_d, pay_rate_override_d)
+            """
+        )
 
     _ensure_column(cur, "llm_answers", "input_tokens", "INTEGER")
     _ensure_column(cur, "llm_answers", "output_tokens", "INTEGER")
@@ -294,6 +404,66 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     )
 
     _migrate_process_steps_drop_execution_per_case(cur)
+
+    _create_pay_rate_defaults_table(cur)
+    _seed_pay_rate_defaults(cur)
+
+    # Migration helper: add editable mirrors for case group metrics.
+    _ensure_column(cur, "case_groups", "addressees_current_edited", "REAL")
+    _ensure_column(cur, "case_groups", "annual_frequency_current_edited", "REAL")
+    _ensure_column(cur, "case_groups", "cases_current_edited", "REAL")
+    _ensure_column(cur, "case_groups", "addressees_proposed_edited", "REAL")
+    _ensure_column(cur, "case_groups", "annual_frequency_proposed_edited", "REAL")
+    _ensure_column(cur, "case_groups", "cases_proposed_edited", "REAL")
+    _ensure_column(cur, "case_groups", "last_edited_at", "TEXT")
+
+    # Migration helper: add editable mirrors for process-step metrics.
+    for suffix in ("current", "proposed"):
+        _ensure_column(
+            cur,
+            "process_steps",
+            f"time_required_in_min_a_{suffix}_edited",
+            "REAL",
+        )
+        _ensure_column(
+            cur,
+            "process_steps",
+            f"time_required_in_min_b_{suffix}_edited",
+            "REAL",
+        )
+        _ensure_column(
+            cur,
+            "process_steps",
+            f"time_required_in_min_c_{suffix}_edited",
+            "REAL",
+        )
+        _ensure_column(
+            cur,
+            "process_steps",
+            f"time_required_in_min_d_{suffix}_edited",
+            "REAL",
+        )
+        _ensure_column(cur, "process_steps", f"expenses_{suffix}_edited", "REAL")
+    _ensure_column(cur, "process_steps", "last_edited_at", "TEXT")
+
+    defaults = _resolve_pay_rate_defaults(cur, PAY_RATE_LEVEL_BUND)
+    cur.execute(
+        """
+        UPDATE sessions
+        SET pay_rate_administration_level = COALESCE(pay_rate_administration_level, ?),
+            pay_rate_default_a = COALESCE(pay_rate_default_a, ?),
+            pay_rate_default_b = COALESCE(pay_rate_default_b, ?),
+            pay_rate_default_c = COALESCE(pay_rate_default_c, ?),
+            pay_rate_default_d = COALESCE(pay_rate_default_d, ?)
+        """,
+        (
+            PAY_RATE_LEVEL_BUND,
+            defaults["a"],
+            defaults["b"],
+            defaults["c"],
+            defaults["d"],
+        ),
+    )
 
     if needs_used_models_backfill:
         _refresh_all_session_used_models(cur)
@@ -361,6 +531,8 @@ def init_db() -> None:
         )
         """
     )
+    _create_pay_rate_defaults_table(cur)
+    _seed_pay_rate_defaults(cur)
     # TODO: Maybe add updated_at with trigger rule: https://www.sqlitetutorial.net/sqlite-date-functions/sqlite-current_timestamp/
     # TODO: Potentially add the change in cases? How meaningful is that number?
     cur.execute(
@@ -371,6 +543,16 @@ def init_db() -> None:
             created_at          TEXT NOT NULL DEFAULT current_timestamp,
             llm_model           TEXT NOT NULL,
             used_llm_models     TEXT,
+            pay_rate_administration_level TEXT NOT NULL DEFAULT 'bund',
+            pay_rate_default_a  REAL,
+            pay_rate_default_b  REAL,
+            pay_rate_default_c  REAL,
+            pay_rate_default_d  REAL,
+            pay_rate_edited_a REAL,
+            pay_rate_edited_b REAL,
+            pay_rate_edited_c REAL,
+            pay_rate_edited_d REAL,
+            pay_rate_last_edited_at TEXT,
             current_law_id      INTEGER,
             proposed_law_id     INTEGER,
             law_diff_title      TEXT,
@@ -432,6 +614,33 @@ def init_db() -> None:
                 ON UPDATE CASCADE
                 ON DELETE CASCADE
         )
+        """
+    )
+    # NOTE: edit_audit_log is persisted for now to support cross-restart debugging.
+    # This can be switched to temporary/in-memory only if long-term audit history
+    # is not required in production.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS edit_audit_log (
+            audit_id     INTEGER PRIMARY KEY,
+            session_id   INTEGER NOT NULL,
+            entity_type  TEXT NOT NULL,
+            entity_id    INTEGER,
+            field_name   TEXT NOT NULL,
+            old_value    TEXT,
+            new_value    TEXT,
+            edited_at    TEXT NOT NULL DEFAULT current_timestamp,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_edit_audit_log_session_time
+        ON edit_audit_log (session_id, edited_at DESC, audit_id DESC)
         """
     )
     # TODO: Maybe add llm_generated, edited, deleted, legal_citation_original, description_original
@@ -525,10 +734,17 @@ def init_db() -> None:
             addressees_current          REAL,
             annual_frequency_current    REAL,
             cases_current               REAL,
+            addressees_current_edited   REAL,
+            annual_frequency_current_edited REAL,
+            cases_current_edited        REAL,
             addressees_proposed         REAL,
             annual_frequency_proposed   REAL,
             cases_proposed              REAL,
+            addressees_proposed_edited  REAL,
+            annual_frequency_proposed_edited REAL,
+            cases_proposed_edited       REAL,
             cost                        REAL,
+            last_edited_at              TEXT,
             FOREIGN KEY (process_id)
             REFERENCES processes
                 ON UPDATE CASCADE
@@ -877,6 +1093,34 @@ def list_sessions(limit: int = 50) -> List[dict]:
     return rows
 
 
+def list_edit_audit_for_session(session_id: int, limit: int = 200) -> List[dict]:
+    # NOTE: Reads persisted edit_audit_log rows. If audit logging is later made
+    # temporary/dev-only, this function is one primary integration point to adapt.
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            audit_id,
+            session_id,
+            entity_type,
+            entity_id,
+            field_name,
+            old_value,
+            new_value,
+            edited_at
+        FROM edit_audit_log
+        WHERE session_id = ?
+        ORDER BY audit_id DESC
+        LIMIT ?
+        """,
+        (session_id, limit),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
 def get_session_status(app_session_id: str) -> dict | None:
     session = get_session_by_app_id(app_session_id)
     if not session:
@@ -922,7 +1166,11 @@ def has_effort_metrics(session_id: int) -> bool:
         WHERE session_id = ?
           AND (
             addressees_current IS NOT NULL OR annual_frequency_current IS NOT NULL
+            OR addressees_current_edited IS NOT NULL
+            OR annual_frequency_current_edited IS NOT NULL
             OR addressees_proposed IS NOT NULL OR annual_frequency_proposed IS NOT NULL
+            OR addressees_proposed_edited IS NOT NULL
+            OR annual_frequency_proposed_edited IS NOT NULL
           )
         """,
         (session_id,),
@@ -940,14 +1188,24 @@ def has_effort_metrics(session_id: int) -> bool:
             OR time_required_in_min_b_current IS NOT NULL
             OR time_required_in_min_c_current IS NOT NULL
             OR time_required_in_min_d_current IS NOT NULL
+            OR time_required_in_min_a_current_edited IS NOT NULL
+            OR time_required_in_min_b_current_edited IS NOT NULL
+            OR time_required_in_min_c_current_edited IS NOT NULL
+            OR time_required_in_min_d_current_edited IS NOT NULL
             OR expenses_current IS NOT NULL
+            OR expenses_current_edited IS NOT NULL
             OR hourly_rate_a_proposed IS NOT NULL OR hourly_rate_b_proposed IS NOT NULL
             OR hourly_rate_c_proposed IS NOT NULL OR hourly_rate_d_proposed IS NOT NULL
             OR time_required_in_min_a_proposed IS NOT NULL
             OR time_required_in_min_b_proposed IS NOT NULL
             OR time_required_in_min_c_proposed IS NOT NULL
             OR time_required_in_min_d_proposed IS NOT NULL
+            OR time_required_in_min_a_proposed_edited IS NOT NULL
+            OR time_required_in_min_b_proposed_edited IS NOT NULL
+            OR time_required_in_min_c_proposed_edited IS NOT NULL
+            OR time_required_in_min_d_proposed_edited IS NOT NULL
             OR expenses_proposed IS NOT NULL
+            OR expenses_proposed_edited IS NOT NULL
           )
         """,
         (session_id,),
@@ -997,6 +1255,7 @@ def ensure_session(
 def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
     conn = get_conn()
     cur = conn.cursor()
+    defaults = _resolve_pay_rate_defaults(cur, PAY_RATE_LEVEL_BUND)
     cur.execute(
         "SELECT session_id FROM sessions WHERE app_session_id = ?",
         (app_session_id,),
@@ -1007,15 +1266,50 @@ def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
             "UPDATE sessions SET llm_model = ? WHERE app_session_id = ?",
             (llm_model, app_session_id),
         )
+        cur.execute(
+            """
+            UPDATE sessions
+            SET pay_rate_administration_level = COALESCE(pay_rate_administration_level, ?),
+                pay_rate_default_a = COALESCE(pay_rate_default_a, ?),
+                pay_rate_default_b = COALESCE(pay_rate_default_b, ?),
+                pay_rate_default_c = COALESCE(pay_rate_default_c, ?),
+                pay_rate_default_d = COALESCE(pay_rate_default_d, ?)
+            WHERE app_session_id = ?
+            """,
+            (
+                PAY_RATE_LEVEL_BUND,
+                defaults["a"],
+                defaults["b"],
+                defaults["c"],
+                defaults["d"],
+                app_session_id,
+            ),
+        )
         session_id = int(row["session_id"])
         created = False
     else:
         cur.execute(
             """
-            INSERT INTO sessions (app_session_id, llm_model)
-            VALUES (?, ?)
+            INSERT INTO sessions (
+                app_session_id,
+                llm_model,
+                pay_rate_administration_level,
+                pay_rate_default_a,
+                pay_rate_default_b,
+                pay_rate_default_c,
+                pay_rate_default_d
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (app_session_id, llm_model),
+            (
+                app_session_id,
+                llm_model,
+                PAY_RATE_LEVEL_BUND,
+                defaults["a"],
+                defaults["b"],
+                defaults["c"],
+                defaults["d"],
+            ),
         )
         session_id = int(cur.lastrowid)
         created = True
@@ -1465,9 +1759,16 @@ def list_case_groups_for_session(session_id: int) -> List[dict]:
             addressees_current,
             annual_frequency_current,
             cases_current,
+            addressees_current_edited,
+            annual_frequency_current_edited,
+            cases_current_edited,
             addressees_proposed,
             annual_frequency_proposed,
             cases_proposed,
+            addressees_proposed_edited,
+            annual_frequency_proposed_edited,
+            cases_proposed_edited,
+            last_edited_at,
             cost
         FROM case_groups
         WHERE session_id = ?
@@ -1516,6 +1817,22 @@ def list_process_steps_for_session(session_id: int) -> List[dict]:
         "cost_current",
         "cost_proposed",
     ]
+    optional_columns = [
+        "time_required_in_min_a_current_edited",
+        "time_required_in_min_b_current_edited",
+        "time_required_in_min_c_current_edited",
+        "time_required_in_min_d_current_edited",
+        "expenses_current_edited",
+        "time_required_in_min_a_proposed_edited",
+        "time_required_in_min_b_proposed_edited",
+        "time_required_in_min_c_proposed_edited",
+        "time_required_in_min_d_proposed_edited",
+        "expenses_proposed_edited",
+        "last_edited_at",
+    ]
+    for optional_column in optional_columns:
+        if _table_has_column(cur, "process_steps", optional_column):
+            columns.append(optional_column)
     if _table_has_column(cur, "process_steps", "execution_per_case"):
         columns.append("execution_per_case")
     select_columns = ", ".join(columns)
@@ -1531,6 +1848,308 @@ def list_process_steps_for_session(session_id: int) -> List[dict]:
     rows = [dict(row) for row in cur.fetchall()]
     _maybe_close(conn)
     return rows
+
+
+def _effective_value(base: float | int | None, edited: float | int | None) -> float | None:
+    if edited is not None:
+        return float(edited)
+    if base is not None:
+        return float(base)
+    return None
+
+
+def resolve_effective_case_group_metrics(group: dict) -> dict:
+    addressees_current = _effective_value(
+        group.get("addressees_current"),
+        group.get("addressees_current_edited"),
+    )
+    annual_frequency_current = _effective_value(
+        group.get("annual_frequency_current"),
+        group.get("annual_frequency_current_edited"),
+    )
+    addressees_proposed = _effective_value(
+        group.get("addressees_proposed"),
+        group.get("addressees_proposed_edited"),
+    )
+    annual_frequency_proposed = _effective_value(
+        group.get("annual_frequency_proposed"),
+        group.get("annual_frequency_proposed_edited"),
+    )
+    cases_current = (
+        addressees_current * annual_frequency_current
+        if addressees_current is not None and annual_frequency_current is not None
+        else _effective_value(group.get("cases_current"), group.get("cases_current_edited"))
+    )
+    cases_proposed = (
+        addressees_proposed * annual_frequency_proposed
+        if addressees_proposed is not None and annual_frequency_proposed is not None
+        else _effective_value(group.get("cases_proposed"), group.get("cases_proposed_edited"))
+    )
+    resolved = dict(group)
+    resolved["addressees_current_effective"] = addressees_current
+    resolved["annual_frequency_current_effective"] = annual_frequency_current
+    resolved["cases_current_effective"] = cases_current
+    resolved["addressees_proposed_effective"] = addressees_proposed
+    resolved["annual_frequency_proposed_effective"] = annual_frequency_proposed
+    resolved["cases_proposed_effective"] = cases_proposed
+    return resolved
+
+
+def resolve_effective_process_step_metrics(step: dict) -> dict:
+    resolved = dict(step)
+    for suffix in ("current", "proposed"):
+        for key in PAY_RATE_KEYS:
+            base_key = f"time_required_in_min_{key}_{suffix}"
+            edited_key = f"time_required_in_min_{key}_{suffix}_edited"
+            resolved[f"{base_key}_effective"] = _effective_value(
+                step.get(base_key),
+                step.get(edited_key),
+            )
+        resolved[f"expenses_{suffix}_effective"] = _effective_value(
+            step.get(f"expenses_{suffix}"),
+            step.get(f"expenses_{suffix}_edited"),
+        )
+    return resolved
+
+
+def list_pay_rate_defaults() -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT administration_level, hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
+        FROM pay_rate_defaults
+        ORDER BY administration_level
+        """
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
+def get_session_pay_rates(session_id: int) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            pay_rate_administration_level,
+            pay_rate_default_a,
+            pay_rate_default_b,
+            pay_rate_default_c,
+            pay_rate_default_d,
+            pay_rate_edited_a,
+            pay_rate_edited_b,
+            pay_rate_edited_c,
+            pay_rate_edited_d
+        FROM sessions
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    if row is None:
+        return None
+    level = str(row["pay_rate_administration_level"] or PAY_RATE_LEVEL_BUND).strip().lower()
+    defaults = {
+        "a": float(row["pay_rate_default_a"]) if row["pay_rate_default_a"] is not None else PAY_RATE_BUND_DEFAULTS["a"],
+        "b": float(row["pay_rate_default_b"]) if row["pay_rate_default_b"] is not None else PAY_RATE_BUND_DEFAULTS["b"],
+        "c": float(row["pay_rate_default_c"]) if row["pay_rate_default_c"] is not None else PAY_RATE_BUND_DEFAULTS["c"],
+        "d": float(row["pay_rate_default_d"]) if row["pay_rate_default_d"] is not None else PAY_RATE_BUND_DEFAULTS["d"],
+    }
+    edited = {
+        "a": float(row["pay_rate_edited_a"]) if row["pay_rate_edited_a"] is not None else None,
+        "b": float(row["pay_rate_edited_b"]) if row["pay_rate_edited_b"] is not None else None,
+        "c": float(row["pay_rate_edited_c"]) if row["pay_rate_edited_c"] is not None else None,
+        "d": float(row["pay_rate_edited_d"]) if row["pay_rate_edited_d"] is not None else None,
+    }
+    active = {
+        key: (edited[key] if edited[key] is not None else defaults[key])
+        for key in PAY_RATE_KEYS
+    }
+    return {
+        "administration_level": level,
+        "defaults": defaults,
+        "edited": edited,
+        "active": active,
+    }
+
+
+def update_session_pay_rate_edits(
+    session_id: int,
+    administration_level: str | None,
+    edited: dict[str, float | None],
+) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            pay_rate_administration_level,
+            pay_rate_default_a,
+            pay_rate_default_b,
+            pay_rate_default_c,
+            pay_rate_default_d,
+            pay_rate_edited_a,
+            pay_rate_edited_b,
+            pay_rate_edited_c,
+            pay_rate_edited_d
+        FROM sessions
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    )
+    previous_row = cur.fetchone()
+    if previous_row is None:
+        _maybe_close(conn)
+        return False
+    previous = dict(previous_row)
+    level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
+    cur.execute(
+        """
+        SELECT hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
+        FROM pay_rate_defaults
+        WHERE administration_level = ?
+        """,
+        (level,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        _maybe_close(conn)
+        raise ValueError(f"Unknown administration_level: {level}")
+    defaults = {
+        "a": float(row["hourly_rate_a"]),
+        "b": float(row["hourly_rate_b"]),
+        "c": float(row["hourly_rate_c"]),
+        "d": float(row["hourly_rate_d"]),
+    }
+    changed = value_changed(previous.get("pay_rate_administration_level"), level)
+    for key in PAY_RATE_KEYS:
+        changed = changed or value_changed(
+            previous.get(f"pay_rate_default_{key}"),
+            defaults[key],
+        )
+        changed = changed or value_changed(
+            previous.get(f"pay_rate_edited_{key}"),
+            edited.get(key),
+        )
+    if not changed:
+        _maybe_close(conn)
+        return False
+
+    cur.execute(
+        """
+        UPDATE sessions
+        SET pay_rate_administration_level = ?,
+            pay_rate_default_a = ?,
+            pay_rate_default_b = ?,
+            pay_rate_default_c = ?,
+            pay_rate_default_d = ?,
+            pay_rate_edited_a = ?,
+            pay_rate_edited_b = ?,
+            pay_rate_edited_c = ?,
+            pay_rate_edited_d = ?,
+            pay_rate_last_edited_at = current_timestamp
+        WHERE session_id = ?
+        """,
+        (
+            level,
+            defaults["a"],
+            defaults["b"],
+            defaults["c"],
+            defaults["d"],
+            edited.get("a"),
+            edited.get("b"),
+            edited.get("c"),
+            edited.get("d"),
+            session_id,
+        ),
+    )
+    insert_edit_audit_row(
+        cur,
+        session_id=session_id,
+        entity_type="pay_rate",
+        entity_id=None,
+        field_name="administration_level",
+        old_value=previous.get("pay_rate_administration_level"),
+        new_value=level,
+    )
+    for key in PAY_RATE_KEYS:
+        insert_edit_audit_row(
+            cur,
+            session_id=session_id,
+            entity_type="pay_rate",
+            entity_id=None,
+            field_name=f"default_{key}",
+            old_value=previous.get(f"pay_rate_default_{key}"),
+            new_value=defaults[key],
+        )
+        insert_edit_audit_row(
+            cur,
+            session_id=session_id,
+            entity_type="pay_rate",
+            entity_id=None,
+            field_name=f"edited_{key}",
+            old_value=previous.get(f"pay_rate_edited_{key}"),
+            new_value=edited.get(key),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return True
+
+
+# --- Edit Metrics (delegated to backend.core.db_edit_metrics) ---
+def list_editable_case_groups(session_id: int) -> list[dict]:
+    rows = list_case_groups_for_session(session_id)
+    return db_edit_metrics.list_editable_case_groups(
+        rows=rows,
+        resolve_effective_case_group_metrics=resolve_effective_case_group_metrics,
+    )
+
+
+def bulk_update_case_group_edits(session_id: int, rows: list[dict]) -> tuple[int, list[int]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    updated, missing_ids = db_edit_metrics.bulk_update_case_group_edits(
+        cur=cur,
+        session_id=session_id,
+        rows=rows,
+    )
+    if missing_ids:
+        _maybe_close(conn)
+        return 0, missing_ids
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return updated, []
+
+
+def list_editable_process_steps(
+    session_id: int,
+    case_group_id: int | None = None,
+) -> list[dict]:
+    rows = list_process_steps_for_session(session_id)
+    return db_edit_metrics.list_editable_process_steps(
+        rows=rows,
+        resolve_effective_process_step_metrics=resolve_effective_process_step_metrics,
+        case_group_id=case_group_id,
+    )
+
+
+def bulk_update_process_step_edits(session_id: int, rows: list[dict]) -> tuple[int, list[int]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    updated, missing_ids = db_edit_metrics.bulk_update_process_step_edits(
+        cur=cur,
+        session_id=session_id,
+        rows=rows,
+    )
+    if missing_ids:
+        _maybe_close(conn)
+        return 0, missing_ids
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return updated, []
 
 
 def insert_regulation(
@@ -1926,9 +2545,16 @@ def clear_effort_metrics(session_id: int) -> None:
         SET addressees_current = NULL,
             annual_frequency_current = NULL,
             cases_current = NULL,
+            addressees_current_edited = NULL,
+            annual_frequency_current_edited = NULL,
+            cases_current_edited = NULL,
             addressees_proposed = NULL,
             annual_frequency_proposed = NULL,
-            cases_proposed = NULL
+            cases_proposed = NULL,
+            addressees_proposed_edited = NULL,
+            annual_frequency_proposed_edited = NULL,
+            cases_proposed_edited = NULL,
+            last_edited_at = NULL
         WHERE session_id = ?
         """,
         (session_id,),
@@ -1944,7 +2570,12 @@ def clear_effort_metrics(session_id: int) -> None:
             time_required_in_min_b_current = NULL,
             time_required_in_min_c_current = NULL,
             time_required_in_min_d_current = NULL,
+            time_required_in_min_a_current_edited = NULL,
+            time_required_in_min_b_current_edited = NULL,
+            time_required_in_min_c_current_edited = NULL,
+            time_required_in_min_d_current_edited = NULL,
             expenses_current = NULL,
+            expenses_current_edited = NULL,
             hourly_rate_a_proposed = NULL,
             hourly_rate_b_proposed = NULL,
             hourly_rate_c_proposed = NULL,
@@ -1953,7 +2584,13 @@ def clear_effort_metrics(session_id: int) -> None:
             time_required_in_min_b_proposed = NULL,
             time_required_in_min_c_proposed = NULL,
             time_required_in_min_d_proposed = NULL,
-            expenses_proposed = NULL
+            time_required_in_min_a_proposed_edited = NULL,
+            time_required_in_min_b_proposed_edited = NULL,
+            time_required_in_min_c_proposed_edited = NULL,
+            time_required_in_min_d_proposed_edited = NULL,
+            expenses_proposed = NULL,
+            expenses_proposed_edited = NULL,
+            last_edited_at = NULL
         WHERE session_id = ?
         """,
         (session_id,),

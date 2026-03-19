@@ -21,36 +21,33 @@ def _safe_number(value: float | int | None) -> float:
     return float(value)
 
 
-def _compute_step_cost(step: dict, suffix: str) -> float:
+def _compute_step_cost(step: dict, suffix: str, active_rates: dict[str, float]) -> float:
     total = 0.0
     for key in ["a", "b", "c", "d"]:
-        rate = _safe_number(step.get(f"hourly_rate_{key}_{suffix}"))
-        minutes = _safe_number(step.get(f"time_required_in_min_{key}_{suffix}"))
+        rate = _safe_number(active_rates.get(key))
+        minutes = _safe_number(step.get(f"time_required_in_min_{key}_{suffix}_effective"))
         total += rate * (minutes / 60.0)
-    total += _safe_number(step.get(f"expenses_{suffix}"))
+    total += _safe_number(step.get(f"expenses_{suffix}_effective"))
     return total
 
 
 def _has_step_cost_inputs(step: dict, suffix: str) -> bool:
     for key in ["a", "b", "c", "d"]:
-        if (
-            step.get(f"hourly_rate_{key}_{suffix}") is not None
-            and step.get(f"time_required_in_min_{key}_{suffix}") is not None
-        ):
+        if step.get(f"time_required_in_min_{key}_{suffix}_effective") is not None:
             return True
-    return step.get(f"expenses_{suffix}") is not None
+    return step.get(f"expenses_{suffix}_effective") is not None
 
 
 def _has_case_inputs(group: dict, suffix: str) -> bool:
     return (
-        group.get(f"addressees_{suffix}") is not None
-        and group.get(f"annual_frequency_{suffix}") is not None
+        group.get(f"addressees_{suffix}_effective") is not None
+        and group.get(f"annual_frequency_{suffix}_effective") is not None
     )
 
 
 def _compute_cases(group: dict, suffix: str) -> float:
-    return _safe_number(group.get(f"addressees_{suffix}")) * _safe_number(
-        group.get(f"annual_frequency_{suffix}")
+    return _safe_number(group.get(f"addressees_{suffix}_effective")) * _safe_number(
+        group.get(f"annual_frequency_{suffix}_effective")
     )
 
 
@@ -114,6 +111,14 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
     case_groups = db.list_case_groups_for_session(session_id)
     processes = db.list_processes_for_session(session_id)
     steps = db.list_process_steps_for_session(session_id)
+    pay_rates = db.get_session_pay_rates(session_id)
+    if not pay_rates:
+        raise HTTPException(status_code=404, detail="Session pay rates not found")
+    active_rates = pay_rates["active"]
+    effective_case_groups = [
+        db.resolve_effective_case_group_metrics(group) for group in case_groups
+    ]
+    effective_steps = [db.resolve_effective_process_step_metrics(step) for step in steps]
     if not case_groups:
         raise HTTPException(status_code=400, detail="No case groups for session")
     if not steps:
@@ -121,7 +126,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
 
     missing_case_groups = [
         str(group["case_group_id"])
-        for group in case_groups
+        for group in effective_case_groups
         if not (_has_case_inputs(group, "current") or _has_case_inputs(group, "proposed"))
     ]
     if missing_case_groups:
@@ -132,7 +137,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         )
     missing_steps = [
         str(step["step_id"])
-        for step in steps
+        for step in effective_steps
         if not (
             _has_step_cost_inputs(step, "current")
             or _has_step_cost_inputs(step, "proposed")
@@ -147,38 +152,30 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
     with db.transaction():
         step_costs_current: dict[int, float] = {}
         step_costs_proposed: dict[int, float] = {}
-        for step in steps:
-            cost_current = _compute_step_cost(step, "current")
-            cost_proposed = _compute_step_cost(step, "proposed")
+        for idx, step in enumerate(effective_steps):
+            cost_current = _compute_step_cost(step, "current", active_rates)
+            cost_proposed = _compute_step_cost(step, "proposed", active_rates)
             step_id = int(step["step_id"])
             step_costs_current[step_id] = cost_current
             step_costs_proposed[step_id] = cost_proposed
             step["cost_current"] = cost_current
             step["cost_proposed"] = cost_proposed
+            steps[idx]["cost_current"] = cost_current
+            steps[idx]["cost_proposed"] = cost_proposed
             db.update_process_step_cost(session_id, step_id, cost_current, cost_proposed)
 
         steps_by_group: dict[int, list[int]] = {}
-        for step in steps:
+        for step in effective_steps:
             steps_by_group.setdefault(int(step["case_group_id"]), []).append(
                 int(step["step_id"])
             )
 
         case_group_costs: dict[int, float] = {}
-        for group in case_groups:
+        for idx, group in enumerate(effective_case_groups):
             case_group_id = int(group["case_group_id"])
             case_steps = steps_by_group.get(case_group_id, [])
             cases_current = _compute_cases(group, "current")
             cases_proposed = _compute_cases(group, "proposed")
-            db.update_case_group_metrics(
-                session_id,
-                case_group_id,
-                group.get("addressees_current"),
-                group.get("annual_frequency_current"),
-                group.get("addressees_proposed"),
-                group.get("annual_frequency_proposed"),
-                cases_current,
-                cases_proposed,
-            )
             cost_current = 0.0
             cost_proposed = 0.0
             for step_id in case_steps:
@@ -190,6 +187,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
             group["cases_current"] = cases_current
             group["cases_proposed"] = cases_proposed
             group["cost"] = cost_delta
+            case_groups[idx]["cost"] = cost_delta
             case_group_costs[case_group_id] = cost_delta
             db.update_case_group_cost(session_id, case_group_id, cost_delta)
 

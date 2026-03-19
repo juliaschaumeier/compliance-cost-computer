@@ -126,4 +126,84 @@ describe("TileNode", () => {
     expect(screen.getByText("Δ Fälle/Jahr +5")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "×" })).toBeInTheDocument();
   });
+
+  it("renders a step matrix as a table", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("step_12", {
+          text: "Beschreibung",
+          isExpanded: true,
+          metricTable: {
+            rows: [
+              { label: "eD/mD", current: "12 min", proposed: "15 min" },
+              { label: "Sachaufwand", current: "3 €", proposed: "4 €" },
+              {
+                label: "Kosten/Jahr",
+                current: "120 €",
+                proposed: "150,50 €",
+                emphasizeTop: true,
+              },
+            ],
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Gültig" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Vorschlag" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "eD/mD" })).toBeInTheDocument();
+    expect(screen.getByText("12 min")).toBeInTheDocument();
+    expect(screen.getByText("15 min")).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Kosten/Jahr" })).toBeInTheDocument();
+    expect(screen.getByText("120 €")).toBeInTheDocument();
+    expect(screen.getByText("150,50 €")).toBeInTheDocument();
+  });
+
+  it("renders case-group metrics as a table", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("case_group_7", {
+          text: "Beschreibung",
+          isExpanded: true,
+          metricTable: {
+            rows: [
+              { label: "Betroffene", current: "20", proposed: "25" },
+              { label: "Häufigkeit/Jahr", current: "2", proposed: "3" },
+              {
+                label: "Fälle/Jahr",
+                current: "-",
+                proposed: "75",
+                emphasizeTop: true,
+              },
+            ],
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByRole("rowheader", { name: "Betroffene" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Häufigkeit/Jahr" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Fälle/Jahr" })).toBeInTheDocument();
+    expect(screen.getByText("20")).toBeInTheDocument();
+    expect(screen.getByText("25")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("75")).toBeInTheDocument();
+  });
+
+  it("keeps table content inside collapsible area for step tiles", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("step_13", {
+          text: "Beschreibung",
+          metricTable: {
+            rows: [{ label: "eD/mD", current: "12 min", proposed: "15 min" }],
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByTitle("Text ausklappen")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Gültig" })).not.toBeInTheDocument();
+  });
 });
