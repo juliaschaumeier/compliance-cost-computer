@@ -1,4 +1,10 @@
 export type Provider = "OpenAI" | "DeepInfra" | "Gemini";
+export type NormAddressee = "administration" | "business" | "citizens";
+export const AUTOMATED_NORM_ADDRESSEES: NormAddressee[] = [
+  "administration",
+  "business",
+  "citizens",
+];
 
 export interface Model {
   id: string;
@@ -52,10 +58,15 @@ export interface SessionStatus {
   summary_ready: boolean;
   regulations_ready: boolean;
   processes_ready: boolean;
+  processes_ready_by_addressee?: Record<NormAddressee, boolean>;
   case_groups_ready: boolean;
+  case_groups_ready_by_addressee?: Record<NormAddressee, boolean>;
   process_steps_ready: boolean;
+  process_steps_ready_by_addressee?: Record<NormAddressee, boolean>;
   effort_ready: boolean;
+  effort_ready_by_addressee?: Record<NormAddressee, boolean>;
   total_cost_ready: boolean;
+  total_cost_ready_by_addressee?: Record<NormAddressee, boolean>;
   last_completed_step?: string | null;
   last_completed_label?: string | null;
 }

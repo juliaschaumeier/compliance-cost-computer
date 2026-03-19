@@ -43,6 +43,7 @@ const mockCalculateEffort = apiClient.calculateEffort as jest.Mock;
 const baseState = {
   currentTab: 5,
   appSessionId: "ABC123",
+  selectedNormAddressee: "business",
   selectedModel: "gpt-5",
   availableModels: [
     { id: "gpt-5", name: "GPT-5", provider: "OpenAI" },
@@ -97,6 +98,7 @@ describe("EffortPanel", () => {
     await waitFor(() => {
       expect(mockCalculateEffort).toHaveBeenCalledWith({
         appSessionId: "ABC123",
+        normAddressee: "business",
         model: "gpt-5",
         provider: "openai",
         keys: {

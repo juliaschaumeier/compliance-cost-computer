@@ -12,6 +12,10 @@ from backend.core.llm_attempts import (
 from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    normalize_norm_addressee,
+)
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import build_vorgaben_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
@@ -28,6 +32,7 @@ class ProcessCompilationRequest(BaseModel):
     app_session_id: str
     model: str | None = None
     provider: str | None = None
+    norm_addressee: str | None = None
 
 
 def _parse_processes(payload: str) -> list[dict]:
@@ -81,10 +86,11 @@ def _add_process_tiles(
     session_id: int,
     processes: list[dict],
     regulation_lookup: dict[int, dict],
+    norm_addressee: str = ADMINISTRATION,
 ) -> list[dict]:
     base_col = 2
     base_row = 0
-    tiles = db.fetch_tiles(session_id=session_id)
+    tiles = db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
     regulation_tiles = [tile for tile in tiles if tile.id.startswith("regulation_")]
     if regulation_tiles:
         base_col = max(tile.column for tile in regulation_tiles) + 1
@@ -105,6 +111,7 @@ def _add_process_tiles(
             name,
             description,
             change_status=process_status,
+            norm_addressee=norm_addressee,
         )
         link_from_tile = []
         for vorgabe in process.get("vorgaben", []):
@@ -117,6 +124,7 @@ def _add_process_tiles(
             updated = db.update_regulation_process(
                 regulation_id=regulation_id,
                 process_id=process_id,
+                norm_addressee=norm_addressee,
             )
             if not updated:
                 latest = db.get_regulation_by_id(regulation_id)
@@ -150,7 +158,7 @@ def _add_process_tiles(
             deletable=True,
             link_from_tile=link_from_tile,
         )
-        db.upsert_tile(tile, session_id=session_id)
+        db.upsert_tile(tile, session_id=session_id, norm_addressee=norm_addressee)
         created.append(
             {
                 "process_id": process_id,
@@ -215,7 +223,8 @@ async def compile_processes(
         payload.app_session_id,
         payload.model,
     )
-    existing = db.list_processes_for_session(session_id)
+    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    existing = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
     if existing:
         return {
             "prozesse": [
@@ -228,9 +237,15 @@ async def compile_processes(
                 for row in existing
             ],
             "status": "existing",
+            "norm_addressee": norm_addressee,
         }
 
-    regulations = db.list_regulations_for_session(session_id)
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    if not regulations and norm_addressee != ADMINISTRATION:
+        return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not regulations:
         raise HTTPException(status_code=400, detail="No regulations for session")
     vorgaben_payload = build_vorgaben_payload(regulations)
@@ -239,6 +254,7 @@ async def compile_processes(
         PromptId.PROCESS_COMPILATION,
         session_id=session_id,
         vorgaben_json=dump_prompt_json(vorgaben_payload),
+        norm_addressee=norm_addressee,
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
@@ -258,7 +274,12 @@ async def compile_processes(
         regulation_lookup = {row["regulation_id"]: row for row in regulations}
         _validate_vorgaben(processes, regulation_lookup)
         with db.transaction():
-            created_local = _add_process_tiles(session_id, processes, regulation_lookup)
+            created_local = _add_process_tiles(
+                session_id,
+                processes,
+                regulation_lookup,
+                norm_addressee=norm_addressee,
+            )
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,
@@ -267,4 +288,4 @@ async def compile_processes(
         return created_local
 
     created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
-    return {"prozesse": created}
+    return {"prozesse": created, "norm_addressee": norm_addressee}

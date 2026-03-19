@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import json
@@ -17,7 +18,9 @@ from backend.core.llm_attempts import (
 from backend.core.llm_json import clean_llm_payload, parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.prompts import PromptId, render_prompt
+from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
 from backend.core.models import Tile
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
@@ -119,6 +122,29 @@ def _parse_vorgaben(payload: str) -> list[dict]:
         normzitat = str(entry.get("normzitat", "")).strip()
         beschreibung = str(entry.get("beschreibung", "")).strip()
         aenderungsstatus = extract_change_status(entry)
+        normadressaten = _parse_addressee_list(
+            entry.get("normadressaten")
+            or entry.get("normadressat")
+            or [
+                name
+                for name, key in (
+                    ("verwaltung", "verwaltung"),
+                    ("wirtschaft", "wirtschaft"),
+                    ("buerger", "buerger"),
+                )
+                if _parse_bool_like(entry.get(key))
+            ]
+        )
+        if not normadressaten:
+            normadressaten = [ADMINISTRATION]
+        is_business_information_obligation = bool(
+            _parse_bool_like(
+                entry.get("ist_informationspflicht_wirtschaft")
+                or entry.get("informationspflicht_wirtschaft")
+            )
+        )
+        if is_business_information_obligation and BUSINESS not in normadressaten:
+            normadressaten.append(BUSINESS)
         if not normzitat and not beschreibung:
             continue
         parsed.append(
@@ -126,8 +152,69 @@ def _parse_vorgaben(payload: str) -> list[dict]:
                 "normzitat": normzitat,
                 "beschreibung": beschreibung,
                 "aenderungsstatus": aenderungsstatus,
+                "applies_to_administration": ADMINISTRATION in normadressaten,
+                "applies_to_business": BUSINESS in normadressaten,
+                "applies_to_citizens": CITIZENS in normadressaten,
+                "normadressaten": normadressaten,
+                "is_business_information_obligation": is_business_information_obligation,
             }
         )
+    return parsed
+
+
+def _parse_bool_like(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "ja", "yes", "y"}:
+            return True
+        if normalized in {"0", "false", "nein", "no", "n"}:
+            return False
+    return None
+
+
+def _parse_addressee_list(value: object) -> list[str]:
+    raw_values: list[object]
+    if isinstance(value, list):
+        raw_values = value
+    elif value is None:
+        raw_values = []
+    else:
+        raw_values = [value]
+    parsed: list[str] = []
+    for item in raw_values:
+        raw_item = str(item or "").strip().lower()
+        if not raw_item:
+            continue
+        fragments = [
+            fragment.strip()
+            for fragment in re.split(r"[,;/]|\bund\b|\band\b", raw_item)
+            if fragment.strip()
+        ]
+        if not fragments:
+            fragments = [raw_item]
+        for normalized in fragments:
+            if (
+                any(keyword in normalized for keyword in ("verwaltung", "administration"))
+                and ADMINISTRATION not in parsed
+            ):
+                parsed.append(ADMINISTRATION)
+            elif (
+                any(keyword in normalized for keyword in ("wirtschaft", "business", "unternehmen"))
+                and BUSINESS not in parsed
+            ):
+                parsed.append(BUSINESS)
+            elif (
+                any(
+                    keyword in normalized
+                    for keyword in ("bürger", "buerger", "bürgerinnen", "buergerinnen", "citizen")
+                )
+                and CITIZENS not in parsed
+            ):
+                parsed.append(CITIZENS)
     return parsed
 
 
@@ -189,6 +276,12 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
             legal_citation=title,
             description=text,
             change_status=aenderungsstatus,
+            applies_to_administration=bool(vorgabe.get("applies_to_administration", True)),
+            applies_to_business=bool(vorgabe.get("applies_to_business")),
+            applies_to_citizens=bool(vorgabe.get("applies_to_citizens")),
+            is_business_information_obligation=bool(
+                vorgabe.get("is_business_information_obligation")
+            ),
         )
         tile = Tile(
             id=f"regulation_{regulation_id}",
@@ -197,6 +290,10 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
             meta_information={
                 "regulation_id": regulation_id,
                 "change_status": aenderungsstatus,
+                "normadressaten": list(vorgabe.get("normadressaten") or []),
+                "is_business_information_obligation": bool(
+                    vorgabe.get("is_business_information_obligation")
+                ),
             },
             column=base_col + 1,
             row=base_row + (idx * row_spacing),
@@ -273,6 +370,9 @@ async def identify_regulations(
             raise HTTPException(status_code=422, detail="No vorgaben parsed")
         with db.transaction():
             created_local = _add_vorgaben_tiles(session_id, vorgaben)
+            session = db.get_session_by_id(session_id)
+            if session:
+                sync_all_norm_addressee_tile_snapshots(session)
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,
@@ -373,6 +473,9 @@ async def summarize_regulation(
                     summary,
                     law_diff_blurb=blurb,
                 )
+                session = db.get_session_by_app_id(payload.app_session_id)
+                if session:
+                    sync_all_norm_addressee_tile_snapshots(session)
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,

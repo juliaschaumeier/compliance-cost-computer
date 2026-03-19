@@ -16,6 +16,12 @@ from .db_formatting import (
     format_number,
 )
 from .models import Tile
+from .norm_addressees import (
+    ADMINISTRATION,
+    ALL_NORM_ADDRESSEES,
+    SUPPORTED_NORM_ADDRESSEES,
+    normalize_norm_addressee,
+)
 
 _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=None)
 
@@ -38,11 +44,28 @@ def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _open_connection() -> sqlite3.Connection:
+    _ensure_parent(settings.db_path)
+    conn = sqlite3.connect(settings.db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+
+def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    )
+    return cur.fetchone() is not None
+
+
 def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS tiles (
             session_id INTEGER NOT NULL,
+            norm_addressee TEXT NOT NULL DEFAULT 'administration',
             id TEXT NOT NULL,
             title TEXT NOT NULL,
             text TEXT NOT NULL,
@@ -50,7 +73,7 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
             col INTEGER NOT NULL DEFAULT 0,
             row INTEGER NOT NULL DEFAULT 0,
             deletable INTEGER NOT NULL DEFAULT 1 CHECK (deletable IN (0, 1)),
-            PRIMARY KEY (session_id, id),
+            PRIMARY KEY (session_id, norm_addressee, id),
             FOREIGN KEY (session_id)
             REFERENCES sessions(session_id)
                 ON UPDATE CASCADE
@@ -62,20 +85,90 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
         """
         CREATE TABLE IF NOT EXISTS links (
             session_id INTEGER NOT NULL,
+            norm_addressee TEXT NOT NULL DEFAULT 'administration',
             source TEXT NOT NULL,
             target TEXT NOT NULL,
-            PRIMARY KEY (session_id, source, target),
-            FOREIGN KEY (session_id, source)
-            REFERENCES tiles(session_id, id)
+            PRIMARY KEY (session_id, norm_addressee, source, target),
+            FOREIGN KEY (session_id, norm_addressee, source)
+            REFERENCES tiles(session_id, norm_addressee, id)
                 ON UPDATE CASCADE
                 ON DELETE CASCADE,
-            FOREIGN KEY (session_id, target)
-            REFERENCES tiles(session_id, id)
+            FOREIGN KEY (session_id, norm_addressee, target)
+            REFERENCES tiles(session_id, norm_addressee, id)
                 ON UPDATE CASCADE
                 ON DELETE CASCADE
         );
         """
     )
+
+
+def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
+    tiles_needs_migration = _table_exists(cur, "tiles") and not _table_has_column(
+        cur, "tiles", "norm_addressee"
+    )
+    links_needs_migration = _table_exists(cur, "links") and not _table_has_column(
+        cur, "links", "norm_addressee"
+    )
+    if not tiles_needs_migration and not links_needs_migration:
+        return
+
+    cur.execute("PRAGMA foreign_keys = OFF")
+    if links_needs_migration:
+        cur.execute("ALTER TABLE links RENAME TO links_legacy")
+    if tiles_needs_migration:
+        cur.execute("ALTER TABLE tiles RENAME TO tiles_legacy")
+
+    _create_session_scoped_tile_tables(cur)
+
+    if tiles_needs_migration:
+        cur.execute(
+            """
+            INSERT INTO tiles (
+                session_id,
+                norm_addressee,
+                id,
+                title,
+                text,
+                meta,
+                col,
+                row,
+                deletable
+            )
+            SELECT
+                session_id,
+                'administration',
+                id,
+                title,
+                text,
+                meta,
+                col,
+                row,
+                deletable
+            FROM tiles_legacy
+            """
+        )
+        cur.execute("DROP TABLE tiles_legacy")
+
+    if links_needs_migration:
+        cur.execute(
+            """
+            INSERT INTO links (
+                session_id,
+                norm_addressee,
+                source,
+                target
+            )
+            SELECT
+                session_id,
+                'administration',
+                source,
+                target
+            FROM links_legacy
+            """
+        )
+        cur.execute("DROP TABLE links_legacy")
+
+    cur.execute("PRAGMA foreign_keys = ON")
 
 
 def _create_pay_rate_defaults_table(cur: sqlite3.Cursor) -> None:
@@ -234,6 +327,15 @@ def _ensure_column(
     if _table_has_column(cur, table, column):
         return
     cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_ddl}")
+
+
+def _ensure_columns(
+    cur: sqlite3.Cursor,
+    table: str,
+    columns: dict[str, str],
+) -> None:
+    for column, column_ddl in columns.items():
+        _ensure_column(cur, table, column, column_ddl)
 
 
 def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_steps") -> None:
@@ -473,11 +575,7 @@ def get_conn() -> sqlite3.Connection:
     existing = _TX_CONN.get()
     if existing is not None:
         return existing
-    _ensure_parent(settings.db_path)
-    conn = sqlite3.connect(settings.db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
+    return _open_connection()
 
 
 def _in_transaction() -> bool:
@@ -500,10 +598,7 @@ def transaction() -> Iterable[sqlite3.Connection]:
     if existing is not None:
         yield existing
         return
-    _ensure_parent(settings.db_path)
-    conn = sqlite3.connect(settings.db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
+    conn = _open_connection()
     token = _TX_CONN.set(conn)
     try:
         conn.execute("BEGIN")
@@ -778,6 +873,7 @@ def init_db() -> None:
     # TODO: Change prozessschritt mit tätigkeiten?
     _create_process_steps_table(cur)
     _run_legacy_migrations(cur)
+    _migrate_tile_tables_to_norm_addressee(cur)
     _create_used_models_triggers(cur)
     cur.execute(
         """
@@ -797,15 +893,163 @@ def init_db() -> None:
         )
         """
     )
+    _ensure_columns(
+        cur,
+        "regulations",
+        {
+            "applies_to_administration": "INTEGER NOT NULL DEFAULT 1 CHECK (applies_to_administration IN (0, 1))",
+            "applies_to_business": "INTEGER NOT NULL DEFAULT 0 CHECK (applies_to_business IN (0, 1))",
+            "applies_to_citizens": "INTEGER NOT NULL DEFAULT 0 CHECK (applies_to_citizens IN (0, 1))",
+            "is_business_information_obligation": "INTEGER NOT NULL DEFAULT 0 CHECK (is_business_information_obligation IN (0, 1))",
+        },
+    )
+    _ensure_columns(
+        cur,
+        "processes",
+        {
+            "norm_addressee": "TEXT NOT NULL DEFAULT 'administration'",
+        },
+    )
+    _ensure_columns(
+        cur,
+        "case_groups",
+        {
+            "norm_addressee": "TEXT NOT NULL DEFAULT 'administration'",
+        },
+    )
+    _ensure_columns(
+        cur,
+        "process_steps",
+        {
+            "norm_addressee": "TEXT NOT NULL DEFAULT 'administration'",
+        },
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS regulation_process_links_by_addressee (
+            session_id       INTEGER NOT NULL,
+            norm_addressee   TEXT NOT NULL,
+            regulation_id    INTEGER NOT NULL,
+            process_id       INTEGER NOT NULL,
+            PRIMARY KEY (session_id, norm_addressee, regulation_id),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (regulation_id)
+            REFERENCES regulations (regulation_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (process_id)
+            REFERENCES processes (process_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS case_group_metrics_by_addressee (
+            session_id                   INTEGER NOT NULL,
+            case_group_id                INTEGER NOT NULL,
+            norm_addressee               TEXT NOT NULL,
+            addressees_current           REAL,
+            annual_frequency_current     REAL,
+            cases_current                REAL,
+            addressees_proposed          REAL,
+            annual_frequency_proposed    REAL,
+            cases_proposed               REAL,
+            PRIMARY KEY (session_id, case_group_id, norm_addressee),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (case_group_id)
+            REFERENCES case_groups(case_group_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS process_step_effort_metrics_by_addressee (
+            session_id                      INTEGER NOT NULL,
+            step_id                         INTEGER NOT NULL,
+            norm_addressee                  TEXT NOT NULL,
+            hourly_rate_a_current           REAL,
+            hourly_rate_b_current           REAL,
+            hourly_rate_c_current           REAL,
+            hourly_rate_d_current           REAL,
+            time_required_in_min_a_current  REAL,
+            time_required_in_min_b_current  REAL,
+            time_required_in_min_c_current  REAL,
+            time_required_in_min_d_current  REAL,
+            expenses_current                REAL,
+            hourly_rate_a_proposed          REAL,
+            hourly_rate_b_proposed          REAL,
+            hourly_rate_c_proposed          REAL,
+            hourly_rate_d_proposed          REAL,
+            time_required_in_min_a_proposed REAL,
+            time_required_in_min_b_proposed REAL,
+            time_required_in_min_c_proposed REAL,
+            time_required_in_min_d_proposed REAL,
+            expenses_proposed               REAL,
+            execution_per_case              INTEGER,
+            PRIMARY KEY (session_id, step_id, norm_addressee),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (step_id)
+            REFERENCES process_steps(step_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS process_step_costs_by_addressee (
+            session_id                 INTEGER NOT NULL,
+            step_id                    INTEGER NOT NULL,
+            norm_addressee             TEXT NOT NULL,
+            cost_current               REAL,
+            cost_proposed              REAL,
+            bureaucracy_cost_current   REAL,
+            bureaucracy_cost_proposed  REAL,
+            other_cost_current         REAL,
+            other_cost_proposed        REAL,
+            PRIMARY KEY (session_id, step_id, norm_addressee),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (step_id)
+            REFERENCES process_steps(step_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_current_law_id ON sessions(current_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_proposed_law_id ON sessions(proposed_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_session_id ON regulations(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_process_id ON regulations(process_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_processes_session_id ON processes(session_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_processes_session_addressee ON processes(session_id, norm_addressee)"
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_case_groups_process_id ON case_groups(process_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_case_groups_session_id ON case_groups(session_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_case_groups_session_addressee ON case_groups(session_id, norm_addressee)"
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_process_steps_case_group_id ON process_steps(case_group_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_process_steps_session_id ON process_steps(session_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_process_steps_session_addressee ON process_steps(session_id, norm_addressee)"
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_sessions_session_id ON web_sources_sessions(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_llm_answers_session_id ON llm_answers(session_id)")
     cur.execute(
@@ -840,9 +1084,27 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_processes_process_id ON web_sources_processes(process_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_case_groups_case_group_id ON web_sources_case_groups(case_group_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ws_process_steps_step_id ON web_sources_process_steps(step_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_tiles_session_id ON tiles(session_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_target ON links(session_id, target)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_links_session_source ON links(session_id, source)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_regulation_process_links_addressee ON regulation_process_links_by_addressee(session_id, norm_addressee)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_case_group_metrics_addressee_session ON case_group_metrics_by_addressee(session_id, norm_addressee)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_step_effort_metrics_addressee_session ON process_step_effort_metrics_by_addressee(session_id, norm_addressee)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_step_costs_addressee_session ON process_step_costs_by_addressee(session_id, norm_addressee)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tiles_session_addressee ON tiles(session_id, norm_addressee)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_links_session_addressee_target ON links(session_id, norm_addressee, target)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_links_session_addressee_source ON links(session_id, norm_addressee, source)"
+    )
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -853,17 +1115,18 @@ def ensure_db() -> None:
     _maybe_close(conn)
 
 
-def fetch_tiles(session_id: int) -> List[Tile]:
+def fetch_tiles(session_id: int, norm_addressee: str = ADMINISTRATION) -> List[Tile]:
     resolved_session_id = int(session_id)
+    resolved_addressee = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT *
         FROM tiles
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
         """,
-        (resolved_session_id,),
+        (resolved_session_id, resolved_addressee),
     )
     tiles: List[Tile] = []
     for row in cur.fetchall():
@@ -872,9 +1135,9 @@ def fetch_tiles(session_id: int) -> List[Tile]:
             """
             SELECT source
             FROM links
-            WHERE session_id = ? AND target = ?
+            WHERE session_id = ? AND norm_addressee = ? AND target = ?
             """,
-            (resolved_session_id, tile_id),
+            (resolved_session_id, resolved_addressee, tile_id),
         ).fetchall()
         tiles.append(
             Tile(
@@ -1130,12 +1393,38 @@ def get_session_status(app_session_id: str) -> dict | None:
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) AS count FROM regulations WHERE session_id = ?", (session_id,))
     regulations_count = int(cur.fetchone()["count"])
-    cur.execute("SELECT COUNT(*) AS count FROM processes WHERE session_id = ?", (session_id,))
-    processes_count = int(cur.fetchone()["count"])
-    cur.execute("SELECT COUNT(*) AS count FROM case_groups WHERE session_id = ?", (session_id,))
-    case_groups_count = int(cur.fetchone()["count"])
-    cur.execute("SELECT COUNT(*) AS count FROM process_steps WHERE session_id = ?", (session_id,))
-    steps_count = int(cur.fetchone()["count"])
+    regulations_present_by_addressee = {
+        addressee: has_applicable_regulations_for_addressee(session_id, addressee)
+        for addressee in ALL_NORM_ADDRESSEES
+    }
+    processes_ready_by_addressee: dict[str, bool] = {}
+    case_groups_ready_by_addressee: dict[str, bool] = {}
+    process_steps_ready_by_addressee: dict[str, bool] = {}
+    for addressee in ALL_NORM_ADDRESSEES:
+        addressee_is_skippable = (
+            regulations_count > 0 and not regulations_present_by_addressee[addressee]
+        )
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM processes WHERE session_id = ? AND norm_addressee = ?",
+            (session_id, addressee),
+        )
+        processes_ready_by_addressee[addressee] = (
+            int(cur.fetchone()["count"]) > 0 or addressee_is_skippable
+        )
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM case_groups WHERE session_id = ? AND norm_addressee = ?",
+            (session_id, addressee),
+        )
+        case_groups_ready_by_addressee[addressee] = (
+            int(cur.fetchone()["count"]) > 0 or addressee_is_skippable
+        )
+        cur.execute(
+            "SELECT COUNT(*) AS count FROM process_steps WHERE session_id = ? AND norm_addressee = ?",
+            (session_id, addressee),
+        )
+        process_steps_ready_by_addressee[addressee] = (
+            int(cur.fetchone()["count"]) > 0 or addressee_is_skippable
+        )
     _maybe_close(conn)
     summary_ready = bool(
         session.get("law_diff_title")
@@ -1144,43 +1433,166 @@ def get_session_status(app_session_id: str) -> dict | None:
         or session.get("current_law_id")
         or session.get("proposed_law_id")
     )
-    total_cost_ready = session.get("cc_cost") is not None
+    effort_ready_by_addressee = {
+        addressee: (
+            has_effort_metrics(session_id, addressee)
+            or (regulations_count > 0 and not regulations_present_by_addressee[addressee])
+        )
+        for addressee in ALL_NORM_ADDRESSEES
+    }
+    total_cost_ready_by_addressee = {
+        addressee: (
+            has_total_cost_for_addressee(session_id, addressee)
+            or (regulations_count > 0 and not regulations_present_by_addressee[addressee])
+        )
+        for addressee in ALL_NORM_ADDRESSEES
+    }
     return {
         "summary_ready": summary_ready,
         "regulations_ready": regulations_count > 0,
-        "processes_ready": processes_count > 0,
-        "case_groups_ready": case_groups_count > 0,
-        "process_steps_ready": steps_count > 0,
-        "effort_ready": has_effort_metrics(session_id),
-        "total_cost_ready": total_cost_ready,
+        "regulations_present_by_addressee": regulations_present_by_addressee,
+        "processes_ready": all(
+            processes_ready_by_addressee[addressee]
+            for addressee in SUPPORTED_NORM_ADDRESSEES
+        ),
+        "case_groups_ready": all(
+            case_groups_ready_by_addressee[addressee]
+            for addressee in SUPPORTED_NORM_ADDRESSEES
+        ),
+        "process_steps_ready": all(
+            process_steps_ready_by_addressee[addressee]
+            for addressee in SUPPORTED_NORM_ADDRESSEES
+        ),
+        "processes_ready_by_addressee": processes_ready_by_addressee,
+        "case_groups_ready_by_addressee": case_groups_ready_by_addressee,
+        "process_steps_ready_by_addressee": process_steps_ready_by_addressee,
+        "effort_ready": all(
+            effort_ready_by_addressee[addressee]
+            for addressee in SUPPORTED_NORM_ADDRESSEES
+        ),
+        "total_cost_ready": all(
+            total_cost_ready_by_addressee[addressee]
+            for addressee in SUPPORTED_NORM_ADDRESSEES
+        ),
+        "effort_ready_by_addressee": effort_ready_by_addressee,
+        "total_cost_ready_by_addressee": total_cost_ready_by_addressee,
     }
 
 
-def has_effort_metrics(session_id: int) -> bool:
+def has_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> bool:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT COUNT(*) AS count
+        SELECT COUNT(*) AS total_count
         FROM case_groups
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    total_case_groups = int(cur.fetchone()["total_count"] or 0)
+    if total_case_groups == 0:
+        _maybe_close(conn)
+        return False
+
+    if resolved == ADMINISTRATION:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM case_groups
+            WHERE session_id = ? AND norm_addressee = ?
+              AND (
+                addressees_current IS NOT NULL OR annual_frequency_current IS NOT NULL
+                OR addressees_current_edited IS NOT NULL
+                OR annual_frequency_current_edited IS NOT NULL
+                OR addressees_proposed IS NOT NULL OR annual_frequency_proposed IS NOT NULL
+                OR addressees_proposed_edited IS NOT NULL
+                OR annual_frequency_proposed_edited IS NOT NULL
+              )
+            """,
+            (session_id, resolved),
+        )
+        groups_with_metrics = int(cur.fetchone()["count"])
+        cur.execute(
+            """
+            SELECT COUNT(*) AS total_count
+            FROM process_steps
+            WHERE session_id = ? AND norm_addressee = ?
+            """,
+            (session_id, resolved),
+        )
+        total_steps = int(cur.fetchone()["total_count"] or 0)
+        cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM process_steps
+            WHERE session_id = ? AND norm_addressee = ?
+              AND (
+                hourly_rate_a_current IS NOT NULL OR hourly_rate_b_current IS NOT NULL
+                OR hourly_rate_c_current IS NOT NULL OR hourly_rate_d_current IS NOT NULL
+                OR time_required_in_min_a_current IS NOT NULL
+                OR time_required_in_min_b_current IS NOT NULL
+                OR time_required_in_min_c_current IS NOT NULL
+                OR time_required_in_min_d_current IS NOT NULL
+                OR time_required_in_min_a_current_edited IS NOT NULL
+                OR time_required_in_min_b_current_edited IS NOT NULL
+                OR time_required_in_min_c_current_edited IS NOT NULL
+                OR time_required_in_min_d_current_edited IS NOT NULL
+                OR expenses_current IS NOT NULL
+                OR expenses_current_edited IS NOT NULL
+                OR hourly_rate_a_proposed IS NOT NULL OR hourly_rate_b_proposed IS NOT NULL
+                OR hourly_rate_c_proposed IS NOT NULL OR hourly_rate_d_proposed IS NOT NULL
+                OR time_required_in_min_a_proposed IS NOT NULL
+                OR time_required_in_min_b_proposed IS NOT NULL
+                OR time_required_in_min_c_proposed IS NOT NULL
+                OR time_required_in_min_d_proposed IS NOT NULL
+                OR time_required_in_min_a_proposed_edited IS NOT NULL
+                OR time_required_in_min_b_proposed_edited IS NOT NULL
+                OR time_required_in_min_c_proposed_edited IS NOT NULL
+                OR time_required_in_min_d_proposed_edited IS NOT NULL
+                OR expenses_proposed IS NOT NULL
+                OR expenses_proposed_edited IS NOT NULL
+              )
+            """,
+            (session_id, resolved),
+        )
+        steps_with_metrics = int(cur.fetchone()["count"])
+        _maybe_close(conn)
+        return (
+            total_case_groups > 0
+            and total_steps > 0
+            and groups_with_metrics == total_case_groups
+            and steps_with_metrics == total_steps
+        )
+
+    cur.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM case_group_metrics_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
           AND (
             addressees_current IS NOT NULL OR annual_frequency_current IS NOT NULL
-            OR addressees_current_edited IS NOT NULL
-            OR annual_frequency_current_edited IS NOT NULL
             OR addressees_proposed IS NOT NULL OR annual_frequency_proposed IS NOT NULL
-            OR addressees_proposed_edited IS NOT NULL
-            OR annual_frequency_proposed_edited IS NOT NULL
           )
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     groups_with_metrics = int(cur.fetchone()["count"])
     cur.execute(
         """
-        SELECT COUNT(*) AS count
+        SELECT COUNT(*) AS total_count
         FROM process_steps
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    total_steps = int(cur.fetchone()["total_count"] or 0)
+    cur.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM process_step_effort_metrics_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
           AND (
             hourly_rate_a_current IS NOT NULL OR hourly_rate_b_current IS NOT NULL
             OR hourly_rate_c_current IS NOT NULL OR hourly_rate_d_current IS NOT NULL
@@ -1188,31 +1600,49 @@ def has_effort_metrics(session_id: int) -> bool:
             OR time_required_in_min_b_current IS NOT NULL
             OR time_required_in_min_c_current IS NOT NULL
             OR time_required_in_min_d_current IS NOT NULL
-            OR time_required_in_min_a_current_edited IS NOT NULL
-            OR time_required_in_min_b_current_edited IS NOT NULL
-            OR time_required_in_min_c_current_edited IS NOT NULL
-            OR time_required_in_min_d_current_edited IS NOT NULL
             OR expenses_current IS NOT NULL
-            OR expenses_current_edited IS NOT NULL
             OR hourly_rate_a_proposed IS NOT NULL OR hourly_rate_b_proposed IS NOT NULL
             OR hourly_rate_c_proposed IS NOT NULL OR hourly_rate_d_proposed IS NOT NULL
             OR time_required_in_min_a_proposed IS NOT NULL
             OR time_required_in_min_b_proposed IS NOT NULL
             OR time_required_in_min_c_proposed IS NOT NULL
             OR time_required_in_min_d_proposed IS NOT NULL
-            OR time_required_in_min_a_proposed_edited IS NOT NULL
-            OR time_required_in_min_b_proposed_edited IS NOT NULL
-            OR time_required_in_min_c_proposed_edited IS NOT NULL
-            OR time_required_in_min_d_proposed_edited IS NOT NULL
             OR expenses_proposed IS NOT NULL
-            OR expenses_proposed_edited IS NOT NULL
           )
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     steps_with_metrics = int(cur.fetchone()["count"])
     _maybe_close(conn)
-    return groups_with_metrics > 0 or steps_with_metrics > 0
+    return (
+        total_case_groups > 0
+        and total_steps > 0
+        and groups_with_metrics == total_case_groups
+        and steps_with_metrics == total_steps
+    )
+
+
+def has_total_cost_for_addressee(session_id: int, norm_addressee: str = ADMINISTRATION) -> bool:
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN cost IS NOT NULL THEN 1 ELSE 0 END) AS priced_count
+        FROM processes
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return bool(
+        row
+        and int(row["total_count"] or 0) > 0
+        and int(row["priced_count"] or 0) == int(row["total_count"] or 0)
+    )
 
 
 def get_session_id_by_app_id(app_session_id: str) -> int | None:
@@ -1698,7 +2128,16 @@ def list_regulations_for_session(session_id: int) -> List[dict]:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT regulation_id, legal_citation, description, process_id, change_status
+        SELECT
+            regulation_id,
+            legal_citation,
+            description,
+            process_id,
+            change_status,
+            applies_to_administration,
+            applies_to_business,
+            applies_to_citizens,
+            is_business_information_obligation
         FROM regulations
         WHERE session_id = ?
         ORDER BY regulation_id
@@ -1710,12 +2149,57 @@ def list_regulations_for_session(session_id: int) -> List[dict]:
     return rows
 
 
+def list_regulations_for_session_and_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> List[dict]:
+    resolved = normalize_norm_addressee(norm_addressee)
+    regulations = [
+        row for row in list_regulations_for_session(session_id)
+        if (
+            resolved == ADMINISTRATION
+            and bool(row.get("applies_to_administration", 1))
+        )
+        or (resolved == "business" and bool(row.get("applies_to_business")))
+        or (resolved == "citizens" and bool(row.get("applies_to_citizens")))
+    ]
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT regulation_id, process_id
+        FROM regulation_process_links_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    links = {int(row["regulation_id"]): int(row["process_id"]) for row in cur.fetchall()}
+    _maybe_close(conn)
+    for row in regulations:
+        row["process_id"] = links.get(int(row["regulation_id"]))
+    return regulations
+
+
+def has_applicable_regulations_for_addressee(session_id: int, norm_addressee: str) -> bool:
+    return len(list_regulations_for_session_and_addressee(session_id, norm_addressee)) > 0
+
+
 def get_regulation_by_id(regulation_id: int) -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT regulation_id, legal_citation, description, process_id, change_status
+        SELECT
+            regulation_id,
+            session_id,
+            legal_citation,
+            description,
+            process_id,
+            change_status,
+            applies_to_administration,
+            applies_to_business,
+            applies_to_citizens,
+            is_business_information_obligation
         FROM regulations
         WHERE regulation_id = ?
         """,
@@ -1729,16 +2213,25 @@ def get_regulation_by_id(regulation_id: int) -> dict | None:
 
 
 def list_processes_for_session(session_id: int) -> List[dict]:
+    return list_processes_for_session_and_addressee(session_id, ADMINISTRATION)
+
+
+def list_processes_for_session_and_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> List[dict]:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT process_id, process, description, change_status, cost
+        SELECT process_id, process, description, change_status, cost, norm_addressee
         FROM processes
         WHERE session_id = ?
+          AND norm_addressee = ?
         ORDER BY process_id
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     rows = [dict(row) for row in cur.fetchall()]
     _maybe_close(conn)
@@ -1746,6 +2239,14 @@ def list_processes_for_session(session_id: int) -> List[dict]:
 
 
 def list_case_groups_for_session(session_id: int) -> List[dict]:
+    return list_case_groups_for_session_and_addressee(session_id, ADMINISTRATION)
+
+
+def list_case_groups_for_session_and_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> List[dict]:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -1753,6 +2254,7 @@ def list_case_groups_for_session(session_id: int) -> List[dict]:
         SELECT
             case_group_id,
             process_id,
+            norm_addressee,
             case_group,
             description,
             change_status,
@@ -1772,16 +2274,45 @@ def list_case_groups_for_session(session_id: int) -> List[dict]:
             cost
         FROM case_groups
         WHERE session_id = ?
+          AND norm_addressee = ?
         ORDER BY case_group_id
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     rows = [dict(row) for row in cur.fetchall()]
+    if resolved != ADMINISTRATION:
+        cur.execute(
+            """
+            SELECT *
+            FROM case_group_metrics_by_addressee
+            WHERE session_id = ? AND norm_addressee = ?
+            """,
+            (session_id, resolved),
+        )
+        metrics = {int(row["case_group_id"]): dict(row) for row in cur.fetchall()}
+        for row in rows:
+            metric = metrics.get(int(row["case_group_id"]))
+            if not metric:
+                continue
+            row["addressees_current"] = metric.get("addressees_current")
+            row["annual_frequency_current"] = metric.get("annual_frequency_current")
+            row["cases_current"] = metric.get("cases_current")
+            row["addressees_proposed"] = metric.get("addressees_proposed")
+            row["annual_frequency_proposed"] = metric.get("annual_frequency_proposed")
+            row["cases_proposed"] = metric.get("cases_proposed")
     _maybe_close(conn)
     return rows
 
 
 def list_process_steps_for_session(session_id: int) -> List[dict]:
+    return list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+
+
+def list_process_steps_for_session_and_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> List[dict]:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     # Migration compatibility helper (dev/legacy DBs only):
@@ -1791,6 +2322,7 @@ def list_process_steps_for_session(session_id: int) -> List[dict]:
     columns = [
         "step_id",
         "case_group_id",
+        "norm_addressee",
         "step",
         "description",
         "previous_id",
@@ -1841,11 +2373,61 @@ def list_process_steps_for_session(session_id: int) -> List[dict]:
         SELECT {select_columns}
         FROM process_steps
         WHERE session_id = ?
+          AND norm_addressee = ?
         ORDER BY step_id
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     rows = [dict(row) for row in cur.fetchall()]
+    if resolved != ADMINISTRATION:
+        cur.execute(
+            """
+            SELECT *
+            FROM process_step_effort_metrics_by_addressee
+            WHERE session_id = ? AND norm_addressee = ?
+            """,
+            (session_id, resolved),
+        )
+        effort_metrics = {int(row["step_id"]): dict(row) for row in cur.fetchall()}
+        cur.execute(
+            """
+            SELECT *
+            FROM process_step_costs_by_addressee
+            WHERE session_id = ? AND norm_addressee = ?
+            """,
+            (session_id, resolved),
+        )
+        cost_metrics = {int(row["step_id"]): dict(row) for row in cur.fetchall()}
+        for row in rows:
+            step_id = int(row["step_id"])
+            effort = effort_metrics.get(step_id)
+            if effort:
+                for key in (
+                    "hourly_rate_a_current",
+                    "hourly_rate_b_current",
+                    "hourly_rate_c_current",
+                    "hourly_rate_d_current",
+                    "time_required_in_min_a_current",
+                    "time_required_in_min_b_current",
+                    "time_required_in_min_c_current",
+                    "time_required_in_min_d_current",
+                    "expenses_current",
+                    "hourly_rate_a_proposed",
+                    "hourly_rate_b_proposed",
+                    "hourly_rate_c_proposed",
+                    "hourly_rate_d_proposed",
+                    "time_required_in_min_a_proposed",
+                    "time_required_in_min_b_proposed",
+                    "time_required_in_min_c_proposed",
+                    "time_required_in_min_d_proposed",
+                    "expenses_proposed",
+                    "execution_per_case",
+                ):
+                    row[key] = effort.get(key)
+            cost_row = cost_metrics.get(step_id)
+            if cost_row:
+                row["cost_current"] = cost_row.get("cost_current")
+                row["cost_proposed"] = cost_row.get("cost_proposed")
     _maybe_close(conn)
     return rows
 
@@ -2158,15 +2740,39 @@ def insert_regulation(
     description: str,
     change_status: str = "geaendert",
     process_id: int | None = None,
+    applies_to_administration: bool = True,
+    applies_to_business: bool = False,
+    applies_to_citizens: bool = False,
+    is_business_information_obligation: bool = False,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO regulations (session_id, process_id, legal_citation, description, change_status)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO regulations (
+            session_id,
+            process_id,
+            legal_citation,
+            description,
+            change_status,
+            applies_to_administration,
+            applies_to_business,
+            applies_to_citizens,
+            is_business_information_obligation
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (session_id, process_id, legal_citation, description, change_status),
+        (
+            session_id,
+            process_id,
+            legal_citation,
+            description,
+            change_status,
+            int(bool(applies_to_administration)),
+            int(bool(applies_to_business)),
+            int(bool(applies_to_citizens)),
+            int(bool(is_business_information_obligation)),
+        ),
     )
     _maybe_commit(conn)
     regulation_id = int(cur.lastrowid)
@@ -2180,15 +2786,17 @@ def insert_process(
     description: str,
     change_status: str = "geaendert",
     cost: float | None = None,
+    norm_addressee: str = ADMINISTRATION,
 ) -> int:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO processes (session_id, process, description, change_status, cost)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO processes (session_id, norm_addressee, process, description, change_status, cost)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (session_id, process, description, change_status, cost),
+        (session_id, resolved, process, description, change_status, cost),
     )
     _maybe_commit(conn)
     process_id = int(cur.lastrowid)
@@ -2202,15 +2810,17 @@ def insert_case_group(
     case_group: str,
     description: str,
     change_status: str = "geaendert",
+    norm_addressee: str = ADMINISTRATION,
 ) -> int:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO case_groups (session_id, process_id, case_group, description, change_status)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO case_groups (session_id, process_id, norm_addressee, case_group, description, change_status)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (session_id, process_id, case_group, description, change_status),
+        (session_id, process_id, resolved, case_group, description, change_status),
     )
     _maybe_commit(conn)
     case_group_id = int(cur.lastrowid)
@@ -2226,7 +2836,9 @@ def insert_process_step(
     change_status: str = "geaendert",
     previous_id: int | None = None,
     next_id: int | None = None,
+    norm_addressee: str = ADMINISTRATION,
 ) -> int:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -2234,17 +2846,19 @@ def insert_process_step(
         INSERT INTO process_steps (
             session_id,
             case_group_id,
+            norm_addressee,
             step,
             description,
             change_status,
             previous_id,
             next_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
             case_group_id,
+            resolved,
             step,
             description,
             change_status,
@@ -2309,6 +2923,74 @@ def update_case_group_metrics(
     _maybe_close(conn)
 
 
+def upsert_case_group_metrics_by_addressee(
+    session_id: int,
+    case_group_id: int,
+    norm_addressee: str,
+    addressees_current: float | None = None,
+    annual_frequency_current: float | None = None,
+    addressees_proposed: float | None = None,
+    annual_frequency_proposed: float | None = None,
+    cases_current: float | None = None,
+    cases_proposed: float | None = None,
+) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == ADMINISTRATION:
+        update_case_group_metrics(
+            session_id=session_id,
+            case_group_id=case_group_id,
+            addressees_current=addressees_current,
+            annual_frequency_current=annual_frequency_current,
+            addressees_proposed=addressees_proposed,
+            annual_frequency_proposed=annual_frequency_proposed,
+            cases_current=cases_current,
+            cases_proposed=cases_proposed,
+        )
+        return
+    if cases_current is None and addressees_current is not None and annual_frequency_current is not None:
+        cases_current = addressees_current * annual_frequency_current
+    if cases_proposed is None and addressees_proposed is not None and annual_frequency_proposed is not None:
+        cases_proposed = addressees_proposed * annual_frequency_proposed
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO case_group_metrics_by_addressee (
+            session_id,
+            case_group_id,
+            norm_addressee,
+            addressees_current,
+            annual_frequency_current,
+            cases_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_proposed
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, case_group_id, norm_addressee) DO UPDATE SET
+            addressees_current = excluded.addressees_current,
+            annual_frequency_current = excluded.annual_frequency_current,
+            cases_current = excluded.cases_current,
+            addressees_proposed = excluded.addressees_proposed,
+            annual_frequency_proposed = excluded.annual_frequency_proposed,
+            cases_proposed = excluded.cases_proposed
+        """,
+        (
+            session_id,
+            case_group_id,
+            resolved,
+            addressees_current,
+            annual_frequency_current,
+            cases_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_proposed,
+        ),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
 def update_process_step_effort_split(
     session_id: int,
     step_id: int,
@@ -2359,6 +3041,93 @@ def update_process_step_effort_split(
     _maybe_close(conn)
 
 
+def upsert_process_step_effort_split_by_addressee(
+    session_id: int,
+    step_id: int,
+    norm_addressee: str,
+    hourly_rates_current: dict[str, float | None],
+    time_required_current: dict[str, float | None],
+    expenses_current: float | None,
+    hourly_rates_proposed: dict[str, float | None],
+    time_required_proposed: dict[str, float | None],
+    expenses_proposed: float | None,
+    execution_per_case: bool | None = None,
+) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == ADMINISTRATION:
+        update_process_step_effort_split(
+            session_id=session_id,
+            step_id=step_id,
+            hourly_rates_current=hourly_rates_current,
+            time_required_current=time_required_current,
+            expenses_current=expenses_current,
+            hourly_rates_proposed=hourly_rates_proposed,
+            time_required_proposed=time_required_proposed,
+            expenses_proposed=expenses_proposed,
+        )
+        conn = get_conn()
+        cur = conn.cursor()
+        has_execution_per_case = _table_has_column(cur, "process_steps", "execution_per_case")
+        _maybe_close(conn)
+        if execution_per_case is not None and has_execution_per_case:
+            conn = get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE process_steps SET execution_per_case = ? WHERE step_id = ? AND session_id = ?",
+                (int(bool(execution_per_case)), step_id, session_id),
+            )
+            _maybe_commit(conn)
+            _maybe_close(conn)
+        return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO process_step_effort_metrics_by_addressee (
+            session_id, step_id, norm_addressee,
+            hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
+            time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
+            expenses_current,
+            hourly_rate_a_proposed, hourly_rate_b_proposed, hourly_rate_c_proposed, hourly_rate_d_proposed,
+            time_required_in_min_a_proposed, time_required_in_min_b_proposed, time_required_in_min_c_proposed, time_required_in_min_d_proposed,
+            expenses_proposed, execution_per_case
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, step_id, norm_addressee) DO UPDATE SET
+            hourly_rate_a_current = excluded.hourly_rate_a_current,
+            hourly_rate_b_current = excluded.hourly_rate_b_current,
+            hourly_rate_c_current = excluded.hourly_rate_c_current,
+            hourly_rate_d_current = excluded.hourly_rate_d_current,
+            time_required_in_min_a_current = excluded.time_required_in_min_a_current,
+            time_required_in_min_b_current = excluded.time_required_in_min_b_current,
+            time_required_in_min_c_current = excluded.time_required_in_min_c_current,
+            time_required_in_min_d_current = excluded.time_required_in_min_d_current,
+            expenses_current = excluded.expenses_current,
+            hourly_rate_a_proposed = excluded.hourly_rate_a_proposed,
+            hourly_rate_b_proposed = excluded.hourly_rate_b_proposed,
+            hourly_rate_c_proposed = excluded.hourly_rate_c_proposed,
+            hourly_rate_d_proposed = excluded.hourly_rate_d_proposed,
+            time_required_in_min_a_proposed = excluded.time_required_in_min_a_proposed,
+            time_required_in_min_b_proposed = excluded.time_required_in_min_b_proposed,
+            time_required_in_min_c_proposed = excluded.time_required_in_min_c_proposed,
+            time_required_in_min_d_proposed = excluded.time_required_in_min_d_proposed,
+            expenses_proposed = excluded.expenses_proposed,
+            execution_per_case = COALESCE(excluded.execution_per_case, process_step_effort_metrics_by_addressee.execution_per_case)
+        """,
+        (
+            session_id, step_id, resolved,
+            hourly_rates_current.get("a"), hourly_rates_current.get("b"), hourly_rates_current.get("c"), hourly_rates_current.get("d"),
+            time_required_current.get("a"), time_required_current.get("b"), time_required_current.get("c"), time_required_current.get("d"),
+            expenses_current,
+            hourly_rates_proposed.get("a"), hourly_rates_proposed.get("b"), hourly_rates_proposed.get("c"), hourly_rates_proposed.get("d"),
+            time_required_proposed.get("a"), time_required_proposed.get("b"), time_required_proposed.get("c"), time_required_proposed.get("d"),
+            expenses_proposed, (int(bool(execution_per_case)) if execution_per_case is not None else None),
+        ),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
 def update_process_step_cost(
     session_id: int,
     step_id: int,
@@ -2379,6 +3148,56 @@ def update_process_step_cost(
     _maybe_close(conn)
 
 
+def upsert_process_step_cost_by_addressee(
+    session_id: int,
+    step_id: int,
+    norm_addressee: str,
+    cost_current: float | None,
+    cost_proposed: float | None,
+    bureaucracy_cost_current: float | None = None,
+    bureaucracy_cost_proposed: float | None = None,
+    other_cost_current: float | None = None,
+    other_cost_proposed: float | None = None,
+) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == ADMINISTRATION:
+        update_process_step_cost(session_id, step_id, cost_current, cost_proposed)
+        return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO process_step_costs_by_addressee (
+            session_id, step_id, norm_addressee,
+            cost_current, cost_proposed,
+            bureaucracy_cost_current, bureaucracy_cost_proposed,
+            other_cost_current, other_cost_proposed
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, step_id, norm_addressee) DO UPDATE SET
+            cost_current = excluded.cost_current,
+            cost_proposed = excluded.cost_proposed,
+            bureaucracy_cost_current = excluded.bureaucracy_cost_current,
+            bureaucracy_cost_proposed = excluded.bureaucracy_cost_proposed,
+            other_cost_current = excluded.other_cost_current,
+            other_cost_proposed = excluded.other_cost_proposed
+        """,
+        (
+            session_id,
+            step_id,
+            resolved,
+            cost_current,
+            cost_proposed,
+            bureaucracy_cost_current,
+            bureaucracy_cost_proposed,
+            other_cost_current,
+            other_cost_proposed,
+        ),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
 def update_case_group_cost(
     session_id: int,
     case_group_id: int,
@@ -2393,6 +3212,30 @@ def update_case_group_cost(
         WHERE case_group_id = ? AND session_id = ?
         """,
         (cost, case_group_id, session_id),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def upsert_case_group_cost_by_addressee(
+    session_id: int,
+    case_group_id: int,
+    norm_addressee: str,
+    cost: float | None,
+) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == ADMINISTRATION:
+        update_case_group_cost(session_id, case_group_id, cost)
+        return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE case_groups
+        SET cost = ?
+        WHERE case_group_id = ? AND session_id = ? AND norm_addressee = ?
+        """,
+        (cost, case_group_id, session_id, resolved),
     )
     _maybe_commit(conn)
     _maybe_close(conn)
@@ -2431,17 +3274,47 @@ def update_process_step_next(step_id: int, next_id: int | None) -> None:
 def update_regulation_process(
     regulation_id: int,
     process_id: int,
+    norm_addressee: str = ADMINISTRATION,
 ) -> bool:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == ADMINISTRATION:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE regulations
+            SET process_id = ?
+            WHERE regulation_id = ?
+              AND process_id IS NULL
+            """,
+            (process_id, regulation_id),
+        )
+        _maybe_commit(conn)
+        updated = cur.rowcount > 0
+        _maybe_close(conn)
+        return updated
+
+    regulation = get_regulation_by_id(regulation_id)
+    if not regulation:
+        return False
+    session_id = int(regulation["session_id"])
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        UPDATE regulations
-        SET process_id = ?
-        WHERE regulation_id = ?
-          AND process_id IS NULL
+        INSERT INTO regulation_process_links_by_addressee (
+            session_id, norm_addressee, regulation_id, process_id
+        )
+        SELECT ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM regulation_process_links_by_addressee
+            WHERE session_id = ?
+              AND norm_addressee = ?
+              AND regulation_id = ?
+        )
         """,
-        (process_id, regulation_id),
+        (session_id, resolved, regulation_id, process_id, session_id, resolved, regulation_id),
     )
     _maybe_commit(conn)
     updated = cur.rowcount > 0
@@ -2698,15 +3571,20 @@ def delete_llm_answers(session_id: int, prompt_ids: Iterable[str]) -> None:
     _maybe_close(conn)
 
 
-def upsert_tile(tile: Tile, session_id: int) -> None:
+def upsert_tile(
+    tile: Tile,
+    session_id: int,
+    norm_addressee: str = ADMINISTRATION,
+) -> None:
     resolved_session_id = int(session_id)
+    resolved_addressee = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO tiles (session_id, id, title, text, meta, col, row, deletable)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id, id) DO UPDATE SET
+        INSERT INTO tiles (session_id, norm_addressee, id, title, text, meta, col, row, deletable)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, norm_addressee, id) DO UPDATE SET
             title = excluded.title,
             text = excluded.text,
             meta = excluded.meta,
@@ -2716,6 +3594,7 @@ def upsert_tile(tile: Tile, session_id: int) -> None:
         """,
         (
             resolved_session_id,
+            resolved_addressee,
             tile.id,
             tile.title,
             tile.text,
@@ -2728,34 +3607,47 @@ def upsert_tile(tile: Tile, session_id: int) -> None:
     _maybe_commit(conn)
     _maybe_close(conn)
     if tile.link_from_tile is not None:
-        set_links(tile.id, tile.link_from_tile, session_id=resolved_session_id)
+        set_links(
+            tile.id,
+            tile.link_from_tile,
+            session_id=resolved_session_id,
+            norm_addressee=resolved_addressee,
+        )
 
 
-def delete_tile(tile_id: str, session_id: int) -> None:
+def delete_tile(tile_id: str, session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
     resolved_session_id = int(session_id)
+    resolved_addressee = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
         DELETE FROM links
-        WHERE session_id = ? AND (target = ? OR source = ?)
+        WHERE session_id = ? AND norm_addressee = ? AND (target = ? OR source = ?)
         """,
-        (resolved_session_id, tile_id, tile_id),
+        (resolved_session_id, resolved_addressee, tile_id, tile_id),
     )
     cur.execute(
-        "DELETE FROM tiles WHERE session_id = ? AND id = ?",
-        (resolved_session_id, tile_id),
+        "DELETE FROM tiles WHERE session_id = ? AND norm_addressee = ? AND id = ?",
+        (resolved_session_id, resolved_addressee, tile_id),
     )
     _maybe_commit(conn)
     _maybe_close(conn)
 
 
-def clear_tiles(session_id: int) -> None:
+def clear_tiles(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
     conn = get_conn()
     cur = conn.cursor()
     resolved_session_id = int(session_id)
-    cur.execute("DELETE FROM links WHERE session_id = ?", (resolved_session_id,))
-    cur.execute("DELETE FROM tiles WHERE session_id = ?", (resolved_session_id,))
+    resolved_addressee = normalize_norm_addressee(norm_addressee)
+    cur.execute(
+        "DELETE FROM links WHERE session_id = ? AND norm_addressee = ?",
+        (resolved_session_id, resolved_addressee),
+    )
+    cur.execute(
+        "DELETE FROM tiles WHERE session_id = ? AND norm_addressee = ?",
+        (resolved_session_id, resolved_addressee),
+    )
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -2764,21 +3656,23 @@ def set_links(
     target_id: str,
     sources: Iterable[str],
     session_id: int,
+    norm_addressee: str = ADMINISTRATION,
 ) -> None:
     resolved_session_id = int(session_id)
+    resolved_addressee = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "DELETE FROM links WHERE session_id = ? AND target = ?",
-        (resolved_session_id, target_id),
+        "DELETE FROM links WHERE session_id = ? AND norm_addressee = ? AND target = ?",
+        (resolved_session_id, resolved_addressee, target_id),
     )
     for src in sources:
         cur.execute(
             """
-            INSERT OR REPLACE INTO links (session_id, source, target)
-            VALUES (?, ?, ?)
+            INSERT OR REPLACE INTO links (session_id, norm_addressee, source, target)
+            VALUES (?, ?, ?, ?)
             """,
-            (resolved_session_id, src, target_id),
+            (resolved_session_id, resolved_addressee, src, target_id),
         )
     _maybe_commit(conn)
     _maybe_close(conn)

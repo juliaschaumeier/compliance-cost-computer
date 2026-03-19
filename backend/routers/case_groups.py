@@ -12,6 +12,10 @@ from backend.core.llm_attempts import (
 from backend.core.llm_json import parse_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    normalize_norm_addressee,
+)
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import (
     build_processes_payload_with_regulations,
@@ -44,6 +48,7 @@ class CaseGroupDevelopmentRequest(BaseModel):
     app_session_id: AppSessionId
     model: str | None = None
     provider: str | None = None
+    norm_addressee: str | None = None
 
 
 class CaseGroupEditRow(BaseModel):
@@ -169,8 +174,9 @@ def _parse_case_groups(payload: str) -> list[dict]:
 def _add_case_group_tiles(
     session_id: int,
     processes: list[dict],
+    norm_addressee: str = ADMINISTRATION,
 ) -> list[dict]:
-    tiles = db.fetch_tiles(session_id=session_id)
+    tiles = db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
     process_tiles = {tile.id: tile for tile in tiles if tile.id.startswith("process_")}
     created = []
     row_spacing = 1
@@ -198,6 +204,7 @@ def _add_case_group_tiles(
                 case_group=title,
                 description=text,
                 change_status=case_group_status,
+                norm_addressee=norm_addressee,
             )
             tile = Tile(
                 id=f"case_group_{case_group_id}",
@@ -220,7 +227,7 @@ def _add_case_group_tiles(
                 deletable=True,
                 link_from_tile=[process_tile_id],
             )
-            db.upsert_tile(tile, session_id=session_id)
+            db.upsert_tile(tile, session_id=session_id, norm_addressee=norm_addressee)
             created.append(
                 {
                     "case_group_id": case_group_id,
@@ -242,9 +249,10 @@ async def develop_case_groups(
         payload.app_session_id,
         payload.model,
     )
-    existing = db.list_case_groups_for_session(session_id)
+    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    existing = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
     if existing:
-        processes = db.list_processes_for_session(session_id)
+        processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
         grouped: dict[int, list[dict]] = {}
         for row in existing:
             grouped.setdefault(row["process_id"], []).append(
@@ -268,18 +276,25 @@ async def develop_case_groups(
                 if process["process_id"] in grouped
             ],
             "status": "existing",
+            "norm_addressee": norm_addressee,
         }
 
-    processes = db.list_processes_for_session(session_id)
+    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+    if not processes and norm_addressee != ADMINISTRATION:
+        return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not processes:
         raise HTTPException(status_code=400, detail="No processes for session")
-    regulations = db.list_regulations_for_session(session_id)
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
     prozesse_payload = build_processes_payload_with_regulations(processes, regulations)
 
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
         session_id=session_id,
         prozesse_json=dump_prompt_json(prozesse_payload),
+        norm_addressee=norm_addressee,
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
@@ -310,7 +325,11 @@ async def develop_case_groups(
             )
 
         with db.transaction():
-            created_local = _add_case_group_tiles(session_id, parsed)
+            created_local = _add_case_group_tiles(
+                session_id,
+                parsed,
+                norm_addressee=norm_addressee,
+            )
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,
@@ -340,5 +359,6 @@ async def develop_case_groups(
             }
             for process in processes
             if process["process_id"] in grouped
-        ]
+        ],
+        "norm_addressee": norm_addressee,
     }

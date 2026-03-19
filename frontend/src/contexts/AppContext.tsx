@@ -11,11 +11,53 @@ import React, {
 } from "react";
 import { apiClient } from "@/lib/api";
 import { deriveTabFromStatus } from "@/lib/sessionStatus";
-import { Model } from "@/types";
+import { AUTOMATED_NORM_ADDRESSEES, Model, NormAddressee } from "@/types";
+
+type AddresseeReadiness = {
+  processesReady: boolean;
+  caseGroupsReady: boolean;
+  processStepsReady: boolean;
+  effortReady: boolean;
+  totalCostReady: boolean;
+};
+
+const EMPTY_ADDRESSEE_READINESS: AddresseeReadiness = {
+  processesReady: false,
+  caseGroupsReady: false,
+  processStepsReady: false,
+  effortReady: false,
+  totalCostReady: false,
+};
+
+function createDefaultAddresseeReadiness(): Record<NormAddressee, AddresseeReadiness> {
+  return {
+    administration: { ...EMPTY_ADDRESSEE_READINESS },
+    business: { ...EMPTY_ADDRESSEE_READINESS },
+    citizens: { ...EMPTY_ADDRESSEE_READINESS },
+  };
+}
+
+function setAllAddresseesField(
+  prev: Record<NormAddressee, AddresseeReadiness>,
+  field: keyof AddresseeReadiness,
+  value: boolean
+): Record<NormAddressee, AddresseeReadiness> {
+  return AUTOMATED_NORM_ADDRESSEES.reduce(
+    (next, addressee) => ({
+      ...next,
+      [addressee]: {
+        ...(prev[addressee] ?? EMPTY_ADDRESSEE_READINESS),
+        [field]: value,
+      },
+    }),
+    { ...prev }
+  );
+}
 
 interface AppState {
   currentTab: number;
   appSessionId: string;
+  selectedNormAddressee: NormAddressee;
   selectedModel: string;
   availableModels: Model[];
   selectedCurrentLaw: string;
@@ -36,6 +78,7 @@ interface AppContextValue {
   state: AppState;
   setCurrentTab: (tab: number) => void;
   setAppSessionId: (appSessionId: string) => void;
+  setSelectedNormAddressee: (normAddressee: NormAddressee) => void;
   setSelectedModel: (model: string) => void;
   setAvailableModels: (models: Model[]) => void;
   setSelectedCurrentLaw: (law: string) => void;
@@ -55,6 +98,8 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 const APP_SESSION_STORAGE_KEY = "app_session_id";
 const LEGACY_SESSION_STORAGE_KEY = "session_id";
+const SELECTED_NORM_ADDRESSEE_STORAGE_KEY = "selected_norm_addressee";
+const NORM_ADDRESSEE_READINESS_STORAGE_KEY = "norm_addressee_readiness";
 const READINESS_STORAGE_KEYS = [
   "summary_ready",
   "regulations_ready",
@@ -76,6 +121,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentTab, setCurrentTab] = useState(0);
   const [appSessionId, setAppSessionIdState] = useState("");
   const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
+  const [selectedNormAddressee, setSelectedNormAddresseeState] =
+    useState<NormAddressee>("administration");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedModelHydrated, setSelectedModelHydrated] = useState(false);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
@@ -89,6 +136,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [processStepsReady, setProcessStepsReady] = useState(false);
   const [effortReady, setEffortReady] = useState(false);
   const [totalCostReady, setTotalCostReady] = useState(false);
+  const [addresseeReadiness, setAddresseeReadiness] = useState<
+    Record<NormAddressee, AddresseeReadiness>
+  >(createDefaultAddresseeReadiness);
   const [lastCompletedStep, setLastCompletedStep] = useState<string | null>(null);
   const [lastCompletedLabel, setLastCompletedLabel] = useState<string | null>(null);
   const appSessionIdAttempts = useRef(0);
@@ -147,6 +197,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     appSessionIdAttempts.current = 0;
   }, []);
 
+  const setSelectedNormAddressee = useCallback((normAddressee: NormAddressee) => {
+    setSelectedNormAddresseeState(normAddressee);
+  }, []);
+
   useEffect(() => {
     const storedAppSessionId =
       sessionStorage.getItem(APP_SESSION_STORAGE_KEY) ||
@@ -162,12 +216,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [setNewAppSessionId]);
 
   useEffect(() => {
+    const stored = sessionStorage.getItem(SELECTED_NORM_ADDRESSEE_STORAGE_KEY);
+    if (stored === "administration" || stored === "business" || stored === "citizens") {
+      setSelectedNormAddresseeState(stored);
+    }
+    const storedReadiness = sessionStorage.getItem(NORM_ADDRESSEE_READINESS_STORAGE_KEY);
+    if (!storedReadiness) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(storedReadiness) as Partial<
+        Record<NormAddressee, Partial<AddresseeReadiness>>
+      >;
+      setAddresseeReadiness({
+        administration: {
+          ...EMPTY_ADDRESSEE_READINESS,
+          ...(parsed.administration ?? {}),
+        },
+        business: {
+          ...EMPTY_ADDRESSEE_READINESS,
+          ...(parsed.business ?? {}),
+        },
+        citizens: {
+          ...EMPTY_ADDRESSEE_READINESS,
+          ...(parsed.citizens ?? {}),
+        },
+      });
+    } catch {
+      sessionStorage.removeItem(NORM_ADDRESSEE_READINESS_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!appSessionId) {
       return;
     }
     sessionStorage.setItem(APP_SESSION_STORAGE_KEY, appSessionId);
     sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
   }, [appSessionId, readinessSetters, logDebug]);
+
+  useEffect(() => {
+    sessionStorage.setItem(
+      SELECTED_NORM_ADDRESSEE_STORAGE_KEY,
+      selectedNormAddressee
+    );
+  }, [selectedNormAddressee]);
+
+  useEffect(() => {
+    sessionStorage.setItem(
+      NORM_ADDRESSEE_READINESS_STORAGE_KEY,
+      JSON.stringify(addresseeReadiness)
+    );
+  }, [addresseeReadiness]);
 
   useEffect(() => {
     if (!appSessionId) {
@@ -183,6 +283,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const storageKey of READINESS_STORAGE_KEYS) {
           readinessSetters[storageKey](status[storageKey]);
         }
+        setAddresseeReadiness((prev) =>
+          AUTOMATED_NORM_ADDRESSEES.reduce(
+            (next, addressee) => ({
+              ...next,
+              [addressee]: {
+                processesReady:
+                  status.processes_ready_by_addressee?.[addressee] ??
+                  (addressee === "administration" ? status.processes_ready : false),
+                caseGroupsReady:
+                  status.case_groups_ready_by_addressee?.[addressee] ??
+                  (addressee === "administration" ? status.case_groups_ready : false),
+                processStepsReady:
+                  status.process_steps_ready_by_addressee?.[addressee] ??
+                  (addressee === "administration" ? status.process_steps_ready : false),
+                effortReady:
+                  status.effort_ready_by_addressee?.[addressee] ??
+                  (addressee === "administration" ? status.effort_ready : false),
+                totalCostReady:
+                  status.total_cost_ready_by_addressee?.[addressee] ??
+                  (addressee === "administration" ? status.total_cost_ready : false),
+              },
+            }),
+            { ...prev }
+          )
+        );
         setLastCompletedStep(status.last_completed_step ?? null);
         setLastCompletedLabel(status.last_completed_label ?? null);
       } catch (error) {
@@ -277,6 +402,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [readinessValues]);
 
   useEffect(() => {
+    const aggregateReadiness = {
+      processesReady: AUTOMATED_NORM_ADDRESSEES.every(
+        (addressee) => addresseeReadiness[addressee]?.processesReady
+      ),
+      caseGroupsReady: AUTOMATED_NORM_ADDRESSEES.every(
+        (addressee) => addresseeReadiness[addressee]?.caseGroupsReady
+      ),
+      processStepsReady: AUTOMATED_NORM_ADDRESSEES.every(
+        (addressee) => addresseeReadiness[addressee]?.processStepsReady
+      ),
+      effortReady: AUTOMATED_NORM_ADDRESSEES.every(
+        (addressee) => addresseeReadiness[addressee]?.effortReady
+      ),
+      totalCostReady: AUTOMATED_NORM_ADDRESSEES.every(
+        (addressee) => addresseeReadiness[addressee]?.totalCostReady
+      ),
+    };
     const normalizedStatus = {
       summary_ready: readinessValues.summary_ready,
       regulations_ready:
@@ -284,46 +426,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       processes_ready:
         readinessValues.summary_ready &&
         readinessValues.regulations_ready &&
-        readinessValues.processes_ready,
+        aggregateReadiness.processesReady,
       case_groups_ready:
         readinessValues.summary_ready &&
         readinessValues.regulations_ready &&
-        readinessValues.processes_ready &&
-        readinessValues.case_groups_ready,
+        aggregateReadiness.processesReady &&
+        aggregateReadiness.caseGroupsReady,
       process_steps_ready:
         readinessValues.summary_ready &&
         readinessValues.regulations_ready &&
-        readinessValues.processes_ready &&
-        readinessValues.case_groups_ready &&
-        readinessValues.process_steps_ready,
+        aggregateReadiness.processesReady &&
+        aggregateReadiness.caseGroupsReady &&
+        aggregateReadiness.processStepsReady,
       effort_ready:
         readinessValues.summary_ready &&
         readinessValues.regulations_ready &&
-        readinessValues.processes_ready &&
-        readinessValues.case_groups_ready &&
-        readinessValues.process_steps_ready &&
-        readinessValues.effort_ready,
+        aggregateReadiness.processesReady &&
+        aggregateReadiness.caseGroupsReady &&
+        aggregateReadiness.processStepsReady &&
+        aggregateReadiness.effortReady,
       total_cost_ready:
         readinessValues.summary_ready &&
         readinessValues.regulations_ready &&
-        readinessValues.processes_ready &&
-        readinessValues.case_groups_ready &&
-        readinessValues.process_steps_ready &&
-        readinessValues.effort_ready &&
-        readinessValues.total_cost_ready,
+        aggregateReadiness.processesReady &&
+        aggregateReadiness.caseGroupsReady &&
+        aggregateReadiness.processStepsReady &&
+        aggregateReadiness.effortReady &&
+        aggregateReadiness.totalCostReady,
     };
 
-    for (const storageKey of READINESS_STORAGE_KEYS) {
-      if (storageKey === "summary_ready") {
-        continue;
-      }
-      if (normalizedStatus[storageKey] !== readinessValues[storageKey]) {
-        readinessSetters[storageKey](normalizedStatus[storageKey]);
-      }
-    }
+    setProcessesReady(normalizedStatus.processes_ready);
+    setCaseGroupsReady(normalizedStatus.case_groups_ready);
+    setProcessStepsReady(normalizedStatus.process_steps_ready);
+    setEffortReady(normalizedStatus.effort_ready);
+    setTotalCostReady(normalizedStatus.total_cost_ready);
 
     setCurrentTab(deriveTabFromStatus(normalizedStatus));
-  }, [readinessSetters, readinessValues]);
+  }, [addresseeReadiness, readinessValues]);
 
   useEffect(() => {
     if (!appSessionId || !selectedModel) {
@@ -366,6 +505,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         state: {
           currentTab,
           appSessionId,
+          selectedNormAddressee,
           selectedModel,
           availableModels,
           selectedCurrentLaw,
@@ -383,18 +523,103 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
         setCurrentTab,
         setAppSessionId,
+        setSelectedNormAddressee,
         setSelectedModel,
         setAvailableModels,
         setSelectedCurrentLaw,
         setSelectedRegulation,
         setAvailableRegulations,
-        setSummaryReady,
-        setRegulationsReady,
-        setProcessesReady,
-        setCaseGroupsReady,
-        setProcessStepsReady,
-        setEffortReady,
-        setTotalCostReady,
+        setSummaryReady: (ready: boolean) => {
+          setSummaryReady(ready);
+          if (!ready) {
+            setRegulationsReady(false);
+            setAddresseeReadiness(createDefaultAddresseeReadiness());
+          }
+        },
+        setRegulationsReady: (ready: boolean) => {
+          setRegulationsReady(ready);
+          if (!ready) {
+            setAddresseeReadiness(createDefaultAddresseeReadiness());
+          }
+        },
+        setProcessesReady: (ready: boolean) =>
+          setAddresseeReadiness((prev) => {
+            const next = setAllAddresseesField(prev, "processesReady", ready);
+            if (!ready) {
+              return AUTOMATED_NORM_ADDRESSEES.reduce(
+                (acc, addressee) => ({
+                  ...acc,
+                  [addressee]: {
+                    ...acc[addressee],
+                    caseGroupsReady: false,
+                    processStepsReady: false,
+                    effortReady: false,
+                    totalCostReady: false,
+                  },
+                }),
+                next
+              );
+            }
+            return next;
+          }),
+        setCaseGroupsReady: (ready: boolean) =>
+          setAddresseeReadiness((prev) => {
+            const next = setAllAddresseesField(prev, "caseGroupsReady", ready);
+            if (!ready) {
+              return AUTOMATED_NORM_ADDRESSEES.reduce(
+                (acc, addressee) => ({
+                  ...acc,
+                  [addressee]: {
+                    ...acc[addressee],
+                    processStepsReady: false,
+                    effortReady: false,
+                    totalCostReady: false,
+                  },
+                }),
+                next
+              );
+            }
+            return next;
+          }),
+        setProcessStepsReady: (ready: boolean) =>
+          setAddresseeReadiness((prev) => {
+            const next = setAllAddresseesField(prev, "processStepsReady", ready);
+            if (!ready) {
+              return AUTOMATED_NORM_ADDRESSEES.reduce(
+                (acc, addressee) => ({
+                  ...acc,
+                  [addressee]: {
+                    ...acc[addressee],
+                    effortReady: false,
+                    totalCostReady: false,
+                  },
+                }),
+                next
+              );
+            }
+            return next;
+          }),
+        setEffortReady: (ready: boolean) =>
+          setAddresseeReadiness((prev) => {
+            const next = setAllAddresseesField(prev, "effortReady", ready);
+            if (!ready) {
+              return AUTOMATED_NORM_ADDRESSEES.reduce(
+                (acc, addressee) => ({
+                  ...acc,
+                  [addressee]: {
+                    ...acc[addressee],
+                    totalCostReady: false,
+                  },
+                }),
+                next
+              );
+            }
+            return next;
+          }),
+        setTotalCostReady: (ready: boolean) =>
+          setAddresseeReadiness((prev) =>
+            setAllAddresseesField(prev, "totalCostReady", ready)
+          ),
         setLastCompletedStep,
         setLastCompletedLabel,
       }}

@@ -6,6 +6,7 @@ import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
+import { AUTOMATED_NORM_ADDRESSEES } from "@/types";
 
 export default function EffortPanel() {
   const { state, setCurrentTab, setEffortReady } = useApp();
@@ -35,20 +36,28 @@ export default function EffortPanel() {
       availableModels: state.availableModels,
     });
     try {
-      const result = await apiClient.calculateEffort({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
-      });
-      if (result.status === "existing") {
-        setStatus("Aufwand wurde bereits berechnet.");
+      const results = await Promise.all(
+        AUTOMATED_NORM_ADDRESSEES.map((normAddressee) =>
+          apiClient.calculateEffort({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          })
+        )
+      );
+      if (results.every((result) => result.status === "existing")) {
+        setStatus(
+          "Aufwand fuer Verwaltung, Wirtschaft und Buerger wurde bereits berechnet."
+        );
         setEffortReady(true);
         setCurrentTab(6);
         return;
       }
       window.dispatchEvent(new Event("tiles-updated"));
       setEffortReady(true);
+      setStatus("Aufwand fuer Verwaltung, Wirtschaft und Buerger berechnet.");
       setCurrentTab(6);
     } catch (error) {
       logClientError("EffortPanel.calculateEffort", error, {
@@ -66,7 +75,9 @@ export default function EffortPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Beim Klick auf „Aufwand berechnen“ werden Fallzahlen je Fallgruppe sowie
-            Lohnsatz-, Zeit- und Sachaufwände je Prozessschritt ermittelt.
+            Lohnsatz-, Zeit- und Sachaufwände je Prozessschritt fuer Verwaltung,
+            Wirtschaft und Buerger gleichzeitig ermittelt. Der Umschalter in der
+            Graph-Ansicht wechselt nur die Darstellung.
           </p>
           <button
             onClick={handleCalculate}

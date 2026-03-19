@@ -15,6 +15,7 @@ from pydantic import BaseModel, StringConstraints
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db, llm_monitor
 from backend.core.config import settings
+from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import get_last_completed_step, undo_step
 from backend.routers._llm_router_utils import ensure_session_or_400
@@ -69,10 +70,15 @@ class SessionStatusResponse(BaseModel):
     summary_ready: bool
     regulations_ready: bool
     processes_ready: bool
+    processes_ready_by_addressee: dict[str, bool] = {}
     case_groups_ready: bool
+    case_groups_ready_by_addressee: dict[str, bool] = {}
     process_steps_ready: bool
+    process_steps_ready_by_addressee: dict[str, bool] = {}
     effort_ready: bool
+    effort_ready_by_addressee: dict[str, bool] = {}
     total_cost_ready: bool
+    total_cost_ready_by_addressee: dict[str, bool] = {}
     last_completed_step: str | None = None
     last_completed_label: str | None = None
 
@@ -390,6 +396,12 @@ async def _run_single_step(
     api_keys: ApiKeys,
     model: str,
 ) -> None:
+    async def _run_for_supported_addressees(
+        runner: Callable[[str], Awaitable[None]],
+    ) -> None:
+        for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+            await runner(norm_addressee)
+
     if step_key == "summary":
         current_filename, proposed_filename = _resolve_filenames(
             payload.app_session_id,
@@ -421,46 +433,66 @@ async def _run_single_step(
         return
 
     if step_key == "processes":
-        processes_payload = processes_router.ProcessCompilationRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await processes_router.compile_processes(processes_payload, api_keys)
+        async def _run_processes(norm_addressee: str) -> None:
+            processes_payload = processes_router.ProcessCompilationRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await processes_router.compile_processes(processes_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_processes)
         return
 
     if step_key == "case_groups":
-        case_groups_payload = case_groups_router.CaseGroupDevelopmentRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await case_groups_router.develop_case_groups(case_groups_payload, api_keys)
+        async def _run_case_groups(norm_addressee: str) -> None:
+            case_groups_payload = case_groups_router.CaseGroupDevelopmentRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await case_groups_router.develop_case_groups(case_groups_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_case_groups)
         return
 
     if step_key == "process_steps":
-        steps_payload = process_steps_router.ProcessStepAnalysisRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await process_steps_router.analyze_process_steps(steps_payload, api_keys)
+        async def _run_steps(norm_addressee: str) -> None:
+            steps_payload = process_steps_router.ProcessStepAnalysisRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await process_steps_router.analyze_process_steps(steps_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_steps)
         return
 
     if step_key == "effort":
-        effort_payload = effort_router.EffortCalculationRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await effort_router.calculate_effort(effort_payload, api_keys)
+        async def _run_effort(norm_addressee: str) -> None:
+            effort_payload = effort_router.EffortCalculationRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await effort_router.calculate_effort(effort_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_effort)
         return
 
     if step_key == "total_cost":
-        costs_payload = costs_router.CostComputationRequest(
-            app_session_id=payload.app_session_id
-        )
-        await costs_router.compute_costs(costs_payload)
+        async def _run_costs(norm_addressee: str) -> None:
+            costs_payload = costs_router.CostComputationRequest(
+                app_session_id=payload.app_session_id,
+                norm_addressee=norm_addressee,
+            )
+            await costs_router.compute_costs(costs_payload)
+
+        await _run_for_supported_addressees(_run_costs)
         return
 
     raise HTTPException(status_code=400, detail=f"Unknown step: {step_key}")

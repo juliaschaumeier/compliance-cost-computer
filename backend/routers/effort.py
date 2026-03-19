@@ -16,6 +16,12 @@ from backend.core.llm_attempts import (
 )
 from backend.core.llm_json import extract_fallgruppen, parse_json_object_with_mode
 from backend.core.llm_service import LlmResult, query_llm
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    BUSINESS,
+    CITIZENS,
+    normalize_norm_addressee,
+)
 from backend.core.parsing import parse_first_int, parse_optional_number
 from backend.core.payload_builders import (
     build_case_groups_payload,
@@ -34,7 +40,7 @@ class EffortCalculationRequest(BaseModel):
     app_session_id: str
     model: str | None = None
     provider: str | None = None
-
+    norm_addressee: str | None = None
 
 def _has_meaningful_value(value: object) -> bool:
     if value is None:
@@ -141,7 +147,278 @@ def _parse_cases_payload(payload: str) -> tuple[list[dict], set[str]]:
     return parsed, fallback_kinds
 
 
-def _parse_effort_payload(payload: str) -> tuple[list[dict], set[str]]:
+def _empty_role_values() -> dict[str, None]:
+    return {"a": None, "b": None, "c": None, "d": None}
+
+
+def _parse_execution_per_case(entry: dict) -> bool | None:
+    raw_execution = entry.get("execution_per_case")
+    if raw_execution is None:
+        raw_execution = entry.get("ausfuehrung_pro_einzelfall")
+    if isinstance(raw_execution, bool):
+        return raw_execution
+    if isinstance(raw_execution, (int, float)):
+        return bool(raw_execution)
+    if isinstance(raw_execution, str):
+        normalized = raw_execution.strip().lower()
+        if normalized in {"1", "true", "ja", "yes", "y"}:
+            return True
+        if normalized in {"0", "false", "nein", "no", "n"}:
+            return False
+    return None
+
+
+def _resolve_effort_group(
+    raw_role: dict,
+    norm_addressee: str,
+) -> str | None:
+    raw_group = str(
+        raw_role.get("lohngruppe")
+        or raw_role.get("gruppe")
+        or raw_role.get("group")
+        or ""
+    ).strip().lower()
+    if raw_group in {"a", "b", "c", "d"}:
+        return raw_group
+
+    raw_level = str(
+        raw_role.get("schwierigkeitsgrad")
+        or raw_role.get("niveau")
+        or raw_role.get("level")
+        or raw_role.get("rolle")
+        or ""
+    ).strip().lower()
+    if norm_addressee == ADMINISTRATION:
+        if raw_level in {"einfach", "mittlerer dienst", "einfacher und mittlerer dienst", "mittel"}:
+            return "a"
+        if raw_level in {"gehoben", "gehobener dienst"}:
+            return "b"
+        if raw_level in {"hoeher", "höher", "hoeherer dienst", "höherer dienst"}:
+            return "c"
+        if raw_level in {"durchschnitt", "average", "avg"}:
+            return "d"
+        return None
+
+    if raw_level in {"niedrig", "low"}:
+        return "a"
+    if raw_level in {"mittel", "medium"}:
+        return "b"
+    if raw_level in {"hoch", "high"}:
+        return "c"
+    if raw_level in {"durchschnitt", "average", "avg"}:
+        return "d"
+    return None
+
+
+def _parse_role_entries(
+    entry: dict,
+    period_suffix: str,
+    norm_addressee: str,
+) -> tuple[dict[str, float | None], dict[str, float | None], bool]:
+    slot_keys = ["a", "b", "c", "d"]
+    hourly_rates = {key: None for key in slot_keys}
+    time_required = {key: None for key in slot_keys}
+    raw_roles = entry.get(f"rollen_{period_suffix}")
+    used_new_format = isinstance(raw_roles, list)
+    if not used_new_format:
+        return hourly_rates, time_required, False
+
+    parsed_roles: list[tuple[str, float | None, float | None]] = []
+    for raw_role in raw_roles:
+        if not isinstance(raw_role, dict):
+            continue
+        slot = _resolve_effort_group(raw_role, norm_addressee)
+        if slot is None:
+            continue
+        hourly_rate = parse_optional_number(
+            raw_role.get("stundenlohn")
+            or raw_role.get("stundenlohn_satz")
+            or raw_role.get("hourly_rate")
+        )
+        duration = parse_optional_number(
+            raw_role.get("zeitaufwand_in_min")
+            or raw_role.get("zeitaufwand")
+            or raw_role.get("time_required_in_min")
+        )
+        if hourly_rate is None and duration is None:
+            continue
+        parsed_roles.append((slot, hourly_rate, duration))
+
+    for slot, hourly_rate, duration in parsed_roles:
+        hourly_rates[slot] = hourly_rate
+        time_required[slot] = duration
+    return hourly_rates, time_required, True
+
+
+def _parse_citizens_effort_entry(entry: dict, step_id: int) -> dict | None:
+    time_current = parse_optional_number(
+        entry.get("zeitaufwand_in_min_current")
+        or entry.get("zeitaufwand_in_min_gueltig")
+        or entry.get("time_required_in_min_current")
+        or entry.get("time_required_in_min_gueltig")
+    )
+    time_proposed = parse_optional_number(
+        entry.get("zeitaufwand_in_min_proposed")
+        or entry.get("zeitaufwand_in_min_vorschlag")
+        or entry.get("time_required_in_min_proposed")
+        or entry.get("time_required_in_min_vorschlag")
+    )
+    expenses_current = parse_optional_number(
+        entry.get("sachaufwand_current")
+        or entry.get("sachaufwand_gueltig")
+    )
+    expenses_proposed = parse_optional_number(
+        entry.get("sachaufwand_proposed")
+        or entry.get("sachaufwand_vorschlag")
+    )
+
+    if (
+        time_current is None
+        and time_proposed is None
+        and expenses_current is None
+        and expenses_proposed is None
+    ):
+        return None
+
+    return {
+        "step_id": step_id,
+        "hourly_rates_current": _empty_role_values(),
+        "hourly_rates_proposed": _empty_role_values(),
+        "time_required_current": {"a": time_current, "b": None, "c": None, "d": None},
+        "time_required_proposed": {"a": time_proposed, "b": None, "c": None, "d": None},
+        "expenses_current": expenses_current,
+        "expenses_proposed": expenses_proposed,
+        "execution_per_case": _parse_execution_per_case(entry),
+        "aenderungsstatus": extract_change_status(entry),
+    }
+
+
+def _parse_org_effort_entry(
+    entry: dict,
+    step_id: int,
+    norm_addressee: str,
+) -> tuple[dict | None, set[str]]:
+    fallback_kinds: set[str] = set()
+    hourly_rates_current, time_required_current, uses_role_format_current = _parse_role_entries(
+        entry,
+        "gueltig",
+        norm_addressee,
+    )
+    hourly_rates_proposed, time_required_proposed, uses_role_format_proposed = _parse_role_entries(
+        entry,
+        "vorschlag",
+        norm_addressee,
+    )
+    business_aliases = {
+        "a": ["niedrig", "low"],
+        "b": ["mittel", "medium"],
+        "c": ["hoch", "high"],
+        "d": ["durchschnitt", "average", "avg"],
+    }
+    for key in ["a", "b", "c", "d"]:
+        if not uses_role_format_current:
+            hourly_rates_current_raw, current_rate_alias = _value_from_keys(
+                entry,
+                f"stundenlohn_satz_{key}_current",
+                (
+                    f"stundenlohn_satz_{key}_gueltig",
+                    f"stundenlohn_satz_{key.upper()}_current",
+                    f"stundenlohn_satz_{key.upper()}_gueltig",
+                    *(f"stundenlohn_satz_{alias}_current" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias}_gueltig" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias.upper()}_current" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias.upper()}_gueltig" for alias in business_aliases[key]),
+                ),
+            )
+            time_required_current_raw, current_time_alias = _value_from_keys(
+                entry,
+                f"zeitaufwand_in_min_{key}_current",
+                (
+                    f"zeitaufwand_in_min_{key}_gueltig",
+                    f"zeitaufwand_in_min_{key.upper()}_current",
+                    f"zeitaufwand_in_min_{key.upper()}_gueltig",
+                    *(f"zeitaufwand_in_min_{alias}_current" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias}_gueltig" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias.upper()}_current" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias.upper()}_gueltig" for alias in business_aliases[key]),
+                ),
+            )
+            if current_rate_alias is not None or current_time_alias is not None:
+                fallback_kinds.add("effort_legacy_key_alias")
+            hourly_rates_current[key] = parse_optional_number(hourly_rates_current_raw)
+            time_required_current[key] = parse_optional_number(time_required_current_raw)
+
+        if not uses_role_format_proposed:
+            hourly_rates_proposed_raw, proposed_rate_alias = _value_from_keys(
+                entry,
+                f"stundenlohn_satz_{key}_proposed",
+                (
+                    f"stundenlohn_satz_{key}_vorschlag",
+                    f"stundenlohn_satz_{key.upper()}_proposed",
+                    f"stundenlohn_satz_{key.upper()}_vorschlag",
+                    *(f"stundenlohn_satz_{alias}_proposed" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias}_vorschlag" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias.upper()}_proposed" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
+                ),
+            )
+            time_required_proposed_raw, proposed_time_alias = _value_from_keys(
+                entry,
+                f"zeitaufwand_in_min_{key}_proposed",
+                (
+                    f"zeitaufwand_in_min_{key}_vorschlag",
+                    f"zeitaufwand_in_min_{key.upper()}_proposed",
+                    f"zeitaufwand_in_min_{key.upper()}_vorschlag",
+                    *(f"zeitaufwand_in_min_{alias}_proposed" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias}_vorschlag" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias.upper()}_proposed" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
+                ),
+            )
+            if proposed_rate_alias is not None or proposed_time_alias is not None:
+                fallback_kinds.add("effort_legacy_key_alias")
+            hourly_rates_proposed[key] = parse_optional_number(hourly_rates_proposed_raw)
+            time_required_proposed[key] = parse_optional_number(time_required_proposed_raw)
+
+    expenses_current_raw, expenses_current_alias = _value_from_keys(
+        entry,
+        "sachaufwand_current",
+        ("sachaufwand_gueltig",),
+    )
+    expenses_proposed_raw, expenses_proposed_alias = _value_from_keys(
+        entry,
+        "sachaufwand_proposed",
+        ("sachaufwand_vorschlag",),
+    )
+    if expenses_current_alias is not None or expenses_proposed_alias is not None:
+        fallback_kinds.add("effort_legacy_key_alias")
+    expenses_current = parse_optional_number(expenses_current_raw)
+    expenses_proposed = parse_optional_number(expenses_proposed_raw)
+
+    if (
+        all(value is None for value in hourly_rates_current.values())
+        and all(value is None for value in hourly_rates_proposed.values())
+        and all(value is None for value in time_required_current.values())
+        and all(value is None for value in time_required_proposed.values())
+        and expenses_current is None
+        and expenses_proposed is None
+    ):
+        return None, fallback_kinds
+
+    return {
+        "step_id": step_id,
+        "hourly_rates_current": hourly_rates_current,
+        "hourly_rates_proposed": hourly_rates_proposed,
+        "time_required_current": time_required_current,
+        "time_required_proposed": time_required_proposed,
+        "expenses_current": expenses_current,
+        "expenses_proposed": expenses_proposed,
+        "execution_per_case": _parse_execution_per_case(entry),
+        "aenderungsstatus": extract_change_status(entry),
+    }, fallback_kinds
+
+
+def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict], set[str]]:
     data, parse_mode = parse_json_object_with_mode(payload)
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
@@ -168,108 +445,17 @@ def _parse_effort_payload(payload: str) -> tuple[list[dict], set[str]]:
             )
             if step_id is None:
                 continue
-            hourly_rates_current = {}
-            hourly_rates_proposed = {}
-            time_required_current = {}
-            time_required_proposed = {}
-            for key in ["a", "b", "c", "d"]:
-                hourly_rates_current_raw, current_rate_alias = _value_from_keys(
+            if norm_addressee == CITIZENS:
+                parsed_entry = _parse_citizens_effort_entry(entry, step_id)
+            else:
+                parsed_entry, entry_fallbacks = _parse_org_effort_entry(
                     entry,
-                    f"stundenlohn_satz_{key}_current",
-                    (
-                        f"stundenlohn_satz_{key}_gueltig",
-                        f"stundenlohn_satz_{key.upper()}_current",
-                        f"stundenlohn_satz_{key.upper()}_gueltig",
-                    ),
+                    step_id,
+                    norm_addressee,
                 )
-                hourly_rates_proposed_raw, proposed_rate_alias = _value_from_keys(
-                    entry,
-                    f"stundenlohn_satz_{key}_proposed",
-                    (
-                        f"stundenlohn_satz_{key}_vorschlag",
-                        f"stundenlohn_satz_{key.upper()}_proposed",
-                        f"stundenlohn_satz_{key.upper()}_vorschlag",
-                    ),
-                )
-                time_required_current_raw, current_time_alias = _value_from_keys(
-                    entry,
-                    f"zeitaufwand_in_min_{key}_current",
-                    (
-                        f"zeitaufwand_in_min_{key}_gueltig",
-                        f"zeitaufwand_in_min_{key.upper()}_current",
-                        f"zeitaufwand_in_min_{key.upper()}_gueltig",
-                    ),
-                )
-                time_required_proposed_raw, proposed_time_alias = _value_from_keys(
-                    entry,
-                    f"zeitaufwand_in_min_{key}_proposed",
-                    (
-                        f"zeitaufwand_in_min_{key}_vorschlag",
-                        f"zeitaufwand_in_min_{key.upper()}_proposed",
-                        f"zeitaufwand_in_min_{key.upper()}_vorschlag",
-                    ),
-                )
-                if any(
-                    alias is not None
-                    for alias in (
-                        current_rate_alias,
-                        proposed_rate_alias,
-                        current_time_alias,
-                        proposed_time_alias,
-                    )
-                ):
-                    fallback_kinds.add("effort_legacy_key_alias")
-                hourly_rates_current[key] = parse_optional_number(
-                    hourly_rates_current_raw
-                )
-                hourly_rates_proposed[key] = parse_optional_number(
-                    hourly_rates_proposed_raw
-                )
-                time_required_current[key] = parse_optional_number(
-                    time_required_current_raw
-                )
-                time_required_proposed[key] = parse_optional_number(
-                    time_required_proposed_raw
-                )
-            expenses_current_raw, expenses_current_alias = _value_from_keys(
-                entry,
-                "sachaufwand_current",
-                ("sachaufwand_gueltig",),
-            )
-            expenses_proposed_raw, expenses_proposed_alias = _value_from_keys(
-                entry,
-                "sachaufwand_proposed",
-                ("sachaufwand_vorschlag",),
-            )
-            if expenses_current_alias is not None or expenses_proposed_alias is not None:
-                fallback_kinds.add("effort_legacy_key_alias")
-            expenses_current = parse_optional_number(
-                expenses_current_raw
-            )
-            expenses_proposed = parse_optional_number(
-                expenses_proposed_raw
-            )
-            if (
-                all(value is None for value in hourly_rates_current.values())
-                and all(value is None for value in hourly_rates_proposed.values())
-                and all(value is None for value in time_required_current.values())
-                and all(value is None for value in time_required_proposed.values())
-                and expenses_current is None
-                and expenses_proposed is None
-            ):
-                continue
-            parsed.append(
-                {
-                    "step_id": step_id,
-                    "hourly_rates_current": hourly_rates_current,
-                    "hourly_rates_proposed": hourly_rates_proposed,
-                    "time_required_current": time_required_current,
-                    "time_required_proposed": time_required_proposed,
-                    "expenses_current": expenses_current,
-                    "expenses_proposed": expenses_proposed,
-                    "aenderungsstatus": extract_change_status(entry),
-                }
-            )
+                fallback_kinds.update(entry_fallbacks)
+            if parsed_entry is not None:
+                parsed.append(parsed_entry)
     return parsed, fallback_kinds
 
 
@@ -283,19 +469,35 @@ async def calculate_effort(
         payload.model,
     )
 
-    processes = db.list_processes_for_session(session_id)
-    regulations = db.list_regulations_for_session(session_id)
-    case_groups = db.list_case_groups_for_session(session_id)
-    steps = db.list_process_steps_for_session(session_id)
+    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    case_groups = db.list_case_groups_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    steps = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
+    if not case_groups and norm_addressee != ADMINISTRATION:
+        return {
+            "status": "skipped",
+            "case_groups_updated": 0,
+            "steps_updated": 0,
+            "norm_addressee": norm_addressee,
+        }
     if not case_groups:
         raise HTTPException(status_code=400, detail="No case groups for session")
     if not steps:
         raise HTTPException(status_code=400, detail="No process steps for session")
-    if db.has_effort_metrics(session_id):
+    has_existing_metrics = db.has_effort_metrics(session_id, norm_addressee)
+    if has_existing_metrics:
         return {
             "status": "existing",
             "case_groups_updated": 0,
             "steps_updated": 0,
+            "norm_addressee": norm_addressee,
         }
 
     case_groups_payload = build_case_groups_payload(
@@ -314,11 +516,13 @@ async def calculate_effort(
         PromptId.CASES_CALCULATION,
         session_id=session_id,
         case_groups_json=dump_prompt_json(case_groups_payload),
+        norm_addressee=norm_addressee,
     )
     effort_prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,
         session_id=session_id,
         step_analysis_json=dump_prompt_json(steps_payload),
+        norm_addressee=norm_addressee,
     )
 
     all_specs = [
@@ -387,7 +591,10 @@ async def calculate_effort(
             )
         if not parsed_cases:
             raise HTTPException(status_code=422, detail="No case group metrics parsed")
-        parsed_effort, effort_fallback_kinds = _parse_effort_payload(effort_result.text)
+        parsed_effort, effort_fallback_kinds = _parse_effort_payload(
+            effort_result.text,
+            norm_addressee,
+        )
         for fallback_kind in sorted(effort_fallback_kinds):
             mark_llm_parse_fallback(
                 answer_id=pending_answer_ids[PromptId.EFFORT_CALCULATION],
@@ -424,31 +631,11 @@ async def calculate_effort(
             )
 
         with db.transaction():
-            case_groups_by_id = {
-                int(group["case_group_id"]): group for group in case_groups
-            }
             for entry in parsed_cases:
-                existing_group = case_groups_by_id[int(entry["case_group_id"])]
-                addressees_current = (
-                    existing_group.get("addressees_current")
-                    if existing_group.get("addressees_current") is not None
-                    else entry.get("addressees_current")
-                )
-                annual_frequency_current = (
-                    existing_group.get("annual_frequency_current")
-                    if existing_group.get("annual_frequency_current") is not None
-                    else entry.get("annual_frequency_current")
-                )
-                addressees_proposed = (
-                    existing_group.get("addressees_proposed")
-                    if existing_group.get("addressees_proposed") is not None
-                    else entry.get("addressees_proposed")
-                )
-                annual_frequency_proposed = (
-                    existing_group.get("annual_frequency_proposed")
-                    if existing_group.get("annual_frequency_proposed") is not None
-                    else entry.get("annual_frequency_proposed")
-                )
+                addressees_current = entry.get("addressees_current")
+                annual_frequency_current = entry.get("annual_frequency_current")
+                addressees_proposed = entry.get("addressees_proposed")
+                annual_frequency_proposed = entry.get("annual_frequency_proposed")
                 cases_current = (
                     addressees_current * annual_frequency_current
                     if addressees_current is not None
@@ -461,9 +648,10 @@ async def calculate_effort(
                     and annual_frequency_proposed is not None
                     else None
                 )
-                db.update_case_group_metrics(
+                db.upsert_case_group_metrics_by_addressee(
                     session_id=session_id,
                     case_group_id=entry["case_group_id"],
+                    norm_addressee=norm_addressee,
                     addressees_current=addressees_current,
                     annual_frequency_current=annual_frequency_current,
                     addressees_proposed=addressees_proposed,
@@ -472,60 +660,18 @@ async def calculate_effort(
                     cases_proposed=cases_proposed,
                 )
 
-            steps_by_id = {int(step["step_id"]): step for step in steps}
             for entry in parsed_effort:
-                existing_step = steps_by_id[int(entry["step_id"])]
-                hourly_rates_current = {
-                    key: (
-                        existing_step.get(f"hourly_rate_{key}_current")
-                        if existing_step.get(f"hourly_rate_{key}_current") is not None
-                        else entry["hourly_rates_current"].get(key)
-                    )
-                    for key in ["a", "b", "c", "d"]
-                }
-                hourly_rates_proposed = {
-                    key: (
-                        existing_step.get(f"hourly_rate_{key}_proposed")
-                        if existing_step.get(f"hourly_rate_{key}_proposed") is not None
-                        else entry["hourly_rates_proposed"].get(key)
-                    )
-                    for key in ["a", "b", "c", "d"]
-                }
-                time_required_current = {
-                    key: (
-                        existing_step.get(f"time_required_in_min_{key}_current")
-                        if existing_step.get(f"time_required_in_min_{key}_current") is not None
-                        else entry["time_required_current"].get(key)
-                    )
-                    for key in ["a", "b", "c", "d"]
-                }
-                time_required_proposed = {
-                    key: (
-                        existing_step.get(f"time_required_in_min_{key}_proposed")
-                        if existing_step.get(f"time_required_in_min_{key}_proposed") is not None
-                        else entry["time_required_proposed"].get(key)
-                    )
-                    for key in ["a", "b", "c", "d"]
-                }
-                expenses_current = (
-                    existing_step.get("expenses_current")
-                    if existing_step.get("expenses_current") is not None
-                    else entry.get("expenses_current")
-                )
-                expenses_proposed = (
-                    existing_step.get("expenses_proposed")
-                    if existing_step.get("expenses_proposed") is not None
-                    else entry.get("expenses_proposed")
-                )
-                db.update_process_step_effort_split(
+                db.upsert_process_step_effort_split_by_addressee(
                     session_id=session_id,
                     step_id=entry["step_id"],
-                    hourly_rates_current=hourly_rates_current,
-                    time_required_current=time_required_current,
-                    expenses_current=expenses_current,
-                    hourly_rates_proposed=hourly_rates_proposed,
-                    time_required_proposed=time_required_proposed,
-                    expenses_proposed=expenses_proposed,
+                    norm_addressee=norm_addressee,
+                    hourly_rates_current=entry["hourly_rates_current"],
+                    time_required_current=entry["time_required_current"],
+                    expenses_current=entry.get("expenses_current"),
+                    hourly_rates_proposed=entry["hourly_rates_proposed"],
+                    time_required_proposed=entry["time_required_proposed"],
+                    expenses_proposed=entry.get("expenses_proposed"),
+                    execution_per_case=entry.get("execution_per_case"),
                 )
 
             mark_llm_answer_applied(
@@ -542,12 +688,19 @@ async def calculate_effort(
         mark_llm_answers_apply_failed(answer_ids=pending_answer_ids.values(), exc=exc)
         raise
 
-    refreshed_case_groups = db.list_case_groups_for_session(session_id)
-    refreshed_steps = db.list_process_steps_for_session(session_id)
-    refresh_case_group_tiles(session_id, refreshed_case_groups)
-    refresh_step_tiles(session_id, refreshed_steps)
+    refreshed_case_groups = db.list_case_groups_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    refreshed_steps = db.list_process_steps_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    refresh_case_group_tiles(session_id, refreshed_case_groups, norm_addressee=norm_addressee)
+    refresh_step_tiles(session_id, refreshed_steps, norm_addressee=norm_addressee)
 
     return {
         "case_groups_updated": len(parsed_cases),
         "steps_updated": len(parsed_effort),
+        "norm_addressee": norm_addressee,
     }

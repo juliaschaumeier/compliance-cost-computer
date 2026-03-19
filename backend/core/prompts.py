@@ -2,16 +2,19 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from backend.core.handbook_tables import Appendix
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+
 
 class PromptId:
     LAW_SUMMARY = "law_summary"
     REGULATIONS_IDENTIFICATION = "regulations_identification"
     PROCESS_COMPILATION = "process_compilation"
     CASE_GROUP_DEVELOPMENT = "case_group_development"
+    MIRROR_MATCHING = "mirror_matching"
     PROCESS_STEP_ANALYSIS = "process_step_analysis"
     CASES_CALCULATION = "cases_calculation"
     EFFORT_CALCULATION = "effort_calculation"
-    TRANSITION_EFFORT = "transition_effort"
 
 
 LEGIST_PROMPT_OPENING = (
@@ -31,6 +34,183 @@ LEGIST_PROMPT_OPENING = (
 
     """
 )
+
+
+NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
+    ADMINISTRATION: (
+        """
+        Dieser Lauf betrifft den Normadressaten Verwaltung.
+
+        Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Verwaltung. Dazu
+        gehoeren insbesondere Vollzugsaufwand sowie sonstige verwaltungsinterne oder
+        verwaltungsseitig ausgeloeste Taetigkeiten. Uebernehmen Sie keine wirtschaftlichen
+        oder buergerbezogenen Prozesse, Fallgruppen, Taetigkeiten, Fallzahlen oder Werte,
+        sofern diese nicht ausdruecklich als Spiegelwirkung der Verwaltung zuzurechnen sind.
+        """
+    ),
+    BUSINESS: (
+        """
+        Dieser Lauf betrifft den Normadressaten Wirtschaft.
+
+        Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Wirtschaft.
+        Analysieren Sie nur wirtschaftsbezogene Prozesse, Fallgruppen, Taetigkeiten,
+        Fallzahlen und Werte. Uebernehmen Sie keine Verwaltungslogik, Verwaltungswerte
+        oder buergerbezogenen Inhalte, sofern diese nicht ausdruecklich als Spiegelwirkung
+        oder wirtschaftsrelevante Folge der Vorgabe begruendet sind. Informationspflichten
+        der Wirtschaft, Spiegelsituationen, interne Umstellungen, externe Dienstleistungen
+        sowie wirtschaftsspezifische Pruef-, Melde-, Nachweis- und Dokumentationspflichten
+        sind mitzudenken.
+        """
+    ),
+    CITIZENS: (
+        """
+        Dieser Lauf betrifft den Normadressaten Buergerinnen und Buerger.
+
+        Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand von Buergerinnen und
+        Buergern. Analysieren Sie nur buergerbezogene Prozesse, Fallgruppen, Taetigkeiten,
+        Fallzahlen und Werte. Uebernehmen Sie keine Verwaltungs- oder Unternehmenslogik,
+        sofern diese nicht ausdruecklich als Spiegelwirkung oder unmittelbare Folge fuer
+        Buergerinnen und Buerger begruendet sind. Fuer Buergerinnen und Buerger stehen
+        Zeitaufwand und privater Sachaufwand im Vordergrund; eine generelle Monetarisierung
+        des Zeitaufwands findet nicht statt. Achten Sie besonders auf alltagsnahe
+        Pflichterfuellung, persoenliches Erscheinen, Beschaffung von Nachweisen oder Material,
+        Einschaltung Dritter, Gebuehren, Porto- und Fahrtkosten sowie auf einmalige
+        Einfuehrungsaufwaende im privaten Bereich. Beschreiben Sie niemals interne
+        Verwaltungspruefungen, verwaltungsinterne Abstimmungen, Bearbeitungsschritte der
+        Behoerde, Unternehmensorganisation oder fachliche Schritte Dritter als Taetigkeiten
+        der Buergerinnen und Buerger. Wenn eine Handlung von einer Behoerde, einem
+        Unternehmen oder einem Sachverstaendigen vorgenommen wird, gehoert fuer
+        Buergerinnen und Buerger nur der eigene ausgeloeste Aufwand dazu, etwa Termin
+        vereinbaren, Unterlagen vorbereiten, erscheinen, bezahlen, mitwirken oder beauftragen.
+        """
+    ),
+}
+
+
+PROMPT_IDS_WITH_NORM_ADDRESSEE_CLAUSE = {
+    PromptId.PROCESS_COMPILATION,
+    PromptId.CASE_GROUP_DEVELOPMENT,
+    PromptId.PROCESS_STEP_ANALYSIS,
+    PromptId.CASES_CALCULATION,
+    PromptId.EFFORT_CALCULATION,
+}
+
+
+CITIZENS_PROMPT_RULES: Dict[str, str] = {
+    PromptId.PROCESS_COMPILATION: (
+        "Zusatz fuer Buergerinnen und Buerger bei der Prozessbildung: "
+        "Bilden Sie Prozesse aus Sicht der privaten Lebensfuehrung. Ein Buergerprozess "
+        "ist die praktisch wahrnehmbare Erfuellung einer gesetzlichen Pflicht, etwa "
+        "Beantragen, Nachweisen, Melden, Bezahlen, Beschaffen, Vorlegen, Mitwirken "
+        "bei Pruefungen oder persoenliches Erscheinen. Bilden Sie keine internen "
+        "Behoerdenablaeufe als Buergerprozess. Wenn die Vorgabe fuer Buergerinnen und "
+        "Buerger nur dazu fuehrt, Unterlagen zu beschaffen oder Daten zu uebermitteln, "
+        "soll genau dieser Handlungskern den Prozess bestimmen. Geben Sie nur solche "
+        "Prozesse aus, die Buergerinnen und Buerger tatsaechlich selbst wahrnehmen. "
+        "Erfinden Sie keine Sammelprozesse, die mehrere voneinander unabhaengige "
+        "Alltagshandlungen kuenstlich zusammenziehen."
+    ),
+    PromptId.CASE_GROUP_DEVELOPMENT: (
+        "Zusatz fuer Buergerinnen und Buerger bei der Fallgruppenbildung: "
+        "Typische buergerbezogene Fallgruppen koennen sich insbesondere unterscheiden "
+        "nach erstmaliger Erfuellung versus wiederkehrender Erfuellung, digitalem "
+        "Verfahren versus Postweg oder persoenlichem Erscheinen, einfacher Standardlage "
+        "versus zusaetzlichem Nachweis- oder Beratungsbedarf, eigener Vornahme versus "
+        "Beauftragung Dritter sowie nach einmaligem Einfuehrungsaufwand versus "
+        "laufendem Aufwand. Bilden Sie solche Fallgruppen aber nur, wenn daraus "
+        "wesentlich unterschiedliche Zeit- oder Sachaufwaende folgen. Bilden Sie keine "
+        "Fallgruppen nur deshalb, weil unterschiedliche Behoerden oder Drittstellen "
+        "beteiligt sind, sofern sich der buergerseitige Aufwand dadurch nicht merklich "
+        "aendert. Verwenden Sie moeglichst wenige, fachlich trennscharfe Fallgruppen."
+    ),
+    PromptId.PROCESS_STEP_ANALYSIS: (
+        "Zusatz fuer Buergerinnen und Buerger bei der Schrittanalyse: "
+        "Orientieren Sie die Taetigkeiten moeglichst eng an der buergerbezogenen "
+        "Checkliste: sich mit der Vorgabe vertraut machen, Beratung in Anspruch nehmen, "
+        "Daten und Informationen sammeln, Informationen aufbereiten, Formulare "
+        "ausfuellen, Schriftstuecke aufsetzen, Daten uebermitteln, bezahlen, "
+        "Unterlagen abspeichern, bei Pruefungen mitwirken, Material beschaffen, "
+        "Leistung selbst erbringen oder Dritte beauftragen, Umsetzung pruefen und "
+        "Wegezeiten. Waehlen Sie nur die fuer den Vorher-Nachher-Vergleich wirklich "
+        "erforderlichen Hauptschritte. Wenn der Gesamtzeitaufwand fuer eine einfache "
+        "Pflichterfuellung belastbar direkt schaetzbar ist, darf die Fallgruppe auch "
+        "nur eine einzige zusammenfassende Taetigkeit enthalten. Jede ausgegebene "
+        "Taetigkeit muss eine Handlung der Buergerinnen und Buerger selbst sein. "
+        "Unzulaessig sind insbesondere verwaltungsinterne Pruefungen, Bescheiderstellung, "
+        "interne Ruecksprachen oder Unternehmensablaeufe. Geben Sie nur die minimale, "
+        "aber vollstaendige Menge an buergerseitigen Hauptschritten aus."
+    ),
+    PromptId.CASES_CALCULATION: (
+        "Zusatz fuer Buergerinnen und Buerger bei der Fallzahlermittlung: "
+        "Bei periodisch zu erfuellenden privaten Pflichten ergibt sich die Fallzahl "
+        "grundsaetzlich aus der Multiplikation von Betroffenen und Haeufigkeit pro Jahr. "
+        "Bei anlassbezogenen Pflichten ist die jaehrlich zu erwartende Zahl der Faelle "
+        "zugrunde zu legen. Einmaliger Erfuellungsaufwand im privaten Bereich ist "
+        "gesondert auszuweisen und nicht mit laufenden jaehrlichen Faellen zu "
+        "vermischen. Beruecksichtigen Sie plausible Sowieso-Anteile, wenn ein Teil der "
+        "Betroffenen die Handlung auch ohne die Gesetzesaenderung vorgenommen haette. "
+        "Veraendern Sie Fallzahlen nicht kuenstlich, wenn sich tatsaechlich nur der "
+        "Zeit- oder Sachaufwand pro Fall aendert."
+    ),
+}
+
+
+EFFORT_PROMPT_RULES: Dict[str, str] = {
+    CITIZENS: (
+        "Zusatz fuer die Aufwandsermittlung Buergerinnen und Buerger: "
+        "Ermitteln Sie fuer jede Taetigkeit ausschliesslich den Zeitaufwand in Minuten "
+        "sowie den Sachaufwand in Euro. Monetarisieren Sie den Zeitaufwand nicht. "
+        "Verwenden Sie keine Rollen, keine Lohngruppen und keine Stundenloehne. "
+        "Orientieren Sie sich bei Zeitwerten an der Zeitwerttabelle fuer Buergerinnen "
+        "und Buerger und pruefen Sie deren Plausibilitaet fuer den konkreten Fall. "
+        "Sachaufwand umfasst insbesondere Gebuehren, Anschaffungen, Porto- und "
+        "Fahrtkosten, Materialkosten sowie zwingend ausgeloeste Kosten fuer Dritte "
+        "wie Notare oder Sachverstaendige. Geben Sie den Zeit- und Sachaufwand "
+        "jeweils fuer gueltige und vorgeschlagene Rechtslage getrennt an. "
+        "Wenn fuer eine Taetigkeit kein Sachaufwand anfaellt, verwenden Sie 0. "
+        "Wenn fuer eine Taetigkeit kein Zeitaufwand anfaellt, verwenden Sie 0. "
+        "Ignorieren Sie im allgemeinen Schema alle Felder zu Rollen, Lohngruppen "
+        "und Stundenloehnen. Verwenden Sie fuer Buergerinnen und Buerger "
+        "ausschliesslich folgendes vereinfachte JSON-Schema je Taetigkeit: "
+        '{"taetigkeiten_id":"","taetigkeit":"","beschreibung":"","aenderungsstatus":"",'
+        '"zeitaufwand_in_min_gueltig":"","sachaufwand_gueltig":"",'
+        '"zeitaufwand_in_min_vorschlag":"","sachaufwand_vorschlag":"",'
+        '"ausfuehrung_pro_einzelfall":"0 | 1"}'
+        " Geben Sie keine weiteren Felder aus. Geben Sie Zahlen nur als nackte Werte "
+        "ohne Einheiten, Waehrungssymbole oder Fliesstext aus. Erfinden Sie keine "
+        "verdeckten Verwaltungs- oder Unternehmenskosten als buergerseitigen "
+        "Sachaufwand. Weisen Sie Sachaufwand nur aus, wenn er fuer Buergerinnen und "
+        "Buerger selbst unmittelbar anfaellt."
+    ),
+    BUSINESS: (
+        "Zusatz fuer die Aufwandsermittlung Wirtschaft: Die festen Lohngruppen sind "
+        "A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt. Ordnen Sie jede benoetigte "
+        "Bearbeitungsstufe genau einer dieser Gruppen zu. Eine einzige Lohngruppe ist der "
+        "Regelfall; mehrere Lohngruppen sind nur bei klar getrennten Bearbeitungsstufen "
+        "zulaessig, etwa operative Bearbeitung und anschliessende Freigabe. Vermeiden Sie "
+        "schematische Mehrfachbefuellung. "
+        "Buerokratiekosten der Wirtschaft sind spaeter getrennt auszuweisen. "
+        "Ersatzinvestitionen sind nur zur Haelfte als Erfuellungsaufwand anzusetzen, "
+        "soweit kein anderer Anteil fachlich begruendet ist."
+    ),
+    ADMINISTRATION: (
+        "Zusatz fuer die Aufwandsermittlung Verwaltung: Die festen Lohngruppen sind "
+        "A=Einfacher und mittlerer Dienst, B=Gehobener Dienst, C=Hoeherer Dienst, "
+        "D=Durchschnitt. Ordnen Sie jede benoetigte Bearbeitungsstufe genau einer dieser "
+        "Gruppen zu. Eine einzige Lohngruppe ist der Regelfall; mehrere Lohngruppen sind "
+        "nur bei klar getrennten Bearbeitungsstufen zulaessig, etwa Bearbeitung und "
+        "anschliessende Freigabe. Vermeiden Sie schematische Mehrfachbefuellung."
+    ),
+}
+
+
+EFFORT_PROMPT_APPENDICES: Dict[str, str] = {
+    CITIZENS: "\n\nAnhang Buergerinnen und Buerger:\n\n{Zeitwerttabelle_Buerger}",
+    BUSINESS: (
+        "\n\nAnhang Wirtschaft:\n\n"
+        "{Zeitwerttabelle_Wirtschaft}\n\n{Lohnkostentabelle_Wirtschaft}"
+    ),
+}
 
 
 PROMPT_TEMPLATES: Dict[str, str] = {
@@ -66,18 +246,42 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Ihre Aufgabe ist, ausgehend von den konsolidierten Versionen die Gesetzesänderungen herauszuarbeiten und alle darin enthaltenen Vorgaben 
         (Einzelregelungen) im nachfolgenden Sinne zu identifizieren. 
-        Wichtig: Jede Gesetzesänderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle für die Verwaltung zu beachtenden Vorgaben 
-        und geben Sie den Status an, also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung handelt.
+        Wichtig: Jede Gesetzesänderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
+        also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung handelt.
         Berücksichtigen Sie dabei auch implizite Änderungen von Vorgaben, bei denen bisher Betroffene wegfallen, weil sie künftig stattdessen einem neuen
         Prozess unterliegen; solche Fälle sind ebenfalls als eigene relevante Vorgaben mit passendem Änderungsstatus auszuweisen.
 
-        Verwaltung sind alle die mit der Wahrnehmung von Verwaltungsaufgaben betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen 
+        Bestimmen Sie fuer jede Vorgabe ausserdem:
+        * welche Normadressaten betroffen sind: Verwaltung, Wirtschaft, Buergerinnen und Buerger,
+        * ob es sich um eine Informationspflicht der Wirtschaft handelt,
+        * ob eine Spiegelsituation vorliegt, also ob die Befolgung der Vorgabe unmittelbar Aufwand bei einem anderen Normadressaten ausloest,
+        * und falls ja, fuer welche weiteren Normadressaten diese Spiegelwirkung auftritt.
+
+        Wenn eine Spiegelsituation vorliegt, vergeben Sie zusaetzlich einen kurzen,
+        stabilen `mirror_anchor_key`, der den gemeinsamen zugrunde liegenden
+        Lebenssachverhalt beschreibt. Verwenden Sie dafuer eine kurze,
+        kleingeschriebene, bindestrichgetrennte Kennung, zum Beispiel
+        `antrag-gemeinnuetzigkeit` oder `nachweis-vorlage`.
+
+        Zum Normadressaten Verwaltung zählen alle mit der Wahrnehmung von Verwaltungsaufgaben betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen 
         des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen hoheitlichen Kompetenzen). Soweit Körperschaften/Anstalten des 
         öffentlichen Rechts privatwirtschaftlich tätig sind und in Wettbewerb stehen (z. B. kostenpflichtige Schulungen der Kammern; Universitäten bei 
         Forschungsförderungen) sind diese als Wirtschaft zu behandeln. Soweit Unternehmen hoheitliche Aufgaben wahrnehmen (z. B. Beliehene wie Prüfingenieure, 
         Bezirksschornsteinfegermeister, Tierärzte bei Fleischbeschau), sind diese als Verwaltung zu behandeln. Soweit öffentliche Unternehmen, die Aufgaben der 
         Daseinsvorsorge im staatlichen Auftrag erfüllen (z. B. Wasserkraftwerke in öffentlicher Hand) sind diese als Verwaltung zu behandeln. Die Rechtsform 
         bietet nur Anhaltspunkte; maßgeblich ist die vorgeschriebene Tätigkeit.
+
+        Der Normadressat Wirtschaft umfasst alle Akteure, die eine wirtschaftliche Tätigkeit am Markt ausüben, wobei die Rechtsform oder eine Gewinnerzielungsabsicht
+        nicht ausschlaggebend sind. Hierzu zählen primär private Unternehmen jeder Größe (einschließlich KMU), Selbstständige sowie Freiberufler. Zur Wirtschaft gehören
+        im Sinne des Erfüllungsaufwands auch gemeinnützige Organisationen wie Vereine, Verbände oder Stiftungen, sofern sie als Arbeitgeber agieren oder Dienstleistungen
+        im Wettbewerb anbieten. In Abgrenzung zur Verwaltung sind zudem öffentliche Institutionen (wie Universitäten oder Kammern) der Wirtschaft zuzurechnen,
+        wenn sie privatwirtschaftlich tätig werden und in Konkurrenz zu privaten Anbietern treten.
+
+        Der Normadressat Bürgerinnen und Bürger definiert sich durch natürliche Personen, die von einer gesetzlichen Regelung in ihrer Rolle als Privatperson betroffen sind.
+        Der Aufwand wird dieser Gruppe immer dann zugeordnet, wenn die Tätigkeit der privaten Lebensführung dient und nicht im Rahmen einer beruflichen, gewerblichen
+        oder hoheitlichen Aufgabe erfolgt. Ein typisches Beispiel ist die Erfüllung von Verhaltenspflichten im Alltag, wie etwa die Einhaltung der M+S-Reifenpflicht
+        bei privaten Kraftfahrzeugen. Im Gegensatz zur Wirtschaft und Verwaltung wird bei den Bürgerinnen und Bürgern primär der Zeitaufwand für Tätigkeiten
+        (z. B. Informationsbeschaffung oder das Ausfüllen von Formularen) sowie der private Sachaufwand ermittelt, ohne dass eine generelle Monetarisierung der Zeit erfolgt.
 
         Definition von Vorgaben:
         * Vorgaben sind Einzelregelungen, die unmittelbar zu Änderungen von Kosten oder Zeitaufwand bei den Normadressaten führen.
@@ -101,7 +305,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             {{
               "normzitat": "",
               "beschreibung": "",
-              "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+              "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft",
+              "normadressaten": ["verwaltung | wirtschaft | buerger"],
+              "ist_informationspflicht_wirtschaft": "0 | 1",
+              "spiegelsituation": {{
+                "liegt_vor": "0 | 1",
+                "normadressaten": ["verwaltung | wirtschaft | buerger"],
+                "beschreibung": "",
+                "mirror_anchor_key": ""
+              }}
             }}
           ]
         }}
@@ -116,13 +328,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.PROCESS_COMPILATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden Einzelvorgaben für die Verwaltung: {vorgaben_json}
+        Die Gesetzesänderung führt zu folgenden Einzelvorgaben für den betroffenen Normadressaten: {vorgaben_json}
+        {mirror_process_context}
 
         Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, zu gemeinsamen 
         Prozessen zu bündeln. Soweit eine Bündelung von Vorgaben in Prozesse nicht möglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
         einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschließlich aus einer Vorgabe. Geben Sie außerdem den Status an, 
         also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung des Prozesses handelt. Orientieren Sie sich dazu an den 
         Statusangaben der Vorgaben.
+
+        Wenn Vorgaben als Spiegelsituation gekennzeichnet sind, beziehen sie sich auf denselben zugrunde liegenden Lebenssachverhalt wie beim anderen
+        Normadressaten. Bilden Sie solche Vorgaben daher nicht als fachlich losgelöste Sonderprozesse, sondern strukturieren Sie sie so, dass die
+        Spiegelbeziehung nachvollziehbar bleibt. Unterschiede zwischen Normadressaten sollen sich aus der jeweiligen Perspektive und den jeweiligen
+        Tätigkeiten ergeben, nicht aus einer widersprüchlichen Beschreibung des zugrunde liegenden Fallgeschehens.
 
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
@@ -173,13 +391,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.CASE_GROUP_DEVELOPMENT: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für die Verwaltung: {prozesse_json}
+        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten: {prozesse_json}
+        {mirror_case_group_context}
 
-        Wenn damit zu rechnen ist, dass die Verwaltung die jeweiligen Prozesse auf unterschiedlichen Wegen erfüllt, sind dafür sogenannte Fallgruppen zu bilden. 
+        Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfüllt, sind dafür sogenannte Fallgruppen zu bilden. 
         Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Für jede Fallgruppe ist der Erfüllungsaufwand separat zu 
-        ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil die Normadressaten verschiedene Gestaltungsmöglichkeiten nutzen 
+        ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmöglichkeiten genutzt werden 
         oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie außerdem den Status an, also ob es sich um entweder eine Einführung, 
         eine Änderung, oder eine Streichung/Löschung der Fallgruppe handelt.
+
+        Bei Spiegelsituationen ist auf strukturelle Konsistenz mit dem anderen Normadressaten zu achten: Wenn auf beiden Seiten derselbe zugrunde liegende
+        Fall betrachtet wird, sollen die Fallgruppen logisch zueinander passen. Unterschiede sind nur dort auszuweisen, wo sie sich aus unterschiedlichen
+        Verfahrenswegen, unterschiedlichen Betroffenheiten oder unterschiedlichen Rollen des jeweiligen Normadressaten ergeben. Erfinden Sie keine
+        voneinander losgeloesten Fallgruppen fuer denselben Spiegel-Sachverhalt.
 
         Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
@@ -246,6 +470,82 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
+    PromptId.MIRROR_MATCHING: (
+        LEGIST_PROMPT_OPENING
+        + """
+        Fuer die folgende Gesetzesaenderung liegen bereits Prozesse und Fallgruppen
+        mehrerer Normadressaten vor, die ueber Spiegelsituationen miteinander
+        verknuepft sein koennen: {mirror_clusters_json}
+
+        Ihre Aufgabe ist zweistufig:
+        1. Analysieren Sie pro Spiegelanker zuerst den gemeinsamen realen Sachverhalt.
+        2. Ordnen Sie danach nur bereits vorhandene Strukturen ueber diesen
+           gemeinsamen Sachverhalt hinweg zu.
+
+        Ihre Aufgabe ist nicht, neue Prozesse oder Fallgruppen zu erzeugen.
+        Formulieren Sie fuer jeden Spiegelanker zuerst kurz die
+        `shared_situation`. Diese beschreibt in einem Satz, was der gemeinsame
+        reale Kernfall ueber alle Normadressaten hinweg ist.
+
+        Ordnen Sie anschliessend nur solche Fallgruppen einander zu, die diesen
+        gemeinsamen Kernfall beschreiben. Unterschiede in Perspektive und
+        Benennung sind zulaessig. Unzulaessig ist eine Zuordnung, wenn die
+        Fallgruppen fachlich verschiedene Sachverhalte betreffen.
+
+        Entscheiden Sie fuer jede Zuordnung ausserdem gesondert:
+        - ob die Zahl der Betroffenen synchronisiert werden soll
+        - ob die Haeufigkeit synchronisiert werden soll
+        - ob die gesamte Fallzahl direkt synchronisiert werden soll
+
+        Verwenden Sie diese Felder streng fachlich:
+        - `sync_addressees = 1`, wenn dieselbe Menge Betroffener auf beiden Seiten zugrunde liegt
+        - `sync_frequency = 1`, wenn dieselbe Haeufigkeit pro Jahr zugrunde liegt
+        - `sync_cases = 1`, wenn die resultierende Fallzahl als Ganzes direkt uebernommen werden soll
+
+        Beziehen Sie bei der Analyse alle vorliegenden Informationen gemeinsam
+        ein: Vorgaben, Spiegelbeschreibung, Prozessbeschreibungen,
+        Fallgruppenbeschreibungen und eventuell bereits bekannte Fallzahlen.
+
+        Geben Sie nur solche Zuordnungen aus, die fachlich belastbar sind. Wenn
+        keine verlaessliche Zuordnung moeglich ist, lassen Sie die betreffende
+        Fallgruppe ungemappt.
+
+        Verwenden Sie fuer `relation_type` nur:
+        - `one_to_one`
+        - `one_to_many`
+        - `many_to_one`
+        - `loosely_coupled`
+
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
+
+        {{
+          "analyses": [
+            {{
+              "mirror_anchor_key": "",
+              "shared_situation": "",
+              "matches": [
+                {{
+                  "source_norm_addressee": "administration | business | citizens",
+                  "target_norm_addressee": "administration | business | citizens",
+                  "source_process_id": "",
+                  "target_process_id": "",
+                  "source_case_group_id": "",
+                  "target_case_group_id": "",
+                  "relation_type": "one_to_one | one_to_many | many_to_one | loosely_coupled",
+                  "sync_addressees": "0 | 1",
+                  "sync_frequency": "0 | 1",
+                  "sync_cases": "0 | 1",
+                  "reason": ""
+                }}
+              ]
+            }}
+          ]
+        }}
+
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
+        """
+    ),
+    # TODO: ausfuehrung_pro_einzelfall bereits hier abfragen und nicht erst in effort_calculation??
     # Input contract:
     # - gesetz_gueltig: str
     # - gesetz_vorschlag: str
@@ -253,16 +553,31 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.PROCESS_STEP_ANALYSIS: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, positiven oder negativen Erfüllungsaufwand auslösenden Prozessen für die Verwaltung, welche durch folgende 
+        Die Gesetzesänderung führt zu folgenden, positiven oder negativen Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende 
         Fallgruppen differenziert werden: {case_groups_json}
+        {mirror_step_context}
 
-        Ihre Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten der Verwaltungsträger zur Erfüllung eines Prozesses pro Fallgruppe 
+        Ihre Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten zur Erfüllung eines Prozesses pro Fallgruppe 
         zu identifizieren. Auf dieser Grundlage werden später der anfallende Personal- und ggf. Sachaufwand bestimmt. Die einzelnen Tätigkeiten können vor und nach
         der Gesetzesänderung unterschiedlich sein, hinzukommen oder wegfallen, einige Tätigkeiten des Prozess können beibehalten bleiben. Geben Sie diesen 
         Änderungsstatus an, orientieren Sie sich dabei wenn nötig an den vorhandenen Statusangaben in den Fallgruppen und Prozessen.
 
-        Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die Checkliste mit den möglichen Tätigkeiten der Verwaltung zur Erfüllung 
+        Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche
+        Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte
+        Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu,
+        wenn sich tatsaechlich nur einzelne Schritte aendern.
+
+        Bei Spiegelsituationen sollen die Prozessschritte die Perspektive des betroffenen Normadressaten abbilden, aber dennoch denselben zugrunde liegenden
+        Fall erkennbar spiegeln. Das bedeutet: unterschiedliche Schritte sind zulaessig, wenn sie sich aus der Rolle des Normadressaten ergeben; unzulaessig
+        ist jedoch eine voellig andere, nicht mehr wiedererkennbare Struktur fuer denselben Spiegel-Sachverhalt.
+
+        Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten zur Erfüllung 
         von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.
+
+        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar
+        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten
+        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.
+        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.
 
         Checkliste:
         • Mit der Vorgabe vertraut machen 
@@ -286,7 +601,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         • Wege zu anderen Behörden, Organisationen oder Unternehmen 
 
         In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. 
-        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen.
+        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar
+        abgegrenzter und gut begründbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltätigkeiten.
         
         Bei Daueraufgaben oder wenn gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, kann es zweckmäßig 
         sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
@@ -396,19 +712,30 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für die Verwaltung, welche durch folgende Fallgruppen 
+        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende Fallgruppen 
         differenziert werden: {case_groups_json}
+        {mirror_case_context}
 
         Ihre Aufgabe ist es, die Änderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Häufigkeit und die Anzahl der Betroffenen 
         vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesänderung betrachtet. Bei der Einführung einer Fallgruppe werden typischerweise nur die 
         _vorschlag-Werte angegeben, bei der Löschung nur die _gueltig-Werte und bei einer Änderung beide.
+
+        Massgeblich ist auch hier die Aenderung des Erfuellungsaufwands. Schaetzen Sie deshalb nicht losgeloest einen abstrakten Gesamtbestand an Faellen,
+        sondern die fuer die geltende und die vorgeschlagene Rechtslage jeweils sachgerechte Fallzahl derselben Fallgruppe. Wenn sich die Fallzahl durch die
+        Gesetzesaenderung nicht aendert, sind identische Werte fuer _gueltig und _vorschlag plausibel. Wenn sich nur der Aufwand pro Fall aendert, duerfen
+        die Fallzahlen nicht kuenstlich mitveraendert werden.
+
+        Bei Spiegelsituationen gilt: Wenn aus einem anderen Normadressaten bereits spiegelnde Fallzahlen vorliegen und der zugrunde liegende Sachverhalt
+        logisch 1:1 gekoppelt ist, sind dieselben Mengen zu übernehmen statt sie erneut unabhängig zu schätzen. Beispiel: Wenn 500 neue Vereine gegründet
+        werden und deshalb 500 Anträge bei der Verwaltung zu bearbeiten sind, muss dieselbe Fallzahl auf beiden Seiten zugrunde gelegt werden; unterschiedlich
+        sind dann nur die Tätigkeiten und Kosten, nicht die Zahl der Fälle.
 
         Allgemein gilt: Bei periodisch zu erfüllenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Häufigkeit mit der Anzahl 
         der Betroffenen. Die Häufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie häufig der damit einhergehende 
         Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Anträgen anlassbezogen erfüllt werden, sollte die Zahl der 
         jährlich zu erwartenden Anträge als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl 
         für Überwachungs- und Kontrollmaßnahmen ist in der Regel wesentlich geringer.
-        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Einrichtung der Verwaltung anfällt, wird als 
+        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfällt, wird als 
         einmaliger Erfüllungsaufwand bzw. Umstellungsaufwannd bezeichnet und ist gesondert auszuweisen.
 
         Soweit bestehende Regelungen geändert werden, können Fallzahlen unter Umständen auch aus bereits vorliegenden Aufwandsschätzungen und 
@@ -501,25 +828,33 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für die Verwaltung, welche durch folgende Fallgruppen und 
+        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende Fallgruppen und 
         Prozessschritte differenziert werden: {step_analysis_json}
 
-        Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Tätigkeiten der Verwaltungsträger pro Einzelfall zu identifizieren. 
+        Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Tätigkeiten pro Einzelfall zu identifizieren. 
         Hierzu werden die Stundenlöhne, Zeit- und Sachaufwände vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesänderung betrachtet. Bei der Einführung
         eines Prozessschrittes werden typischerweise nur die _vorschlag-Werte angegeben, bei der Löschung nur die _gueltig-Werte und bei einer Änderung beide.
+
+        Entscheidend ist die Aenderung des Erfuellungsaufwands je Fall. Schaetzen Sie daher nicht den gesamten denkbaren Bearbeitungsaufwand eines Verfahrens
+        neu, sondern den fuer die geltende und die vorgeschlagene Rechtslage jeweils relevanten Aufwand derselben Taetigkeit. Wenn sich nur ein Teilaspekt
+        aendert, darf nicht automatisch der gesamte Schritt neu und vollumfaenglich angesetzt werden. Unveraenderte Aufwaende sollten in _gueltig und
+        _vorschlag gleich bleiben; nur geaenderte Mehr- oder Minderaufwaende sind abweichend auszuweisen.
 
         Eine Reihe von Tätigkeiten läuft bei Nutzung entsprechender Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen resultiert 
         zunächst kein Zeitaufwand.
         Sofern keine spezifischen Daten über den Zeitaufwand für die Erfüllung der Vorgaben zu ermitteln sind, kann die Zeitwerttabelle Verwaltung 
         herangezogen werden (siehe Anhang 7: Zeitwerttabelle Verwaltung). Zudem findet sich im Anhang eine Tabelle mit Pauschalen zu Wegezeiten 
-        (siehe Anhang 5: Wegezeiten und -sachkosten, Seite 62). Zur Ermittlung des Personalaufwands für die Verwaltung werden zunächst die zu erwartenden 
+        (siehe Anhang 5: Wegezeiten und -sachkosten, Seite 62). Zur Ermittlung des Personalaufwands werden zunächst die zu erwartenden 
         Bearbeitungszeiten dargestellt. Dabei zählen Gemeinkosten nicht zum Erfüllungsaufwand.
 
         Personalaufwand wird grundsätzlich über die zu erwartende Arbeitszeit pro Tätigkeit (in Minuten) und Fall dargestellt und mit den laufbahnspezifischen 
         Lohnsätzen der mit der Bearbeitung zu betrauenden Mitarbeiterinnen und Mitarbeitern multipliziert. Die zu erwartende Arbeitszeit pro Fall 
         (Zeitaufwand) kann z. B. anhand von Erfahrungswerten, Organisationsuntersuchungen oder Daten der Kosten- und Leistungsrechnung ermittelt werden.
-        Die laufbahnspezifischen Lohnsätze ergeben sich aus der Lohnkostentabelle des StBA (siehe Anhang 8: Lohnkostentabelle Verwaltung). Es sind hierbei jeweils 
-        nur die Lohnsatz/Zeitaufwand Paare anzugeben, welche tatsächlich bei der Erfüllung der Tätigkeit relevant sind.
+        Die laufbahnspezifischen Lohnsätze ergeben sich aus der jeweils einschlägigen Lohnkostentabelle. Ordnen Sie jede beteiligte Bearbeitungsstufe einer festen
+        Lohngruppe A-D zu und geben Sie nur die tatsächlich benötigten Gruppen an. Wenn eine Tätigkeit vollständig von einer Person bzw. Lohngruppe erledigt wird,
+        ist nur eine Gruppe anzugeben. Das ist der Regelfall. Wenn eine Tätigkeit mehrere klar unterscheidbare Stufen umfasst, etwa Sachbearbeitung und
+        anschließende Freigabe, sind nur diese tatsächlich beteiligten Gruppen anzugeben. Mehrere Gruppen sind nur in begründeten Ausnahmefällen zulässig, wenn die
+        Tätigkeit ohne diese Trennung fachlich nicht zutreffend beschrieben werden kann. Vermeiden Sie pauschale Vollbefüllung oder unbegründete Zusatzgruppen.
 
         Wenn der zu erfüllende Prozess nicht in Einzeltätigkeiten (oder lediglich eine Einzeltätigkeit) zerlegt wurde, etwa bei Daueraufgaben oder wenn 
         gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, ermittelt man Zeitaufwand in Personentagen oder 
@@ -531,15 +866,17 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         • 1 Personenjahr: 200 Arbeitstage.
 
         Unter Sachaufwand fällt der Betriebs-, Unterhaltungs- und Investitionsaufwand, der zur Erfüllung einer Vorgabe oder eines Prozesses zu erwarten ist. 
-        Gemeinkosten zählen hingegen nicht zum Erfüllungsaufwand. Darüber hinaus notwendige Investitionsaufwendungen für die Verwaltung sollten bei der 
+        Gemeinkosten zählen hingegen nicht zum Erfüllungsaufwand. Darüber hinaus notwendige Investitionsaufwendungen des betroffenen Normadressaten sollten bei der 
         Aufwandsermittlung ebenfalls konkret aufgeschlüsselt werden. Hierzu zählen beispielsweise: 
         • Aufwand für die Inanspruchnahme Dritter (z. B. Handwerkerleistungen), 
         • Aufwand für die Beschaffung von spezieller Informations- und Kommunikationstechnik, 
         • Aufwand für die Nachrüstung von Anlagen, 
         • Sachaufwand für Wege zu anderen Behörden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
 
-        Bitte nur Prozessschritte aufnehmen, die für jeden einzelnen Fall dieser Fallgruppe ausgeführt werden müssen.
-        
+        Außerdem soll angegeben werden, ob die Tätigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgeführt wird (=0).
+        Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
+        einzelnen Fall erneut anfaellt.
+
         Anhang:
 
         {Wegezeiten_Wegesachkosten}
@@ -577,48 +914,54 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "taetigkeit": "",
                             "beschreibung": "",
                             "aenderungsstatus": "",
-                            "stundenlohn_satz_a_gueltig": "",
-                            "stundenlohn_satz_b_gueltig": "",
-                            "stundenlohn_satz_c_gueltig": "",
-                            "stundenlohn_satz_d_gueltig": "",
-                            "zeitaufwand_in_min_a_gueltig": "",
-                            "zeitaufwand_in_min_b_gueltig": "",
-                            "zeitaufwand_in_min_c_gueltig": "",
-                            "zeitaufwand_in_min_d_gueltig": "",
+                            "rollen_gueltig": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_gueltig": "",
-                            "stundenlohn_satz_a_vorschlag": "",
-                            "stundenlohn_satz_b_vorschlag": "",
-                            "stundenlohn_satz_c_vorschlag": "",
-                            "stundenlohn_satz_d_vorschlag": "",
-                            "zeitaufwand_in_min_a_vorschlag": "",
-                            "zeitaufwand_in_min_b_vorschlag": "",
-                            "zeitaufwand_in_min_c_vorschlag": "",
-                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "rollen_vorschlag": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }},
                         {{
                             "taetigkeiten_id": "",
                             "taetigkeit": "",
                             "beschreibung": "",
                             "aenderungsstatus": "",
-                            "stundenlohn_satz_a_gueltig": "",
-                            "stundenlohn_satz_b_gueltig": "",
-                            "stundenlohn_satz_c_gueltig": "",
-                            "stundenlohn_satz_d_gueltig": "",
-                            "zeitaufwand_in_min_a_gueltig": "",
-                            "zeitaufwand_in_min_b_gueltig": "",
-                            "zeitaufwand_in_min_c_gueltig": "",
-                            "zeitaufwand_in_min_d_gueltig": "",
+                            "rollen_gueltig": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_gueltig": "",
-                            "stundenlohn_satz_a_vorschlag": "",
-                            "stundenlohn_satz_b_vorschlag": "",
-                            "stundenlohn_satz_c_vorschlag": "",
-                            "stundenlohn_satz_d_vorschlag": "",
-                            "zeitaufwand_in_min_a_vorschlag": "",
-                            "zeitaufwand_in_min_b_vorschlag": "",
-                            "zeitaufwand_in_min_c_vorschlag": "",
-                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "rollen_vorschlag": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }},
@@ -651,6 +994,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "zeitaufwand_in_min_c_vorschlag": "",
                             "zeitaufwand_in_min_d_vorschlag": "",
                             "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }}
@@ -687,48 +1031,54 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                             "taetigkeit": "",
                             "beschreibung": "",
                             "aenderungsstatus": "",
-                            "stundenlohn_satz_a_gueltig": "",
-                            "stundenlohn_satz_b_gueltig": "",
-                            "stundenlohn_satz_c_gueltig": "",
-                            "stundenlohn_satz_d_gueltig": "",
-                            "zeitaufwand_in_min_a_gueltig": "",
-                            "zeitaufwand_in_min_b_gueltig": "",
-                            "zeitaufwand_in_min_c_gueltig": "",
-                            "zeitaufwand_in_min_d_gueltig": "",
+                            "rollen_gueltig": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_gueltig": "",
-                            "stundenlohn_satz_a_vorschlag": "",
-                            "stundenlohn_satz_b_vorschlag": "",
-                            "stundenlohn_satz_c_vorschlag": "",
-                            "stundenlohn_satz_d_vorschlag": "",
-                            "zeitaufwand_in_min_a_vorschlag": "",
-                            "zeitaufwand_in_min_b_vorschlag": "",
-                            "zeitaufwand_in_min_c_vorschlag": "",
-                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "rollen_vorschlag": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }},
                         {{
                             "taetigkeiten_id": "",
                             "taetigkeit": "",
                             "beschreibung": "",
                             "aenderungsstatus": "",
-                            "stundenlohn_satz_a_gueltig": "",
-                            "stundenlohn_satz_b_gueltig": "",
-                            "stundenlohn_satz_c_gueltig": "",
-                            "stundenlohn_satz_d_gueltig": "",
-                            "zeitaufwand_in_min_a_gueltig": "",
-                            "zeitaufwand_in_min_b_gueltig": "",
-                            "zeitaufwand_in_min_c_gueltig": "",
-                            "zeitaufwand_in_min_d_gueltig": "",
+                            "rollen_gueltig": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_gueltig": "",
-                            "stundenlohn_satz_a_vorschlag": "",
-                            "stundenlohn_satz_b_vorschlag": "",
-                            "stundenlohn_satz_c_vorschlag": "",
-                            "stundenlohn_satz_d_vorschlag": "",
-                            "zeitaufwand_in_min_a_vorschlag": "",
-                            "zeitaufwand_in_min_b_vorschlag": "",
-                            "zeitaufwand_in_min_c_vorschlag": "",
-                            "zeitaufwand_in_min_d_vorschlag": "",
+                            "rollen_vorschlag": [
+                                {{
+                                    "rolle": "",
+                                    "lohngruppe": "A | B | C | D",
+                                    "schwierigkeitsgrad": "",
+                                    "stundenlohn": "",
+                                    "zeitaufwand_in_min": ""
+                                }}
+                            ],
                             "sachaufwand_vorschlag": "",
+                            "ausfuehrung_pro_einzelfall": "0 | 1"
                         }}
                     ]
                 }}
@@ -737,33 +1087,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         ]
         }}
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
-        """
-    ),
-    PromptId.TRANSITION_EFFORT: (
-        LEGIST_PROMPT_OPENING
-        + """
-        Hier erst mal alles aus dem Leitfaden, was mit dem Umstellungsaufwand zu tun hat.
-
-        Allgemein: 
-        Einmaliger Aufwand, der bei der Einführung oder Änderung einer Vorgabe beim Normadressaten anfällt (Umstellungsaufwand), wird gesondert ausgewiesen. 
-        Beispiele dafür sind  die Nachrüstung aller vorhandenen Fahrzeuge mit Katalysatoren oder die Information an  die Bestandskundschaft von 
-        Versicherungen. Ebenfalls einmaligen Aufwand verursacht die Umstellung einer Software aufgrund geänderter rechtlicher Bestimmungen. Eine solche  
-        Änderung wird sich üblicherweise nicht auf künftige Aktualisierungen der Software - z. B.  zur Anpassung an regelmäßig zu erneuernder Hardware oder 
-        Betriebssysteme - auswirken.  Aufwand, der im Abstand von mehreren Jahren absehbar erneut anfällt, ist als laufender  Erfüllungsaufwand anzugeben.
-
-        Wirtschaft:
-        Einmaliger Sachaufwand, der im Rahmen der Umstellung auf ein neues Verfahren, der Einrichtung eines Arbeitsplatzes usw. anfällt, wird als einmaliger 
-        Erfüllungsaufwand ermittelt.  Ein Beispiel hierfür ist die einmalige Umstellung einer Software aufgrund geänderter  rechtlicher Bestimmungen. Dieser 
-        einmalige Aufwand wird nicht dem laufenden Sachaufwand bzw. dem Sachaufwand je Fall zugerechnet, sondern separat ausgewiesen.
-
-        Verwaltung:
-        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur ein Mal innerhalb einer Einrichtung der Verwaltung anfällt, wird als einmaliger 
-        Erfüllungsaufwand bezeichnet und ist gesondert auszuweisen.
-
-        Bürger:
-        Allgemein gilt: Aufwand, der aufgrund der zu untersuchenden Vorgabe(n) oder Prozesse  nur ein Mal bei der Einführung der Regelung bei Bürgerinnen und 
-        Bürgern anfällt, wird als  einmaliger Erfüllungsaufwand bezeichnet und ist gesondert auszuweisen.
-
         """
     )
 }
@@ -793,6 +1116,11 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         if not name.startswith("_") and isinstance(value, str)
     }
     render_values = dict(kwargs)
+    render_values.setdefault("mirror_process_context", "")
+    render_values.setdefault("mirror_case_group_context", "")
+    render_values.setdefault("mirror_step_context", "")
+    render_values.setdefault("mirror_case_context", "")
+    render_values.setdefault("mirror_clusters_json", "[]")
 
     needs_law_summary = "{law_summary}" in template and not render_values.get("law_summary")
     needs_regulation_laws = (
@@ -822,171 +1150,46 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
                 render_values.setdefault("gesetz_gueltig", current_text)
                 render_values.setdefault("gesetz_vorschlag", proposed_text)
 
-    return template.format(**appendix_values, **render_values)
+    prompt = template.format(**appendix_values, **render_values)
+    norm_addressee = render_values.get("norm_addressee")
+    return _apply_norm_addressee_prompt_rules(prompt_id, prompt, norm_addressee)
 
 
-class Appendix:
-    """ This class lists the appendices of the LEITFADEN """
-    Wegezeiten_Wegesachkosten = (
-        "### Anhang 5: Wegezeiten und -sachkosten\n\n"
-        "Wegezeiten umfassen den Zeitaufwand des Normadressaten, um von seinem Wohnort bzw. "
-        "Sitz zur zuständigen Behörde zu gelangen. Die Wegesachkosten beschreiben den "
-        "Sachaufwand, um diesen Weg zurückzulegen und beinhalten beispielsweise Fahrkarten "
-        "für den ÖPNV oder Kraftstoff für das eigene Fahrzeug.\n\n"
-        "Wegezeiten und Wegesachkosten werden bei der Ermittlung des Erfüllungsaufwands "
-        "berücksichtigt, wenn die jeweilige Regelung ein persönliches Erscheinen in einer "
-        "Behörde oder Stelle vorschreibt und keine Alternativen wie den Postweg oder "
-        "Online-Verfahren erlaubt. "
-        "Gleiches gilt, wenn Behördenvertreterinnen und -vertreter verpflichtet sind, "
-        "beispielsweise im Rahmen von Gremiensitzungen persönlich andere Ämter oder "
-        "Stellen aufzusuchen.\n\n"
-        "Die folgende Tabelle zeigt pauschale Wegezeiten und -sachkosten in Abhängigkeit "
-        "der zuständigen Verwaltungsebene. Gibt es belastbare Anhaltspunkte dafür, dass "
-        "der nach der Tabelle ermittelte Wert aller Wahrscheinlichkeit nach über- oder "
-        "unterzeichnet ist, sollte der aus Fachsicht realistischere Wert für die "
-        "Ermittlung genutzt werden.\n\n"
-        "*Wegezeiten und -sachkosten nach Verwaltungsebene*\n\n"
-        "| Verwaltungsebene | Wegezeiten (Min.) | Wegesachkosten (Euro) |\n"
-        "| --- | --- | --- |\n"
-        "| Gemeinde | 15 | 1,10 |\n"
-        "| Kreis | 22 | 3,10 |\n"
-        "| Regierungsbezirk/Land | 59 | 13,20 |\n"
-        "| Durchschnitt | 20 | 2,60 |\n"
+def _apply_norm_addressee_prompt_rules(
+    prompt_id: str,
+    prompt: str,
+    norm_addressee: str | None,
+) -> str:
+    if not norm_addressee:
+        return prompt
+
+    if prompt_id in PROMPT_IDS_WITH_NORM_ADDRESSEE_CLAUSE:
+        prompt = _append_prompt_section(prompt, NORM_ADDRESSEE_PROMPT_OPENINGS.get(norm_addressee))
+
+    citizens_rule = CITIZENS_PROMPT_RULES.get(prompt_id) if norm_addressee == CITIZENS else None
+    prompt = _append_prompt_section(prompt, citizens_rule)
+
+    if prompt_id == PromptId.EFFORT_CALCULATION:
+        prompt = _append_prompt_section(prompt, EFFORT_PROMPT_RULES.get(norm_addressee))
+        prompt = _append_prompt_section(prompt, _render_effort_appendix(norm_addressee))
+
+    return prompt
+
+
+def _append_prompt_section(prompt: str, section: str | None) -> str:
+    if not section:
+        return prompt
+    return prompt + "\n\n" + section.strip()
+
+
+def _render_effort_appendix(norm_addressee: str | None) -> str | None:
+    if not norm_addressee:
+        return None
+    appendix_template = EFFORT_PROMPT_APPENDICES.get(norm_addressee)
+    if not appendix_template:
+        return None
+    return appendix_template.format(
+        Zeitwerttabelle_Buerger=Appendix.Zeitwerttabelle_Buerger,
+        Zeitwerttabelle_Wirtschaft=Appendix.Zeitwerttabelle_Wirtschaft,
+        Lohnkostentabelle_Wirtschaft=Appendix.Lohnkostentabelle_Wirtschaft,
     )
-    Zeitwerttabelle_Verwaltung = (
-        "### Anhang 7: Zeitwerttabelle Verwaltung\n\n"
-        "Liegen noch keine vergleichbaren Daten für den Zeitaufwand einzelner Tätigkeiten "
-        "vor, kann auf die sogenannte Zeitwerttabelle Verwaltung zurückgegriffen werden. "
-        "Die Zeitwerttabelle weist für einen großen Teil der auf Seite 46 angegebenen "
-        "Standardaktivitäten Minutenwerte aus. Die Standardaktivitäten sind nach dem Grad "
-        "der Schwierigkeit in einfach, mittel und hoch gestaffelt.\n\n"
-        "Der nach der Zeitwerttabelle ermittelte Zeitwert (das heißt der Zeitaufwand für "
-        "eine Tätigkeit) sollte immer anhand begründbarer Einschätzungen aus fachlicher "
-        "Sicht überprüft werden. Gibt es belastbare Anhaltspunkte dafür, dass der nach der "
-        "Tabelle ermittelte Wert aller Wahrscheinlichkeit nach zu hoch oder zu niedrig "
-        "angesetzt ist, sollte der aus Fachsicht realistischere Wert für die Ermittlung "
-        "genutzt werden.\n\n"
-        "*Zeitwerttabelle Verwaltung*\n\n"
-        "| Nr. | Standardaktivität | Einfache Komplexität (Min.) | Mittlere Komplexität (Min.) | Hohe Komplexität (Min.) | Erläuterung |\n"
-        "| --- | --- | --- | --- | --- | --- |\n"
-        "| 1 | Einarbeiten in die Vorgabe | 2 | 13 | 413 | Welcher Aufwand entsteht regelmäßig, um sich mit der gesetzlichen Verpflichtung vertraut zu machen? |\n"
-        "| 2 | Beraten, Vorgespräche führen | 3 | 30 | 460 (1 PT) | Welcher Aufwand fällt zur Beantwortung von Fragen durch Bürgerinnen und Bürger oder Unternehmen und der Klärung von Sachverhalten an? |\n"
-        "| 3 | Formelle Prüfung, Daten sichten | 5 | 30 | 110 | Welcher Aufwand entsteht durch Kontrolle auf Vollständigkeit und Richtigkeit von vorhandenen Informationen wie z. B. Nachweisen? |\n"
-        "| 4 | Eingang bestätigen oder Einholen fehlender Daten | 5 | 10 | 22 | Welcher Aufwand entsteht durch Eingangsbestätigungen oder die Nachforderung fehlender Daten? |\n"
-        "| 5 | Inhaltliche Prüfung, Daten erfassen | 8 | 60 | 480 (1 PT) | Welcher Aufwand fällt durch die Prüfung von Formularen, Belegen und Berechnungen sowie durch das elektronische Erfassen an? |\n"
-        "| 6 | Berechnungen durchführen | 9 | 120 | X[^7] | Welcher Aufwand fällt für Berechnungen, Bewertungen und Zählungen an? |\n"
-        "| 7 | Ergebnisse/Berechnungen überprüfen und ggf. korrigieren | 4 | 30 | 1 170 (3,7 PT) | Welcher Aufwand entsteht durch die Prüfung von Ergebnissen z. B. durch das Vieraugenprinzip oder Mitzeichnungen? |\n"
-        "| 8 | Interne Sitzungen | 2 | 60 | 2 120 (4,4 PT) | Welcher Aufwand entsteht durch notwendige interne Sitzungen? |\n"
-        "| 9 | Externe Sitzungen | 5 | 80 | 2 640 (5,5 PT) | Welcher Aufwand entsteht durch notwendige externe Sitzungen z. B. mit externen Sachverständigen oder anderen Behörden? |\n"
-        "| 10 | Daten übermitteln oder veröffentlichen | 1 | 10 | 60 | Welcher Aufwand fällt an, um Informationen zu veröffentlichen oder an andere öffentliche Stellen weiterzugeben? |\n"
-        "| 11 | Abschließende Informationen aufbereiten, Bescheid erstellen | 5 | 60 | 480 (1 PT) | Welcher Aufwand entsteht z. B. durch das Erstellen von Bescheiden oder Vermerken? |\n"
-        "| 12 | Zahlungen anweisen, annehmen oder überwachen | 1 | 5 | 18 | Welcher Aufwand fällt für Überweisungen oder die Prüfung von Zahlungsein- und -ausgängen an? |\n"
-        "| 13 | Korrektur bzw. weitere Informationen bei Rückfragen vorlegen | 30 | 60 | 120 | Welcher Aufwand entsteht durch Rückfragen nach Bescheiderhalt und ggf. Fehlerkorrekturen? |\n"
-        "| 14 | Kopieren, archivieren, verteilen | 2 | 10 | 20 | Welcher Aufwand entsteht durch Kopier- oder Archivierungstätigkeiten und das Verteilen von Informationen innerhalb der Behörde? |\n"
-        "| 15 | Fortbildungen und Schulungen | 1 | 3 | 2 640 (5,5 PT) | Welcher Aufwand entsteht dadurch, dass die Erfüllung einer Vorgabe eine Schulung voraussetzt? |\n"
-        "| 16 | Überwachungs- und Aufsichtsmaßnahmen | 8 | 156 | 25 000 (52,1 PT) | Welcher Aufwand fällt durch Begehungen in Betrieben oder Besuchen bei Bürgerinnen und Bürgern an? |\n"
-        "| 17 | Anpassen von internen Prozessen | 12 | 4 080 (8,5 PT) | 67 200 (140 PT) | Welcher Aufwand entsteht, wenn interne Prozesse verändert oder angepasst werden müssen? |\n\n"
-        "[^7]: Aufgrund methodischer Unterschiede wurde hier auf die Darstellung von „hoch“ verzichtet.\n\n"
-        "PT: Persontag(e)\n"
-        "Stand: Januar 2025; Quelle: StBA\n"
-    )
-    Lohnkostentabelle_Verwaltung = (
-        "### Anhang 8: Lohnkostentabelle Verwaltung\n\n"
-        "In Anlehnung an die Lohnkostentabelle für Informationspflichten der Wirtschaft "
-        "nach dem Standardkosten-Modell wurde für die Verwaltung vom StBA eine eigene "
-        "Tariflohntabelle entwickelt. Analog zum Bereich Wirtschaft werden die "
-        "Standardlohnsätze der Verwaltung getrennt nach Hierarchieebene und "
-        "Qualifikationsniveau in Euro ausgewiesen.\n\n"
-        "*Lohnkosten pro Stunde in Euro*\n\n"
-        "| Verwaltungsebene | Einfacher und mittlerer Dienst | Gehobener Dienst | Höherer Dienst | Durchschnitt |\n"
-        "| --- | --- | --- | --- | --- |\n"
-        "| Bund | 33,80 | 40,40 | 67,60 | 44,40 |\n"
-        "| Länder | 30,50 | 43,20 | 69,30 | 46,70 |\n"
-        "| Kommunen | 25,50 | 42,20 | 70,40 | 40,70 |\n"
-        "| Sozialversicherung | 30,30 | 46,30 | 73,20 | 48,10 |\n"
-        "| Durchschnitt Öffentliche Verwaltung, Verteidigung, Sozialversicherung | 27,30 | 42,90 | 69,30 | 44,40 |\n\n"
-        "Stand: 2025; Quelle: StBA\n\n"
-        "*Lohnkosten pro Mitarbeiterkapazität (MAK) in Euro*\n\n"
-        "| Verwaltungsebene | Einfacher und mittlerer Dienst | Gehobener Dienst | Höherer Dienst | Durchschnitt |\n"
-        "| --- | --- | --- | --- | --- |\n"
-        "| Bund | 54 080 | 64 640 | 108 160 | 71 040 |\n"
-        "| Länder | 48 800 | 69 120 | 110 880 | 74 720 |\n"
-        "| Kommunen | 40 800 | 67 520 | 112 640 | 65 120 |\n"
-        "| Sozialversicherung | 48 480 | 74 080 | 117 120 | 76 960 |\n"
-        "| Durchschnitt Öffentliche Verwaltung, Verteidigung, Sozialversicherung | 43 680 | 68 640 | 110 880 | 71 040 |\n\n"
-        "Stand: 2025; Quelle: StBA\n"
-        "1 MAK = 1 Personenjahr à 200 Arbeitstage mit je 8 Stunden\n"
-    )
-    # TODO: Insert glossary items into prompts?
-    # "### Anhang 9: Begriffsdefinitionen und Erläuterungen\n\n"
-    Begriffsdefinitionen_Erlaeuterungen = {
-        "erfuellungsaufwand": (
-            "Der Erfüllungsaufwand umfasst den gesamten messbaren Zeitaufwand und die Kosten, "
-            "die durch die Befolgung einer bundesrechtlichen Vorschrift bei Bürgerinnen und "
-            "Bürgern, Wirtschaft sowie der öffentlichen Verwaltung entstehen. Teil des "
-            "Erfüllungsaufwands sind Bürokratiekosten, die durch die Erfüllung von "
-            "Informationspflichten verursacht werden. Diese sind beim Normadressaten Wirtschaft "
-            "gesondert auszuweisen.\n\n"
-            "Bei Bürgerinnen und Bürgern sowie der Verwaltung ist eine Unterscheidung zwischen "
-            "Informationspflichten und anderen Vorgaben entbehrlich.\n\n"
-            "Zum Erfüllungsaufwand der Verwaltung gehört der Vollzugsaufwand. Auch das "
-            "fiskalische Handeln der Verwaltung als Normadressat (z. B. als Halter von Kfz oder "
-            "als Bauherr) ist dem Erfüllungsaufwand zuzurechnen. Erfüllungsaufwand entsteht der "
-            "Verwaltung insbesondere durch die Bearbeitung von Anträgen oder durch "
-            "Überwachungsaufgaben sowie durch die Bereitstellung von Informationen und "
-            "Materialien (z. B. Antragsformulare) für Bürgerinnen und Bürger oder für die "
-            "Wirtschaft oder für andere Teile der Verwaltung.\n\n"
-            "Einnahmen und Ausgaben, die bei Gesetzentwürfen unter Buchstabe D des Vorblattes "
-            "ausgewiesen werden, bleiben beim Erfüllungsaufwand unberücksichtigt (z. B. "
-            "Steuermehr-/ -mindereinnahmen, Aufwendungen gem. Artikel 104a Absatz3 und 4 GG).\n\n"
-            "Beim Erfüllungsaufwand wird lediglich die Kostenseite betrachtet. Es findet keine "
-            "Saldierung mit dem Nutzen einer Regelung statt.\n"
-        ),
-        "normadressaten": (
-            "Bürgerinnen und Bürger, Wirtschaft sowie die öffentliche Verwaltung stellen die "
-            "möglichen Normadressaten dar.\n\n"
-            "Zum Normadressaten Wirtschaft zählt jede Einheit, die eine wirtschaftliche Tätigkeit "
-            "ausübt, die zum Bruttoinlandsprodukt beiträgt und dem Privatsektor zugerechnet wird. "
-            "Der Privatsektor umfasst auch karitative Organisationen und den ehrenamtlichen "
-            "Sektor; nicht darunter fallen öffentliche Verwaltung, private Haushalte und "
-            "exterritoriale Körperschaften und Organisationen.\n\n"
-            "Als öffentliche Verwaltung gelten die mit der Wahrnehmung von Verwaltungsaufgaben "
-            "betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen "
-            "des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen "
-            "hoheitlichen Kompetenzen).\n\n"
-            "Alle Vorgaben, die sich an natürliche Personen richten, sind Vorgaben für "
-            "Bürgerinnen und Bürger. Führt eine natürliche Person ein Unternehmen, dann zählen "
-            "diejenigen Vorgaben, die sich an die Person aufgrund ihrer Eigenschaft als "
-            "Unternehmerinnen und Unternehmer richten, als Vorgaben für die Wirtschaft.\n\n"
-            "Vorgaben können mehrere Normadressaten gleichzeitig betreffen.\n"
-        ),
-        "prozess": (
-            "Mehrere Vorgaben, die in der Praxis in einem Zusammenhang erfüllt werden, können "
-            "zu einem Prozess gebündelt werden.\n"
-        ),
-        "regelungsvorhaben": (
-            "Bei Regelungsvorhaben handelt es sich um alle Entwürfe von Rechts- und "
-            "Verwaltungsvorschriften, die nach den §§ 43, 44, 62 Absatz 2 und § 70 Absatz 1 der "
-            "GGO mit einer Gesetzesfolgenabschätzung zu versehen sind.\n"
-        ),
-        "vorgaben": (
-            "Vorgaben sind Einzelregelungen, die bei den Normadressaten unmittelbar zur Änderung "
-            "von Kosten, Zeitaufwand oder beidem führen. Sie ergeben sich aus bundesrechtlichen "
-            "Regelungen. Sie veranlassen die Normadressaten, bestimmte Ziele oder Anordnungen zu "
-            "erfüllen oder auch bestimmte Handlungen zu unterlassen. Dazu zählen auch "
-            "Verpflichtungen zur Kooperation mit Dritten sowie zur Überwachung und Kontrolle "
-            "von Zuständen, Handlungen, numerischen Werten oder Verhaltensweisen. "
-            "Informationspflichten bilden eine Teilmenge der Vorgaben.\n\n"
-            "„Unmittelbar“ bedeutet hierbei, dass die Änderung von Kosten oder Zeitaufwand in "
-            "direkter Verbindung mit der Befolgung der jeweiligen Vorgabe steht. Ein Merkmal "
-            "von Vorgaben ist, dass Bürgerinnen und Bürger, Wirtschaft sowie öffentliche "
-            "Verwaltung ihnen Folge leisten müssen, um nicht gegen Rechtsvorschriften zu "
-            "verstoßen oder etwaige Ansprüche auf staatliche Leistungen zu verlieren "
-            "(z. B. Anträge).\n\n"
-            "Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum "
-            "Teil neben Ge- oder Verboten lediglich Ziele oder Grenzwerte festgelegt oder "
-            "z. B. durch staatliche Förderungen Verhaltensänderungen erreichen will. Auch "
-            "solche Einzelregelungen sind als Vorgaben zu verstehen, weil sie unmittelbar zur "
-            "Änderung von Kosten bzw. Zeitaufwand bei den Normadressaten führen.\n"
-        ),
-    }

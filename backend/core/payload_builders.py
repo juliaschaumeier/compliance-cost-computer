@@ -15,6 +15,8 @@ class VorgabePayload(_PromptPayloadModel):
     normzitat: str
     beschreibung: str
     aenderungsstatus: str | None = None
+    normadressaten: list[str] = Field(default_factory=list)
+    ist_informationspflicht_wirtschaft: bool = False
 
 
 class FallgruppePayload(_PromptPayloadModel):
@@ -77,6 +79,18 @@ def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
                 normzitat=str(row.get("legal_citation") or ""),
                 beschreibung=str(row.get("description") or ""),
                 aenderungsstatus=row.get("change_status"),
+                normadressaten=[
+                    name
+                    for name, enabled in (
+                        ("verwaltung", row.get("applies_to_administration")),
+                        ("wirtschaft", row.get("applies_to_business")),
+                        ("buerger", row.get("applies_to_citizens")),
+                    )
+                    if enabled
+                ],
+                ist_informationspflicht_wirtschaft=bool(
+                    row.get("is_business_information_obligation")
+                ),
             ).model_dump()
         )
     return payload

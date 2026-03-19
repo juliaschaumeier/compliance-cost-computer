@@ -6,6 +6,7 @@ import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
+import { AUTOMATED_NORM_ADDRESSEES } from "@/types";
 
 export default function ProcessesPanel() {
   const { state, setCurrentTab, setProcessesReady } = useApp();
@@ -35,12 +36,17 @@ export default function ProcessesPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await apiClient.compileProcesses({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
-      });
+      await Promise.all(
+        AUTOMATED_NORM_ADDRESSEES.map((normAddressee) =>
+          apiClient.compileProcesses({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          })
+        )
+      );
       window.dispatchEvent(new Event("tiles-updated"));
       setProcessesReady(true);
       setCurrentTab(3);
@@ -60,7 +66,9 @@ export default function ProcessesPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Vorgaben, die in der Praxis in einem Zusammenhang erfüllt werden, werden
-            zu gemeinsamen Prozessen gebündelt.
+            zu gemeinsamen Prozessen gebündelt. Der Lauf entwickelt die Daten fuer
+            Verwaltung, Wirtschaft und Buerger gleichzeitig; der Umschalter in der
+            Graph-Ansicht wechselt nur die Darstellung.
           </p>
           <button
             onClick={handleCompile}

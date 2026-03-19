@@ -22,6 +22,7 @@ import {
   SessionEditAuditResponse,
   EditableCaseGroupsResponse,
   EditableProcessStepsResponse,
+  NormAddressee,
 } from "@/types";
 
 const API_BASE_URL =
@@ -199,8 +200,17 @@ export const apiClient = {
     return response.json();
   },
 
-  async fetchTiles(appSessionId: string): Promise<TilesResponse> {
-    const query = `?app_session_id=${encodeURIComponent(appSessionId)}`;
+  async fetchTiles(
+    appSessionId: string,
+    normAddressee?: NormAddressee
+  ): Promise<TilesResponse> {
+    const params = new URLSearchParams({
+      app_session_id: appSessionId,
+    });
+    if (normAddressee && normAddressee !== "administration") {
+      params.set("norm_addressee", normAddressee);
+    }
+    const query = `?${params.toString()}`;
     const response = await fetch(`${API_BASE_URL}/tiles${query}`);
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load tiles");
@@ -208,8 +218,18 @@ export const apiClient = {
     return response.json();
   },
 
-  async upsertTile(tile: Tile, appSessionId: string): Promise<Tile> {
-    const query = `?app_session_id=${encodeURIComponent(appSessionId)}`;
+  async upsertTile(
+    tile: Tile,
+    appSessionId: string,
+    normAddressee?: NormAddressee
+  ): Promise<Tile> {
+    const params = new URLSearchParams({
+      app_session_id: appSessionId,
+    });
+    if (normAddressee && normAddressee !== "administration") {
+      params.set("norm_addressee", normAddressee);
+    }
+    const query = `?${params.toString()}`;
     const response = await fetch(`${API_BASE_URL}/tiles${query}`, {
       method: "POST",
       headers: {
@@ -223,8 +243,18 @@ export const apiClient = {
     return response.json();
   },
 
-  async deleteTile(tileId: string, appSessionId: string): Promise<void> {
-    const query = `?app_session_id=${encodeURIComponent(appSessionId)}`;
+  async deleteTile(
+    tileId: string,
+    appSessionId: string,
+    normAddressee?: NormAddressee
+  ): Promise<void> {
+    const params = new URLSearchParams({
+      app_session_id: appSessionId,
+    });
+    if (normAddressee && normAddressee !== "administration") {
+      params.set("norm_addressee", normAddressee);
+    }
+    const query = `?${params.toString()}`;
     const response = await fetch(`${API_BASE_URL}/tiles/${tileId}${query}`, {
       method: "DELETE",
     });
@@ -482,6 +512,7 @@ export const apiClient = {
   async compileProcesses(
     options: {
       appSessionId: string;
+      normAddressee?: NormAddressee;
       model?: string;
       provider?: string;
       keys?: ApiKeys;
@@ -495,6 +526,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
         model: options.model,
         provider: options.provider,
       }),
@@ -508,6 +540,7 @@ export const apiClient = {
   async developCaseGroups(
     options: {
       appSessionId: string;
+      normAddressee?: NormAddressee;
       model?: string;
       provider?: string;
       keys?: ApiKeys;
@@ -521,6 +554,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
         model: options.model,
         provider: options.provider,
       }),
@@ -534,6 +568,7 @@ export const apiClient = {
   async analyzeProcessSteps(
     options: {
       appSessionId: string;
+      normAddressee?: NormAddressee;
       model?: string;
       provider?: string;
       keys?: ApiKeys;
@@ -547,6 +582,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
         model: options.model,
         provider: options.provider,
       }),
@@ -560,6 +596,7 @@ export const apiClient = {
   async calculateEffort(
     options: {
       appSessionId: string;
+      normAddressee?: NormAddressee;
       model?: string;
       provider?: string;
       keys?: ApiKeys;
@@ -573,6 +610,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
         model: options.model,
         provider: options.provider,
       }),
@@ -584,7 +622,7 @@ export const apiClient = {
   },
 
   async computeTotalCost(
-    options: { appSessionId: string }
+    options: { appSessionId: string; normAddressee?: NormAddressee }
   ): Promise<TotalCostResponse> {
     const response = await fetch(`${API_BASE_URL}/costs/compute`, {
       method: "POST",
@@ -593,6 +631,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
       }),
     });
     if (!response.ok) {

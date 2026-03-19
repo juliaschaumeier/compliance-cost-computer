@@ -7,8 +7,12 @@ from pydantic import BaseModel
 from pydantic import StringConstraints
 
 from backend.core import db
-from backend.core.session_graph import build_session_tiles_snapshot
+from backend.core.session_graph import (
+    build_session_tiles_snapshot,
+    persist_session_tiles_snapshot,
+)
 from backend.core.models import Tile, TilesResponse
+from backend.core.norm_addressees import ADMINISTRATION, normalize_norm_addressee
 
 
 router = APIRouter(prefix="/tiles", tags=["tiles"])
@@ -45,8 +49,7 @@ def _is_step_tile_stale(tile: Tile) -> bool:
         meta.get("time_required_proposed"), dict
     ):
         return True
-    description = str(meta.get("description") or "").strip()
-    return description != (tile.text or "").strip()
+    return False
 
 
 def _is_case_group_tile_stale(tile: Tile) -> bool:
@@ -63,38 +66,96 @@ def _is_case_group_tile_stale(tile: Tile) -> bool:
     )
     if any(key not in meta for key in required_keys):
         return True
-    description = str(meta.get("description") or "").strip()
-    return description != (tile.text or "").strip()
+    return False
 
 
 def _tiles_need_structured_rebuild(tiles: list[Tile]) -> bool:
     return any(_is_step_tile_stale(tile) or _is_case_group_tile_stale(tile) for tile in tiles)
 
 
-def _rebuild_tiles_for_session(session: dict) -> None:
+def _tiles_need_empty_state_rebuild(
+    tiles: list[Tile],
+    *,
+    session_id: int,
+    norm_addressee: str,
+) -> bool:
+    if norm_addressee == ADMINISTRATION:
+        return False
+    tile_ids = {tile.id for tile in tiles}
+    if "empty_addressee" in tile_ids:
+        return False
+    if tile_ids != {"law_tile"}:
+        return False
+    has_any_structure = bool(
+        db.list_regulations_for_session_and_addressee(session_id, norm_addressee)
+        or db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+        or db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
+        or db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
+    )
+    return not has_any_structure
+
+
+def _rebuild_tiles_for_session(
+    session: dict,
+    norm_addressee: str = ADMINISTRATION,
+) -> None:
     session_id = int(session["session_id"])
-    tiles = build_session_tiles_snapshot(session)
+    resolved = normalize_norm_addressee(norm_addressee)
+    tiles = build_session_tiles_snapshot(session, resolved)
     with db.transaction():
-        db.clear_tiles(session_id=session_id)
+        db.clear_tiles(session_id=session_id, norm_addressee=resolved)
         for tile in tiles:
-            db.upsert_tile(tile, session_id=session_id)
+            db.upsert_tile(tile, session_id=session_id, norm_addressee=resolved)
 
 
 @router.get("", response_model=TilesResponse)
 async def list_tiles(
-    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    norm_addressee: str | None = Query(default=None),
 ) -> TilesResponse:
     session = db.get_session_by_app_id(app_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
-    tiles = db.fetch_tiles(session_id=session_id)
-    if _tiles_need_structured_rebuild(tiles):
-        has_process_steps = bool(db.list_process_steps_for_session(session_id))
-        has_case_groups = bool(db.list_case_groups_for_session(session_id))
-        if has_process_steps or has_case_groups:
-            _rebuild_tiles_for_session(session)
-            tiles = db.fetch_tiles(session_id=session_id)
+    resolved = normalize_norm_addressee(norm_addressee)
+    tiles = db.fetch_tiles(session_id=session_id, norm_addressee=resolved)
+    if not tiles:
+        has_process_steps = bool(
+            db.list_process_steps_for_session_and_addressee(session_id, resolved)
+        )
+        has_case_groups = bool(
+            db.list_case_groups_for_session_and_addressee(session_id, resolved)
+        )
+        has_processes = bool(
+            db.list_processes_for_session_and_addressee(session_id, resolved)
+        )
+        has_regulations = bool(
+            db.list_regulations_for_session_and_addressee(session_id, resolved)
+        )
+        if (
+            session.get("law_diff_title")
+            or session.get("law_diff_blurb")
+            or session.get("law_diff_summary")
+            or has_regulations
+            or has_processes
+            or has_case_groups
+            or has_process_steps
+        ):
+            tiles = persist_session_tiles_snapshot(session, resolved)
+    elif _tiles_need_structured_rebuild(tiles) or _tiles_need_empty_state_rebuild(
+        tiles,
+        session_id=session_id,
+        norm_addressee=resolved,
+    ):
+        has_process_steps = bool(
+            db.list_process_steps_for_session_and_addressee(session_id, resolved)
+        )
+        has_case_groups = bool(
+            db.list_case_groups_for_session_and_addressee(session_id, resolved)
+        )
+        if has_process_steps or has_case_groups or resolved != ADMINISTRATION:
+            _rebuild_tiles_for_session(session, resolved)
+            tiles = db.fetch_tiles(session_id=session_id, norm_addressee=resolved)
     return TilesResponse(tiles=tiles)
 
 
@@ -102,9 +163,11 @@ async def list_tiles(
 async def create_tile(
     tile: Tile,
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    norm_addressee: str | None = Query(default=None),
 ) -> Tile:
     session_id = _session_id_for_app(app_session_id)
-    db.upsert_tile(tile, session_id=session_id)
+    resolved = normalize_norm_addressee(norm_addressee)
+    db.upsert_tile(tile, session_id=session_id, norm_addressee=resolved)
     return tile
 
 
@@ -112,14 +175,17 @@ async def create_tile(
 async def remove_tile(
     tile_id: str,
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    norm_addressee: str | None = Query(default=None),
 ) -> dict:
     session_id = _session_id_for_app(app_session_id)
-    db.delete_tile(tile_id, session_id=session_id)
+    resolved = normalize_norm_addressee(norm_addressee)
+    db.delete_tile(tile_id, session_id=session_id, norm_addressee=resolved)
     return {"ok": True}
 
 
 class RebuildTilesRequest(BaseModel):
     app_session_id: AppSessionId
+    norm_addressee: str | None = None
 
 
 @router.post("/rebuild")
@@ -128,6 +194,7 @@ async def rebuild_tiles(payload: RebuildTilesRequest) -> dict:
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    _rebuild_tiles_for_session(session)
+    resolved = normalize_norm_addressee(payload.norm_addressee)
+    _rebuild_tiles_for_session(session, resolved)
 
     return {"ok": True}

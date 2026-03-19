@@ -14,6 +14,10 @@ from backend.core.llm_json import extract_fallgruppen, parse_json_object_with_mo
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    normalize_norm_addressee,
+)
 from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.tile_refresh import refresh_step_tiles
@@ -42,6 +46,7 @@ class ProcessStepAnalysisRequest(BaseModel):
     app_session_id: AppSessionId
     model: str | None = None
     provider: str | None = None
+    norm_addressee: str | None = None
 
 
 class ProcessStepEditRow(BaseModel):
@@ -251,8 +256,9 @@ def _add_step_tiles(
     session_id: int,
     parsed: list[dict],
     case_group_lookup: dict[int, dict],
+    norm_addressee: str = ADMINISTRATION,
 ) -> list[dict]:
-    tiles = db.fetch_tiles(session_id=session_id)
+    tiles = db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
     case_group_tiles = {
         tile.id: tile for tile in tiles if tile.id.startswith("case_group_")
     }
@@ -279,6 +285,7 @@ def _add_step_tiles(
                 description=description,
                 change_status=step_status,
                 previous_id=prev_step_id,
+                norm_addressee=norm_addressee,
             )
             if prev_step_id is not None:
                 db.update_process_step_next(prev_step_id, step_id)
@@ -309,7 +316,7 @@ def _add_step_tiles(
                 deletable=True,
                 link_from_tile=link_from,
             )
-            db.upsert_tile(tile, session_id=session_id)
+            db.upsert_tile(tile, session_id=session_id, norm_addressee=norm_addressee)
             created.append(
                 {
                     "step_id": step_id,
@@ -332,16 +339,28 @@ async def analyze_process_steps(
         payload.app_session_id,
         payload.model,
     )
-    existing = db.list_process_steps_for_session(session_id)
+    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    existing = db.list_process_steps_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
     if existing:
-        return {"steps": existing, "status": "existing"}
+        return {"steps": existing, "status": "existing", "norm_addressee": norm_addressee}
 
-    case_groups = db.list_case_groups_for_session(session_id)
+    case_groups = db.list_case_groups_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    if not case_groups and norm_addressee != ADMINISTRATION:
+        return {"steps": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not case_groups:
         raise HTTPException(status_code=400, detail="No case groups for session")
 
-    processes = db.list_processes_for_session(session_id)
-    regulations = db.list_regulations_for_session(session_id)
+    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
     payload_groups = build_case_groups_payload(
         processes=processes,
         case_groups=case_groups,
@@ -352,6 +371,7 @@ async def analyze_process_steps(
         PromptId.PROCESS_STEP_ANALYSIS,
         session_id=session_id,
         case_groups_json=dump_prompt_json(payload_groups),
+        norm_addressee=norm_addressee,
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
@@ -389,7 +409,12 @@ async def analyze_process_steps(
             )
 
         with db.transaction():
-            created_local = _add_step_tiles(session_id, parsed, case_group_lookup)
+            created_local = _add_step_tiles(
+                session_id,
+                parsed,
+                case_group_lookup,
+                norm_addressee=norm_addressee,
+            )
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,
@@ -398,4 +423,4 @@ async def analyze_process_steps(
         return created_local
 
     created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
-    return {"steps": created}
+    return {"steps": created, "norm_addressee": norm_addressee}

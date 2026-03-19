@@ -7,7 +7,7 @@ import ModelSelector from "@/components/ModelSelector";
 import { useApp } from "@/contexts/AppContext";
 
 export default function Header() {
-  const { state } = useApp();
+  const { state, setSelectedNormAddressee } = useApp();
   const [eaEditOpen, setEaEditOpen] = useState(false);
   const canOpenEditor = state.totalCostReady;
 
@@ -23,11 +23,38 @@ export default function Header() {
               Compliance-Cost Computer
             </h1>
             <p className="text-xs text-slate-200/80 sm:text-sm">
-              Errechnet den jährlichen Erfüllungsaufwand einer Gesetzesänderung seitens der Verwaltung
+              Errechnet den jährlichen Erfüllungsaufwand einer Gesetzesänderung für Verwaltung, Wirtschaft und Bürger.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex rounded-full border border-white/20 bg-white/10 p-1">
+            {[
+              ["administration", "Verwaltung"],
+              ["business", "Wirtschaft"],
+              ["citizens", "Bürger"],
+            ].map(([value, label]) => {
+              const isActive = state.selectedNormAddressee === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() =>
+                    setSelectedNormAddressee(
+                      value as "administration" | "business" | "citizens"
+                    )
+                  }
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    isActive
+                      ? "bg-white text-slate-900"
+                      : "text-slate-100 hover:bg-white/10"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
           <button
             type="button"
             onClick={() => setEaEditOpen(true)}

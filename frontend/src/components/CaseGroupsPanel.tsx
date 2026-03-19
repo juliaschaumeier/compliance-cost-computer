@@ -6,6 +6,7 @@ import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
+import { AUTOMATED_NORM_ADDRESSEES } from "@/types";
 
 export default function CaseGroupsPanel() {
   const { state, setCurrentTab, setCaseGroupsReady } = useApp();
@@ -35,12 +36,17 @@ export default function CaseGroupsPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await apiClient.developCaseGroups({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
-      });
+      await Promise.all(
+        AUTOMATED_NORM_ADDRESSEES.map((normAddressee) =>
+          apiClient.developCaseGroups({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          })
+        )
+      );
       window.dispatchEvent(new Event("tiles-updated"));
       setCaseGroupsReady(true);
       setCurrentTab(4);
@@ -65,7 +71,10 @@ export default function CaseGroupsPanel() {
             </span>
             <span className="block">
               Jede Fallgruppe beschreibt eine typische Ausprägung der Ausführung,
-              damit der Erfüllungsaufwand getrennt ermittelt werden kann.
+              damit der Erfüllungsaufwand getrennt ermittelt werden kann. Der Lauf
+              entwickelt die Daten fuer Verwaltung, Wirtschaft und Buerger
+              gleichzeitig; der Umschalter in der Graph-Ansicht wechselt nur die
+              Darstellung.
             </span>
           </p>
           <button

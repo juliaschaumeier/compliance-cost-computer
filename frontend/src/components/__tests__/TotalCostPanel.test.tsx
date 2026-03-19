@@ -23,6 +23,7 @@ const mockComputeTotalCost = apiClient.computeTotalCost as jest.Mock;
 const baseState = {
   currentTab: 6,
   appSessionId: "ABC123",
+  selectedNormAddressee: "citizens",
   selectedModel: "gpt-5",
   availableModels: [{ id: "gpt-5", name: "GPT-5", provider: "OpenAI" }],
   selectedCurrentLaw: "",
@@ -46,6 +47,7 @@ describe("TotalCostPanel", () => {
     mockUseApp.mockReturnValue({
       state: { ...baseState, processStepsReady: false },
       setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
     });
 
     render(<TotalCostPanel />);
@@ -60,6 +62,7 @@ describe("TotalCostPanel", () => {
     mockUseApp.mockReturnValue({
       state: baseState,
       setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
     });
     mockComputeTotalCost.mockRejectedValue(new Error("boom"));
 
@@ -79,6 +82,7 @@ describe("TotalCostPanel", () => {
     mockUseApp.mockReturnValue({
       state: { ...baseState, totalCostReady: true },
       setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
     });
 
     render(<TotalCostPanel />);

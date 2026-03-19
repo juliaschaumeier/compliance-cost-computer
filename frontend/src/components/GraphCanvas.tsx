@@ -8,6 +8,7 @@ import {
   type ReactFlowInstance,
   ReactFlow,
   ReactFlowProvider,
+  useUpdateNodeInternals,
 } from "@xyflow/react";
 
 import { useApp } from "@/contexts/AppContext";
@@ -16,6 +17,12 @@ import { normalizeChangeStatus } from "@/lib/changeStatus";
 import { logClientError } from "@/lib/errorFeedback";
 import { buildGraphEdges } from "@/lib/graphEdges";
 import { normalizeAndAlignTiles } from "@/lib/graphLayout";
+import {
+  buildLanes,
+  collectChangedTiles,
+  laneTitle,
+  type Viewport,
+} from "@/components/graphCanvasUtils";
 import {
   buildTileBodyText,
   buildTileHeaderMetrics,
@@ -28,20 +35,36 @@ const COLUMN_WIDTH = 320;
 const ROW_HEIGHT = 220;
 const TILE_GAP = 64;
 const TILE_HEIGHT = 160;
-const COLUMN_LABELS = [
-  "Gesetz",
-  "Vorgaben",
-  "Prozesse",
-  "Fallgruppen",
-  "Schritte",
-  "Aufwand",
-  "Kosten",
-];
 const LANE_HEIGHT = 2000;
 const LANE_TOP_OFFSET = 56;
 
+
+async function _persistChangedTiles(
+  changed: Tile[],
+  appSessionId: string,
+  normAddressee: string,
+) {
+  if (!changed.length) {
+    return;
+  }
+  await Promise.all(
+    changed.map((tile) => apiClient.upsertTile(tile, appSessionId, normAddressee))
+  );
+}
+
+
+
 export default function GraphCanvas() {
+  return (
+    <ReactFlowProvider>
+      <GraphCanvasInner />
+    </ReactFlowProvider>
+  );
+}
+
+function GraphCanvasInner() {
   const { state } = useApp();
+  const updateNodeInternals = useUpdateNodeInternals();
   const nodeTypesRef = useRef<{ tile: typeof TileNode } | null>(null);
   if (!nodeTypesRef.current || nodeTypesRef.current.tile !== TileNode) {
     nodeTypesRef.current = { tile: TileNode };
@@ -57,7 +80,7 @@ export default function GraphCanvas() {
   const [error, setError] = useState<string | null>(null);
   const [canvasHeight, setCanvasHeight] = useState<number | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
-  const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [expandedNodeIds, setExpandedNodeIds] = useState<Record<string, boolean>>(
     {}
   );
@@ -68,6 +91,7 @@ export default function GraphCanvas() {
   const nodeRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const nodeObservers = useRef<Map<string, ResizeObserver>>(new Map());
   const hasLoadedTilesRef = useRef(false);
+  const reactFlowRef = useRef<ReactFlowInstance | null>(null);
 
   const registerBodyRef = useCallback(
     (id: string, element: HTMLParagraphElement | null) => {
@@ -227,6 +251,16 @@ export default function GraphCanvas() {
     });
   }, [tiles]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || tiles.length === 0) {
+      return;
+    }
+    const raf = window.requestAnimationFrame(() => {
+      tiles.forEach((tile) => updateNodeInternals(tile.id));
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [tiles, expandedNodeIds, tileHeights, updateNodeInternals]);
+
   const refreshTiles = useCallback(async () => {
     if (!state.summaryReady) {
       setTiles([]);
@@ -239,45 +273,29 @@ export default function GraphCanvas() {
       if (!hasLoadedTilesRef.current) {
         setLoading(true);
       }
-      const response = await apiClient.fetchTiles(state.appSessionId);
+      const response = await apiClient.fetchTiles(
+        state.appSessionId,
+        state.selectedNormAddressee
+      );
       const lawTile = response.tiles.find((tile) => tile.id === "law_tile");
-      if (lawTile) {
-        const updatedTiles = response.tiles.map((tile) => {
-          if (!tile.id.startsWith("regulation_")) {
-            return tile;
-          }
-          if (tile.column > lawTile.column) {
-            return tile;
-          }
-          return { ...tile, column: lawTile.column + 1 };
-        });
-        const normalized = normalizeAndAlignTiles(updatedTiles);
-        setTiles(normalized.updated);
-        const columnChanged = updatedTiles.filter(
-          (tile, idx) => tile.column !== response.tiles[idx].column
-        );
-        const changed = [...columnChanged, ...normalized.changed];
-        if (changed.length) {
-          const deduped = new Map(changed.map((tile) => [tile.id, tile]));
-          await Promise.all(
-            Array.from(deduped.values()).map((tile) =>
-              apiClient.upsertTile(tile, state.appSessionId)
-            )
-          );
-        }
-      } else {
-        const normalized = normalizeAndAlignTiles(response.tiles);
-        setTiles(normalized.updated);
-        const changed = [...normalized.changed];
-        if (changed.length) {
-          const deduped = new Map(changed.map((tile) => [tile.id, tile]));
-          await Promise.all(
-            Array.from(deduped.values()).map((tile) =>
-              apiClient.upsertTile(tile, state.appSessionId)
-            )
-          );
-        }
-      }
+      const alignedTiles = lawTile
+        ? response.tiles.map((tile) => {
+            if (!tile.id.startsWith("regulation_") || tile.column > lawTile.column) {
+              return tile;
+            }
+            return { ...tile, column: lawTile.column + 1 };
+          })
+        : response.tiles;
+      const normalized = normalizeAndAlignTiles(alignedTiles);
+      setTiles(normalized.updated);
+      await _persistChangedTiles(
+        [
+          ...collectChangedTiles(response.tiles, alignedTiles),
+          ...normalized.changed,
+        ],
+        state.appSessionId,
+        state.selectedNormAddressee
+      );
       setError(null);
     } catch (err) {
       logClientError("GraphCanvas.refreshTiles", err, {
@@ -288,11 +306,17 @@ export default function GraphCanvas() {
       hasLoadedTilesRef.current = true;
       setLoading(false);
     }
-  }, [state.summaryReady, state.appSessionId]);
+  }, [state.summaryReady, state.appSessionId, state.selectedNormAddressee]);
 
   useEffect(() => {
     hasLoadedTilesRef.current = false;
   }, [state.appSessionId]);
+
+  useEffect(() => {
+    setFocusedNodeId(null);
+    setExpandedNodeIds({});
+    setViewport({ x: 0, y: 0, zoom: 1 });
+  }, [state.appSessionId, state.selectedNormAddressee]);
 
   useEffect(() => {
     refreshTiles();
@@ -324,7 +348,11 @@ export default function GraphCanvas() {
   const handleDelete = useCallback(
     async (tileId: string) => {
       try {
-        await apiClient.deleteTile(tileId, state.appSessionId);
+        await apiClient.deleteTile(
+          tileId,
+          state.appSessionId,
+          state.selectedNormAddressee
+        );
         setTiles((prev) => prev.filter((tile) => tile.id !== tileId));
       } catch (err) {
         logClientError("GraphCanvas.deleteTile", err, {
@@ -334,7 +362,7 @@ export default function GraphCanvas() {
         setError("Tile konnte nicht gelöscht werden.");
       }
     },
-    [state.appSessionId]
+    [state.appSessionId, state.selectedNormAddressee]
   );
 
   const relatedNodeIds = useMemo(() => {
@@ -635,65 +663,39 @@ export default function GraphCanvas() {
   }, []);
 
   const handleViewportChange = useCallback(
-    (nextViewport: { x: number; y: number; zoom: number }) => {
+    (nextViewport: Viewport) => {
       setViewport(nextViewport);
     },
     []
   );
 
   const handleInit = useCallback((instance: ReactFlowInstance) => {
+    reactFlowRef.current = instance;
     setViewport(instance.getViewport());
   }, []);
 
   const disableFitView = tiles.length === 1 && tiles[0]?.id === "law_tile";
-  const lawColumn = tiles.find((tile) => tile.id === "law_tile")?.column ?? 0;
-  const maxColumn = tiles.length
-    ? Math.max(...tiles.map((tile) => tile.column))
-    : lawColumn;
-  const minColForPrefix = (prefix: string) => {
-    const cols = tiles
-      .filter((tile) => tile.id.startsWith(prefix))
-      .map((tile) => tile.column);
-    return cols.length ? Math.min(...cols) : null;
-  };
-  const maxColForPrefix = (prefix: string) => {
-    const cols = tiles
-      .filter((tile) => tile.id.startsWith(prefix))
-      .map((tile) => tile.column);
-    return cols.length ? Math.max(...cols) : null;
-  };
-  const vorgabenCol = minColForPrefix("regulation_") ?? lawColumn + 1;
-  const prozesseCol = minColForPrefix("process_") ?? vorgabenCol + 1;
-  const fallgruppenCol = minColForPrefix("case_group_") ?? prozesseCol + 1;
-  const schritteStartCol = minColForPrefix("step_") ?? fallgruppenCol + 1;
-  const schritteEndCol = maxColForPrefix("step_") ?? schritteStartCol;
-  const schritteWidth = Math.max(1, schritteEndCol - schritteStartCol + 1);
-  const lanes = [
-    { key: "law", label: COLUMN_LABELS[0], startCol: lawColumn, width: 1 },
-    { key: "regulations", label: COLUMN_LABELS[1], startCol: vorgabenCol, width: 1 },
-    { key: "processes", label: COLUMN_LABELS[2], startCol: prozesseCol, width: 1 },
-    { key: "case_groups", label: COLUMN_LABELS[3], startCol: fallgruppenCol, width: 1 },
-    {
-      key: "steps",
-      label: COLUMN_LABELS[4],
-      startCol: schritteStartCol,
-      width: schritteWidth,
-    },
-    { key: "effort", label: COLUMN_LABELS[5], startCol: schritteEndCol + 1, width: 1 },
-    { key: "costs", label: COLUMN_LABELS[6], startCol: schritteEndCol + 2, width: 1 },
-  ];
-  const visibleLanes = lanes.filter((lane) => lane.startCol <= maxColumn);
-  const laneTitle = (lane: { key: string; label: string; startCol: number; width: number }) => {
-    if (lane.key === "law" || lane.key === "effort") {
-      return lane.label;
+  const flowKey = `${state.appSessionId}:${state.selectedNormAddressee}:${tiles
+    .map((tile) => tile.id)
+    .join("|")}`;
+
+  useEffect(() => {
+    if (disableFitView || tiles.length === 0) {
+      return;
     }
-    const count = tiles.filter(
-      (tile) =>
-        tile.column >= lane.startCol &&
-        tile.column < lane.startCol + lane.width
-    ).length;
-    return `${count} ${lane.label}`;
-  };
+    if (typeof window === "undefined") {
+      return;
+    }
+    const raf = window.requestAnimationFrame(() => {
+      reactFlowRef.current?.fitView?.({
+        padding: 0.16,
+        duration: 0,
+      });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [flowKey, disableFitView, tiles.length]);
+
+  const { visibleLanes, maxColumn } = useMemo(() => buildLanes(tiles), [tiles]);
   const lanesHeight = Math.max(
     LANE_HEIGHT,
     layout.maxBottom + TILE_GAP + LANE_TOP_OFFSET
@@ -711,89 +713,87 @@ export default function GraphCanvas() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(14,165,164,0.12),transparent_55%),radial-gradient(circle_at_80%_20%,rgba(249,115,22,0.12),transparent_60%)]" />
 
       <div className="absolute inset-0">
-        <ReactFlowProvider>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              nodesDraggable={false}
-              onInit={handleInit}
-              onNodeDragStop={handleNodeDragStop}
-              onNodeClick={handleNodeClick}
-              onPaneClick={handlePaneClick}
-              onViewportChange={handleViewportChange}
-              fitView={!disableFitView}
+        <ReactFlow
+          key={flowKey}
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          nodesDraggable={false}
+          onInit={handleInit}
+          onNodeDragStop={handleNodeDragStop}
+          onNodeClick={handleNodeClick}
+          onPaneClick={handlePaneClick}
+          onViewportChange={handleViewportChange}
+        >
+          <div
+            className="pointer-events-none absolute left-0"
+            style={{
+              top: -LANE_TOP_OFFSET,
+              transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+              transformOrigin: "0 0",
+            }}
+          >
+            <div
+              className="relative"
+              style={{
+                width: (maxColumn + 1) * COLUMN_WIDTH,
+                height: lanesHeight + LANE_TOP_OFFSET,
+              }}
             >
-              <div
-                className="pointer-events-none absolute left-0"
-                style={{
-                  top: -LANE_TOP_OFFSET,
-                  transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
-                  transformOrigin: "0 0",
-                }}
-              >
+              {visibleLanes.map((lane, index) => (
                 <div
-                  className="relative"
+                  key={lane.key}
+                  className="absolute top-0 h-full"
                   style={{
-                    width: (maxColumn + 1) * COLUMN_WIDTH,
-                    height: lanesHeight + LANE_TOP_OFFSET,
+                    left: lane.startCol * COLUMN_WIDTH,
+                    width: lane.width * COLUMN_WIDTH,
+                    background:
+                      index % 2 === 0
+                        ? "rgba(148, 163, 184, 0.08)"
+                        : "rgba(148, 163, 184, 0.04)",
+                    borderLeft:
+                      index === 0
+                        ? "none"
+                        : "1px solid rgba(148, 163, 184, 0.2)",
                   }}
                 >
-                  {visibleLanes.map((lane, index) => (
+                  <div
+                    className="px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500"
+                    style={{ paddingTop: labelPadding }}
+                  >
+                    {laneTitle(tiles, lane)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {shouldStickLabels && (
+            <div className="pointer-events-none absolute left-0 top-0 z-10">
+              {visibleLanes.map((lane) => {
+                const left =
+                  lane.startCol * COLUMN_WIDTH * viewport.zoom + viewport.x;
+                const width = lane.width * COLUMN_WIDTH * viewport.zoom;
+                return (
+                  <div
+                    key={lane.key}
+                    className="absolute"
+                    style={{ left, width }}
+                  >
                     <div
-                      key={lane.key}
-                      className="absolute top-0 h-full"
-                      style={{
-                        left: lane.startCol * COLUMN_WIDTH,
-                        width: lane.width * COLUMN_WIDTH,
-                        background:
-                          index % 2 === 0
-                            ? "rgba(148, 163, 184, 0.08)"
-                            : "rgba(148, 163, 184, 0.04)",
-                        borderLeft:
-                          index === 0
-                            ? "none"
-                            : "1px solid rgba(148, 163, 184, 0.2)",
-                      }}
+                      className="px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500"
+                      style={{ paddingTop: labelPadding }}
                     >
-                      <div
-                        className="px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500"
-                        style={{ paddingTop: labelPadding }}
-                      >
-                        {laneTitle(lane)}
-                      </div>
+                      {laneTitle(tiles, lane)}
                     </div>
-                  ))}
-                </div>
-              </div>
-              {shouldStickLabels && (
-                <div className="pointer-events-none absolute left-0 top-0 z-10">
-                  {visibleLanes.map((lane) => {
-                    const left =
-                      lane.startCol * COLUMN_WIDTH * viewport.zoom + viewport.x;
-                    const width = lane.width * COLUMN_WIDTH * viewport.zoom;
-                    return (
-                      <div
-                        key={lane.key}
-                        className="absolute"
-                        style={{ left, width }}
-                      >
-                        <div
-                          className="px-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500"
-                          style={{ paddingTop: labelPadding }}
-                        >
-                          {laneTitle(lane)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <Background gap={32} size={1.2} color="#e2e8f0" />
-              <Controls />
-          </ReactFlow>
-        </ReactFlowProvider>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <Background gap={32} size={1.2} color="#e2e8f0" />
+          <Controls />
+        </ReactFlow>
         {loading && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm text-slate-500">
             Daten werden geladen...

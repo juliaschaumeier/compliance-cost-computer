@@ -6,6 +6,7 @@ import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
+import { AUTOMATED_NORM_ADDRESSEES } from "@/types";
 
 export default function ProcessStepsPanel() {
   const { state, setCurrentTab, setProcessStepsReady } = useApp();
@@ -35,12 +36,17 @@ export default function ProcessStepsPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await apiClient.analyzeProcessSteps({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
-      });
+      await Promise.all(
+        AUTOMATED_NORM_ADDRESSEES.map((normAddressee) =>
+          apiClient.analyzeProcessSteps({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          })
+        )
+      );
       window.dispatchEvent(new Event("tiles-updated"));
       setProcessStepsReady(true);
       setCurrentTab(5);
@@ -62,7 +68,9 @@ export default function ProcessStepsPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Für jede Fallgruppe werden die notwendigen Tätigkeiten identifiziert
-            und als Prozessschritte erfasst.
+            und als Prozessschritte erfasst. Der Lauf entwickelt die Daten fuer
+            Verwaltung, Wirtschaft und Buerger gleichzeitig; der Umschalter in der
+            Graph-Ansicht wechselt nur die Darstellung.
           </p>
           <button
             onClick={handleAnalyze}
