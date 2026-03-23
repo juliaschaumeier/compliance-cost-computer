@@ -14,6 +14,7 @@ import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
 import { normalizeChangeStatus } from "@/lib/changeStatus";
 import { logClientError } from "@/lib/errorFeedback";
+import { buildGraphEdges } from "@/lib/graphEdges";
 import { normalizeAndAlignTiles } from "@/lib/graphLayout";
 import {
   buildTileBodyText,
@@ -583,34 +584,10 @@ export default function GraphCanvas() {
     tileHeights,
   ]);
 
-  const edges = useMemo(() => {
-    const highlightEnabled = Boolean(focusedNodeId);
-    return tiles.flatMap((tile) =>
-      tile.link_from_tile.map((sourceId) => {
-        const isActive =
-          !highlightEnabled ||
-          sourceId === focusedNodeId ||
-          tile.id === focusedNodeId;
-        const strokeColor = highlightEnabled
-          ? isActive
-            ? "#3b82f6"
-            : "#94a3b8"
-          : "#0f172a";
-        return {
-          id: `e-${sourceId}-${tile.id}`,
-          source: sourceId,
-          target: tile.id,
-          style: {
-            stroke: strokeColor,
-            strokeWidth: highlightEnabled ? (isActive ? 2.5 : 1) : 2,
-            opacity: highlightEnabled ? (isActive ? 1 : 0.25) : 1,
-            strokeLinecap: "round",
-            strokeLinejoin: "round",
-          },
-        };
-      })
-    );
-  }, [tiles, focusedNodeId]);
+  const edges = useMemo(
+    () => buildGraphEdges(tiles, focusedNodeId),
+    [tiles, focusedNodeId]
+  );
 
   const handleNodeDragStop = useCallback(
     async (_event: unknown, node: Node) => {
