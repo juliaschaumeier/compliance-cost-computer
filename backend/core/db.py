@@ -38,6 +38,9 @@ PAY_RATE_BUND_DEFAULTS: dict[str, float] = {
     "c": 67.6,
     "d": 44.4,
 }
+NORM_ADDRESSEE_CHECK_SQL = (
+    "CHECK (norm_addressee IN ('administration', 'business', 'citizens'))"
+)
 
 
 def _ensure_parent(path: Path) -> None:
@@ -60,12 +63,21 @@ def _table_exists(cur: sqlite3.Cursor, table_name: str) -> bool:
     return cur.fetchone() is not None
 
 
+def _table_sql(cur: sqlite3.Cursor, table_name: str) -> str:
+    cur.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    )
+    row = cur.fetchone()
+    return str(row["sql"] or "") if row else ""
+
+
 def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
     cur.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS tiles (
             session_id INTEGER NOT NULL,
-            norm_addressee TEXT NOT NULL DEFAULT 'administration',
+            norm_addressee TEXT NOT NULL DEFAULT 'administration' {NORM_ADDRESSEE_CHECK_SQL},
             id TEXT NOT NULL,
             title TEXT NOT NULL,
             text TEXT NOT NULL,
@@ -82,10 +94,10 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
         """
     )
     cur.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS links (
             session_id INTEGER NOT NULL,
-            norm_addressee TEXT NOT NULL DEFAULT 'administration',
+            norm_addressee TEXT NOT NULL DEFAULT 'administration' {NORM_ADDRESSEE_CHECK_SQL},
             source TEXT NOT NULL,
             target TEXT NOT NULL,
             PRIMARY KEY (session_id, norm_addressee, source, target),
@@ -103,11 +115,18 @@ def _create_session_scoped_tile_tables(cur: sqlite3.Cursor) -> None:
 
 
 def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
-    tiles_needs_migration = _table_exists(cur, "tiles") and not _table_has_column(
-        cur, "tiles", "norm_addressee"
+    tiles_exists = _table_exists(cur, "tiles")
+    links_exists = _table_exists(cur, "links")
+    check_fragment = "check (norm_addressee in ('administration', 'business', 'citizens'))"
+    tiles_has_norm_addressee = tiles_exists and _table_has_column(cur, "tiles", "norm_addressee")
+    links_has_norm_addressee = links_exists and _table_has_column(cur, "links", "norm_addressee")
+    tiles_needs_migration = tiles_exists and (
+        not tiles_has_norm_addressee
+        or check_fragment not in _table_sql(cur, "tiles").lower()
     )
-    links_needs_migration = _table_exists(cur, "links") and not _table_has_column(
-        cur, "links", "norm_addressee"
+    links_needs_migration = links_exists and (
+        not links_has_norm_addressee
+        or check_fragment not in _table_sql(cur, "links").lower()
     )
     if not tiles_needs_migration and not links_needs_migration:
         return
@@ -121,8 +140,11 @@ def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
     _create_session_scoped_tile_tables(cur)
 
     if tiles_needs_migration:
+        norm_addressee_select = (
+            "norm_addressee" if tiles_has_norm_addressee else "'administration'"
+        )
         cur.execute(
-            """
+            f"""
             INSERT INTO tiles (
                 session_id,
                 norm_addressee,
@@ -136,7 +158,7 @@ def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
             )
             SELECT
                 session_id,
-                'administration',
+                {norm_addressee_select},
                 id,
                 title,
                 text,
@@ -150,8 +172,11 @@ def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
         cur.execute("DROP TABLE tiles_legacy")
 
     if links_needs_migration:
+        norm_addressee_select = (
+            "norm_addressee" if links_has_norm_addressee else "'administration'"
+        )
         cur.execute(
-            """
+            f"""
             INSERT INTO links (
                 session_id,
                 norm_addressee,
@@ -160,7 +185,7 @@ def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
             )
             SELECT
                 session_id,
-                'administration',
+                {norm_addressee_select},
                 source,
                 target
             FROM links_legacy
@@ -345,7 +370,7 @@ def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_
             step_id                         INTEGER PRIMARY KEY,
             case_group_id                   INTEGER NOT NULL,
             session_id                      INTEGER NOT NULL,
-            norm_addressee                  TEXT NOT NULL DEFAULT 'administration',
+            norm_addressee                  TEXT NOT NULL DEFAULT 'administration' {NORM_ADDRESSEE_CHECK_SQL},
             step                            TEXT NOT NULL,
             description                     TEXT NOT NULL,
             change_status                   TEXT NOT NULL,
@@ -393,6 +418,197 @@ def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_
                 ON DELETE CASCADE
         )
         """
+    )
+
+
+def _create_processes_table(cur: sqlite3.Cursor, table_name: str = "processes") -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            process_id      INTEGER PRIMARY KEY,
+            session_id      INTEGER NOT NULL,
+            norm_addressee  TEXT NOT NULL DEFAULT 'administration' {NORM_ADDRESSEE_CHECK_SQL},
+            process         TEXT NOT NULL,
+            description     TEXT NOT NULL,
+            change_status   TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT current_timestamp,
+            cost            REAL,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_case_groups_table(cur: sqlite3.Cursor, table_name: str = "case_groups") -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            case_group_id               INTEGER PRIMARY KEY,
+            process_id                  INTEGER NOT NULL,
+            session_id                  INTEGER NOT NULL,
+            norm_addressee              TEXT NOT NULL DEFAULT 'administration' {NORM_ADDRESSEE_CHECK_SQL},
+            case_group                  TEXT NOT NULL,
+            description                 TEXT NOT NULL,
+            change_status               TEXT NOT NULL,
+            created_at                  TEXT NOT NULL DEFAULT current_timestamp,
+            addressees_current          REAL,
+            annual_frequency_current    REAL,
+            cases_current               REAL,
+            addressees_current_edited   REAL,
+            annual_frequency_current_edited REAL,
+            cases_current_edited        REAL,
+            addressees_proposed         REAL,
+            annual_frequency_proposed   REAL,
+            cases_proposed              REAL,
+            addressees_proposed_edited  REAL,
+            annual_frequency_proposed_edited REAL,
+            cases_proposed_edited       REAL,
+            cost                        REAL,
+            last_edited_at              TEXT,
+            FOREIGN KEY (process_id)
+            REFERENCES processes
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_regulation_process_links_by_addressee_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "regulation_process_links_by_addressee",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id       INTEGER NOT NULL,
+            norm_addressee   TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            regulation_id    INTEGER NOT NULL,
+            process_id       INTEGER NOT NULL,
+            PRIMARY KEY (session_id, norm_addressee, regulation_id),
+            FOREIGN KEY (session_id, regulation_id)
+            REFERENCES regulations (session_id, regulation_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (session_id, norm_addressee, process_id)
+            REFERENCES processes (session_id, norm_addressee, process_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_case_group_metrics_by_addressee_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "case_group_metrics_by_addressee",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id                   INTEGER NOT NULL,
+            case_group_id                INTEGER NOT NULL,
+            norm_addressee               TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            addressees_current           REAL,
+            annual_frequency_current     REAL,
+            cases_current                REAL,
+            addressees_proposed          REAL,
+            annual_frequency_proposed    REAL,
+            cases_proposed               REAL,
+            PRIMARY KEY (session_id, case_group_id, norm_addressee),
+            FOREIGN KEY (session_id, norm_addressee, case_group_id)
+            REFERENCES case_groups(session_id, norm_addressee, case_group_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_process_step_effort_metrics_by_addressee_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "process_step_effort_metrics_by_addressee",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id                      INTEGER NOT NULL,
+            step_id                         INTEGER NOT NULL,
+            norm_addressee                  TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            hourly_rate_a_current           REAL,
+            hourly_rate_b_current           REAL,
+            hourly_rate_c_current           REAL,
+            hourly_rate_d_current           REAL,
+            time_required_in_min_a_current  REAL,
+            time_required_in_min_b_current  REAL,
+            time_required_in_min_c_current  REAL,
+            time_required_in_min_d_current  REAL,
+            expenses_current                REAL,
+            hourly_rate_a_proposed          REAL,
+            hourly_rate_b_proposed          REAL,
+            hourly_rate_c_proposed          REAL,
+            hourly_rate_d_proposed          REAL,
+            time_required_in_min_a_proposed REAL,
+            time_required_in_min_b_proposed REAL,
+            time_required_in_min_c_proposed REAL,
+            time_required_in_min_d_proposed REAL,
+            expenses_proposed               REAL,
+            execution_per_case              INTEGER,
+            PRIMARY KEY (session_id, step_id, norm_addressee),
+            FOREIGN KEY (session_id, norm_addressee, step_id)
+            REFERENCES process_steps(session_id, norm_addressee, step_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_process_step_costs_by_addressee_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "process_step_costs_by_addressee",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id                 INTEGER NOT NULL,
+            step_id                    INTEGER NOT NULL,
+            norm_addressee             TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            cost_current               REAL,
+            cost_proposed              REAL,
+            bureaucracy_cost_current   REAL,
+            bureaucracy_cost_proposed  REAL,
+            other_cost_current         REAL,
+            other_cost_proposed        REAL,
+            PRIMARY KEY (session_id, step_id, norm_addressee),
+            FOREIGN KEY (session_id, norm_addressee, step_id)
+            REFERENCES process_steps(session_id, norm_addressee, step_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_parent_composite_indexes(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_processes_session_addressee_process_id ON processes(session_id, norm_addressee, process_id)"
+    )
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_case_groups_session_addressee_case_group_id ON case_groups(session_id, norm_addressee, case_group_id)"
+    )
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_process_steps_session_addressee_step_id ON process_steps(session_id, norm_addressee, step_id)"
+    )
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_regulations_session_regulation_id ON regulations(session_id, regulation_id)"
     )
 
 
@@ -607,6 +823,182 @@ def _backfill_administration_process_step_costs(cur: sqlite3.Cursor) -> None:
     )
 
 
+def _rebuild_table(
+    cur: sqlite3.Cursor,
+    table_name: str,
+    create_table_sql: callable,
+    insert_sql: str,
+) -> None:
+    legacy_name = f"{table_name}_legacy_migration"
+    cur.execute("PRAGMA foreign_keys = OFF;")
+    try:
+        cur.execute(f"DROP TABLE IF EXISTS {legacy_name}")
+        cur.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_name}")
+        create_table_sql(cur, table_name)
+        cur.execute(insert_sql.format(legacy_name=legacy_name))
+        cur.execute(f"DROP TABLE {legacy_name}")
+    finally:
+        cur.execute("PRAGMA foreign_keys = ON;")
+
+
+def _migrate_addressee_child_tables(cur: sqlite3.Cursor) -> None:
+    child_specs = [
+        (
+            "regulation_process_links_by_addressee",
+            _create_regulation_process_links_by_addressee_table,
+            """
+            INSERT INTO regulation_process_links_by_addressee (
+                session_id,
+                norm_addressee,
+                regulation_id,
+                process_id
+            )
+            SELECT
+                session_id,
+                norm_addressee,
+                regulation_id,
+                process_id
+            FROM {legacy_name}
+            """,
+            (
+                "foreign key (session_id, regulation_id)",
+                "foreign key (session_id, norm_addressee, process_id)",
+                "check (norm_addressee in ('administration', 'business', 'citizens'))",
+            ),
+        ),
+        (
+            "case_group_metrics_by_addressee",
+            _create_case_group_metrics_by_addressee_table,
+            """
+            INSERT INTO case_group_metrics_by_addressee (
+                session_id,
+                case_group_id,
+                norm_addressee,
+                addressees_current,
+                annual_frequency_current,
+                cases_current,
+                addressees_proposed,
+                annual_frequency_proposed,
+                cases_proposed
+            )
+            SELECT
+                session_id,
+                case_group_id,
+                norm_addressee,
+                addressees_current,
+                annual_frequency_current,
+                cases_current,
+                addressees_proposed,
+                annual_frequency_proposed,
+                cases_proposed
+            FROM {legacy_name}
+            """,
+            (
+                "foreign key (session_id, norm_addressee, case_group_id)",
+                "check (norm_addressee in ('administration', 'business', 'citizens'))",
+            ),
+        ),
+        (
+            "process_step_effort_metrics_by_addressee",
+            _create_process_step_effort_metrics_by_addressee_table,
+            """
+            INSERT INTO process_step_effort_metrics_by_addressee (
+                session_id,
+                step_id,
+                norm_addressee,
+                hourly_rate_a_current,
+                hourly_rate_b_current,
+                hourly_rate_c_current,
+                hourly_rate_d_current,
+                time_required_in_min_a_current,
+                time_required_in_min_b_current,
+                time_required_in_min_c_current,
+                time_required_in_min_d_current,
+                expenses_current,
+                hourly_rate_a_proposed,
+                hourly_rate_b_proposed,
+                hourly_rate_c_proposed,
+                hourly_rate_d_proposed,
+                time_required_in_min_a_proposed,
+                time_required_in_min_b_proposed,
+                time_required_in_min_c_proposed,
+                time_required_in_min_d_proposed,
+                expenses_proposed,
+                execution_per_case
+            )
+            SELECT
+                session_id,
+                step_id,
+                norm_addressee,
+                hourly_rate_a_current,
+                hourly_rate_b_current,
+                hourly_rate_c_current,
+                hourly_rate_d_current,
+                time_required_in_min_a_current,
+                time_required_in_min_b_current,
+                time_required_in_min_c_current,
+                time_required_in_min_d_current,
+                expenses_current,
+                hourly_rate_a_proposed,
+                hourly_rate_b_proposed,
+                hourly_rate_c_proposed,
+                hourly_rate_d_proposed,
+                time_required_in_min_a_proposed,
+                time_required_in_min_b_proposed,
+                time_required_in_min_c_proposed,
+                time_required_in_min_d_proposed,
+                expenses_proposed,
+                execution_per_case
+            FROM {legacy_name}
+            """,
+            (
+                "foreign key (session_id, norm_addressee, step_id)",
+                "check (norm_addressee in ('administration', 'business', 'citizens'))",
+            ),
+        ),
+        (
+            "process_step_costs_by_addressee",
+            _create_process_step_costs_by_addressee_table,
+            """
+            INSERT INTO process_step_costs_by_addressee (
+                session_id,
+                step_id,
+                norm_addressee,
+                cost_current,
+                cost_proposed,
+                bureaucracy_cost_current,
+                bureaucracy_cost_proposed,
+                other_cost_current,
+                other_cost_proposed
+            )
+            SELECT
+                session_id,
+                step_id,
+                norm_addressee,
+                cost_current,
+                cost_proposed,
+                bureaucracy_cost_current,
+                bureaucracy_cost_proposed,
+                other_cost_current,
+                other_cost_proposed
+            FROM {legacy_name}
+            """,
+            (
+                "foreign key (session_id, norm_addressee, step_id)",
+                "check (norm_addressee in ('administration', 'business', 'citizens'))",
+            ),
+        ),
+    ]
+
+    for table_name, create_fn, insert_sql, required_fragments in child_specs:
+        if not _table_exists(cur, table_name):
+            continue
+        sql = _table_sql(cur, table_name).lower()
+        if all(fragment in sql for fragment in required_fragments):
+            continue
+        _rebuild_table(cur, table_name, create_fn, insert_sql)
+
+
 def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     """Migration helper: run one-off in-place upgrades for legacy/dev DB files.
 
@@ -736,6 +1128,8 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     if needs_used_models_backfill:
         _refresh_all_session_used_models(cur)
 
+    _create_parent_composite_indexes(cur)
+    _migrate_addressee_child_tables(cur)
     _backfill_administration_case_group_metrics(cur)
     _backfill_administration_process_step_effort_metrics(cur)
     _backfill_administration_process_step_costs(cur)
@@ -951,23 +1345,7 @@ def init_db() -> None:
     )
     # TODO: many-to-one relationship of regulations-to-processes: if a regulation
     #  is linked to two processes, an error is thrown. Implement re-answering by llm?
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS processes (
-            process_id      INTEGER PRIMARY KEY,
-            session_id      INTEGER NOT NULL,
-            process         TEXT NOT NULL,
-            description     TEXT NOT NULL,
-            change_status   TEXT NOT NULL,
-            created_at      TEXT NOT NULL DEFAULT current_timestamp,
-            cost            REAL,
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id) 
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
+    _create_processes_table(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_processes (
@@ -986,41 +1364,7 @@ def init_db() -> None:
         )
         """
     )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS case_groups (
-            case_group_id               INTEGER PRIMARY KEY,
-            process_id                  INTEGER NOT NULL,
-            session_id                  INTEGER NOT NULL,
-            case_group                  TEXT NOT NULL,
-            description                 TEXT NOT NULL,
-            change_status               TEXT NOT NULL,
-            created_at                  TEXT NOT NULL DEFAULT current_timestamp,
-            addressees_current          REAL,
-            annual_frequency_current    REAL,
-            cases_current               REAL,
-            addressees_current_edited   REAL,
-            annual_frequency_current_edited REAL,
-            cases_current_edited        REAL,
-            addressees_proposed         REAL,
-            annual_frequency_proposed   REAL,
-            cases_proposed              REAL,
-            addressees_proposed_edited  REAL,
-            annual_frequency_proposed_edited REAL,
-            cases_proposed_edited       REAL,
-            cost                        REAL,
-            last_edited_at              TEXT,
-            FOREIGN KEY (process_id)
-            REFERENCES processes
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id) 
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
+    _create_case_groups_table(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_case_groups (
@@ -1042,8 +1386,6 @@ def init_db() -> None:
     # TODO: Handle list insertion, possibly change to position list instead of linked list? Does it need to be doubly linked? Single just seems easier.
     # TODO: Change prozessschritt mit tätigkeiten?
     _create_process_steps_table(cur)
-    _migrate_tile_tables_to_norm_addressee(cur)
-    _create_used_models_triggers(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_process_steps (
@@ -1093,115 +1435,10 @@ def init_db() -> None:
             "norm_addressee": "TEXT NOT NULL DEFAULT 'administration'",
         },
     )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS regulation_process_links_by_addressee (
-            session_id       INTEGER NOT NULL,
-            norm_addressee   TEXT NOT NULL,
-            regulation_id    INTEGER NOT NULL,
-            process_id       INTEGER NOT NULL,
-            PRIMARY KEY (session_id, norm_addressee, regulation_id),
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            FOREIGN KEY (regulation_id)
-            REFERENCES regulations (regulation_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            FOREIGN KEY (process_id)
-            REFERENCES processes (process_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS case_group_metrics_by_addressee (
-            session_id                   INTEGER NOT NULL,
-            case_group_id                INTEGER NOT NULL,
-            norm_addressee               TEXT NOT NULL,
-            addressees_current           REAL,
-            annual_frequency_current     REAL,
-            cases_current                REAL,
-            addressees_proposed          REAL,
-            annual_frequency_proposed    REAL,
-            cases_proposed               REAL,
-            PRIMARY KEY (session_id, case_group_id, norm_addressee),
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            FOREIGN KEY (case_group_id)
-            REFERENCES case_groups(case_group_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS process_step_effort_metrics_by_addressee (
-            session_id                      INTEGER NOT NULL,
-            step_id                         INTEGER NOT NULL,
-            norm_addressee                  TEXT NOT NULL,
-            hourly_rate_a_current           REAL,
-            hourly_rate_b_current           REAL,
-            hourly_rate_c_current           REAL,
-            hourly_rate_d_current           REAL,
-            time_required_in_min_a_current  REAL,
-            time_required_in_min_b_current  REAL,
-            time_required_in_min_c_current  REAL,
-            time_required_in_min_d_current  REAL,
-            expenses_current                REAL,
-            hourly_rate_a_proposed          REAL,
-            hourly_rate_b_proposed          REAL,
-            hourly_rate_c_proposed          REAL,
-            hourly_rate_d_proposed          REAL,
-            time_required_in_min_a_proposed REAL,
-            time_required_in_min_b_proposed REAL,
-            time_required_in_min_c_proposed REAL,
-            time_required_in_min_d_proposed REAL,
-            expenses_proposed               REAL,
-            execution_per_case              INTEGER,
-            PRIMARY KEY (session_id, step_id, norm_addressee),
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            FOREIGN KEY (step_id)
-            REFERENCES process_steps(step_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS process_step_costs_by_addressee (
-            session_id                 INTEGER NOT NULL,
-            step_id                    INTEGER NOT NULL,
-            norm_addressee             TEXT NOT NULL,
-            cost_current               REAL,
-            cost_proposed              REAL,
-            bureaucracy_cost_current   REAL,
-            bureaucracy_cost_proposed  REAL,
-            other_cost_current         REAL,
-            other_cost_proposed        REAL,
-            PRIMARY KEY (session_id, step_id, norm_addressee),
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE,
-            FOREIGN KEY (step_id)
-            REFERENCES process_steps(step_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
-    _run_legacy_migrations(cur)
+    _create_regulation_process_links_by_addressee_table(cur)
+    _create_case_group_metrics_by_addressee_table(cur)
+    _create_process_step_effort_metrics_by_addressee_table(cur)
+    _create_process_step_costs_by_addressee_table(cur)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_current_law_id ON sessions(current_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_proposed_law_id ON sessions(proposed_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_session_id ON regulations(session_id)")
@@ -1210,6 +1447,7 @@ def init_db() -> None:
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_processes_session_addressee ON processes(session_id, norm_addressee)"
     )
+    _create_parent_composite_indexes(cur)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_case_groups_process_id ON case_groups(process_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_case_groups_session_id ON case_groups(session_id)")
     cur.execute(
@@ -1275,6 +1513,9 @@ def init_db() -> None:
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_links_session_addressee_source ON links(session_id, norm_addressee, source)"
     )
+    _run_legacy_migrations(cur)
+    _migrate_tile_tables_to_norm_addressee(cur)
+    _create_used_models_triggers(cur)
     _maybe_commit(conn)
     _maybe_close(conn)
 
