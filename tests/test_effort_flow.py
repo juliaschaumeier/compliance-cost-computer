@@ -3,6 +3,21 @@ from backend.core.models import Tile
 from backend.routers import effort as effort_router
 
 
+def _is_effort_prompt(prompt: str) -> bool:
+    return "prozessschritte differenziert werden" in prompt.lower()
+
+
+def _build_effort_query_llm(cases_response, effort_response, *, calls=None):
+    async def fake_query_llm(prompt, *_args, **_kwargs):
+        if calls is not None:
+            calls.append(prompt)
+        if _is_effort_prompt(prompt):
+            return effort_response
+        return cases_response
+
+    return fake_query_llm
+
+
 def _seed_case_group(session_id: int) -> tuple[int, int]:
     process_id = db.insert_process(session_id, "Prozess A", "Beschreibung Prozess")
     case_group_id = db.insert_case_group(
@@ -115,13 +130,11 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
 
     calls = []
 
-    async def fake_query_llm(prompt, *_args, **_kwargs):
-        calls.append(prompt)
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        return effort_response
-
-    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response, calls=calls),
+    )
 
     resp = test_client.post(
         "/effort/calculate",
@@ -154,7 +167,9 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     tiles = db.fetch_tiles(session_id=session_id)
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tile = next(tile for tile in tiles if tile.id == f"step_{step_one}")
-    assert case_tile.text == "Beschreibung Fallgruppe"
+    assert case_tile.text.startswith("Beschreibung Fallgruppe")
+    assert "Gueltig: Betroffene: 100 | Haeufigkeit/Jahr: 2 | Faelle: 200" in case_tile.text
+    assert "Vorschlag: Betroffene: 120 | Haeufigkeit/Jahr: 2 | Faelle: 240" in case_tile.text
     assert case_tile.meta_information["addressees_current"] == 100
     assert case_tile.meta_information["annual_frequency_current"] == 2
     assert case_tile.meta_information["cases_current"] == 200
@@ -162,7 +177,9 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     assert case_tile.meta_information["annual_frequency_proposed"] == 2
     assert case_tile.meta_information["cases_proposed"] == 240
 
-    assert step_tile.text == "Beschreibung Schritt 1"
+    assert step_tile.text.startswith("Beschreibung Schritt 1")
+    assert "Gueltig:" in step_tile.text
+    assert "Vorschlag:" in step_tile.text
     assert step_tile.meta_information["time_required_current"]["a"] == 1
     assert step_tile.meta_information["time_required_proposed"]["a"] == 1.5
     assert step_tile.meta_information["expenses_current"] == 10
@@ -242,13 +259,16 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     }}
     """
 
-    async def fake_query_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        return effort_response
-
-    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
-    monkeypatch.setattr(effort_router.db, "has_effort_metrics", lambda _sid: False)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
+    monkeypatch.setattr(
+        effort_router.db,
+        "has_effort_metrics",
+        lambda _sid, *_args, **_kwargs: False,
+    )
 
     response = test_client.post(
         "/effort/calculate",
@@ -261,25 +281,25 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     assert response.status_code == 200
 
     case_group = db.list_case_groups_for_session(session_id)[0]
-    assert case_group["addressees_current"] == 100  # preserved existing base value
-    assert case_group["annual_frequency_current"] == 3  # filled missing base value
-    assert case_group["addressees_proposed"] == 220  # filled missing base value
-    assert case_group["annual_frequency_proposed"] == 4  # filled missing base value
+    assert case_group["addressees_current"] == 200
+    assert case_group["annual_frequency_current"] == 3
+    assert case_group["addressees_proposed"] == 220
+    assert case_group["annual_frequency_proposed"] == 4
 
     step = db.list_process_steps_for_session(session_id)[0]
-    assert step["hourly_rate_a_current"] == 50  # preserved existing base value
-    assert step["time_required_in_min_a_current"] == 5  # preserved existing base value
-    assert step["expenses_current"] == 7  # preserved existing base value
-    assert step["hourly_rate_a_proposed"] == 44  # filled missing base value
-    assert step["time_required_in_min_a_proposed"] == 6  # filled missing base value
-    assert step["expenses_proposed"] == 8  # filled missing base value
+    assert step["hourly_rate_a_current"] == 99
+    assert step["time_required_in_min_a_current"] == 9
+    assert step["expenses_current"] == 11
+    assert step["hourly_rate_a_proposed"] == 44
+    assert step["time_required_in_min_a_proposed"] == 6
+    assert step["expenses_proposed"] == 8
 
 
 def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeypatch):
     """Skips the LLM when effort metrics already exist for the session."""
     session_id, _ = db.upsert_session("EFFORT-EXISTING", "test-model")
     _process_id, case_group_id = _seed_case_group(session_id)
-    step_one, _step_two = _seed_steps(session_id, case_group_id)
+    step_one, step_two = _seed_steps(session_id, case_group_id)
 
     db.upsert_tile(
         Tile(
@@ -348,6 +368,14 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
                   "stundenlohn_satz_a_vorschlag": "45",
                   "zeitaufwand_in_min_a_vorschlag": "1.5",
                   "sachaufwand_vorschlag": "12"
+                }},
+                {{
+                  "taetigkeiten_id": "{step_two}",
+                  "taetigkeit": "Schritt 2",
+                  "beschreibung": "Beschreibung Schritt 2",
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "sachaufwand_vorschlag": "12"
                 }}
               ]
             }}
@@ -357,12 +385,11 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
     }}
     """
 
-    async def fake_query_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        return effort_response
-
-    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
 
     first = test_client.post(
         "/effort/calculate",
@@ -439,12 +466,11 @@ def test_calculate_effort_rejects_legacy_keys(test_client, monkeypatch):
     }}
     """
 
-    async def fake_query_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        return effort_response
-
-    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
 
     resp = test_client.post(
         "/effort/calculate",
@@ -540,17 +566,16 @@ def test_calculate_effort_logs_parse_fallback_for_alias_keys(test_client, monkey
     }}
     """
 
-    async def fake_query_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        return effort_response
-
     fallback_kinds: list[str] = []
 
     def fake_mark_llm_parse_fallback(*, fallback_kind, **_kwargs):
         fallback_kinds.append(str(fallback_kind))
 
-    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
     monkeypatch.setattr(
         effort_router,
         "mark_llm_parse_fallback",
@@ -615,12 +640,11 @@ def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):
     }
     """
 
-    async def fake_query_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        return effort_response
-
-    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
 
     resp = test_client.post(
         "/effort/calculate",
@@ -679,12 +703,11 @@ def test_calculate_effort_rejects_unknown_step(test_client, monkeypatch):
     }
     """
 
-    async def fake_query_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        return effort_response
-
-    monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
 
     resp = test_client.post(
         "/effort/calculate",
@@ -723,9 +746,9 @@ def test_calculate_effort_partial_query_failure_keeps_audit_rows(
     """
 
     async def fake_query_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return cases_response
-        raise RuntimeError("effort query failed upstream")
+        if _is_effort_prompt(prompt):
+            raise RuntimeError("effort query failed upstream")
+        return cases_response
 
     monkeypatch.setattr(effort_router, "query_llm", fake_query_llm)
 
@@ -808,11 +831,11 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
     calls = {"cases": 0, "effort": 0}
 
     async def fake_query_llm_first(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            calls["cases"] += 1
-            return cases_response
-        calls["effort"] += 1
-        raise RuntimeError("effort query failed upstream")
+        if _is_effort_prompt(prompt):
+            calls["effort"] += 1
+            raise RuntimeError("effort query failed upstream")
+        calls["cases"] += 1
+        return cases_response
 
     monkeypatch.setattr(effort_router, "query_llm", fake_query_llm_first)
 
@@ -828,11 +851,11 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
     assert calls == {"cases": 1, "effort": 1}
 
     async def fake_query_llm_second(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            calls["cases"] += 1
-            return cases_response
-        calls["effort"] += 1
-        return effort_response
+        if _is_effort_prompt(prompt):
+            calls["effort"] += 1
+            return effort_response
+        calls["cases"] += 1
+        return cases_response
 
     monkeypatch.setattr(effort_router, "query_llm", fake_query_llm_second)
 

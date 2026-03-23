@@ -25,6 +25,8 @@ def test_build_vorgaben_payload_contract_keys():
             "normzitat": "§ 1",
             "beschreibung": "Vorgabe A",
             "aenderungsstatus": "geaendert",
+            "normadressaten": [],
+            "ist_informationspflicht_wirtschaft": False,
         }
     ]
     assert set(payload[0].keys()) == {
@@ -32,6 +34,8 @@ def test_build_vorgaben_payload_contract_keys():
         "normzitat",
         "beschreibung",
         "aenderungsstatus",
+        "normadressaten",
+        "ist_informationspflicht_wirtschaft",
     }
 
 
@@ -69,6 +73,8 @@ def test_build_processes_payload_with_regulations_contract_keys():
         "normzitat",
         "beschreibung",
         "aenderungsstatus",
+        "normadressaten",
+        "ist_informationspflicht_wirtschaft",
     }
 
 
@@ -118,6 +124,8 @@ def test_build_case_groups_payload_includes_vorgaben():
             "normzitat": "§ 1",
             "beschreibung": "Vorgabe A",
             "aenderungsstatus": "geaendert",
+            "normadressaten": [],
+            "ist_informationspflicht_wirtschaft": False,
         }
     ]
     assert set(process.keys()) == {
@@ -190,6 +198,8 @@ def test_build_step_analysis_payload_includes_vorgaben():
             "normzitat": "§ 1",
             "beschreibung": "Vorgabe A",
             "aenderungsstatus": "geaendert",
+            "normadressaten": [],
+            "ist_informationspflicht_wirtschaft": False,
         }
     ]
     assert set(process.keys()) == {
@@ -280,6 +290,35 @@ def test_build_case_groups_payload_omits_metrics_even_when_present():
     assert "haeufigkeit_pro_jahr_gueltig" not in fallgruppe
     assert "anzahl_betroffene_vorschlag" not in fallgruppe
     assert "haeufigkeit_pro_jahr_vorschlag" not in fallgruppe
+
+
+def test_build_vorgaben_payload_includes_norm_addressees_and_business_flag():
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 1,
+            "applies_to_business": 1,
+            "applies_to_citizens": 0,
+            "is_business_information_obligation": 1,
+        }
+    ]
+
+    payload = build_vorgaben_payload(regulations)
+
+    assert payload == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["verwaltung", "wirtschaft"],
+            "ist_informationspflicht_wirtschaft": True,
+        }
+    ]
 
 
 def test_build_step_analysis_payload_omits_null_effort_fields():

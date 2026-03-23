@@ -96,17 +96,40 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     await waitFor(() => {
-      expect(mockCalculateEffort).toHaveBeenCalledWith({
-        appSessionId: "ABC123",
-        normAddressee: "business",
-        model: "gpt-5",
-        provider: "openai",
-        keys: {
-          openaiApiKey: "sk-test",
-          deepinfraApiKey: undefined,
-          geminiApiKey: undefined,
-        },
-      });
+      expect(mockCalculateEffort).toHaveBeenCalledTimes(3);
+    });
+    expect(mockCalculateEffort).toHaveBeenNthCalledWith(1, {
+      appSessionId: "ABC123",
+      normAddressee: "administration",
+      model: "gpt-5",
+      provider: "openai",
+      keys: {
+        openaiApiKey: "sk-test",
+        deepinfraApiKey: undefined,
+        geminiApiKey: undefined,
+      },
+    });
+    expect(mockCalculateEffort).toHaveBeenNthCalledWith(2, {
+      appSessionId: "ABC123",
+      normAddressee: "business",
+      model: "gpt-5",
+      provider: "openai",
+      keys: {
+        openaiApiKey: "sk-test",
+        deepinfraApiKey: undefined,
+        geminiApiKey: undefined,
+      },
+    });
+    expect(mockCalculateEffort).toHaveBeenNthCalledWith(3, {
+      appSessionId: "ABC123",
+      normAddressee: "citizens",
+      model: "gpt-5",
+      provider: "openai",
+      keys: {
+        openaiApiKey: "sk-test",
+        deepinfraApiKey: undefined,
+        geminiApiKey: undefined,
+      },
     });
     expect(setCurrentTab).toHaveBeenCalledWith(6);
     expect(setEffortReady).toHaveBeenCalledWith(true);
@@ -153,8 +176,11 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     expect(
-      await screen.findByText("Aufwand wurde bereits berechnet.")
+      await screen.findByText(
+        "Aufwand fuer Verwaltung, Wirtschaft und Buerger wurde bereits berechnet."
+      )
     ).toBeInTheDocument();
+    expect(mockCalculateEffort).toHaveBeenCalledTimes(3);
     expect(setEffortReady).toHaveBeenCalledWith(true);
     expect(setCurrentTab).toHaveBeenCalledWith(6);
   });

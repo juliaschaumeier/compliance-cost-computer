@@ -105,7 +105,9 @@ def test_rebuild_tiles_populates_structured_metrics_meta(test_client):
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tile = next(tile for tile in tiles if tile.id == f"step_{step_id}")
 
-    assert case_tile.text == "Fallgruppenbeschreibung"
+    assert case_tile.text.startswith("Fallgruppenbeschreibung")
+    assert "Gueltig: Betroffene: 10 | Haeufigkeit/Jahr: 2 | Faelle: 20" in case_tile.text
+    assert "Vorschlag: Betroffene: 12 | Haeufigkeit/Jahr: 3 | Faelle: 36" in case_tile.text
     assert case_tile.meta_information["description"] == "Fallgruppenbeschreibung"
     assert case_tile.meta_information["addressees_current"] == 10
     assert case_tile.meta_information["annual_frequency_current"] == 2
@@ -114,7 +116,9 @@ def test_rebuild_tiles_populates_structured_metrics_meta(test_client):
     assert case_tile.meta_information["annual_frequency_proposed"] == 3
     assert case_tile.meta_information["cases_proposed"] == 36
 
-    assert step_tile.text == "Schrittbeschreibung"
+    assert step_tile.text.startswith("Schrittbeschreibung")
+    assert "Gueltig:" in step_tile.text
+    assert "Vorschlag:" in step_tile.text
     assert step_tile.meta_information["description"] == "Schrittbeschreibung"
     assert step_tile.meta_information["time_required_current"]["a"] == 5
     assert step_tile.meta_information["time_required_proposed"]["a"] == 7
@@ -262,4 +266,5 @@ def test_list_tiles_auto_rebuilds_when_text_does_not_match_description(test_clie
     assert listed.status_code == 200
     listed_tiles = listed.json()["tiles"]
     listed_step = next(tile for tile in listed_tiles if tile["id"] == f"step_{step_id}")
-    assert listed_step["text"] == "Schrittbeschreibung"
+    assert listed_step["text"].startswith("Schrittbeschreibung")
+    assert "eD/mD: 1 min | 2 min" in listed_step["text"]

@@ -345,6 +345,7 @@ def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_
             step_id                         INTEGER PRIMARY KEY,
             case_group_id                   INTEGER NOT NULL,
             session_id                      INTEGER NOT NULL,
+            norm_addressee                  TEXT NOT NULL DEFAULT 'administration',
             step                            TEXT NOT NULL,
             description                     TEXT NOT NULL,
             change_status                   TEXT NOT NULL,
@@ -412,7 +413,7 @@ def _migrate_process_steps_drop_execution_per_case(cur: sqlite3.Cursor) -> None:
         cur.execute(
             """
             INSERT INTO process_steps_new (
-                step_id, case_group_id, session_id, step, description, change_status,
+                step_id, case_group_id, session_id, norm_addressee, step, description, change_status,
                 created_at, previous_id, next_id,
                 hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
                 time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
@@ -423,7 +424,7 @@ def _migrate_process_steps_drop_execution_per_case(cur: sqlite3.Cursor) -> None:
                 cost_current, cost_proposed
             )
             SELECT
-                step_id, case_group_id, session_id, step, description, change_status,
+                step_id, case_group_id, session_id, 'administration', step, description, change_status,
                 created_at, previous_id, next_id,
                 hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
                 time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
@@ -442,6 +443,17 @@ def _migrate_process_steps_drop_execution_per_case(cur: sqlite3.Cursor) -> None:
 
 
 def _backfill_administration_case_group_metrics(cur: sqlite3.Cursor) -> None:
+    required_columns = (
+        "norm_addressee",
+        "addressees_current",
+        "annual_frequency_current",
+        "cases_current",
+        "addressees_proposed",
+        "annual_frequency_proposed",
+        "cases_proposed",
+    )
+    if not all(_table_has_column(cur, "case_groups", column) for column in required_columns):
+        return
     cur.execute(
         """
         INSERT INTO case_group_metrics_by_addressee (
@@ -1030,7 +1042,6 @@ def init_db() -> None:
     # TODO: Handle list insertion, possibly change to position list instead of linked list? Does it need to be doubly linked? Single just seems easier.
     # TODO: Change prozessschritt mit tätigkeiten?
     _create_process_steps_table(cur)
-    _run_legacy_migrations(cur)
     _migrate_tile_tables_to_norm_addressee(cur)
     _create_used_models_triggers(cur)
     cur.execute(
@@ -1190,6 +1201,7 @@ def init_db() -> None:
         )
         """
     )
+    _run_legacy_migrations(cur)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_current_law_id ON sessions(current_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_proposed_law_id ON sessions(proposed_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_session_id ON regulations(session_id)")
@@ -3006,6 +3018,40 @@ def update_case_group_metrics(
             session_id,
         ),
     )
+    cur.execute(
+        """
+        INSERT INTO case_group_metrics_by_addressee (
+            session_id,
+            case_group_id,
+            norm_addressee,
+            addressees_current,
+            annual_frequency_current,
+            cases_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_proposed
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, case_group_id, norm_addressee) DO UPDATE SET
+            addressees_current = excluded.addressees_current,
+            annual_frequency_current = excluded.annual_frequency_current,
+            cases_current = excluded.cases_current,
+            addressees_proposed = excluded.addressees_proposed,
+            annual_frequency_proposed = excluded.annual_frequency_proposed,
+            cases_proposed = excluded.cases_proposed
+        """,
+        (
+            session_id,
+            case_group_id,
+            ADMINISTRATION,
+            addressees_current,
+            annual_frequency_current,
+            cases_current,
+            addressees_proposed,
+            annual_frequency_proposed,
+            cases_proposed,
+        ),
+    )
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -3089,6 +3135,15 @@ def update_process_step_effort_split(
 ) -> None:
     conn = get_conn()
     cur = conn.cursor()
+    execution_per_case = None
+    if _table_has_column(cur, "process_steps", "execution_per_case"):
+        cur.execute(
+            "SELECT execution_per_case FROM process_steps WHERE step_id = ? AND session_id = ?",
+            (step_id, session_id),
+        )
+        row = cur.fetchone()
+        if row is not None:
+            execution_per_case = row["execution_per_case"]
     cur.execute(
         """
         UPDATE process_steps
@@ -3121,6 +3176,67 @@ def update_process_step_effort_split(
             expenses_proposed,
             step_id,
             session_id,
+        ),
+    )
+    cur.execute(
+        """
+        INSERT INTO process_step_effort_metrics_by_addressee (
+            session_id, step_id, norm_addressee,
+            hourly_rate_a_current, hourly_rate_b_current, hourly_rate_c_current, hourly_rate_d_current,
+            time_required_in_min_a_current, time_required_in_min_b_current, time_required_in_min_c_current, time_required_in_min_d_current,
+            expenses_current,
+            hourly_rate_a_proposed, hourly_rate_b_proposed, hourly_rate_c_proposed, hourly_rate_d_proposed,
+            time_required_in_min_a_proposed, time_required_in_min_b_proposed, time_required_in_min_c_proposed, time_required_in_min_d_proposed,
+            expenses_proposed, execution_per_case
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, step_id, norm_addressee) DO UPDATE SET
+            hourly_rate_a_current = excluded.hourly_rate_a_current,
+            hourly_rate_b_current = excluded.hourly_rate_b_current,
+            hourly_rate_c_current = excluded.hourly_rate_c_current,
+            hourly_rate_d_current = excluded.hourly_rate_d_current,
+            time_required_in_min_a_current = excluded.time_required_in_min_a_current,
+            time_required_in_min_b_current = excluded.time_required_in_min_b_current,
+            time_required_in_min_c_current = excluded.time_required_in_min_c_current,
+            time_required_in_min_d_current = excluded.time_required_in_min_d_current,
+            expenses_current = excluded.expenses_current,
+            hourly_rate_a_proposed = excluded.hourly_rate_a_proposed,
+            hourly_rate_b_proposed = excluded.hourly_rate_b_proposed,
+            hourly_rate_c_proposed = excluded.hourly_rate_c_proposed,
+            hourly_rate_d_proposed = excluded.hourly_rate_d_proposed,
+            time_required_in_min_a_proposed = excluded.time_required_in_min_a_proposed,
+            time_required_in_min_b_proposed = excluded.time_required_in_min_b_proposed,
+            time_required_in_min_c_proposed = excluded.time_required_in_min_c_proposed,
+            time_required_in_min_d_proposed = excluded.time_required_in_min_d_proposed,
+            expenses_proposed = excluded.expenses_proposed,
+            execution_per_case = COALESCE(
+                excluded.execution_per_case,
+                process_step_effort_metrics_by_addressee.execution_per_case
+            )
+        """,
+        (
+            session_id,
+            step_id,
+            ADMINISTRATION,
+            hourly_rates_current.get("a"),
+            hourly_rates_current.get("b"),
+            hourly_rates_current.get("c"),
+            hourly_rates_current.get("d"),
+            time_required_current.get("a"),
+            time_required_current.get("b"),
+            time_required_current.get("c"),
+            time_required_current.get("d"),
+            expenses_current,
+            hourly_rates_proposed.get("a"),
+            hourly_rates_proposed.get("b"),
+            hourly_rates_proposed.get("c"),
+            hourly_rates_proposed.get("d"),
+            time_required_proposed.get("a"),
+            time_required_proposed.get("b"),
+            time_required_proposed.get("c"),
+            time_required_proposed.get("d"),
+            expenses_proposed,
+            execution_per_case,
         ),
     )
     _maybe_commit(conn)
@@ -3545,6 +3661,14 @@ def clear_effort_metrics(session_id: int) -> None:
         """,
         (session_id,),
     )
+    cur.execute(
+        "DELETE FROM case_group_metrics_by_addressee WHERE session_id = ?",
+        (session_id,),
+    )
+    cur.execute(
+        "DELETE FROM process_step_effort_metrics_by_addressee WHERE session_id = ?",
+        (session_id,),
+    )
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -3583,6 +3707,10 @@ def clear_costs(session_id: int) -> None:
         SET cc_cost = NULL
         WHERE session_id = ?
         """,
+        (session_id,),
+    )
+    cur.execute(
+        "DELETE FROM process_step_costs_by_addressee WHERE session_id = ?",
         (session_id,),
     )
     _maybe_commit(conn)

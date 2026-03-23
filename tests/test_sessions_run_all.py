@@ -13,6 +13,10 @@ from backend.routers import (
 )
 
 
+def _is_effort_prompt(prompt: str) -> bool:
+    return "prozessschritte differenziert werden" in prompt.lower()
+
+
 def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
     async def fake_regulations_llm(prompt, *_args, **_kwargs):
         if "vorgaben" in prompt.lower():
@@ -145,7 +149,7 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
         steps_by_group: dict[int, list[dict]] = {}
         for step in steps:
             steps_by_group.setdefault(int(step["case_group_id"]), []).append(step)
-        if "fallzahl" in prompt.lower():
+        if not _is_effort_prompt(prompt):
             return json.dumps(
                 {
                     "prozesse": [

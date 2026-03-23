@@ -142,7 +142,7 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-OK"})
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["total_cost"] == 1214
+    assert payload["total_cost"] == 2000
 
     conn = db.get_conn()
     cur = conn.cursor()
@@ -152,29 +152,29 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     )
     step_one_cost = cur.fetchone()
     assert step_one_cost["cost_current"] == 0
-    assert step_one_cost["cost_proposed"] == 26.9
+    assert step_one_cost["cost_proposed"] == 40.0
     cur.execute(
         "SELECT cost_current, cost_proposed FROM process_steps WHERE step_id = ?",
         (seeded["step_two"],),
     )
     step_two_cost = cur.fetchone()
     assert step_two_cost["cost_current"] == 0
-    assert step_two_cost["cost_proposed"] == 33.8
+    assert step_two_cost["cost_proposed"] == 60.0
     cur.execute(
         "SELECT cost FROM case_groups WHERE case_group_id = ?",
         (seeded["case_group_id"],),
     )
-    assert cur.fetchone()["cost"] == 1214
+    assert cur.fetchone()["cost"] == 2000
     cur.execute(
         "SELECT cost FROM processes WHERE process_id = ?",
         (seeded["process_id"],),
     )
-    assert cur.fetchone()["cost"] == 1214
+    assert cur.fetchone()["cost"] == 2000
     cur.execute(
         "SELECT cc_cost FROM sessions WHERE session_id = ?",
         (session_id,),
     )
-    assert cur.fetchone()["cc_cost"] == 1214
+    assert cur.fetchone()["cc_cost"] == 2000
     conn.close()
 
     tiles = db.fetch_tiles(session_id=session_id)
@@ -187,15 +187,15 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     total_tile = next(tile for tile in tiles if tile.id == "total_cost")
 
     assert "Kosten:" not in process_tile.text
-    assert process_tile.meta_information.get("cost") == 1214
+    assert process_tile.meta_information.get("cost") == 2000
     assert case_group_tile.meta_information.get("cases_proposed") == 20
     assert case_group_tile.meta_information.get("cases_current") is None
-    assert "Kosten:" not in step_tile_one.text
-    assert "Kosten:" not in step_tile_two.text
+    assert "Kosten:" in step_tile_one.text
+    assert "Kosten:" in step_tile_two.text
     assert step_tile_one.meta_information.get("cost_current") == 0
-    assert step_tile_one.meta_information.get("cost_proposed") == 26.9
+    assert step_tile_one.meta_information.get("cost_proposed") == 40.0
     assert step_tile_two.meta_information.get("cost_current") == 0
-    assert step_tile_two.meta_information.get("cost_proposed") == 33.8
+    assert step_tile_two.meta_information.get("cost_proposed") == 60.0
 
     assert "€" in total_tile.text
     assert "Fälle pro Jahr (Δ)" not in total_tile.text
@@ -237,7 +237,7 @@ def test_compute_costs_multiplies_all_steps_by_case_counts(test_client):
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-PER-GROUP"})
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["total_cost"] == pytest.approx(364.2)
+    assert payload["total_cost"] == pytest.approx(600.0)
 
 
 def test_compute_costs_uses_edited_case_and_step_values(test_client):
@@ -305,4 +305,4 @@ def test_compute_costs_uses_edited_case_and_step_values(test_client):
     resp = test_client.post("/costs/compute", json={"app_session_id": "COST-USES-EDITS"})
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["total_cost"] == pytest.approx(169.0)
+    assert payload["total_cost"] == pytest.approx(300.0)

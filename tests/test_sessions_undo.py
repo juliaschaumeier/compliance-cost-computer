@@ -6,6 +6,8 @@ from backend.core.prompts import PromptId
 
 def _seed_flow(app_session_id: str) -> dict:
     session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    db.insert_regulation(session_id, "§ 1", "Beschreibung")
     process_id = db.insert_process(session_id, "Prozess A", "Beschreibung Prozess")
     case_group_id = db.insert_case_group(
         session_id, process_id, "Fallgruppe A", "Beschreibung Fallgruppe"
