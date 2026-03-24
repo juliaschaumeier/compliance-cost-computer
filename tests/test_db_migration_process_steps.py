@@ -108,7 +108,7 @@ def _seed_legacy_rows(cur: sqlite3.Cursor) -> None:
     )
 
 
-def test_init_db_migrates_process_steps_execution_per_case(monkeypatch, tmp_path):
+def test_init_db_preserves_process_steps_execution_per_case(monkeypatch, tmp_path):
     db_path = tmp_path / "legacy_process_steps.db"
 
     conn = sqlite3.connect(db_path)
@@ -127,14 +127,15 @@ def test_init_db_migrates_process_steps_execution_per_case(monkeypatch, tmp_path
     cur = check.cursor()
     cur.execute("PRAGMA table_info(process_steps)")
     columns = {row["name"] for row in cur.fetchall()}
-    assert "execution_per_case" not in columns
+    assert "execution_per_case" in columns
 
     cur.execute(
-        "SELECT step, description, cost_current, cost_proposed FROM process_steps WHERE step_id = 1"
+        "SELECT step, description, execution_per_case, cost_current, cost_proposed FROM process_steps WHERE step_id = 1"
     )
     row = cur.fetchone()
     assert row["step"] == "S1"
     assert row["description"] == "Schritt"
+    assert row["execution_per_case"] == 0
     assert row["cost_current"] == 12.5
     assert row["cost_proposed"] == 13.5
     check.close()

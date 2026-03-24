@@ -78,9 +78,95 @@ def test_regulation_process_links_require_matching_session_and_addressee(seeded_
         )
 
 
-def test_case_group_metrics_require_matching_session_and_addressee(seeded_db):
-    conn = seeded_db["conn"]
-    with pytest.raises(sqlite3.IntegrityError):
+def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_addressee_metrics.db")
+    db.init_db()
+
+    session_id, _ = db.upsert_session("LEGACY-METRICS", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Prozess B",
+        "Beschreibung Prozess B",
+        norm_addressee="business",
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Fallgruppe B",
+        "Beschreibung Fallgruppe B",
+        norm_addressee="business",
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt B",
+        "Beschreibung Schritt B",
+        norm_addressee="business",
+    )
+
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE case_group_metrics_by_addressee (
+                session_id INTEGER NOT NULL,
+                case_group_id INTEGER NOT NULL,
+                norm_addressee TEXT NOT NULL,
+                addressees_current REAL,
+                annual_frequency_current REAL,
+                cases_current REAL,
+                addressees_proposed REAL,
+                annual_frequency_proposed REAL,
+                cases_proposed REAL,
+                PRIMARY KEY (session_id, case_group_id, norm_addressee)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE process_step_effort_metrics_by_addressee (
+                session_id INTEGER NOT NULL,
+                step_id INTEGER NOT NULL,
+                norm_addressee TEXT NOT NULL,
+                hourly_rate_a_current REAL,
+                hourly_rate_b_current REAL,
+                hourly_rate_c_current REAL,
+                hourly_rate_d_current REAL,
+                time_required_in_min_a_current REAL,
+                time_required_in_min_b_current REAL,
+                time_required_in_min_c_current REAL,
+                time_required_in_min_d_current REAL,
+                expenses_current REAL,
+                hourly_rate_a_proposed REAL,
+                hourly_rate_b_proposed REAL,
+                hourly_rate_c_proposed REAL,
+                hourly_rate_d_proposed REAL,
+                time_required_in_min_a_proposed REAL,
+                time_required_in_min_b_proposed REAL,
+                time_required_in_min_c_proposed REAL,
+                time_required_in_min_d_proposed REAL,
+                expenses_proposed REAL,
+                execution_per_case INTEGER,
+                PRIMARY KEY (session_id, step_id, norm_addressee)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE process_step_costs_by_addressee (
+                session_id INTEGER NOT NULL,
+                step_id INTEGER NOT NULL,
+                norm_addressee TEXT NOT NULL,
+                cost_current REAL,
+                cost_proposed REAL,
+                bureaucracy_cost_current REAL,
+                bureaucracy_cost_proposed REAL,
+                other_cost_current REAL,
+                other_cost_proposed REAL,
+                PRIMARY KEY (session_id, step_id, norm_addressee)
+            )
+            """
+        )
         conn.execute(
             """
             INSERT INTO case_group_metrics_by_addressee (
@@ -91,105 +177,90 @@ def test_case_group_metrics_require_matching_session_and_addressee(seeded_db):
                 annual_frequency_proposed,
                 cases_proposed
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'business', 10, 2, 20)
             """,
-            (
-                seeded_db["session_id"],
-                seeded_db["case_group_id"],
-                "business",
-                10,
-                2,
-                20,
-            ),
+            (session_id, case_group_id),
         )
-
-
-@pytest.mark.parametrize(
-    ("table_name", "value_columns", "value_params"),
-    [
-        (
-            "process_step_effort_metrics_by_addressee",
-            "hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed",
-            (40, 15, 5),
-        ),
-        (
-            "process_step_costs_by_addressee",
-            "cost_proposed, bureaucracy_cost_proposed, other_cost_proposed",
-            (25, 10, 15),
-        ),
-    ],
-)
-def test_process_step_addressee_tables_require_matching_session_and_addressee(
-    seeded_db,
-    table_name,
-    value_columns,
-    value_params,
-):
-    conn = seeded_db["conn"]
-    with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
-            f"""
-            INSERT INTO {table_name} (
+            """
+            INSERT INTO process_step_effort_metrics_by_addressee (
                 session_id,
                 step_id,
                 norm_addressee,
-                {value_columns}
+                hourly_rate_a_proposed,
+                time_required_in_min_a_proposed,
+                expenses_proposed,
+                execution_per_case
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'business', 55, 30, 5, 0)
             """,
-            (
-                seeded_db["session_id"],
-                seeded_db["step_id"],
-                "business",
-                *value_params,
-            ),
+            (session_id, step_id),
         )
-
-
-def test_init_db_rebuilds_legacy_addressee_child_tables(tmp_path, monkeypatch):
-    monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_fk.db")
-    db.init_db()
-
-    conn = sqlite3.connect(config.settings.db_path)
-    try:
-        conn.execute("PRAGMA foreign_keys = OFF;")
-        conn.execute("DROP TABLE regulation_process_links_by_addressee")
         conn.execute(
             """
-            CREATE TABLE regulation_process_links_by_addressee (
-                session_id INTEGER NOT NULL,
-                norm_addressee TEXT NOT NULL,
-                regulation_id INTEGER NOT NULL,
-                process_id INTEGER NOT NULL,
-                PRIMARY KEY (session_id, norm_addressee, regulation_id),
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id),
-                FOREIGN KEY (regulation_id) REFERENCES regulations(regulation_id),
-                FOREIGN KEY (process_id) REFERENCES processes(process_id)
+            INSERT INTO process_step_costs_by_addressee (
+                session_id,
+                step_id,
+                norm_addressee,
+                cost_current,
+                cost_proposed,
+                bureaucracy_cost_proposed,
+                other_cost_proposed
             )
-            """
+            VALUES (?, ?, 'business', 11, 25, 10, 15)
+            """,
+            (session_id, step_id),
         )
         conn.commit()
     finally:
         conn.close()
 
     db.init_db()
-    session_id, _ = db.upsert_session("LEGACY-FK", "test-model")
-    process_id = db.insert_process(session_id, "Prozess A", "Beschreibung Prozess")
-    regulation_id = db.insert_regulation(session_id, "§ 1", "Beschreibung Vorgabe")
-    conn = db.get_conn()
+
+    check = sqlite3.connect(config.settings.db_path)
+    check.row_factory = sqlite3.Row
     try:
-        with pytest.raises(sqlite3.IntegrityError):
-            conn.execute(
-                """
-                INSERT INTO regulation_process_links_by_addressee (
-                    session_id,
-                    norm_addressee,
-                    regulation_id,
-                    process_id
-                )
-                VALUES (?, ?, ?, ?)
-                """,
-                (session_id, "business", regulation_id, process_id),
-            )
+        tables = {
+            row["name"]
+            for row in check.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        assert "case_group_metrics_by_addressee" not in tables
+        assert "process_step_effort_metrics_by_addressee" not in tables
+        assert "process_step_costs_by_addressee" not in tables
+
+        case_group = check.execute(
+            """
+            SELECT addressees_proposed, annual_frequency_proposed, cases_proposed
+            FROM case_groups
+            WHERE session_id = ? AND case_group_id = ? AND norm_addressee = 'business'
+            """,
+            (session_id, case_group_id),
+        ).fetchone()
+        assert case_group["addressees_proposed"] == 10
+        assert case_group["annual_frequency_proposed"] == 2
+        assert case_group["cases_proposed"] == 20
+
+        step = check.execute(
+            """
+            SELECT
+                hourly_rate_a_proposed,
+                time_required_in_min_a_proposed,
+                expenses_proposed,
+                execution_per_case,
+                cost_current,
+                cost_proposed
+            FROM process_steps
+            WHERE session_id = ? AND step_id = ? AND norm_addressee = 'business'
+            """,
+            (session_id, step_id),
+        ).fetchone()
+        assert step["hourly_rate_a_proposed"] == 55
+        assert step["time_required_in_min_a_proposed"] == 30
+        assert step["expenses_proposed"] == 5
+        assert step["execution_per_case"] == 0
+        assert step["cost_current"] == 11
+        assert step["cost_proposed"] == 25
     finally:
-        conn.close()
+        check.close()
