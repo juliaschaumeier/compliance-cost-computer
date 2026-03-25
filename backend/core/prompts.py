@@ -155,61 +155,191 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
 }
 
 
-EFFORT_PROMPT_RULES: Dict[str, str] = {
-    CITIZENS: (
-        "Zusatz fuer die Aufwandsermittlung Buergerinnen und Buerger: "
-        "Ermitteln Sie fuer jede Taetigkeit ausschliesslich den Zeitaufwand in Minuten "
-        "sowie den Sachaufwand in Euro. Monetarisieren Sie den Zeitaufwand nicht. "
-        "Verwenden Sie keine Rollen, keine Lohngruppen und keine Stundenloehne. "
-        "Orientieren Sie sich bei Zeitwerten an der Zeitwerttabelle fuer Buergerinnen "
-        "und Buerger und pruefen Sie deren Plausibilitaet fuer den konkreten Fall. "
-        "Sachaufwand umfasst insbesondere Gebuehren, Anschaffungen, Porto- und "
-        "Fahrtkosten, Materialkosten sowie zwingend ausgeloeste Kosten fuer Dritte "
-        "wie Notare oder Sachverstaendige. Geben Sie den Zeit- und Sachaufwand "
-        "jeweils fuer gueltige und vorgeschlagene Rechtslage getrennt an. "
-        "Wenn fuer eine Taetigkeit kein Sachaufwand anfaellt, verwenden Sie 0. "
-        "Wenn fuer eine Taetigkeit kein Zeitaufwand anfaellt, verwenden Sie 0. "
-        "Ignorieren Sie im allgemeinen Schema alle Felder zu Rollen, Lohngruppen "
-        "und Stundenloehnen. Verwenden Sie fuer Buergerinnen und Buerger "
-        "ausschliesslich folgendes vereinfachte JSON-Schema je Taetigkeit: "
-        '{"taetigkeiten_id":"","taetigkeit":"","beschreibung":"","aenderungsstatus":"",'
-        '"zeitaufwand_in_min_gueltig":"","sachaufwand_gueltig":"",'
-        '"zeitaufwand_in_min_vorschlag":"","sachaufwand_vorschlag":"",'
-        '"ausfuehrung_pro_einzelfall":"0 | 1"}'
-        " Geben Sie keine weiteren Felder aus. Geben Sie Zahlen nur als nackte Werte "
-        "ohne Einheiten, Waehrungssymbole oder Fliesstext aus. Erfinden Sie keine "
-        "verdeckten Verwaltungs- oder Unternehmenskosten als buergerseitigen "
-        "Sachaufwand. Weisen Sie Sachaufwand nur aus, wenn er fuer Buergerinnen und "
-        "Buerger selbst unmittelbar anfaellt."
+EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
+    ADMINISTRATION: (
+        "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
+        "Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen "
+        "resultiert zunaechst kein Zeitaufwand. Sofern keine spezifischen Daten ueber "
+        "den Zeitaufwand vorliegen, kann die Zeitwerttabelle Verwaltung herangezogen "
+        "werden. Zudem kann die Tabelle zu Wegezeiten und -sachkosten genutzt werden, "
+        "wenn persoenliche Termine bei anderen Stellen oder Behoerden erforderlich sind. "
+        "Zur Ermittlung des Personalaufwands werden die Bearbeitungszeiten mit den "
+        "laufbahnspezifischen Lohnsaetzen der Verwaltung verknuepft. Die festen "
+        "Lohngruppen sind A=Einfacher und mittlerer Dienst, B=Gehobener Dienst, "
+        "C=Hoeherer Dienst, D=Durchschnitt. Ordnen Sie jede benoetigte "
+        "Bearbeitungsstufe genau einer dieser Gruppen zu. Eine einzige Lohngruppe ist "
+        "der Regelfall; mehrere Lohngruppen sind nur bei klar getrennten "
+        "Bearbeitungsstufen zulaessig, etwa Bearbeitung und anschliessende Freigabe. "
+        "Vermeiden Sie schematische Mehrfachbefuellung. Wenn der zu erfuellende Prozess "
+        "nicht in Einzeltätigkeiten zerlegt wurde, koennen gesicherte Erfahrungswerte "
+        "in Personentagen oder Personenmonaten genutzt und anschliessend umgerechnet "
+        "werden. Fuer die Beschaeftigten im oeffentlichen Dienst gelten bei einer "
+        "40-Stunden-Woche als Richtwerte 1 Personentag = 8 Stunden, 1 Personenmonat = "
+        "134 Stunden und 1 Personenjahr = 200 Arbeitstage."
     ),
     BUSINESS: (
-        "Zusatz fuer die Aufwandsermittlung Wirtschaft: Die festen Lohngruppen sind "
-        "A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt. Ordnen Sie jede benoetigte "
-        "Bearbeitungsstufe genau einer dieser Gruppen zu. Eine einzige Lohngruppe ist der "
-        "Regelfall; mehrere Lohngruppen sind nur bei klar getrennten Bearbeitungsstufen "
-        "zulaessig, etwa operative Bearbeitung und anschliessende Freigabe. Vermeiden Sie "
-        "schematische Mehrfachbefuellung. "
-        "Buerokratiekosten der Wirtschaft sind spaeter getrennt auszuweisen. "
-        "Ersatzinvestitionen sind nur zur Haelfte als Erfuellungsaufwand anzusetzen, "
-        "soweit kein anderer Anteil fachlich begruendet ist."
+        "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
+        "Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen "
+        "resultiert zunaechst kein Zeitaufwand. Sofern keine spezifischen Daten ueber "
+        "den Zeitaufwand vorliegen, kann die Zeitwerttabelle Wirtschaft herangezogen "
+        "werden. Die Tabelle zu Wegezeiten und -sachkosten kann genutzt werden, wenn "
+        "persoenliche Termine bei anderen Stellen oder Behoerden erforderlich sind. "
+        "Zur Ermittlung des Personalaufwands werden die Bearbeitungszeiten mit den "
+        "einschlaegigen Lohnsaetzen der Wirtschaft verknuepft. Die festen Lohngruppen "
+        "sind A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt. Ordnen Sie jede benoetigte "
+        "Bearbeitungsstufe genau einer dieser Gruppen zu. Eine einzige Lohngruppe ist "
+        "der Regelfall; mehrere Lohngruppen sind nur bei klar getrennten "
+        "Bearbeitungsstufen zulaessig, etwa operative Bearbeitung und anschliessende "
+        "Freigabe. Vermeiden Sie schematische Mehrfachbefuellung. Buerokratiekosten der "
+        "Wirtschaft sind spaeter getrennt auszuweisen. Ersatzinvestitionen sind nur zur "
+        "Haelfte als Erfuellungsaufwand anzusetzen, soweit kein anderer Anteil fachlich "
+        "begruendet ist."
     ),
-    ADMINISTRATION: (
-        "Zusatz fuer die Aufwandsermittlung Verwaltung: Die festen Lohngruppen sind "
-        "A=Einfacher und mittlerer Dienst, B=Gehobener Dienst, C=Hoeherer Dienst, "
-        "D=Durchschnitt. Ordnen Sie jede benoetigte Bearbeitungsstufe genau einer dieser "
-        "Gruppen zu. Eine einzige Lohngruppe ist der Regelfall; mehrere Lohngruppen sind "
-        "nur bei klar getrennten Bearbeitungsstufen zulaessig, etwa Bearbeitung und "
-        "anschliessende Freigabe. Vermeiden Sie schematische Mehrfachbefuellung."
+    CITIZENS: (
+        "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
+        "Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen "
+        "resultiert zunaechst kein Zeitaufwand. Ermitteln Sie fuer jede Taetigkeit "
+        "ausschliesslich den Zeitaufwand in Minuten sowie den Sachaufwand in Euro. "
+        "Monetarisieren Sie den Zeitaufwand nicht. Verwenden Sie keine Rollen, keine "
+        "Lohngruppen und keine Stundenloehne. Orientieren Sie sich bei Zeitwerten an "
+        "der Zeitwerttabelle fuer Buergerinnen und Buerger und pruefen Sie deren "
+        "Plausibilitaet fuer den konkreten Fall. Die Tabelle zu Wegezeiten und "
+        "-sachkosten kann genutzt werden, wenn persoenliches Erscheinen erforderlich "
+        "ist. Sachaufwand umfasst insbesondere Gebuehren, Anschaffungen, Porto- und "
+        "Fahrtkosten, Materialkosten sowie zwingend ausgeloeste Kosten fuer Dritte wie "
+        "Notare oder Sachverstaendige. Geben Sie den Zeit- und Sachaufwand jeweils fuer "
+        "gueltige und vorgeschlagene Rechtslage getrennt an. Wenn fuer eine Taetigkeit "
+        "kein Sachaufwand anfaellt, verwenden Sie 0. Wenn fuer eine Taetigkeit kein "
+        "Zeitaufwand anfaellt, verwenden Sie 0. Erfinden Sie keine verdeckten "
+        "Verwaltungs- oder Unternehmenskosten als buergerseitigen Sachaufwand. Weisen "
+        "Sie Sachaufwand nur aus, wenn er fuer Buergerinnen und Buerger selbst "
+        "unmittelbar anfaellt."
     ),
 }
 
 
-EFFORT_PROMPT_APPENDICES: Dict[str, str] = {
-    CITIZENS: "\n\nAnhang Buergerinnen und Buerger:\n\n{Zeitwerttabelle_Buerger}",
-    BUSINESS: (
-        "\n\nAnhang Wirtschaft:\n\n"
-        "{Zeitwerttabelle_Wirtschaft}\n\n{Lohnkostentabelle_Wirtschaft}"
+EFFORT_APPENDICES: Dict[str, str] = {
+    ADMINISTRATION: (
+        "Anhang Verwaltung:\n\n"
+        "{Wegezeiten_Wegesachkosten}\n\n"
+        "{Zeitwerttabelle_Verwaltung}\n\n"
+        "{Lohnkostentabelle_Verwaltung}"
     ),
+    BUSINESS: (
+        "Anhang Wirtschaft:\n\n"
+        "{Wegezeiten_Wegesachkosten}\n\n"
+        "{Zeitwerttabelle_Wirtschaft}\n\n"
+        "{Lohnkostentabelle_Wirtschaft}"
+    ),
+    CITIZENS: (
+        "Anhang Buergerinnen und Buerger:\n\n"
+        "{Wegezeiten_Wegesachkosten}\n\n"
+        "{Zeitwerttabelle_Buerger}"
+    ),
+}
+
+
+EFFORT_JSON_SCHEMA_DEFAULT = """
+{{
+"prozesse": [
+    {{
+    "prozess_id": "",
+    "prozess_bezeichnung": "",
+    "prozess_beschreibung": "",
+    "aenderungsstatus": "",
+    "vorgaben": [
+        {{
+            "vorgaben_id": "",
+            "normzitat": "",
+            "beschreibung": "",
+            "aenderungsstatus": ""
+        }}
+    ],
+    "fallgruppen": [
+        {{
+            "fallgruppen_id": "",
+            "fallgruppe_bezeichnung": "",
+            "fallgruppe_beschreibung": "",
+            "aenderungsstatus": "",
+            "taetigkeiten": [
+                {{
+                    "taetigkeiten_id": "",
+                    "taetigkeit": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": "",
+                    "rollen_gueltig": [
+                        {{
+                            "rolle": "",
+                            "lohngruppe": "A | B | C | D",
+                            "schwierigkeitsgrad": "",
+                            "stundenlohn": "",
+                            "zeitaufwand_in_min": ""
+                        }}
+                    ],
+                    "sachaufwand_gueltig": "",
+                    "rollen_vorschlag": [
+                        {{
+                            "rolle": "",
+                            "lohngruppe": "A | B | C | D",
+                            "schwierigkeitsgrad": "",
+                            "stundenlohn": "",
+                            "zeitaufwand_in_min": ""
+                        }}
+                    ],
+                    "sachaufwand_vorschlag": "",
+                    "ausfuehrung_pro_einzelfall": "0 | 1"
+                }}
+            ]
+        }}
+    ]
+    }}
+]
+}}
+"""
+
+
+EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
+    CITIZENS: """
+{{
+"prozesse": [
+    {{
+    "prozess_id": "",
+    "prozess_bezeichnung": "",
+    "prozess_beschreibung": "",
+    "aenderungsstatus": "",
+    "vorgaben": [
+        {{
+            "vorgaben_id": "",
+            "normzitat": "",
+            "beschreibung": "",
+            "aenderungsstatus": ""
+        }}
+    ],
+    "fallgruppen": [
+        {{
+            "fallgruppen_id": "",
+            "fallgruppe_bezeichnung": "",
+            "fallgruppe_beschreibung": "",
+            "aenderungsstatus": "",
+            "taetigkeiten": [
+                {{
+                    "taetigkeiten_id": "",
+                    "taetigkeit": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": "",
+                    "zeitaufwand_in_min_gueltig": "",
+                    "sachaufwand_gueltig": "",
+                    "zeitaufwand_in_min_vorschlag": "",
+                    "sachaufwand_vorschlag": "",
+                    "ausfuehrung_pro_einzelfall": "0 | 1"
+                }}
+            ]
+        }}
+    ]
+    }}
+]
+}}
+"""
 }
 
 
@@ -840,30 +970,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         aendert, darf nicht automatisch der gesamte Schritt neu und vollumfaenglich angesetzt werden. Unveraenderte Aufwaende sollten in _gueltig und
         _vorschlag gleich bleiben; nur geaenderte Mehr- oder Minderaufwaende sind abweichend auszuweisen.
 
-        Eine Reihe von Tätigkeiten läuft bei Nutzung entsprechender Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen resultiert 
-        zunächst kein Zeitaufwand.
-        Sofern keine spezifischen Daten über den Zeitaufwand für die Erfüllung der Vorgaben zu ermitteln sind, kann die Zeitwerttabelle Verwaltung 
-        herangezogen werden (siehe Anhang 7: Zeitwerttabelle Verwaltung). Zudem findet sich im Anhang eine Tabelle mit Pauschalen zu Wegezeiten 
-        (siehe Anhang 5: Wegezeiten und -sachkosten, Seite 62). Zur Ermittlung des Personalaufwands werden zunächst die zu erwartenden 
-        Bearbeitungszeiten dargestellt. Dabei zählen Gemeinkosten nicht zum Erfüllungsaufwand.
-
-        Personalaufwand wird grundsätzlich über die zu erwartende Arbeitszeit pro Tätigkeit (in Minuten) und Fall dargestellt und mit den laufbahnspezifischen 
-        Lohnsätzen der mit der Bearbeitung zu betrauenden Mitarbeiterinnen und Mitarbeitern multipliziert. Die zu erwartende Arbeitszeit pro Fall 
-        (Zeitaufwand) kann z. B. anhand von Erfahrungswerten, Organisationsuntersuchungen oder Daten der Kosten- und Leistungsrechnung ermittelt werden.
-        Die laufbahnspezifischen Lohnsätze ergeben sich aus der jeweils einschlägigen Lohnkostentabelle. Ordnen Sie jede beteiligte Bearbeitungsstufe einer festen
-        Lohngruppe A-D zu und geben Sie nur die tatsächlich benötigten Gruppen an. Wenn eine Tätigkeit vollständig von einer Person bzw. Lohngruppe erledigt wird,
-        ist nur eine Gruppe anzugeben. Das ist der Regelfall. Wenn eine Tätigkeit mehrere klar unterscheidbare Stufen umfasst, etwa Sachbearbeitung und
-        anschließende Freigabe, sind nur diese tatsächlich beteiligten Gruppen anzugeben. Mehrere Gruppen sind nur in begründeten Ausnahmefällen zulässig, wenn die
-        Tätigkeit ohne diese Trennung fachlich nicht zutreffend beschrieben werden kann. Vermeiden Sie pauschale Vollbefüllung oder unbegründete Zusatzgruppen.
-
-        Wenn der zu erfüllende Prozess nicht in Einzeltätigkeiten (oder lediglich eine Einzeltätigkeit) zerlegt wurde, etwa bei Daueraufgaben oder wenn 
-        gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, ermittelt man Zeitaufwand in Personentagen oder 
-        Personenmonaten und rechnet ihn dann um. Den Berechnungen ist dann die Minutenzahl pro Jahr zugrunde zu legen, die durchschnittlich der tatsächlichen 
-        Leistungserbringung je Behörde zugerechnet werden kann. 
-        Für die Beschäftigten im öffentlichen Dienst sind Richtwerte bei einer 40-Stunden-Woche: 
-        • 1 Personentag: 8 Stunden (zu je 60 min), 
-        • 1 Personenmonat: 134 Stunden, 
-        • 1 Personenjahr: 200 Arbeitstage.
+        {effort_method_guidance}
 
         Unter Sachaufwand fällt der Betriebs-, Unterhaltungs- und Investitionsaufwand, der zur Erfüllung einer Vorgabe oder eines Prozesses zu erwarten ist. 
         Gemeinkosten zählen hingegen nicht zum Erfüllungsaufwand. Darüber hinaus notwendige Investitionsaufwendungen des betroffenen Normadressaten sollten bei der 
@@ -877,215 +984,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
         einzelnen Fall erneut anfaellt.
 
-        Anhang:
-
-        {Wegezeiten_Wegesachkosten}
-
-        {Zeitwerttabelle_Verwaltung}
-
-        {Lohnkostentabelle_Verwaltung}
+        {effort_appendix}
 
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
-        {{
-        "prozesse": [
-            {{
-            "prozess_id": "",
-            "prozess_bezeichnung": "",
-            "prozess_beschreibung": "",
-            "aenderungsstatus": "",
-            "vorgaben": [
-                {{
-                    "vorgaben_id": "",
-                    "normzitat": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": ""
-                }}
-            ],
-            "fallgruppen": [
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "taetigkeiten": [ 
-                        {{
-                            "taetigkeiten_id": "",
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "",
-                            "rollen_gueltig": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_gueltig": "",
-                            "rollen_vorschlag": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
-                        }},
-                        {{
-                            "taetigkeiten_id": "",
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "",
-                            "rollen_gueltig": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_gueltig": "",
-                            "rollen_vorschlag": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
-                        }}
-                    ]
-                }},
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "taetigkeiten": [ 
-                        {{
-                            "taetigkeiten_id": "",
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "",
-                            "stundenlohn_satz_a_gueltig": "",
-                            "stundenlohn_satz_b_gueltig": "",
-                            "stundenlohn_satz_c_gueltig": "",
-                            "stundenlohn_satz_d_gueltig": "",
-                            "zeitaufwand_in_min_a_gueltig": "",
-                            "zeitaufwand_in_min_b_gueltig": "",
-                            "zeitaufwand_in_min_c_gueltig": "",
-                            "zeitaufwand_in_min_d_gueltig": "",
-                            "sachaufwand_gueltig": "",
-                            "stundenlohn_satz_a_vorschlag": "",
-                            "stundenlohn_satz_b_vorschlag": "",
-                            "stundenlohn_satz_c_vorschlag": "",
-                            "stundenlohn_satz_d_vorschlag": "",
-                            "zeitaufwand_in_min_a_vorschlag": "",
-                            "zeitaufwand_in_min_b_vorschlag": "",
-                            "zeitaufwand_in_min_c_vorschlag": "",
-                            "zeitaufwand_in_min_d_vorschlag": "",
-                            "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
-                        }}
-                    ]
-                }}
-            ]
-            }},
-            {{
-            "prozess_id": "",
-            "prozess_bezeichnung": "",
-            "prozess_beschreibung": "",
-            "aenderungsstatus": "",
-            "vorgaben": [
-                {{
-                    "vorgaben_id": "",
-                    "normzitat": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": ""
-                }},
-                {{
-                    "vorgaben_id": "",
-                    "normzitat": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": ""
-                }}
-            ],
-            "fallgruppen": [
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "taetigkeiten": [ 
-                        {{
-                            "taetigkeiten_id": "",
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "",
-                            "rollen_gueltig": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_gueltig": "",
-                            "rollen_vorschlag": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
-                        }},
-                        {{
-                            "taetigkeiten_id": "",
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "",
-                            "rollen_gueltig": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_gueltig": "",
-                            "rollen_vorschlag": [
-                                {{
-                                    "rolle": "",
-                                    "lohngruppe": "A | B | C | D",
-                                    "schwierigkeitsgrad": "",
-                                    "stundenlohn": "",
-                                    "zeitaufwand_in_min": ""
-                                }}
-                            ],
-                            "sachaufwand_vorschlag": "",
-                            "ausfuehrung_pro_einzelfall": "0 | 1"
-                        }}
-                    ]
-                }}
-            ]
-            }}
-        ]
-        }}
+        {effort_json_schema}
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     )
@@ -1121,6 +1024,20 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     render_values.setdefault("mirror_step_context", "")
     render_values.setdefault("mirror_case_context", "")
     render_values.setdefault("mirror_clusters_json", "[]")
+    if prompt_id == PromptId.EFFORT_CALCULATION:
+        norm_addressee = str(render_values.get("norm_addressee") or ADMINISTRATION)
+        render_values.setdefault(
+            "effort_method_guidance",
+            _render_effort_method_guidance(norm_addressee),
+        )
+        render_values.setdefault(
+            "effort_appendix",
+            _render_effort_appendix(norm_addressee),
+        )
+        render_values.setdefault(
+            "effort_json_schema",
+            _render_effort_json_schema(norm_addressee),
+        )
 
     needs_law_summary = "{law_summary}" in template and not render_values.get("law_summary")
     needs_regulation_laws = (
@@ -1169,10 +1086,6 @@ def _apply_norm_addressee_prompt_rules(
     citizens_rule = CITIZENS_PROMPT_RULES.get(prompt_id) if norm_addressee == CITIZENS else None
     prompt = _append_prompt_section(prompt, citizens_rule)
 
-    if prompt_id == PromptId.EFFORT_CALCULATION:
-        prompt = _append_prompt_section(prompt, EFFORT_PROMPT_RULES.get(norm_addressee))
-        prompt = _append_prompt_section(prompt, _render_effort_appendix(norm_addressee))
-
     return prompt
 
 
@@ -1182,14 +1095,29 @@ def _append_prompt_section(prompt: str, section: str | None) -> str:
     return prompt + "\n\n" + section.strip()
 
 
-def _render_effort_appendix(norm_addressee: str | None) -> str | None:
+def _render_effort_appendix(norm_addressee: str | None) -> str:
     if not norm_addressee:
-        return None
-    appendix_template = EFFORT_PROMPT_APPENDICES.get(norm_addressee)
+        return ""
+    appendix_template = EFFORT_APPENDICES.get(norm_addressee)
     if not appendix_template:
-        return None
+        return ""
     return appendix_template.format(
+        Wegezeiten_Wegesachkosten=Appendix.Wegezeiten_Wegesachkosten,
+        Zeitwerttabelle_Verwaltung=Appendix.Zeitwerttabelle_Verwaltung,
+        Lohnkostentabelle_Verwaltung=Appendix.Lohnkostentabelle_Verwaltung,
         Zeitwerttabelle_Buerger=Appendix.Zeitwerttabelle_Buerger,
         Zeitwerttabelle_Wirtschaft=Appendix.Zeitwerttabelle_Wirtschaft,
         Lohnkostentabelle_Wirtschaft=Appendix.Lohnkostentabelle_Wirtschaft,
     )
+
+
+def _render_effort_method_guidance(norm_addressee: str | None) -> str:
+    if not norm_addressee:
+        norm_addressee = ADMINISTRATION
+    return EFFORT_METHOD_GUIDANCE.get(norm_addressee, EFFORT_METHOD_GUIDANCE[ADMINISTRATION])
+
+
+def _render_effort_json_schema(norm_addressee: str | None) -> str:
+    if not norm_addressee:
+        norm_addressee = ADMINISTRATION
+    return EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee, EFFORT_JSON_SCHEMA_DEFAULT).strip()
