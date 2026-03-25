@@ -49,10 +49,10 @@ EFFORT_GROUP_LABELS: dict[str, dict[str, str]] = {
 
 def normalize_norm_addressee(value: str | None) -> str:
     normalized = str(value or ADMINISTRATION).strip().lower()
-    if normalized in {"verwaltung", "administration"}:
+    if normalized == ADMINISTRATION:
         return ADMINISTRATION
-    if normalized in {"wirtschaft", "business", "unternehmen"}:
+    if normalized == BUSINESS:
         return BUSINESS
-    if normalized in {"buerger", "bürger", "citizens", "citizen"}:
+    if normalized == CITIZENS:
         return CITIZENS
     raise ValueError(f"Unsupported norm_addressee: {value}")

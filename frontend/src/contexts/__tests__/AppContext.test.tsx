@@ -14,7 +14,12 @@ jest.mock("@/lib/api", () => ({
 function ContextProbe() {
   const { state } = useApp();
   return (
-    <div data-testid="state" data-tab={state.currentTab} data-effort={state.effortReady} />
+    <div
+      data-testid="state"
+      data-tab={state.currentTab}
+      data-effort={state.effortReady}
+      data-addressee={state.selectedNormAddressee}
+    />
   );
 }
 
@@ -96,6 +101,22 @@ describe("AppContext session status sync", () => {
       const node = getByTestId("state");
       expect(node.getAttribute("data-effort")).toBe("false");
       expect(node.getAttribute("data-tab")).toBe("5");
+    });
+  });
+
+  it("restores the selected norm addressee from session storage", async () => {
+    sessionStorage.setItem("app_session_id", "ABC123");
+    sessionStorage.setItem("selected_norm_addressee", "citizens");
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      const node = getByTestId("state");
+      expect(node.getAttribute("data-addressee")).toBe("citizens");
     });
   });
 });

@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+
 
 class _PromptPayloadModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -82,9 +84,9 @@ def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
                 normadressaten=[
                     name
                     for name, enabled in (
-                        ("verwaltung", row.get("applies_to_administration")),
-                        ("wirtschaft", row.get("applies_to_business")),
-                        ("buerger", row.get("applies_to_citizens")),
+                        (ADMINISTRATION, row.get("applies_to_administration")),
+                        (BUSINESS, row.get("applies_to_business")),
+                        (CITIZENS, row.get("applies_to_citizens")),
                     )
                     if enabled
                 ],
@@ -106,6 +108,18 @@ def _serialize_process_regulations(
             normzitat=str(row.get("legal_citation") or ""),
             beschreibung=str(row.get("description") or ""),
             aenderungsstatus=row.get("change_status"),
+            normadressaten=[
+                name
+                for name, enabled in (
+                    (ADMINISTRATION, row.get("applies_to_administration")),
+                    (BUSINESS, row.get("applies_to_business")),
+                    (CITIZENS, row.get("applies_to_citizens")),
+                )
+                if enabled
+            ],
+            ist_informationspflicht_wirtschaft=bool(
+                row.get("is_business_information_obligation")
+            ),
         )
         for row in regs_by_process.get(process_id, [])
     ]

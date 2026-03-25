@@ -315,7 +315,156 @@ def test_build_vorgaben_payload_includes_norm_addressees_and_business_flag():
             "normzitat": "§ 2",
             "beschreibung": "Vorgabe B",
             "aenderungsstatus": "neu",
-            "normadressaten": ["verwaltung", "wirtschaft"],
+            "normadressaten": ["administration", "business"],
+            "ist_informationspflicht_wirtschaft": True,
+        }
+    ]
+
+
+def test_build_processes_payload_with_regulations_includes_norm_addressees_and_business_flag():
+    processes = [
+        {
+            "process_id": 10,
+            "process": "Prozess A",
+            "description": "Beschreibung A",
+            "change_status": "geaendert",
+        }
+    ]
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 1,
+            "applies_to_business": 1,
+            "applies_to_citizens": 0,
+            "is_business_information_obligation": 1,
+        }
+    ]
+
+    payload = build_processes_payload_with_regulations(processes, regulations)
+
+    assert payload[0]["vorgaben"] == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["administration", "business"],
+            "ist_informationspflicht_wirtschaft": True,
+        }
+    ]
+
+
+def test_build_case_groups_payload_preserves_norm_addressees_and_business_flag():
+    processes = [
+        {
+            "process_id": 10,
+            "process": "Prozess A",
+            "description": "Beschreibung A",
+            "change_status": "geaendert",
+        }
+    ]
+    case_groups = [
+        {
+            "case_group_id": 20,
+            "process_id": 10,
+            "case_group": "Fallgruppe A",
+            "description": "Beschreibung Fallgruppe A",
+            "change_status": "geaendert",
+        }
+    ]
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 1,
+            "applies_to_business": 0,
+            "applies_to_citizens": 1,
+            "is_business_information_obligation": 0,
+        }
+    ]
+
+    payload = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        regulations=regulations,
+    )
+
+    assert payload[0]["vorgaben"] == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["administration", "citizens"],
+            "ist_informationspflicht_wirtschaft": False,
+        }
+    ]
+
+
+def test_build_step_analysis_payload_preserves_norm_addressees_and_business_flag():
+    processes = [
+        {
+            "process_id": 10,
+            "process": "Prozess A",
+            "description": "Beschreibung A",
+            "change_status": "geaendert",
+        }
+    ]
+    case_groups = [
+        {
+            "case_group_id": 20,
+            "process_id": 10,
+            "case_group": "Fallgruppe A",
+            "description": "Beschreibung Fallgruppe A",
+            "change_status": "geaendert",
+        }
+    ]
+    steps = [
+        {
+            "step_id": 40,
+            "case_group_id": 20,
+            "step": "Schritt 1",
+            "description": "Beschreibung Schritt 1",
+            "change_status": "geaendert",
+            "previous_id": None,
+            "next_id": None,
+        }
+    ]
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 0,
+            "applies_to_business": 1,
+            "applies_to_citizens": 1,
+            "is_business_information_obligation": 1,
+        }
+    ]
+
+    payload = build_step_analysis_payload(
+        processes=processes,
+        case_groups=case_groups,
+        steps=steps,
+        regulations=regulations,
+    )
+
+    assert payload[0]["vorgaben"] == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["business", "citizens"],
             "ist_informationspflicht_wirtschaft": True,
         }
     ]

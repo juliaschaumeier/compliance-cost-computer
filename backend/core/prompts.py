@@ -252,7 +252,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Prozess unterliegen; solche Fälle sind ebenfalls als eigene relevante Vorgaben mit passendem Änderungsstatus auszuweisen.
 
         Bestimmen Sie fuer jede Vorgabe ausserdem:
-        * welche Normadressaten betroffen sind: Verwaltung, Wirtschaft, Buergerinnen und Buerger,
+        * welche Normadressaten betroffen sind: administration, business, citizens,
         * ob es sich um eine Informationspflicht der Wirtschaft handelt,
         * ob eine Spiegelsituation vorliegt, also ob die Befolgung der Vorgabe unmittelbar Aufwand bei einem anderen Normadressaten ausloest,
         * und falls ja, fuer welche weiteren Normadressaten diese Spiegelwirkung auftritt.
@@ -306,11 +306,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
               "normzitat": "",
               "beschreibung": "",
               "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft",
-              "normadressaten": ["verwaltung | wirtschaft | buerger"],
+              "normadressaten": ["administration | business | citizens"],
               "ist_informationspflicht_wirtschaft": "0 | 1",
               "spiegelsituation": {{
                 "liegt_vor": "0 | 1",
-                "normadressaten": ["verwaltung | wirtschaft | buerger"],
+                "normadressaten": ["administration | business | citizens"],
                 "beschreibung": "",
                 "mirror_anchor_key": ""
               }}

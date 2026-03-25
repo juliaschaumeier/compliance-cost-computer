@@ -125,15 +125,6 @@ def _parse_vorgaben(payload: str) -> list[dict]:
         normadressaten = _parse_addressee_list(
             entry.get("normadressaten")
             or entry.get("normadressat")
-            or [
-                name
-                for name, key in (
-                    ("verwaltung", "verwaltung"),
-                    ("wirtschaft", "wirtschaft"),
-                    ("buerger", "buerger"),
-                )
-                if _parse_bool_like(entry.get(key))
-            ]
         )
         if not normadressaten:
             normadressaten = [ADMINISTRATION]
@@ -197,23 +188,11 @@ def _parse_addressee_list(value: object) -> list[str]:
         if not fragments:
             fragments = [raw_item]
         for normalized in fragments:
-            if (
-                any(keyword in normalized for keyword in ("verwaltung", "administration"))
-                and ADMINISTRATION not in parsed
-            ):
+            if normalized == ADMINISTRATION and ADMINISTRATION not in parsed:
                 parsed.append(ADMINISTRATION)
-            elif (
-                any(keyword in normalized for keyword in ("wirtschaft", "business", "unternehmen"))
-                and BUSINESS not in parsed
-            ):
+            elif normalized == BUSINESS and BUSINESS not in parsed:
                 parsed.append(BUSINESS)
-            elif (
-                any(
-                    keyword in normalized
-                    for keyword in ("bürger", "buerger", "bürgerinnen", "buergerinnen", "citizen")
-                )
-                and CITIZENS not in parsed
-            ):
+            elif normalized == CITIZENS and CITIZENS not in parsed:
                 parsed.append(CITIZENS)
     return parsed
 

@@ -339,6 +339,168 @@ def test_identify_prompt_contains_session_summary_and_law_texts(test_client, mon
     assert proposed_text in identify_prompt
 
 
+def test_identify_regulations_parses_norm_addressees_and_business_information_flag(
+    test_client, monkeypatch
+):
+    db.insert_law("addr-current.txt", "aktuelles gesetz")
+    db.insert_law("addr-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            """
+            {
+              "vorgaben": [
+                {
+                  "normzitat": "§ 20",
+                  "beschreibung": "Mischfall",
+                  "normadressaten": ["administration", "business"],
+                  "ist_informationspflicht_wirtschaft": true
+                },
+                {
+                  "normzitat": "§ 21",
+                  "beschreibung": "Einzelwert",
+                  "normadressat": "citizens"
+                },
+                {
+                  "normzitat": "§ 22",
+                  "beschreibung": "Default Verwaltung"
+                }
+              ]
+            }
+            """,
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "addr-proposed.txt",
+            "current_filename": "addr-current.txt",
+            "app_session_id": "REG-ADDRESSEES",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "REG-ADDRESSEES",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+
+    session_id = db.get_session_id_by_app_id("REG-ADDRESSEES")
+    assert session_id is not None
+    rows = db.list_regulations_for_session(session_id)
+    assert [
+        (
+            row["legal_citation"],
+            row["applies_to_administration"],
+            row["applies_to_business"],
+            row["applies_to_citizens"],
+            row["is_business_information_obligation"],
+        )
+        for row in rows
+        ] == [
+            ("§ 20", 1, 1, 0, 1),
+            ("§ 21", 0, 0, 1, 0),
+            ("§ 22", 1, 0, 0, 0),
+        ]
+
+    admin_tiles = {
+        tile.meta_information["regulation_id"]: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="administration")
+        if tile.id.startswith("regulation_")
+    }
+    business_tiles = {
+        tile.meta_information["regulation_id"]: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="business")
+        if tile.id.startswith("regulation_")
+    }
+    citizens_tiles = {
+        tile.meta_information["regulation_id"]: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="citizens")
+        if tile.id.startswith("regulation_")
+    }
+
+    assert set(admin_tiles) == {rows[0]["regulation_id"], rows[2]["regulation_id"]}
+    assert set(business_tiles) == {rows[0]["regulation_id"]}
+    assert set(citizens_tiles) == {rows[1]["regulation_id"]}
+
+    first_tile = admin_tiles[rows[0]["regulation_id"]]
+    assert first_tile.meta_information["normadressaten"] == ["administration", "business"]
+
+
+def test_identify_regulations_business_information_flag_adds_business_addressee(
+    test_client, monkeypatch
+):
+    db.insert_law("business-current.txt", "aktuelles gesetz")
+    db.insert_law("business-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            """
+            {
+              "vorgaben": [
+                {
+                  "normzitat": "§ 30",
+                  "beschreibung": "Informationspflicht",
+                  "normadressat": "administration",
+                  "informationspflicht_wirtschaft": "ja"
+                }
+              ]
+            }
+            """,
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "business-proposed.txt",
+            "current_filename": "business-current.txt",
+            "app_session_id": "REG-BUSINESS-FLAG",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "REG-BUSINESS-FLAG",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+
+    session_id = db.get_session_id_by_app_id("REG-BUSINESS-FLAG")
+    assert session_id is not None
+    row = db.list_regulations_for_session(session_id)[0]
+    assert row["applies_to_administration"] == 1
+    assert row["applies_to_business"] == 1
+    assert row["applies_to_citizens"] == 0
+    assert row["is_business_information_obligation"] == 1
+
+
 def test_prompt_opening_falls_back_to_blurb_when_summary_empty(test_client):
     session_id, _ = db.upsert_session("PROMPT-BLURB-FALLBACK", "test-model")
     db.update_session_summary(

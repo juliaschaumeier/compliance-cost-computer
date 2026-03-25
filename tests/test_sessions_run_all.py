@@ -11,10 +11,27 @@ from backend.routers import (
     regulations as regulations_router,
     sessions as sessions_router,
 )
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
 
 def _is_effort_prompt(prompt: str) -> bool:
     return "prozessschritte differenziert werden" in prompt.lower()
+
+
+def _detect_addressee_from_prompt(prompt: str) -> str:
+    lowered = prompt.lower()
+    if (
+        "normadressaten bürgerinnen und bürger" in lowered
+        or "normadressaten buergerinnen und buerger" in lowered
+        or "normadressat buergerinnen und buerger" in lowered
+        or "normadressat bürgerinnen und bürger" in lowered
+    ):
+        return CITIZENS
+    if "normadressaten wirtschaft" in lowered or "normadressat wirtschaft" in lowered:
+        return BUSINESS
+    if "normadressaten verwaltung" in lowered or "normadressat verwaltung" in lowered:
+        return ADMINISTRATION
+    return ADMINISTRATION
 
 
 def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
@@ -220,6 +237,179 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
     monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
 
 
+def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> None:
+    async def fake_regulations_llm(prompt, *_args, **_kwargs):
+        if "vorgaben" in prompt.lower():
+            return json.dumps(
+                {
+                    "vorgaben": [
+                        {
+                            "normzitat": "§ A",
+                            "beschreibung": "Vorgabe Verwaltung",
+                            "normadressaten": [ADMINISTRATION],
+                        },
+                        {
+                            "normzitat": "§ B",
+                            "beschreibung": "Vorgabe Wirtschaft",
+                            "normadressaten": [BUSINESS],
+                            "ist_informationspflicht_wirtschaft": 1,
+                        },
+                        {
+                            "normzitat": "§ C",
+                            "beschreibung": "Vorgabe Bürger",
+                            "normadressaten": [CITIZENS],
+                        },
+                    ]
+                }
+            )
+        return json.dumps({"title": "Kurz", "blurb": "Ein Satz."})
+
+    async def fake_processes_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        session_id = db.get_session_id_by_app_id(app_session_id)
+        assert session_id is not None
+        regulations = db.list_regulations_for_session_and_addressee(session_id, addressee)
+        assert len(regulations) == 1
+        regulation = regulations[0]
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_bezeichnung": f"Prozess {addressee}",
+                        "prozess_beschreibung": f"Beschreibung Prozess {addressee}",
+                        "vorgaben": [
+                            {
+                                "vorgaben_id": str(regulation["regulation_id"]),
+                                "normzitat": regulation["legal_citation"],
+                                "beschreibung": regulation["description"],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    async def fake_case_groups_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        session_id = db.get_session_id_by_app_id(app_session_id)
+        assert session_id is not None
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
+        assert len(processes) == 1
+        process = processes[0]
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(process["process_id"]),
+                        "prozess_bezeichnung": process["process"],
+                        "prozess_beschreibung": process["description"],
+                        "fallgruppen": [
+                            {
+                                "fallgruppe_bezeichnung": f"Fallgruppe {addressee}",
+                                "fallgruppe_beschreibung": f"Beschreibung Fallgruppe {addressee}",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    async def fake_steps_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        session_id = db.get_session_id_by_app_id(app_session_id)
+        assert session_id is not None
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        assert len(processes) == 1
+        assert len(case_groups) == 1
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": f"Schritt {addressee}",
+                                        "beschreibung": f"Beschreibung Schritt {addressee}",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    async def fake_effort_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        session_id = db.get_session_id_by_app_id(app_session_id)
+        assert session_id is not None
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
+        assert len(processes) == 1
+        assert len(case_groups) == 1
+        assert len(steps) == 1
+        if not _is_effort_prompt(prompt):
+            return json.dumps(
+                {
+                    "prozesse": [
+                        {
+                            "prozess_id": str(processes[0]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
+        if addressee == CITIZENS:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "taetigkeit": steps[0]["step"],
+                "beschreibung": steps[0]["description"],
+                "zeitaufwand_in_min_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        else:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "taetigkeit": steps[0]["step"],
+                "beschreibung": steps[0]["description"],
+                "stundenlohn_satz_a_vorschlag": "60",
+                "zeitaufwand_in_min_a_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_regulations_llm)
+    monkeypatch.setattr(processes_router, "query_llm", fake_processes_llm)
+    monkeypatch.setattr(case_groups_router, "query_llm", fake_case_groups_llm)
+    monkeypatch.setattr(process_steps_router, "query_llm", fake_steps_llm)
+    monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
+
+
 def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
     app_session_id = "RUNALL-E2E"
     db.insert_law("current.txt", "aktuelles gesetz")
@@ -253,6 +443,53 @@ def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
     assert all(step["status"] == "completed" for step in payload["steps"])
     assert payload["final_status"]["total_cost_ready"] is True
     assert payload["final_status"]["last_completed_step"] == "total_cost"
+
+
+def test_run_all_executes_all_addressees_end_to_end(test_client, monkeypatch):
+    app_session_id = "RUNALL-ALL-ADDRESSEES"
+    db.insert_law("current_all_addr.txt", "aktuelles gesetz")
+    db.insert_law("proposed_all_addr.txt", "neuer entwurf")
+    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "current_filename": "current_all_addr.txt",
+            "proposed_filename": "proposed_all_addr.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["final_status"]["processes_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["case_groups_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["process_steps_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["effort_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["total_cost_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
 
 
 def test_run_all_reports_step_failure(test_client):

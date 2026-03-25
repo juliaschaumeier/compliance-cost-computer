@@ -78,6 +78,67 @@ def test_regulation_process_links_require_matching_session_and_addressee(seeded_
         )
 
 
+def test_update_regulation_process_links_and_lists_by_addressee(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "addressee_links.db")
+    db.init_db()
+
+    session_id, _ = db.upsert_session("ADDRESSEE-LINKS", "test-model")
+    regulation_id = db.insert_regulation(
+        session_id,
+        "§ 2",
+        "Beschreibung Vorgabe B",
+        applies_to_administration=True,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Beschreibung Verwaltung",
+        norm_addressee="administration",
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Beschreibung Wirtschaft",
+        norm_addressee="business",
+    )
+
+    assert db.update_regulation_process(regulation_id, business_process_id, "business") is True
+    assert db.update_regulation_process(regulation_id, business_process_id, "business") is False
+    assert db.update_regulation_process(regulation_id, admin_process_id, "administration") is True
+
+    admin_rows = db.list_regulations_for_session_and_addressee(session_id, "administration")
+    business_rows = db.list_regulations_for_session_and_addressee(session_id, "business")
+    citizens_rows = db.list_regulations_for_session_and_addressee(session_id, "citizens")
+
+    assert len(admin_rows) == 1
+    assert admin_rows[0]["regulation_id"] == regulation_id
+    assert admin_rows[0]["process_id"] == admin_process_id
+
+    assert len(business_rows) == 1
+    assert business_rows[0]["regulation_id"] == regulation_id
+    assert business_rows[0]["process_id"] == business_process_id
+
+    assert citizens_rows == []
+
+    conn = db.get_conn()
+    try:
+        stored_links = conn.execute(
+            """
+            SELECT session_id, norm_addressee, regulation_id, process_id
+            FROM regulation_process_links_by_addressee
+            ORDER BY norm_addressee, regulation_id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert [tuple(row) for row in stored_links] == [
+        (session_id, "business", regulation_id, business_process_id)
+    ]
+
+
 def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_addressee_metrics.db")
     db.init_db()

@@ -2264,7 +2264,8 @@ def list_regulations_for_session_and_addressee(
     links = {int(row["regulation_id"]): int(row["process_id"]) for row in cur.fetchall()}
     _maybe_close(conn)
     for row in regulations:
-        row["process_id"] = links.get(int(row["regulation_id"]))
+        if resolved != ADMINISTRATION:
+            row["process_id"] = links.get(int(row["regulation_id"]))
     return regulations
 
 
