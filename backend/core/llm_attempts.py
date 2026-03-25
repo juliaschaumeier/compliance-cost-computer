@@ -19,6 +19,7 @@ from backend.core.llm_service import (
     coerce_llm_result,
     query_llm,
 )
+from backend.core.prompt_audit import append_prompt_audit_entry
 from backend.core.request_context import get_request_context
 
 logger = logging.getLogger("uvicorn.error")
@@ -279,6 +280,18 @@ async def query_and_stage_llm_answer(
             "stream_mode": "requested",
         },
     )
+    if app_session_id:
+        append_prompt_audit_entry(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            prompt_id=prompt_id,
+            model=model,
+            provider=provider,
+            attempt_id=attempt_id,
+            prompt=prompt,
+            route_method=request_ctx.get("route_method"),
+            route_path=request_ctx.get("route_path"),
+        )
 
     async def _on_stream_event(stream_event: dict[str, Any]) -> None:
         if not settings.llm_stream_debug_enabled:

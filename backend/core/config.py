@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     deepinfra_temperature: float = 0.4
     llm_stream_debug_enabled: bool = True
     llm_console_enabled: bool = True
+    prompt_audit_enabled: bool = False
+    prompt_audit_output_dir: Path = BASE_DIR / "prompt_audits"
+    prompt_audit_session_ids: str = ""
     db_path: Path = DEFAULT_DB_PATH
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 
