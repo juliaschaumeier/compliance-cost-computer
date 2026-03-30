@@ -306,3 +306,41 @@ def test_compute_costs_uses_edited_case_and_step_values(test_client):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["total_cost"] == pytest.approx(300.0)
+
+
+def test_compute_costs_allows_admin_time_only_inputs_with_active_rates(test_client):
+    session_id, _ = db.upsert_session("COST-ADMIN-TIME-ONLY", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={},
+        time_required_proposed={"a": 0, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    resp = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-ADMIN-TIME-ONLY"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total_cost"] == pytest.approx(33.8)

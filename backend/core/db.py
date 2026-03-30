@@ -863,7 +863,7 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
             f"time_required_in_min_d_{suffix}_edited",
             "REAL",
         )
-    _ensure_column(cur, "process_steps", f"expenses_{suffix}_edited", "REAL")
+        _ensure_column(cur, "process_steps", f"expenses_{suffix}_edited", "REAL")
     _ensure_column(cur, "process_steps", "last_edited_at", "TEXT")
     _ensure_column(cur, "process_steps", "execution_per_case", "INTEGER")
 
@@ -1194,6 +1194,7 @@ def init_db() -> None:
         },
     )
     _create_regulation_process_links_by_addressee_table(cur)
+    _run_legacy_migrations(cur)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_current_law_id ON sessions(current_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_proposed_law_id ON sessions(proposed_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_session_id ON regulations(session_id)")
@@ -1259,7 +1260,6 @@ def init_db() -> None:
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_links_session_addressee_source ON links(session_id, norm_addressee, source)"
     )
-    _run_legacy_migrations(cur)
     _migrate_tile_tables_to_norm_addressee(cur)
     _create_used_models_triggers(cur)
     _maybe_commit(conn)

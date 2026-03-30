@@ -83,10 +83,11 @@ def _has_step_cost_inputs(step: dict, suffix: str, norm_addressee: str) -> bool:
                 return True
         return step.get(f"expenses_{suffix}_effective") is not None
     for key in ["a", "b", "c", "d"]:
-        if (
-            step.get(f"hourly_rate_{key}_{suffix}") is not None
-            and step.get(f"time_required_in_min_{key}_{suffix}_effective") is not None
-        ):
+        if step.get(f"time_required_in_min_{key}_{suffix}_effective") is None:
+            continue
+        if norm_addressee == ADMINISTRATION:
+            return True
+        if step.get(f"hourly_rate_{key}_{suffix}") is not None:
             return True
     return step.get(f"expenses_{suffix}_effective") is not None
 
