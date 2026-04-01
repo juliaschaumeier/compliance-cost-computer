@@ -1042,18 +1042,24 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     render_values.setdefault("mirror_step_context", "")
     render_values.setdefault("mirror_case_context", "")
     render_values.setdefault("mirror_clusters_json", "[]")
-    render_values.setdefault("handbook_process_example", PROCESS_COMPILATION_EXAMPLE)
-    render_values.setdefault("handbook_case_group_example", CASE_GROUP_DEVELOPMENT_EXAMPLE)
+    norm_addressee = str(render_values.get("norm_addressee") or ADMINISTRATION)
+    render_values.setdefault(
+        "handbook_process_example",
+        _render_handbook_process_example(norm_addressee),
+    )
+    render_values.setdefault(
+        "handbook_case_group_example",
+        _render_handbook_case_group_example(norm_addressee),
+    )
     render_values.setdefault(
         "handbook_cases_frequency_example",
         CASES_CALCULATION_FREQUENCY_EXAMPLE,
     )
     render_values.setdefault(
         "handbook_cases_case_example",
-        CASES_CALCULATION_CASE_EXAMPLE,
+        _render_handbook_cases_case_example(norm_addressee),
     )
     if prompt_id == PromptId.EFFORT_CALCULATION:
-        norm_addressee = str(render_values.get("norm_addressee") or ADMINISTRATION)
         render_values.setdefault(
             "effort_method_guidance",
             _render_effort_method_guidance(norm_addressee),
@@ -1121,6 +1127,24 @@ def _append_prompt_section(prompt: str, section: str | None) -> str:
     if not section:
         return prompt
     return prompt + "\n\n" + section.strip()
+
+
+def _render_handbook_process_example(norm_addressee: str | None) -> str:
+    if norm_addressee == BUSINESS:
+        return PROCESS_COMPILATION_EXAMPLE
+    return ""
+
+
+def _render_handbook_case_group_example(norm_addressee: str | None) -> str:
+    if norm_addressee == BUSINESS:
+        return CASE_GROUP_DEVELOPMENT_EXAMPLE
+    return ""
+
+
+def _render_handbook_cases_case_example(norm_addressee: str | None) -> str:
+    if norm_addressee == CITIZENS:
+        return CASES_CALCULATION_CASE_EXAMPLE
+    return ""
 
 
 def _render_effort_appendix(norm_addressee: str | None) -> str:

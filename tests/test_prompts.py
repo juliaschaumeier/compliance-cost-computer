@@ -57,6 +57,7 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
         PromptId.PROCESS_COMPILATION,
         law_summary="Kurzfassung",
         vorgaben_json="[]",
+        norm_addressee=BUSINESS,
     )
 
     assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
@@ -69,6 +70,7 @@ def test_case_group_development_prompt_includes_verbatim_handbook_example():
         PromptId.CASE_GROUP_DEVELOPMENT,
         law_summary="Kurzfassung",
         prozesse_json="[]",
+        norm_addressee=BUSINESS,
     )
 
     assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
@@ -81,8 +83,32 @@ def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
         PromptId.CASES_CALCULATION,
         law_summary="Kurzfassung",
         case_groups_json="[]",
+        norm_addressee=CITIZENS,
     )
 
     assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
     assert "- einmal jährlich: Häufigkeit = 1" in prompt
     assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" in prompt
+
+
+def test_process_compilation_prompt_skips_business_example_for_administration():
+    prompt = render_prompt(
+        PromptId.PROCESS_COMPILATION,
+        law_summary="Kurzfassung",
+        vorgaben_json="[]",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" not in prompt
+
+
+def test_cases_calculation_prompt_skips_citizens_case_example_for_administration():
+    prompt = render_prompt(
+        PromptId.CASES_CALCULATION,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    assert "- einmal jährlich: Häufigkeit = 1" in prompt
+    assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" not in prompt
