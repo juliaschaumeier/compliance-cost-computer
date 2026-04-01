@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from backend.core.handbook_examples import (
+    CASE_GROUP_DEVELOPMENT_EXAMPLE,
+    CASES_CALCULATION_CASE_EXAMPLE,
+    CASES_CALCULATION_FREQUENCY_EXAMPLE,
+    PROCESS_COMPILATION_EXAMPLE,
+)
 from backend.core.handbook_tables import Appendix
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
@@ -472,6 +478,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Spiegelbeziehung nachvollziehbar bleibt. Unterschiede zwischen Normadressaten sollen sich aus der jeweiligen Perspektive und den jeweiligen
         Tätigkeiten ergeben, nicht aus einer widersprüchlichen Beschreibung des zugrunde liegenden Fallgeschehens.
 
+        Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
+        {handbook_process_example}
+
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
         {{
@@ -537,6 +546,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
+
+        Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
+        {handbook_case_group_example}
 
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
 
@@ -860,6 +872,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         werden und deshalb 500 Anträge bei der Verwaltung zu bearbeiten sind, muss dieselbe Fallzahl auf beiden Seiten zugrunde gelegt werden; unterschiedlich
         sind dann nur die Tätigkeiten und Kosten, nicht die Zahl der Fälle.
 
+        Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
+        {handbook_cases_frequency_example}
+
+        Offizielles Fallzahlbeispiel aus dem Leitfaden (woertlich uebernommen):
+        {handbook_cases_case_example}
+
         Allgemein gilt: Bei periodisch zu erfüllenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Häufigkeit mit der Anzahl 
         der Betroffenen. Die Häufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie häufig der damit einhergehende 
         Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Anträgen anlassbezogen erfüllt werden, sollte die Zahl der 
@@ -1024,6 +1042,16 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     render_values.setdefault("mirror_step_context", "")
     render_values.setdefault("mirror_case_context", "")
     render_values.setdefault("mirror_clusters_json", "[]")
+    render_values.setdefault("handbook_process_example", PROCESS_COMPILATION_EXAMPLE)
+    render_values.setdefault("handbook_case_group_example", CASE_GROUP_DEVELOPMENT_EXAMPLE)
+    render_values.setdefault(
+        "handbook_cases_frequency_example",
+        CASES_CALCULATION_FREQUENCY_EXAMPLE,
+    )
+    render_values.setdefault(
+        "handbook_cases_case_example",
+        CASES_CALCULATION_CASE_EXAMPLE,
+    )
     if prompt_id == PromptId.EFFORT_CALCULATION:
         norm_addressee = str(render_values.get("norm_addressee") or ADMINISTRATION)
         render_values.setdefault(

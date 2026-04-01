@@ -50,3 +50,39 @@ def test_effort_prompt_for_administration_keeps_administration_specific_tables()
     assert "Lohnkostentabelle Verwaltung" in prompt
     assert "Zeitwerttabelle Wirtschaft" not in prompt
     assert "Lohnkostentabelle Wirtschaft" not in prompt
+
+
+def test_process_compilation_prompt_includes_verbatim_handbook_example():
+    prompt = render_prompt(
+        PromptId.PROCESS_COMPILATION,
+        law_summary="Kurzfassung",
+        vorgaben_json="[]",
+    )
+
+    assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
+    assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" in prompt
+    assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
+
+
+def test_case_group_development_prompt_includes_verbatim_handbook_example():
+    prompt = render_prompt(
+        PromptId.CASE_GROUP_DEVELOPMENT,
+        law_summary="Kurzfassung",
+        prozesse_json="[]",
+    )
+
+    assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
+    assert "Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)" in prompt
+    assert "Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)" in prompt
+
+
+def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
+    prompt = render_prompt(
+        PromptId.CASES_CALCULATION,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+    )
+
+    assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
+    assert "- einmal jährlich: Häufigkeit = 1" in prompt
+    assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" in prompt
