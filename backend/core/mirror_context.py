@@ -58,6 +58,7 @@ async def ensure_mirror_matching(
     model: str,
     provider: str | None,
     api_keys: ApiKeys,
+    query_fn=query_llm,
 ) -> list[dict[str, Any]]:
     from backend.core import db
     from backend.core.llm_attempts import mark_llm_answer_applied
@@ -87,7 +88,7 @@ async def ensure_mirror_matching(
         api_keys=api_keys,
         model=model,
         provider=provider,
-        query_fn=query_llm,
+        query_fn=query_fn,
     )
 
     def _apply() -> list[dict[str, Any]]:

@@ -519,6 +519,7 @@ async def calculate_effort(
         model=model,
         provider=payload.provider,
         api_keys=api_keys,
+        query_fn=query_llm,
     )
 
     cases_prompt = render_prompt(

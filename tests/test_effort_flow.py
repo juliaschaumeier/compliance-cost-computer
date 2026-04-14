@@ -155,7 +155,7 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     payload = resp.json()
     assert payload["case_groups_updated"] == 1
     assert payload["steps_updated"] == 1
-    assert len(calls) == 3
+    assert len(calls) == 2
 
     case_groups = db.list_case_groups_for_session(session_id)
     assert case_groups[0]["addressees_current"] == 100
@@ -269,35 +269,7 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     monkeypatch.setattr(
         effort_router,
         "query_llm",
-        _build_effort_query_llm(
-            cases_response,
-            effort_response,
-            mirror_response=f"""
-            {{
-              "analyses": [
-                {{
-                  "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-                  "shared_situation": "Ein Antrag der Koerperschaft fuehrt zu einer korrespondierenden Bearbeitung.",
-                  "matches": [
-                    {{
-                      "source_norm_addressee": "administration",
-                      "target_norm_addressee": "business",
-                      "source_process_id": "{admin_process_id}",
-                      "target_process_id": "{business_process_id}",
-                      "source_case_group_id": "{admin_case_group_id}",
-                      "target_case_group_id": "{business_case_group_id}",
-                      "relation_type": "one_to_one",
-                      "sync_addressees": "1",
-                      "sync_frequency": "1",
-                      "sync_cases": "1",
-                      "reason": "Gleicher Antrag, gleiche Fallzahl."
-                    }}
-                  ]
-                }}
-              ]
-            }}
-            """,
-        ),
+        _build_effort_query_llm(cases_response, effort_response),
     )
     monkeypatch.setattr(
         effort_router.db,

@@ -236,6 +236,8 @@ def _resolve_pay_rate_defaults(
     cur: sqlite3.Cursor,
     administration_level: str | None,
 ) -> dict[str, float]:
+    _create_pay_rate_defaults_table(cur)
+    _seed_pay_rate_defaults(cur)
     level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
     cur.execute(
         """
@@ -2560,6 +2562,8 @@ def resolve_effective_process_step_metrics(step: dict) -> dict:
 def list_pay_rate_defaults() -> list[dict]:
     conn = get_conn()
     cur = conn.cursor()
+    _create_pay_rate_defaults_table(cur)
+    _seed_pay_rate_defaults(cur)
     cur.execute(
         """
         SELECT administration_level, hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
