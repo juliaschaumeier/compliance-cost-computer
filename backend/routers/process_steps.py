@@ -408,7 +408,9 @@ async def analyze_process_steps(
         session_id,
         norm_addressee,
     )
-    if not case_groups and norm_addressee != ADMINISTRATION:
+    if not case_groups and not db.has_applicable_regulations_for_addressee(
+        session_id, norm_addressee
+    ):
         return {"steps": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not case_groups:
         raise HTTPException(status_code=400, detail="No case groups for session")

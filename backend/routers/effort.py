@@ -493,20 +493,24 @@ async def calculate_effort(
         norm_addressee,
     )
     steps = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
-    if not case_groups and norm_addressee != ADMINISTRATION:
-        if not db.has_applicable_regulations_for_addressee(session_id, norm_addressee):
-            return {
-                "status": "skipped",
-                "case_groups_updated": 0,
-                "steps_updated": 0,
-                "norm_addressee": norm_addressee,
-            }
+    if not case_groups and not db.has_applicable_regulations_for_addressee(
+        session_id, norm_addressee
+    ):
+        return {
+            "status": "skipped",
+            "case_groups_updated": 0,
+            "steps_updated": 0,
+            "norm_addressee": norm_addressee,
+        }
+    if not case_groups:
         raise HTTPException(
             status_code=400,
-            detail="No case groups for selected norm addressee",
+            detail=(
+                "No case groups for session"
+                if norm_addressee == ADMINISTRATION
+                else "No case groups for selected norm addressee"
+            ),
         )
-    if not case_groups:
-        raise HTTPException(status_code=400, detail="No case groups for session")
     if not steps:
         raise HTTPException(status_code=400, detail="No process steps for session")
     has_existing_metrics = db.has_effort_metrics(session_id, norm_addressee)

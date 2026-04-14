@@ -280,7 +280,9 @@ async def develop_case_groups(
         }
 
     processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
-    if not processes and norm_addressee != ADMINISTRATION:
+    if not processes and not db.has_applicable_regulations_for_addressee(
+        session_id, norm_addressee
+    ):
         return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not processes:
         raise HTTPException(status_code=400, detail="No processes for session")
