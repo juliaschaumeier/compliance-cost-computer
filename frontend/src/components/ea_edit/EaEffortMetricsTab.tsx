@@ -543,7 +543,7 @@ export default function EaEffortMetricsTab({
       }
     }
     return result;
-  }, [changes, caseGroupLabelById]);
+  }, [changes, caseGroupLabelById, normAddressee]);
   const invalidCellCount = useMemo(
     () =>
       Object.values(draft).reduce((count, rowDraft) => {
