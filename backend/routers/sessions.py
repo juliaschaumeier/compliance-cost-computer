@@ -426,6 +426,7 @@ async def _run_single_step(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> None:
     addressee_labels = {
         ADMINISTRATION: "administration",
@@ -437,10 +438,35 @@ async def _run_single_step(
         runner: Callable[[str], Awaitable[None]],
     ) -> None:
         for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+            await _emit_event(
+                event_hook,
+                "addressee_started",
+                {
+                    "key": step_key,
+                    "norm_addressee": norm_addressee,
+                },
+            )
             try:
                 await runner(norm_addressee)
+                await _emit_event(
+                    event_hook,
+                    "addressee_completed",
+                    {
+                        "key": step_key,
+                        "norm_addressee": norm_addressee,
+                    },
+                )
             except HTTPException as exc:
                 detail = _step_error_message(exc)
+                await _emit_event(
+                    event_hook,
+                    "addressee_failed",
+                    {
+                        "key": step_key,
+                        "norm_addressee": norm_addressee,
+                        "message": detail,
+                    },
+                )
                 raise HTTPException(
                     status_code=exc.status_code,
                     detail=(
@@ -449,6 +475,15 @@ async def _run_single_step(
                 ) from exc
             except Exception as exc:
                 detail = _step_error_message(exc)
+                await _emit_event(
+                    event_hook,
+                    "addressee_failed",
+                    {
+                        "key": step_key,
+                        "norm_addressee": norm_addressee,
+                        "message": detail,
+                    },
+                )
                 raise RuntimeError(
                     f"{addressee_labels.get(norm_addressee, norm_addressee)}: {detail}"
                 ) from exc
@@ -591,7 +626,13 @@ async def _execute_run_all_steps(
         )
 
         try:
-            await _run_single_step(step_key, payload, api_keys, model)
+            await _run_single_step(
+                step_key,
+                payload,
+                api_keys,
+                model,
+                event_hook=event_hook,
+            )
         except Exception as exc:
             step_result = SessionRunStepResult(
                 key=step_key,

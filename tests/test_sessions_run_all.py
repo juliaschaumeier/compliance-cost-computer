@@ -887,6 +887,7 @@ def test_run_all_events_stream_emits_terminal_event(test_client, monkeypatch):
                 break
 
     assert "snapshot" in seen_events
+    assert "addressee_started" in seen_events
     assert "run_completed" in seen_events
 
 
