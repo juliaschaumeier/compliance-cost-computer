@@ -444,9 +444,12 @@ def test_compute_costs_allows_business_time_only_inputs_with_active_rates(test_c
     assert resp.json()["total_cost"] == pytest.approx(26.1)
 
 
-def test_compute_costs_business_counts_mixed_information_obligation_steps_as_bureaucracy(
+def test_compute_costs_business_allocates_bureaucracy_proportionally_for_mixed_steps(
     test_client,
 ):
+    """Leitfaden-konform: wenn ein Schritt an 2 Vorgaben gekoppelt ist, von denen
+    nur eine Informationspflicht ist, werden 50 % der Schrittkosten als
+    Buerokratiekosten verbucht - nicht der volle Schritt."""
     session_id, _ = db.upsert_session("COST-BUSINESS-MIXED", "test-model")
     process_id = db.insert_process(
         session_id,
@@ -565,12 +568,12 @@ def test_compute_costs_business_counts_mixed_information_obligation_steps_as_bur
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["total_cost"] == pytest.approx(100.0)
-    assert payload["bureaucracy_cost"] == pytest.approx(100.0)
-    assert payload["other_cost"] == pytest.approx(0.0)
+    assert payload["bureaucracy_cost"] == pytest.approx(50.0)
+    assert payload["other_cost"] == pytest.approx(50.0)
     totals = db.get_session_total_costs_by_addressee(session_id, BUSINESS)
     assert totals is not None
     assert totals["total_cost"] == pytest.approx(100.0)
-    assert totals["bureaucracy_cost"] == pytest.approx(100.0)
+    assert totals["bureaucracy_cost"] == pytest.approx(50.0)
     assert totals["total_time_minutes"] is None
     assert totals["total_expenses"] is None
 

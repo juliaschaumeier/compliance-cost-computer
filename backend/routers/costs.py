@@ -131,14 +131,27 @@ def _load_structure_rows(session_id: int, norm_addressee: str) -> tuple[list[dic
     return processes, case_groups, steps
 
 
-def _list_business_information_step_ids(session_id: int, norm_addressee: str) -> set[int]:
+def _compute_step_bureaucracy_fractions(
+    session_id: int, norm_addressee: str
+) -> dict[int, float]:
+    """Pro Schritt den Anteil der Informationspflicht-Vorgaben ermitteln.
+
+    Leitfaden-konform: Buerokratiekosten muessen fuer Wirtschaft gesondert
+    ausgewiesen werden - auch innerhalb groesserer Prozesse. Wenn ein Schritt
+    an mehrere Vorgaben gekoppelt ist, von denen nur ein Teil Informations-
+    pflichten sind, darf nicht der gesamte Schrittkosten-Anteil als Buerokratie
+    verbucht werden. Stattdessen wird eine proportionale Aufteilung nach Anzahl
+    der gekoppelten Informationspflicht-Vorgaben an der Gesamtzahl der
+    gekoppelten Vorgaben vorgenommen. Gibt 0.0 zurueck, wenn keine
+    Informationspflicht beteiligt ist.
+    """
     business_regulation_ids = {
         int(row["regulation_id"])
         for row in db.list_regulations_for_session_and_addressee(session_id, norm_addressee)
         if bool(row.get("is_business_information_obligation"))
     }
     if not business_regulation_ids:
-        return set()
+        return {}
     regulation_ids_by_step = db.get_process_step_regulation_ids_by_step(
         session_id,
         norm_addressee,
@@ -155,7 +168,7 @@ def _list_business_information_step_ids(session_id: int, norm_addressee: str) ->
         for row in db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
     }
     step_rows = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
-    matched_step_ids: set[int] = set()
+    fractions: dict[int, float] = {}
     for step in step_rows:
         step_id = int(step["step_id"])
         case_group_id = int(step["case_group_id"])
@@ -163,11 +176,16 @@ def _list_business_information_step_ids(session_id: int, norm_addressee: str) ->
         if not regulation_ids:
             process_id = process_id_by_case_group.get(case_group_id)
             regulation_ids = sorted(process_regulation_ids.get(process_id, set()))
-        if regulation_ids and any(
-            regulation_id in business_regulation_ids for regulation_id in regulation_ids
-        ):
-            matched_step_ids.add(step_id)
-    return matched_step_ids
+        if not regulation_ids:
+            continue
+        total = len(regulation_ids)
+        info_count = sum(
+            1 for rid in regulation_ids if rid in business_regulation_ids
+        )
+        if info_count == 0:
+            continue
+        fractions[step_id] = info_count / total
+    return fractions
 
 
 def _refresh_process_tiles(
@@ -267,7 +285,7 @@ def _compute_step_metrics(
     case_groups: list[dict],
     norm_addressee: str,
     active_rates: dict[str, float],
-    business_information_step_ids: set[int],
+    business_information_fractions: dict[int, float],
 ) -> tuple[
     dict[int, float],
     dict[int, float],
@@ -295,16 +313,17 @@ def _compute_step_metrics(
             cost_proposed = _compute_step_cost(step, "proposed", norm_addressee, active_rates)
         time_current = _compute_step_time_minutes(step, "current")
         time_proposed = _compute_step_time_minutes(step, "proposed")
-        is_bureaucracy = (
-            norm_addressee == BUSINESS
-            and step_id in business_information_step_ids
+        bureaucracy_fraction = (
+            business_information_fractions.get(step_id, 0.0)
+            if norm_addressee == BUSINESS
+            else 0.0
         )
         step_costs_current[step_id] = cost_current
         step_costs_proposed[step_id] = cost_proposed
         step_time_current[step_id] = time_current
         step_time_proposed[step_id] = time_proposed
-        step_bureaucracy_current[step_id] = cost_current if is_bureaucracy else 0.0
-        step_bureaucracy_proposed[step_id] = cost_proposed if is_bureaucracy else 0.0
+        step_bureaucracy_current[step_id] = cost_current * bureaucracy_fraction
+        step_bureaucracy_proposed[step_id] = cost_proposed * bureaucracy_fraction
         per_case_flags[step_id] = bool(step.get("execution_per_case")) if step.get("execution_per_case") is not None else True
         step["cost_current"] = cost_current
         step["cost_proposed"] = cost_proposed
@@ -598,10 +617,10 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         )
 
     with db.transaction():
-        business_information_step_ids = (
-            _list_business_information_step_ids(session_id, norm_addressee)
+        business_information_fractions = (
+            _compute_step_bureaucracy_fractions(session_id, norm_addressee)
             if norm_addressee == BUSINESS
-            else set()
+            else {}
         )
         (
             step_costs_current,
@@ -616,7 +635,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
             case_groups=effective_case_groups,
             norm_addressee=norm_addressee,
             active_rates=active_rates,
-            business_information_step_ids=business_information_step_ids,
+            business_information_fractions=business_information_fractions,
         )
         _persist_step_costs(
             session_id=session_id,
