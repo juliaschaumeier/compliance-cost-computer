@@ -2552,7 +2552,10 @@ def list_processes_for_session_and_addressee(
 
 
 def list_case_groups_for_session(session_id: int) -> List[dict]:
-    return list_case_groups_for_session_and_addressee(session_id, ADMINISTRATION)
+    rows: List[dict] = []
+    for addressee in ALL_NORM_ADDRESSEES:
+        rows.extend(list_case_groups_for_session_and_addressee(session_id, addressee))
+    return rows
 
 
 def list_case_groups_for_session_and_addressee(
@@ -2598,7 +2601,10 @@ def list_case_groups_for_session_and_addressee(
 
 
 def list_process_steps_for_session(session_id: int) -> List[dict]:
-    return list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    rows: List[dict] = []
+    for addressee in ALL_NORM_ADDRESSEES:
+        rows.extend(list_process_steps_for_session_and_addressee(session_id, addressee))
+    return rows
 
 
 def list_process_steps_for_session_and_addressee(

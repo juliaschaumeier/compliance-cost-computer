@@ -102,34 +102,46 @@ def _with_step_metrics(meta_information: dict, step: dict) -> dict:
     return updated
 
 
+def _group_by_addressee(
+    rows: list[dict],
+    default_addressee: str,
+) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        addressee = str(row.get("norm_addressee") or default_addressee)
+        grouped.setdefault(addressee, []).append(row)
+    return grouped
+
+
 def refresh_case_group_tiles(
     session_id: int,
     case_groups: list[dict],
     norm_addressee: str = ADMINISTRATION,
 ) -> None:
-    tiles = {
-        tile.id: tile
-        for tile in db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
-    }
-    for group in case_groups:
-        tile_id = f"case_group_{group['case_group_id']}"
-        tile = tiles.get(tile_id)
-        if not tile:
-            continue
-        updated = Tile(
-            id=tile.id,
-            title=tile.title,
-            text=_case_group_text(group),
-            meta_information=_with_case_group_metrics(
-                _apply_change_status(tile, group.get("change_status")),
-                group,
-            ),
-            column=tile.column,
-            row=tile.row,
-            deletable=tile.deletable,
-            link_from_tile=tile.link_from_tile,
-        )
-        db.upsert_tile(updated, session_id=session_id, norm_addressee=norm_addressee)
+    for addressee, groups in _group_by_addressee(case_groups, norm_addressee).items():
+        tiles = {
+            tile.id: tile
+            for tile in db.fetch_tiles(session_id=session_id, norm_addressee=addressee)
+        }
+        for group in groups:
+            tile_id = f"case_group_{group['case_group_id']}"
+            tile = tiles.get(tile_id)
+            if not tile:
+                continue
+            updated = Tile(
+                id=tile.id,
+                title=tile.title,
+                text=_case_group_text(group),
+                meta_information=_with_case_group_metrics(
+                    _apply_change_status(tile, group.get("change_status")),
+                    group,
+                ),
+                column=tile.column,
+                row=tile.row,
+                deletable=tile.deletable,
+                link_from_tile=tile.link_from_tile,
+            )
+            db.upsert_tile(updated, session_id=session_id, norm_addressee=addressee)
 
 
 def refresh_step_tiles(
@@ -137,26 +149,27 @@ def refresh_step_tiles(
     steps: list[dict],
     norm_addressee: str = ADMINISTRATION,
 ) -> None:
-    tiles = {
-        tile.id: tile
-        for tile in db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
-    }
-    for step in steps:
-        tile_id = f"step_{step['step_id']}"
-        tile = tiles.get(tile_id)
-        if not tile:
-            continue
-        updated = Tile(
-            id=tile.id,
-            title=tile.title,
-            text=_step_text(step, norm_addressee),
-            meta_information=_with_step_metrics(
-                _apply_change_status(tile, step.get("change_status")),
-                step,
-            ),
-            column=tile.column,
-            row=tile.row,
-            deletable=tile.deletable,
-            link_from_tile=tile.link_from_tile,
-        )
-        db.upsert_tile(updated, session_id=session_id, norm_addressee=norm_addressee)
+    for addressee, addressee_steps in _group_by_addressee(steps, norm_addressee).items():
+        tiles = {
+            tile.id: tile
+            for tile in db.fetch_tiles(session_id=session_id, norm_addressee=addressee)
+        }
+        for step in addressee_steps:
+            tile_id = f"step_{step['step_id']}"
+            tile = tiles.get(tile_id)
+            if not tile:
+                continue
+            updated = Tile(
+                id=tile.id,
+                title=tile.title,
+                text=_step_text(step, addressee),
+                meta_information=_with_step_metrics(
+                    _apply_change_status(tile, step.get("change_status")),
+                    step,
+                ),
+                column=tile.column,
+                row=tile.row,
+                deletable=tile.deletable,
+                link_from_tile=tile.link_from_tile,
+            )
+            db.upsert_tile(updated, session_id=session_id, norm_addressee=addressee)
