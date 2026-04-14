@@ -408,7 +408,8 @@ async def analyze_process_steps(
         session_id,
         norm_addressee,
     )
-    if not case_groups and not db.has_applicable_regulations_for_addressee(
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not case_groups and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
         session_id, norm_addressee
     ):
         return {"steps": [], "status": "skipped", "norm_addressee": norm_addressee}

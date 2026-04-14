@@ -493,7 +493,8 @@ async def calculate_effort(
         norm_addressee,
     )
     steps = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
-    if not case_groups and not db.has_applicable_regulations_for_addressee(
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not case_groups and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
         session_id, norm_addressee
     ):
         return {

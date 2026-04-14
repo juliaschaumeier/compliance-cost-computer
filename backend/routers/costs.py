@@ -143,10 +143,44 @@ def _list_business_information_step_ids(session_id: int, norm_addressee: str) ->
         session_id,
         norm_addressee,
     )
+    process_regulation_ids: dict[int, set[int]] = {}
+    for row in db.list_regulations_for_session_and_addressee(session_id, norm_addressee):
+        process_id = row.get("process_id")
+        regulation_id = row.get("regulation_id")
+        if process_id is None or regulation_id is None:
+            continue
+        process_regulation_ids.setdefault(int(process_id), set()).add(int(regulation_id))
+    process_id_by_case_group = {
+        int(row["case_group_id"]): int(row["process_id"])
+        for row in db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
+    }
+    step_rows = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
     return {
-        step_id
-        for step_id, regulation_ids in regulation_ids_by_step.items()
-        if regulation_ids and any(regulation_id in business_regulation_ids for regulation_id in regulation_ids)
+        int(step["step_id"])
+        for step in step_rows
+        if (
+            (
+                regulation_ids_by_step.get(int(step["step_id"]), [])
+                or list(
+                    process_regulation_ids.get(
+                        process_id_by_case_group.get(int(step["case_group_id"])),
+                        set(),
+                    )
+                )
+            )
+            and any(
+                regulation_id in business_regulation_ids
+                for regulation_id in (
+                    regulation_ids_by_step.get(int(step["step_id"]), [])
+                    or list(
+                        process_regulation_ids.get(
+                            process_id_by_case_group.get(int(step["case_group_id"])),
+                            set(),
+                        )
+                    )
+                )
+            )
+        )
     }
 
 
@@ -195,9 +229,10 @@ def _ensure_structure_or_skip(
     case_groups: list[dict],
     steps: list[dict],
 ) -> dict | None:
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
     if not processes:
         if (
-            norm_addressee != ADMINISTRATION
+            session_has_any_regulations
             and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
         ):
             return _skipped_cost_response(norm_addressee)
@@ -211,7 +246,7 @@ def _ensure_structure_or_skip(
         )
     if not case_groups:
         if (
-            norm_addressee != ADMINISTRATION
+            session_has_any_regulations
             and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
         ):
             return _skipped_cost_response(norm_addressee)
@@ -225,7 +260,7 @@ def _ensure_structure_or_skip(
         )
     if not steps:
         if (
-            norm_addressee != ADMINISTRATION
+            session_has_any_regulations
             and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
         ):
             return _skipped_cost_response(norm_addressee)

@@ -280,7 +280,8 @@ async def develop_case_groups(
         }
 
     processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
-    if not processes and not db.has_applicable_regulations_for_addressee(
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not processes and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
         session_id, norm_addressee
     ):
         return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
