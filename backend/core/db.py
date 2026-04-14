@@ -4369,15 +4369,24 @@ def delete_case_groups_for_session(
             "DELETE FROM case_groups WHERE session_id = ?",
             (session_id,),
         )
+        cur.execute(
+            "DELETE FROM mirror_matches WHERE session_id = ?",
+            (session_id,),
+        )
     else:
+        resolved = normalize_norm_addressee(norm_addressee)
         cur.execute(
             "DELETE FROM case_groups WHERE session_id = ? AND norm_addressee = ?",
-            (session_id, normalize_norm_addressee(norm_addressee)),
+            (session_id, resolved),
         )
-    cur.execute(
-        "DELETE FROM mirror_matches WHERE session_id = ?",
-        (session_id,),
-    )
+        cur.execute(
+            """
+            DELETE FROM mirror_matches
+            WHERE session_id = ?
+              AND (source_norm_addressee = ? OR target_norm_addressee = ?)
+            """,
+            (session_id, resolved, resolved),
+        )
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -4393,15 +4402,24 @@ def delete_processes_for_session(
             "DELETE FROM processes WHERE session_id = ?",
             (session_id,),
         )
+        cur.execute(
+            "DELETE FROM mirror_matches WHERE session_id = ?",
+            (session_id,),
+        )
     else:
+        resolved = normalize_norm_addressee(norm_addressee)
         cur.execute(
             "DELETE FROM processes WHERE session_id = ? AND norm_addressee = ?",
-            (session_id, normalize_norm_addressee(norm_addressee)),
+            (session_id, resolved),
         )
-    cur.execute(
-        "DELETE FROM mirror_matches WHERE session_id = ?",
-        (session_id,),
-    )
+        cur.execute(
+            """
+            DELETE FROM mirror_matches
+            WHERE session_id = ?
+              AND (source_norm_addressee = ? OR target_norm_addressee = ?)
+            """,
+            (session_id, resolved, resolved),
+        )
     _maybe_commit(conn)
     _maybe_close(conn)
 

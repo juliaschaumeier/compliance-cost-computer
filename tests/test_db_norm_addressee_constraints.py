@@ -474,6 +474,220 @@ def test_replace_mirror_matches_rejects_inconsistent_reverse_sync_flags(
         )
 
 
+def test_delete_case_groups_for_session_preserves_unrelated_mirror_matches(
+    tmp_path, monkeypatch
+):
+    """Regression: NA-spezifisches delete_case_groups_for_session (z.B. für
+    business) darf nur mirror_matches löschen, bei denen business als Source
+    oder Target vorkommt. Ein unberührtes admin<->citizens-Paar muss
+    überleben. Vorher räumte der Kompensations-DELETE die gesamte Session."""
+    monkeypatch.setattr(
+        config.settings, "db_path", tmp_path / "mirror_delete_preserve.db"
+    )
+    db.init_db()
+
+    session_id, _ = db.upsert_session("MIRROR-DELETE-PRESERVE", "test-model")
+    admin_process = db.insert_process(
+        session_id, "Admin-Prozess", "", norm_addressee=ADMINISTRATION
+    )
+    business_process = db.insert_process(
+        session_id, "Business-Prozess", "", norm_addressee=BUSINESS
+    )
+    citizens_process = db.insert_process(
+        session_id, "Citizens-Prozess", "", norm_addressee=CITIZENS
+    )
+    admin_cg_for_business = db.insert_case_group(
+        session_id, admin_process, "Admin-CG (biz)", "", norm_addressee=ADMINISTRATION
+    )
+    business_cg = db.insert_case_group(
+        session_id, business_process, "Business-CG", "", norm_addressee=BUSINESS
+    )
+    admin_cg_for_citizens = db.insert_case_group(
+        session_id, admin_process, "Admin-CG (cit)", "", norm_addressee=ADMINISTRATION
+    )
+    citizens_cg = db.insert_case_group(
+        session_id, citizens_process, "Citizens-CG", "", norm_addressee=CITIZENS
+    )
+
+    db.replace_mirror_matches(
+        session_id,
+        [
+            {
+                "mirror_anchor_key": "anchor-admin-business",
+                "shared_situation": "Meldepflicht",
+                "source_norm_addressee": ADMINISTRATION,
+                "target_norm_addressee": BUSINESS,
+                "source_process_id": admin_process,
+                "target_process_id": business_process,
+                "source_case_group_id": admin_cg_for_business,
+                "target_case_group_id": business_cg,
+                "relation_type": "mirrored_case_group",
+                "sync_addressees": True,
+                "sync_frequency": True,
+                "sync_cases": True,
+                "reason": "admin<->business",
+            },
+            {
+                "mirror_anchor_key": "anchor-admin-business",
+                "shared_situation": "Meldepflicht",
+                "source_norm_addressee": BUSINESS,
+                "target_norm_addressee": ADMINISTRATION,
+                "source_process_id": business_process,
+                "target_process_id": admin_process,
+                "source_case_group_id": business_cg,
+                "target_case_group_id": admin_cg_for_business,
+                "relation_type": "mirrored_case_group",
+                "sync_addressees": True,
+                "sync_frequency": True,
+                "sync_cases": True,
+                "reason": "business<->admin",
+            },
+            {
+                "mirror_anchor_key": "anchor-admin-citizens",
+                "shared_situation": "Antrag",
+                "source_norm_addressee": ADMINISTRATION,
+                "target_norm_addressee": CITIZENS,
+                "source_process_id": admin_process,
+                "target_process_id": citizens_process,
+                "source_case_group_id": admin_cg_for_citizens,
+                "target_case_group_id": citizens_cg,
+                "relation_type": "mirrored_case_group",
+                "sync_addressees": True,
+                "sync_frequency": True,
+                "sync_cases": True,
+                "reason": "admin<->citizens",
+            },
+            {
+                "mirror_anchor_key": "anchor-admin-citizens",
+                "shared_situation": "Antrag",
+                "source_norm_addressee": CITIZENS,
+                "target_norm_addressee": ADMINISTRATION,
+                "source_process_id": citizens_process,
+                "target_process_id": admin_process,
+                "source_case_group_id": citizens_cg,
+                "target_case_group_id": admin_cg_for_citizens,
+                "relation_type": "mirrored_case_group",
+                "sync_addressees": True,
+                "sync_frequency": True,
+                "sync_cases": True,
+                "reason": "citizens<->admin",
+            },
+        ],
+    )
+
+    assert len(db.list_mirror_matches(session_id)) == 4
+
+    db.delete_case_groups_for_session(session_id, norm_addressee=BUSINESS)
+
+    remaining = db.list_mirror_matches(session_id)
+    anchors = {match["mirror_anchor_key"] for match in remaining}
+    assert anchors == {"anchor-admin-citizens"}
+    assert len(remaining) == 2
+    for match in remaining:
+        assert ADMINISTRATION in (
+            match["source_norm_addressee"],
+            match["target_norm_addressee"],
+        )
+        assert CITIZENS in (
+            match["source_norm_addressee"],
+            match["target_norm_addressee"],
+        )
+
+
+def test_delete_processes_for_session_preserves_unrelated_mirror_matches(
+    tmp_path, monkeypatch
+):
+    """Symmetrischer Regressionstest zu delete_processes_for_session."""
+    monkeypatch.setattr(
+        config.settings, "db_path", tmp_path / "mirror_delete_processes.db"
+    )
+    db.init_db()
+
+    session_id, _ = db.upsert_session("MIRROR-DELETE-PROCESSES", "test-model")
+    admin_process = db.insert_process(
+        session_id, "Admin-Prozess", "", norm_addressee=ADMINISTRATION
+    )
+    business_process = db.insert_process(
+        session_id, "Business-Prozess", "", norm_addressee=BUSINESS
+    )
+    citizens_process = db.insert_process(
+        session_id, "Citizens-Prozess", "", norm_addressee=CITIZENS
+    )
+
+    db.replace_mirror_matches(
+        session_id,
+        [
+            {
+                "mirror_anchor_key": "anchor-ab",
+                "shared_situation": "",
+                "source_norm_addressee": ADMINISTRATION,
+                "target_norm_addressee": BUSINESS,
+                "source_process_id": admin_process,
+                "target_process_id": business_process,
+                "source_case_group_id": None,
+                "target_case_group_id": None,
+                "relation_type": "mirrored_process",
+                "sync_addressees": False,
+                "sync_frequency": False,
+                "sync_cases": False,
+                "reason": "",
+            },
+            {
+                "mirror_anchor_key": "anchor-ab",
+                "shared_situation": "",
+                "source_norm_addressee": BUSINESS,
+                "target_norm_addressee": ADMINISTRATION,
+                "source_process_id": business_process,
+                "target_process_id": admin_process,
+                "source_case_group_id": None,
+                "target_case_group_id": None,
+                "relation_type": "mirrored_process",
+                "sync_addressees": False,
+                "sync_frequency": False,
+                "sync_cases": False,
+                "reason": "",
+            },
+            {
+                "mirror_anchor_key": "anchor-ac",
+                "shared_situation": "",
+                "source_norm_addressee": ADMINISTRATION,
+                "target_norm_addressee": CITIZENS,
+                "source_process_id": admin_process,
+                "target_process_id": citizens_process,
+                "source_case_group_id": None,
+                "target_case_group_id": None,
+                "relation_type": "mirrored_process",
+                "sync_addressees": False,
+                "sync_frequency": False,
+                "sync_cases": False,
+                "reason": "",
+            },
+            {
+                "mirror_anchor_key": "anchor-ac",
+                "shared_situation": "",
+                "source_norm_addressee": CITIZENS,
+                "target_norm_addressee": ADMINISTRATION,
+                "source_process_id": citizens_process,
+                "target_process_id": admin_process,
+                "source_case_group_id": None,
+                "target_case_group_id": None,
+                "relation_type": "mirrored_process",
+                "sync_addressees": False,
+                "sync_frequency": False,
+                "sync_cases": False,
+                "reason": "",
+            },
+        ],
+    )
+
+    assert len(db.list_mirror_matches(session_id)) == 4
+    db.delete_processes_for_session(session_id, norm_addressee=BUSINESS)
+    remaining = db.list_mirror_matches(session_id)
+    anchors = {match["mirror_anchor_key"] for match in remaining}
+    assert anchors == {"anchor-ac"}
+    assert len(remaining) == 2
+
+
 def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_addressee_metrics.db")
     db.init_db()
