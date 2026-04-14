@@ -188,12 +188,14 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
         "Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen "
         "resultiert zunaechst kein Zeitaufwand. Sofern keine spezifischen Daten ueber "
-        "den Zeitaufwand vorliegen, kann die Zeitwerttabelle Wirtschaft herangezogen "
-        "werden. Die Tabelle zu Wegezeiten und -sachkosten kann genutzt werden, wenn "
-        "persoenliche Termine bei anderen Stellen oder Behoerden erforderlich sind. "
-        "Zur Ermittlung des Personalaufwands werden die Bearbeitungszeiten mit den "
-        "einschlaegigen Lohnsaetzen der Wirtschaft verknuepft. Die festen Lohngruppen "
-        "sind A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt. Ordnen Sie jede benoetigte "
+        "den Zeitaufwand vorliegen, kann die Zeitwerttabelle Wirtschaft aus Anhang 4 "
+        "herangezogen werden. Die Tabelle zu Wegezeiten und -sachkosten kann genutzt "
+        "werden, wenn persoenliche Termine bei anderen Stellen oder Behoerden "
+        "erforderlich sind. Orientieren Sie sich fuer Standardaktivitaeten zusaetzlich "
+        "am Standardkostenmodell und den Methodenhinweisen in Anhang 8. Zur Ermittlung "
+        "des Personalaufwands werden die Bearbeitungszeiten mit den einschlaegigen "
+        "Lohnsaetzen der Wirtschaft verknuepft. Die festen Lohngruppen sind "
+        "A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt. Ordnen Sie jede benoetigte "
         "Bearbeitungsstufe genau einer dieser Gruppen zu. Eine einzige Lohngruppe ist "
         "der Regelfall; mehrere Lohngruppen sind nur bei klar getrennten "
         "Bearbeitungsstufen zulaessig, etwa operative Bearbeitung und anschliessende "
@@ -481,6 +483,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Wenn zusaetzlicher strukturierter Spiegelkontext mit bereits bekannten Zuordnungen oder Gegenstrukturen vorliegt, behandeln Sie diesen als
         verbindlichen fachlichen Konsistenzrahmen. Passen Sie Ihre Prozessbildung daran an, statt parallele konkurrierende Spiegelstrukturen zu erzeugen.
+
+        Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess. Wenn der zugrunde liegende Rechtsrahmen
+        unterschiedlich ist, muessen getrennte Prozesse ausgewiesen werden, auch wenn die praktische Bearbeitung aehnlich erscheint. Die spaetere
+        gesonderte Ausweisung EU-bedingten Erfuellungsaufwands muss anhand Ihrer Prozessstruktur weiterhin moeglich bleiben.
 
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_process_example}
@@ -1064,7 +1070,9 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     render_values.setdefault("mirror_step_context", "")
     render_values.setdefault("mirror_case_context", "")
     render_values.setdefault("mirror_clusters_json", "[]")
-    norm_addressee = str(render_values.get("norm_addressee") or ADMINISTRATION)
+    if "norm_addressee" not in render_values or render_values.get("norm_addressee") in (None, ""):
+        raise KeyError("render_prompt requires explicit norm_addressee")
+    norm_addressee = str(render_values["norm_addressee"])
     render_values.setdefault(
         "handbook_process_example",
         _render_handbook_process_example(norm_addressee),

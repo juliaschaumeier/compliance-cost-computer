@@ -322,6 +322,7 @@ def test_summary_separates_blurb_and_summary_storage_and_display(test_client, mo
         PromptId.PROCESS_COMPILATION,
         session_id=session_id,
         vorgaben_json="[]",
+        norm_addressee=ADMINISTRATION,
     )
     assert "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext." in prompt
     assert "Kurzer Satz." not in prompt
@@ -630,5 +631,6 @@ def test_prompt_opening_falls_back_to_blurb_when_summary_empty(test_client):
         PromptId.PROCESS_COMPILATION,
         session_id=session_id,
         vorgaben_json="[]",
+        norm_addressee=ADMINISTRATION,
     )
     assert "Fallback Blurb Text" in prompt

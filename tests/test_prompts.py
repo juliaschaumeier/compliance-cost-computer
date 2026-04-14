@@ -1,6 +1,7 @@
 from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.prompts import PromptId, render_prompt
+import pytest
 
 
 def _render_effort_prompt(norm_addressee: str) -> str:
@@ -19,6 +20,9 @@ def test_effort_prompt_for_business_uses_only_business_tables_and_guidance():
     assert "A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt" in prompt
     assert "Anhang Wirtschaft:" in prompt
     assert "Zeitwerttabelle Wirtschaft" in prompt
+    assert "Anhang 4" in prompt
+    assert "Anhang 8" in prompt
+    assert "Standardkostenmodell" in prompt
     assert "Lohnkostentabelle Wirtschaft" in prompt
     assert "Zeitwerttabelle Verwaltung" not in prompt
     assert "Lohnkostentabelle Verwaltung" not in prompt
@@ -64,6 +68,7 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
     assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
     assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" in prompt
     assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
+    assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
 
 
 def test_case_group_development_prompt_includes_verbatim_handbook_example():
@@ -186,3 +191,12 @@ def test_process_compilation_prompt_includes_structured_mirror_context_from_sess
     assert '"mirror_matches"' in prompt
     assert '"source_norm_addressee": "business"' in prompt
     assert '"prozess_bezeichnung": "Pruefung der Gemeinnuetzigkeit"' in prompt
+
+
+def test_render_prompt_requires_explicit_norm_addressee():
+    with pytest.raises(KeyError, match="explicit norm_addressee"):
+        render_prompt(
+            PromptId.PROCESS_COMPILATION,
+            law_summary="Kurzfassung",
+            vorgaben_json="[]",
+        )

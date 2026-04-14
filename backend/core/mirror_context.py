@@ -85,6 +85,7 @@ async def ensure_mirror_matching(
         PromptId.MIRROR_MATCHING,
         session_id=session_id,
         mirror_clusters_json=json.dumps(clusters, ensure_ascii=False),
+        norm_addressee=ADMINISTRATION,
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
