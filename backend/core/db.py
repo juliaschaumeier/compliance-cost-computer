@@ -3896,6 +3896,10 @@ def update_session_summary(
 
 
 def update_session_cost(session_id: int, cost: float | None) -> None:
+    # Legacy-Kompatibilitaetsspiegel nur fuer ADMINISTRATION. Die kanonische
+    # NA-spezifische Aggregation liegt in session_total_costs_by_addressee und
+    # wird ueber upsert_session_total_costs_by_addressee gepflegt. Nicht fuer
+    # business/citizens aufrufen.
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
