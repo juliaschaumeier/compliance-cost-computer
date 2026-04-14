@@ -644,3 +644,102 @@ def test_compute_costs_business_uses_explicit_step_regulation_links_for_bureaucr
     assert payload["total_cost"] == pytest.approx(140.0)
     assert payload["bureaucracy_cost"] == pytest.approx(100.0)
     assert payload["other_cost"] == pytest.approx(40.0)
+
+
+def test_compute_costs_citizens_ignores_persisted_hourly_rates(test_client):
+    session_id, _ = db.upsert_session("COST-CITIZENS-IGNORE-RATES", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Citizens Process",
+        "Beschreibung Prozess",
+        norm_addressee="citizens",
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Citizens Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee="citizens",
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Citizens Step",
+        "Beschreibung Schritt",
+        norm_addressee="citizens",
+    )
+
+    db.upsert_tile(
+        Tile(
+            id=f"process_{process_id}",
+            title="Citizens Process",
+            text="Beschreibung Prozess",
+            meta_information={"process_id": process_id},
+            column=2,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+        norm_addressee="citizens",
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Citizens Case Group",
+            text="Beschreibung Fallgruppe",
+            meta_information={"case_group_id": case_group_id, "process_id": process_id},
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"process_{process_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee="citizens",
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"step_{step_id}",
+            title="Citizens Step",
+            text="Beschreibung Schritt",
+            meta_information={"step_id": step_id, "case_group_id": case_group_id},
+            column=4,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"case_group_{case_group_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee="citizens",
+    )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee="citizens",
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            """
+            UPDATE process_steps
+            SET hourly_rate_a_proposed = ?, time_required_in_min_a_proposed = ?, expenses_proposed = ?
+            WHERE session_id = ? AND step_id = ? AND norm_addressee = 'citizens'
+            """,
+            (999.0, 60.0, 10.0, session_id, step_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-CITIZENS-IGNORE-RATES", "norm_addressee": "citizens"},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total_cost"] is None
+    assert payload["total_time_minutes"] == pytest.approx(60.0)
+    assert payload["total_expenses"] == pytest.approx(10.0)

@@ -3,6 +3,7 @@ import sqlite3
 import pytest
 
 from backend.core import config, db
+from backend.core.norm_addressees import CITIZENS
 
 
 @pytest.fixture
@@ -137,6 +138,46 @@ def test_update_regulation_process_links_and_lists_by_addressee(tmp_path, monkey
     assert [tuple(row) for row in stored_links] == [
         (session_id, "business", regulation_id, business_process_id)
     ]
+
+
+def test_citizens_effort_rejects_hourly_rates(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "citizens_rates.db")
+    db.init_db()
+
+    session_id, _ = db.upsert_session("CITIZENS-RATES", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Buergerprozess",
+        "Beschreibung",
+        norm_addressee=CITIZENS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Fallgruppe",
+        "Beschreibung",
+        norm_addressee=CITIZENS,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt",
+        "Beschreibung",
+        norm_addressee=CITIZENS,
+    )
+
+    with pytest.raises(ValueError, match="must not persist hourly rates"):
+        db.upsert_process_step_effort_split_by_addressee(
+            session_id=session_id,
+            step_id=step_id,
+            norm_addressee=CITIZENS,
+            hourly_rates_current={"a": 20, "b": None, "c": None, "d": None},
+            time_required_current={"a": 5, "b": None, "c": None, "d": None},
+            expenses_current=None,
+            hourly_rates_proposed={"a": None, "b": None, "c": None, "d": None},
+            time_required_proposed={"a": 6, "b": None, "c": None, "d": None},
+            expenses_proposed=None,
+        )
 
 
 def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):

@@ -3155,6 +3155,19 @@ def upsert_process_step_effort_split_by_addressee(
     execution_per_case: bool | None = None,
 ) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == "citizens":
+        citizen_rates = (
+            hourly_rates_current.get("a"),
+            hourly_rates_current.get("b"),
+            hourly_rates_current.get("c"),
+            hourly_rates_current.get("d"),
+            hourly_rates_proposed.get("a"),
+            hourly_rates_proposed.get("b"),
+            hourly_rates_proposed.get("c"),
+            hourly_rates_proposed.get("d"),
+        )
+        if any(rate is not None for rate in citizen_rates):
+            raise ValueError("Citizens effort must not persist hourly rates")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(

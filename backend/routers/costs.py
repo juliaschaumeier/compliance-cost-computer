@@ -46,6 +46,8 @@ def _resolve_hourly_rate(
     norm_addressee: str,
     active_rates: dict[str, float],
 ) -> float:
+    if norm_addressee == CITIZENS:
+        return 0.0
     value = step.get(f"hourly_rate_{key}_{suffix}")
     if value is not None:
         return float(value)
