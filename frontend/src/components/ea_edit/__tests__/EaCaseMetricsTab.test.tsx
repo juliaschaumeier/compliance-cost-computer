@@ -22,6 +22,7 @@ describe("EaCaseMetricsTab", () => {
       rows: [
         {
           case_group_id: 11,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe A",
           description: "Beschreibung",
@@ -53,7 +54,7 @@ describe("EaCaseMetricsTab", () => {
   it("loads rows and saves reviewed edits", async () => {
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -99,6 +100,7 @@ describe("EaCaseMetricsTab", () => {
       rows: [
         {
           case_group_id: 11,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe A",
           description: "Beschreibung",
@@ -125,7 +127,7 @@ describe("EaCaseMetricsTab", () => {
       ],
     });
     render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -151,6 +153,7 @@ describe("EaCaseMetricsTab", () => {
       rows: [
         {
           case_group_id: 11,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe A",
           description: "Beschreibung",
@@ -177,7 +180,7 @@ describe("EaCaseMetricsTab", () => {
       ],
     });
     render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -197,6 +200,7 @@ describe("EaCaseMetricsTab", () => {
       rows: [
         {
           case_group_id: 11,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe A",
           description: "Beschreibung",
@@ -223,7 +227,7 @@ describe("EaCaseMetricsTab", () => {
       ],
     });
     render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -242,7 +246,7 @@ describe("EaCaseMetricsTab", () => {
 
   it("blocks review for invalid numeric input", async () => {
     render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -269,6 +273,7 @@ describe("EaCaseMetricsTab", () => {
       rows: [
         {
           case_group_id: 11,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe A",
           description: "Beschreibung",
@@ -296,7 +301,7 @@ describe("EaCaseMetricsTab", () => {
     });
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -333,7 +338,7 @@ describe("EaCaseMetricsTab", () => {
 
   it("disables reset when no edited values exist", async () => {
     render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -349,7 +354,7 @@ describe("EaCaseMetricsTab", () => {
 
   it("keeps unsaved edits across tab deactivate/reactivate without refetch", async () => {
     const { rerender } = render(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"
@@ -368,7 +373,7 @@ describe("EaCaseMetricsTab", () => {
     expect(mockGetEditableCaseGroups).toHaveBeenCalledTimes(1);
 
     rerender(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active={false}
         appSessionId="CASE-TAB"
@@ -376,7 +381,7 @@ describe("EaCaseMetricsTab", () => {
       />
     );
     rerender(
-      <EaCaseMetricsTab
+      <EaCaseMetricsTab normAddressee="administration"
         open
         active
         appSessionId="CASE-TAB"

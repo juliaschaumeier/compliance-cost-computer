@@ -127,6 +127,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
               open={open}
               active={activeTab === "case_metrics"}
               appSessionId={state.appSessionId}
+              normAddressee={state.selectedNormAddressee}
               runAutoRecompute={runAutoRecompute}
               onDirtyChange={(dirty) => markTabDirty("case_metrics", dirty)}
             />
@@ -134,6 +135,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
               open={open}
               active={activeTab === "effort_metrics"}
               appSessionId={state.appSessionId}
+              normAddressee={state.selectedNormAddressee}
               runAutoRecompute={runAutoRecompute}
               onDirtyChange={(dirty) => markTabDirty("effort_metrics", dirty)}
             />

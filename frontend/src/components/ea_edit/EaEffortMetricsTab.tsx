@@ -6,7 +6,7 @@ import EditorMetricsTable from "@/components/ea_edit/components/EditorMetricsTab
 import ReviewDiffTable, { ReviewDiffRow } from "@/components/ea_edit/components/ReviewDiffTable";
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { EditableCaseGroupRow, EditableProcessStepRow } from "@/types";
+import { EditableCaseGroupRow, EditableProcessStepRow, NormAddressee } from "@/types";
 
 import {
   isValidNullableNumberInput,
@@ -22,6 +22,7 @@ type EaEffortMetricsTabProps = {
   open: boolean;
   active: boolean;
   appSessionId: string;
+  normAddressee: NormAddressee;
   runAutoRecompute: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -147,6 +148,7 @@ export default function EaEffortMetricsTab({
   open,
   active,
   appSessionId,
+  normAddressee,
   runAutoRecompute,
   onDirtyChange,
 }: EaEffortMetricsTabProps) {
@@ -225,15 +227,20 @@ export default function EaEffortMetricsTab({
     return map;
   }, [caseGroups]);
 
+  const loadKey = `${appSessionId}::${normAddressee}`;
+
   const loadCaseGroups = useCallback(async () => {
     setIsLoadingCaseGroups(true);
     setStatus(null);
     setSelectionNotice(null);
     try {
       const payload = await apiClient.getEditableCaseGroups({ appSessionId });
-      setCaseGroups(payload.rows);
-      setLoadedSessionKey(appSessionId);
-      const validCaseGroupIds = new Set(payload.rows.map((row) => row.case_group_id));
+      const filteredRows = payload.rows.filter(
+        (row) => row.norm_addressee === normAddressee
+      );
+      setCaseGroups(filteredRows);
+      setLoadedSessionKey(loadKey);
+      const validCaseGroupIds = new Set(filteredRows.map((row) => row.case_group_id));
       setCachedStepRowsById((prev) => {
         let changed = false;
         const next: Record<number, EditableProcessStepRow> = {};
@@ -263,17 +270,17 @@ export default function EaEffortMetricsTab({
         return changed ? next : prev;
       });
       const previous = selectedCaseGroupIdRef.current;
-      const firstId = payload.rows.length > 0 ? payload.rows[0].case_group_id : null;
+      const firstId = filteredRows.length > 0 ? filteredRows[0].case_group_id : null;
       let nextSelection = previous;
       let nextNotice: string | null = null;
-      if (payload.rows.length === 0) {
+      if (filteredRows.length === 0) {
         if (previous !== null) {
           nextNotice = "Gewählte Fallgruppe ist nicht mehr verfügbar.";
         }
         nextSelection = null;
       } else if (previous === null) {
         nextSelection = firstId;
-      } else if (!payload.rows.some((row) => row.case_group_id === previous)) {
+      } else if (!filteredRows.some((row) => row.case_group_id === previous)) {
         nextSelection = firstId;
         nextNotice =
           "Gewählte Fallgruppe ist nicht mehr verfügbar. Zur ersten Fallgruppe gewechselt.";
@@ -281,12 +288,15 @@ export default function EaEffortMetricsTab({
       setSelectedCaseGroupId(nextSelection);
       setSelectionNotice(nextNotice);
     } catch (error) {
-      logClientError("EaEffortMetricsTab.loadCaseGroups", error, { appSessionId });
+      logClientError("EaEffortMetricsTab.loadCaseGroups", error, {
+        appSessionId,
+        normAddressee,
+      });
       setStatus("Fallgruppen konnten nicht geladen werden.");
     } finally {
       setIsLoadingCaseGroups(false);
     }
-  }, [appSessionId, setStatus]);
+  }, [appSessionId, normAddressee, loadKey, setStatus]);
 
   useEffect(() => {
     setIsLoadingCaseGroups(false);
@@ -301,7 +311,7 @@ export default function EaEffortMetricsTab({
     setReviewMode(false);
     setStatus(null);
     setLoadedSessionKey(null);
-  }, [appSessionId, setStatus, setReviewMode]);
+  }, [appSessionId, normAddressee, setStatus, setReviewMode]);
 
   const loadSteps = useCallback(
     async (caseGroupId: number | null) => {
@@ -349,11 +359,11 @@ export default function EaEffortMetricsTab({
     if (!open || !active) {
       return;
     }
-    if (loadedSessionKey === appSessionId) {
+    if (loadedSessionKey === loadKey) {
       return;
     }
     loadCaseGroups();
-  }, [open, active, loadCaseGroups, loadedSessionKey, appSessionId]);
+  }, [open, active, loadCaseGroups, loadedSessionKey, loadKey]);
 
   useEffect(() => {
     if (!open || !active) {
@@ -367,7 +377,7 @@ export default function EaEffortMetricsTab({
       cachedStepIdsByCaseGroup,
       selectedCaseGroupId
     );
-    if (loadedSessionKey === appSessionId && hasCachedSelection) {
+    if (loadedSessionKey === loadKey && hasCachedSelection) {
       const cachedStepIds = cachedStepIdsByCaseGroup[selectedCaseGroupId] || [];
       const cachedRows = cachedStepIds
         .map((stepId) => cachedStepRowsById[stepId])
@@ -384,7 +394,7 @@ export default function EaEffortMetricsTab({
     selectedCaseGroupId,
     loadSteps,
     loadedSessionKey,
-    appSessionId,
+    loadKey,
     cachedStepIdsByCaseGroup,
     cachedStepRowsById,
   ]);

@@ -25,6 +25,7 @@ describe("EaEffortMetricsTab", () => {
       rows: [
         {
           case_group_id: 22,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe B",
         },
@@ -35,6 +36,7 @@ describe("EaEffortMetricsTab", () => {
         {
           step_id: 101,
           case_group_id: 22,
+          norm_addressee: "administration",
           step: "Schritt 1",
           description: "Beschreibung",
           change_status: "geaendert",
@@ -77,7 +79,7 @@ describe("EaEffortMetricsTab", () => {
   it("loads case groups/steps and saves reviewed step edits", async () => {
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -130,6 +132,7 @@ describe("EaEffortMetricsTab", () => {
         {
           step_id: 101,
           case_group_id: 22,
+          norm_addressee: "administration",
           step: "Schritt 1",
           description: "Beschreibung",
           change_status: "geaendert",
@@ -168,7 +171,7 @@ describe("EaEffortMetricsTab", () => {
     });
 
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -190,7 +193,7 @@ describe("EaEffortMetricsTab", () => {
 
   it("renders zero values in a lighter text color", async () => {
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -207,7 +210,7 @@ describe("EaEffortMetricsTab", () => {
 
   it("blocks review for invalid numeric input", async () => {
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -236,6 +239,7 @@ describe("EaEffortMetricsTab", () => {
         {
           step_id: 101,
           case_group_id: 22,
+          norm_addressee: "administration",
           step: "Schritt 1",
           description: "Beschreibung",
           change_status: "geaendert",
@@ -274,7 +278,7 @@ describe("EaEffortMetricsTab", () => {
     });
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -312,7 +316,7 @@ describe("EaEffortMetricsTab", () => {
 
   it("disables reset when no edited values exist", async () => {
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -331,11 +335,13 @@ describe("EaEffortMetricsTab", () => {
       rows: [
         {
           case_group_id: 22,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe B",
         },
         {
           case_group_id: 23,
+          norm_addressee: "administration",
           process_id: 1,
           case_group: "Fallgruppe C",
         },
@@ -346,7 +352,7 @@ describe("EaEffortMetricsTab", () => {
     });
 
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -367,8 +373,18 @@ describe("EaEffortMetricsTab", () => {
   it("keeps edits across case groups and reviews/saves them in one pass", async () => {
     mockGetEditableCaseGroups.mockResolvedValueOnce({
       rows: [
-        { case_group_id: 22, process_id: 1, case_group: "Fallgruppe B" },
-        { case_group_id: 23, process_id: 1, case_group: "Fallgruppe C" },
+        {
+          case_group_id: 22,
+          norm_addressee: "administration",
+          process_id: 1,
+          case_group: "Fallgruppe B",
+        },
+        {
+          case_group_id: 23,
+          norm_addressee: "administration",
+          process_id: 1,
+          case_group: "Fallgruppe C",
+        },
       ],
     });
     mockGetEditableProcessSteps.mockImplementation(async ({ caseGroupId }) => {
@@ -460,7 +476,7 @@ describe("EaEffortMetricsTab", () => {
 
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -536,7 +552,7 @@ describe("EaEffortMetricsTab", () => {
 
   it("keeps unsaved edits across tab deactivate/reactivate without refetch", async () => {
     const { rerender } = render(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
@@ -556,7 +572,7 @@ describe("EaEffortMetricsTab", () => {
     expect(mockGetEditableProcessSteps).toHaveBeenCalledTimes(1);
 
     rerender(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active={false}
         appSessionId="STEP-TAB"
@@ -564,7 +580,7 @@ describe("EaEffortMetricsTab", () => {
       />
     );
     rerender(
-      <EaEffortMetricsTab
+      <EaEffortMetricsTab normAddressee="administration"
         open
         active
         appSessionId="STEP-TAB"
