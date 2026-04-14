@@ -418,95 +418,7 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
     monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
 
 
-def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
-    app_session_id = "RUNALL-E2E"
-    db.insert_law("current.txt", "aktuelles gesetz")
-    db.insert_law("proposed.txt", "neuer entwurf")
-    _patch_run_all_llms(monkeypatch, app_session_id)
-
-    start_response = test_client.post(
-        "/sessions/run-all/start",
-        json={
-            "app_session_id": app_session_id,
-            "current_filename": "current.txt",
-            "proposed_filename": "proposed.txt",
-            "model": "test-model",
-            "provider": "openai",
-        },
-    )
-    assert start_response.status_code == 200
-    run_id = start_response.json()["run_id"]
-    payload = _wait_for_run_completion(test_client, run_id)
-    assert payload["status"] == "completed"
-    assert payload["ok"] is True
-    assert [step["key"] for step in payload["steps"]] == [
-        "summary",
-        "regulations",
-        "processes",
-        "case_groups",
-        "process_steps",
-        "effort",
-        "total_cost",
-    ]
-    assert all(step["status"] == "completed" for step in payload["steps"])
-    assert payload["final_status"]["total_cost_ready"] is True
-    assert payload["final_status"]["last_completed_step"] == "total_cost"
-
-
-def test_run_all_executes_all_addressees_end_to_end(test_client, monkeypatch):
-    app_session_id = "RUNALL-ALL-ADDRESSEES"
-    db.insert_law("current_all_addr.txt", "aktuelles gesetz")
-    db.insert_law("proposed_all_addr.txt", "neuer entwurf")
-    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
-
-    start_response = test_client.post(
-        "/sessions/run-all/start",
-        json={
-            "app_session_id": app_session_id,
-            "current_filename": "current_all_addr.txt",
-            "proposed_filename": "proposed_all_addr.txt",
-            "model": "test-model",
-            "provider": "openai",
-        },
-    )
-    assert start_response.status_code == 200
-    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
-    assert payload["status"] == "completed"
-    assert payload["ok"] is True
-    assert payload["final_status"]["processes_ready_by_addressee"] == {
-        ADMINISTRATION: True,
-        BUSINESS: True,
-        CITIZENS: True,
-    }
-    assert payload["final_status"]["case_groups_ready_by_addressee"] == {
-        ADMINISTRATION: True,
-        BUSINESS: True,
-        CITIZENS: True,
-    }
-    assert payload["final_status"]["process_steps_ready_by_addressee"] == {
-        ADMINISTRATION: True,
-        BUSINESS: True,
-        CITIZENS: True,
-    }
-    assert payload["final_status"]["effort_ready_by_addressee"] == {
-        ADMINISTRATION: True,
-        BUSINESS: True,
-        CITIZENS: True,
-    }
-    assert payload["final_status"]["total_cost_ready_by_addressee"] == {
-        ADMINISTRATION: True,
-        BUSINESS: True,
-        CITIZENS: True,
-    }
-
-
-def test_run_all_skips_administration_when_only_business_regulations_exist(
-    test_client, monkeypatch
-):
-    app_session_id = "RUNALL-BUSINESS-ONLY"
-    db.insert_law("current_business_only.txt", "aktuelles gesetz")
-    db.insert_law("proposed_business_only.txt", "neuer entwurf")
-
+def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> None:
     async def fake_regulations_llm(prompt, *_args, **_kwargs):
         if "vorgaben" in prompt.lower():
             return json.dumps(
@@ -661,6 +573,97 @@ def test_run_all_skips_administration_when_only_business_regulations_exist(
     monkeypatch.setattr(case_groups_router, "query_llm", fake_case_groups_llm)
     monkeypatch.setattr(process_steps_router, "query_llm", fake_steps_llm)
     monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
+
+
+def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
+    app_session_id = "RUNALL-E2E"
+    db.insert_law("current.txt", "aktuelles gesetz")
+    db.insert_law("proposed.txt", "neuer entwurf")
+    _patch_run_all_llms(monkeypatch, app_session_id)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "current_filename": "current.txt",
+            "proposed_filename": "proposed.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    run_id = start_response.json()["run_id"]
+    payload = _wait_for_run_completion(test_client, run_id)
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert [step["key"] for step in payload["steps"]] == [
+        "summary",
+        "regulations",
+        "processes",
+        "case_groups",
+        "process_steps",
+        "effort",
+        "total_cost",
+    ]
+    assert all(step["status"] == "completed" for step in payload["steps"])
+    assert payload["final_status"]["total_cost_ready"] is True
+    assert payload["final_status"]["last_completed_step"] == "total_cost"
+
+
+def test_run_all_executes_all_addressees_end_to_end(test_client, monkeypatch):
+    app_session_id = "RUNALL-ALL-ADDRESSEES"
+    db.insert_law("current_all_addr.txt", "aktuelles gesetz")
+    db.insert_law("proposed_all_addr.txt", "neuer entwurf")
+    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "current_filename": "current_all_addr.txt",
+            "proposed_filename": "proposed_all_addr.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["final_status"]["processes_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["case_groups_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["process_steps_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["effort_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+    assert payload["final_status"]["total_cost_ready_by_addressee"] == {
+        ADMINISTRATION: True,
+        BUSINESS: True,
+        CITIZENS: True,
+    }
+
+
+def test_run_all_skips_administration_when_only_business_regulations_exist(
+    test_client, monkeypatch
+):
+    app_session_id = "RUNALL-BUSINESS-ONLY"
+    db.insert_law("current_business_only.txt", "aktuelles gesetz")
+    db.insert_law("proposed_business_only.txt", "neuer entwurf")
+    _patch_run_all_llms_for_business_only(monkeypatch, app_session_id)
 
     start_response = test_client.post(
         "/sessions/run-all/start",
@@ -1050,7 +1053,7 @@ def test_run_all_successful_restart_clears_transient_status_fields(test_client, 
     assert first_done["last_error"] == "business: No regulations mapped to process cluster"
 
     monkeypatch.setattr(processes_router, "compile_processes", original_compile_processes)
-    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
+    _patch_run_all_llms_for_business_only(monkeypatch, app_session_id)
 
     restart_response = test_client.post(
         "/sessions/run-all/start",
