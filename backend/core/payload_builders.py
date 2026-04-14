@@ -27,6 +27,7 @@ class FallgruppePayload(_PromptPayloadModel):
     fallgruppe_bezeichnung: str
     fallgruppe_beschreibung: str
     aenderungsstatus: str | None = None
+    spiegelsituationen: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TaetigkeitPayload(_PromptPayloadModel):
@@ -151,6 +152,24 @@ def _build_spiegelsituation_payload(row: dict) -> dict[str, Any] | None:
     }
 
 
+def _build_process_spiegelsituationen(
+    regs_by_process: dict[int, list[dict]],
+    process_id: int,
+) -> list[dict[str, Any]]:
+    situations: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in regs_by_process.get(process_id, []):
+        payload = _build_spiegelsituation_payload(row)
+        if payload is None:
+            continue
+        dedupe_key = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        situations.append(payload)
+    return situations
+
+
 def build_case_groups_payload(
     processes: list[dict],
     case_groups: list[dict],
@@ -165,6 +184,7 @@ def build_case_groups_payload(
             fallgruppe_bezeichnung=str(group.get("case_group") or ""),
             fallgruppe_beschreibung=str(group.get("description") or ""),
             aenderungsstatus=group.get("change_status"),
+            spiegelsituationen=_build_process_spiegelsituationen(regs_by_process, process_id),
         )
         groups_by_process.setdefault(process_id, []).append(group_payload)
 
@@ -266,6 +286,9 @@ def build_step_analysis_payload(
                     fallgruppe_bezeichnung=str(group.get("case_group") or ""),
                     fallgruppe_beschreibung=str(group.get("description") or ""),
                     aenderungsstatus=group.get("change_status"),
+                    spiegelsituationen=_build_process_spiegelsituationen(
+                        regs_by_process, process_id
+                    ),
                     taetigkeiten=taetigkeiten,
                 )
             )
