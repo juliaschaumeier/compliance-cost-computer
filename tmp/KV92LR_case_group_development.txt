@@ -1,0 +1,108 @@
+    Sie sind Legist im deutschen Bundestag und damit betraut, die 
+    Erfüllungsaufwandsänderung zu einer geplanten Gesetzesänderung zu berechnen.
+
+    Insbesondere werden zur Ermittlung der zu erwartenden Änderung des Aufwands 
+    pro Fall die wesentlichen Tätigkeiten identifiziert, die zur Erfüllung 
+    einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese 
+    schließen Tätigkeiten ein, welche neu hinzukommen, welche sich ändern und 
+    welche wegfallen. Für diese Tätigkeiten werden die zu erwartenden Änderungen des 
+    Zeit-, Personal- sowie Sachaufwands ermittelt.
+
+    Die wesentlichen Unterschiede der Gesetzesänderung sind wie folgt 
+    zusammengefasst: Der vorgeschlagene Gesetzestext ändert ausschließlich § 52 Absatz 2 Nummer 21 AO (Katalog gemeinnütziger Zwecke) und zwar im Teilbereich „Förderung des Sports“.
+
+Geltende Fassung: Als gemeinnütziger Zweck gilt „die Förderung des Sports (Schach gilt als Sport)“. Damit wird Schach ausdrücklich dem Sportbegriff im Gemeinnützigkeitsrecht gleichgestellt; für andere Grenzfälle (z.B. E‑Sport) ergibt sich keine ausdrückliche Klarstellung aus dem Gesetz.
+
+Vorgeschlagene Fassung: Der Klammerzusatz wird erweitert zu „Schach gilt als Sport und E‑Sport gilt für diese Regelung als Sport“. Dadurch wird E‑Sport – jedenfalls für Zwecke dieser Vorschrift – gesetzlich dem Sport gleichgestellt.
+
+Wesentlicher Unterschied und Regelungswirkung: Durch die ausdrückliche Einbeziehung von E‑Sport wird klargestellt, dass Körperschaften, die E‑Sport fördern (z.B. Vereine, Fördervereine, Verbände, Jugend- und Trainingsstrukturen), diesen Zweck als gemeinnützig im Sinne von § 52 AO verfolgen können. Praktisch zielt die Änderung darauf ab, Rechts- und Planungssicherheit zu schaffen und die Anerkennung der Gemeinnützigkeit für E‑Sport‑Organisationen nicht von einer unsicheren Einzelfallauslegung des Sportbegriffs abhängig zu machen.
+
+Ziel des Gesetzgebers (abgeleitet): Der Gesetzgeber möchte E‑Sport in den Kreis der eindeutig gemeinnützig förderfähigen Aktivitäten aufnehmen und ihn – ähnlich wie zuvor Schach – ausdrücklich als „Sport“ definieren, um die steuerliche Begünstigung, Spendenfähigkeit und institutionelle Förderung (z.B. Vereinsarbeit, Nachwuchsarbeit, Breitensport-/Jugendangebote) im E‑Sport zu erleichtern. Alle übrigen gemeinnützigen Zwecke, die Abgrenzung „Allgemeinheit“ in Absatz 1 sowie die weiteren Nummern des Zweckkatalogs bleiben unverändert; die Reform ist daher eine punktuelle Klarstellung/Erweiterung des Sportzwecks, keine grundlegende Umgestaltung des Gemeinnützigkeitsrechts.
+
+    
+        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten: [{"prozess_id": 10, "prozess_bezeichnung": "Prüfung und Anerkennung der Gemeinnützigkeit bei E‑Sport‑Förderung nach § 52 Abs. 2 Nr. 21 AO", "prozess_beschreibung": "Bearbeitung von Fällen, in denen Körperschaften (z.B. Vereine/Verbände) die Förderung des E‑Sports als gemeinnützigen Zweck geltend machen (Neuantrag/Änderungsantrag/Anlassprüfung). Durch die ausdrückliche Gleichstellung von E‑Sport als Sport entfällt bzw. reduziert sich die bisherige Auslegungs- und Abgrenzungsprüfung des Sportbegriffs; die Prüftätigkeit verlagert sich auf eine überwiegend tatbestandsnahe Prüfung (Satzungszweck, tatsächliche Geschäftsführung, Nachweise) unter dem nun gesetzlich anerkannten Zweck.", "aenderungsstatus": "geaendert", "vorgaben": [{"vorgaben_id": 15, "normzitat": "§ 52 Abs. 2 Nr. 21 AO", "beschreibung": "Klarstellung/Erweiterung des gemeinnützigen Zweckkatalogs: Für die Anwendung des § 52 Abs. 2 Nr. 21 AO gilt E‑Sport (neben Schach) ausdrücklich als Sport. Dadurch können Körperschaften, deren Satzungszweck die Förderung des E‑Sports ist, diesen Zweck unmittelbar als gemeinnützig im Sinne des § 52 AO verfolgen und hierauf gestützte steuerliche Begünstigungen beantragen/beanspruchen, ohne dass es einer unsicheren Einzelfallauslegung des Sportbegriffs bedarf.", "aenderungsstatus": "geaendert", "normadressaten": ["administration", "business"], "ist_informationspflicht_wirtschaft": false}, {"vorgaben_id": 16, "normzitat": "§ 52 Abs. 2 Nr. 21 AO", "beschreibung": "Implizite Verlagerung des Prüfmaßstabs: E‑Sport‑Förderung ist für Zwecke des § 52 Abs. 2 Nr. 21 AO nicht mehr als potenzieller Grenzfall über eine (unsichere) Auslegung des allgemeinen Sportbegriffs zu prüfen, sondern als ausdrücklich erfasster Regelfall. Dadurch ändert sich die behördliche Prüftätigkeit von einer Auslegungs-/Abgrenzungsprüfung hin zu einer überwiegend tatbestandsnahen Prüfung (Satzung/Tätigkeit) unter dem anerkannten Zweck.", "aenderungsstatus": "geaendert", "normadressaten": ["administration"], "ist_informationspflicht_wirtschaft": false}]}]
+        
+
+        Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfüllt, sind dafür sogenannte Fallgruppen zu bilden. 
+        Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Für jede Fallgruppe ist der Erfüllungsaufwand separat zu 
+        ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmöglichkeiten genutzt werden 
+        oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie außerdem den Status an, also ob es sich um entweder eine Einführung, 
+        eine Änderung, oder eine Streichung/Löschung der Fallgruppe handelt.
+
+        Bei Spiegelsituationen ist auf strukturelle Konsistenz mit dem anderen Normadressaten zu achten: Wenn auf beiden Seiten derselbe zugrunde liegende
+        Fall betrachtet wird, sollen die Fallgruppen logisch zueinander passen. Unterschiede sind nur dort auszuweisen, wo sie sich aus unterschiedlichen
+        Verfahrenswegen, unterschiedlichen Betroffenheiten oder unterschiedlichen Rollen des jeweiligen Normadressaten ergeben. Erfinden Sie keine
+        voneinander losgeloesten Fallgruppen fuer denselben Spiegel-Sachverhalt.
+
+        Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
+        Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
+
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
+
+        {
+        "prozesse": [
+            {
+            "prozess_id": "",
+            "prozess_bezeichnung": "",
+            "prozess_beschreibung": "",
+            "aenderungsstatus": "",
+            "vorgaben": [
+                {
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }
+            ], 
+            "fallgruppen": [
+                {
+                    "fallgruppe_bezeichnung": "",
+                    "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                },
+                {
+                    "fallgruppe_bezeichnung": "",
+                    "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                }
+            ]
+            },
+            {
+            "prozess_id": "",
+            "prozess_bezeichnung": "",
+            "prozess_beschreibung": "",
+            "aenderungsstatus": "",
+            "vorgaben": [
+                {
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                },
+                {
+                    "vorgaben_id": "",
+                    "normzitat": "",
+                    "beschreibung": "",
+                    "aenderungsstatus": ""
+                }
+            ], 
+            "fallgruppen": [
+                {
+                    "fallgruppe_bezeichnung": "",
+                    "fallgruppe_beschreibung": "",
+                    "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft"
+                }
+            ]
+            }
+        ]
+        }
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        
+
+Dieser Lauf betrifft den Normadressaten Verwaltung.
+
+        Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Verwaltung. Dazu
+        gehoeren insbesondere Vollzugsaufwand sowie sonstige verwaltungsinterne oder
+        verwaltungsseitig ausgeloeste Taetigkeiten. Uebernehmen Sie keine wirtschaftlichen
+        oder buergerbezogenen Prozesse, Fallgruppen, Taetigkeiten, Fallzahlen oder Werte,
+        sofern diese nicht ausdruecklich als Spiegelwirkung der Verwaltung zuzurechnen sind.
