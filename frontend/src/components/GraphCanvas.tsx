@@ -37,7 +37,6 @@ const TILE_GAP = 64;
 const TILE_HEIGHT = 160;
 const LANE_HEIGHT = 2000;
 const LANE_TOP_OFFSET = 56;
-const TILE_DELETION_ENABLED = false;
 
 
 async function _persistChangedTiles(
@@ -572,7 +571,7 @@ function GraphCanvasInner() {
         data: {
           title: tile.title,
           text: buildTileBodyText(tile),
-          deletable: TILE_DELETION_ENABLED && tile.deletable,
+          deletable: tile.deletable,
           headerMetricLeft: metrics.left,
           headerMetricRight: metrics.right,
           metricTable: buildTileMetricTable(tile),
