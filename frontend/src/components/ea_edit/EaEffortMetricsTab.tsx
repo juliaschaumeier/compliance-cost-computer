@@ -5,6 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import EditorMetricsTable from "@/components/ea_edit/components/EditorMetricsTable";
 import ReviewDiffTable, { ReviewDiffRow } from "@/components/ea_edit/components/ReviewDiffTable";
 import { apiClient } from "@/lib/api";
+import {
+  PayGradeSlot as SharedPayGradeSlot,
+  getColumnLabel as sharedGetColumnLabel,
+} from "@/lib/effortLabels";
 import { logClientError } from "@/lib/errorFeedback";
 import { EditableCaseGroupRow, EditableProcessStepRow, NormAddressee } from "@/types";
 
@@ -27,7 +31,7 @@ type EaEffortMetricsTabProps = {
   onDirtyChange?: (dirty: boolean) => void;
 };
 
-type PayGradeSlot = "a" | "b" | "c" | "d" | "expenses";
+type PayGradeSlot = SharedPayGradeSlot;
 
 const STEP_FIELDS = [
   {
@@ -102,33 +106,7 @@ const STEP_FIELDS = [
   },
 ] as const;
 
-const COLUMN_LABELS_BY_ADDRESSEE: Record<NormAddressee, Record<PayGradeSlot, string>> = {
-  administration: {
-    a: "eD/mD",
-    b: "gD",
-    c: "hD",
-    d: "Ø",
-    expenses: "Sach",
-  },
-  business: {
-    a: "Niedrig",
-    b: "Mittel",
-    c: "Hoch",
-    d: "Ø",
-    expenses: "Sach",
-  },
-  citizens: {
-    a: "Zeit",
-    b: "Reserve B",
-    c: "Reserve C",
-    d: "Reserve D",
-    expenses: "Sach",
-  },
-};
-
-function getColumnLabel(normAddressee: NormAddressee, slot: PayGradeSlot): string {
-  return COLUMN_LABELS_BY_ADDRESSEE[normAddressee][slot];
-}
+const getColumnLabel = sharedGetColumnLabel;
 
 function getReviewLabel(
   normAddressee: NormAddressee,

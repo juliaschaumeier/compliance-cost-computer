@@ -574,7 +574,7 @@ function GraphCanvasInner() {
           deletable: tile.deletable,
           headerMetricLeft: metrics.left,
           headerMetricRight: metrics.right,
-          metricTable: buildTileMetricTable(tile),
+          metricTable: buildTileMetricTable(tile, state.selectedNormAddressee),
           onBodyRef: registerBodyRef,
           onNodeRef: registerNodeRef,
           onDelete: () => handleDelete(tile.id),
@@ -610,6 +610,7 @@ function GraphCanvasInner() {
     overflowIds,
     layout,
     tileHeights,
+    state.selectedNormAddressee,
   ]);
 
   const edges = useMemo(

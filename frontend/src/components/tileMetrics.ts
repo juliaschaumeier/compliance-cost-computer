@@ -1,4 +1,5 @@
-import { Tile } from "@/types";
+import { getColumnLabel } from "@/lib/effortLabels";
+import { NormAddressee, Tile } from "@/types";
 
 export type TileTableRow = {
   label: string;
@@ -345,7 +346,10 @@ export function buildTileHeaderMetrics(
   return { left: null, right: null };
 }
 
-export function buildTileMetricTable(tile: Tile): TileMetricTable | null {
+export function buildTileMetricTable(
+  tile: Tile,
+  normAddressee: NormAddressee = "administration",
+): TileMetricTable | null {
   const meta = tile.meta_information || {};
   if (tile.id.startsWith("case_group_")) {
     const addresseesCurrent = toFiniteNumber(meta.addressees_current);
@@ -391,11 +395,11 @@ export function buildTileMetricTable(tile: Tile): TileMetricTable | null {
       (meta.time_required_current as Record<string, unknown> | undefined) || {};
     const timeProposed =
       (meta.time_required_proposed as Record<string, unknown> | undefined) || {};
-    const rowDefs: Array<{ key: string; label: string }> = [
-      { key: "a", label: "eD/mD" },
-      { key: "b", label: "gD" },
-      { key: "c", label: "hD" },
-      { key: "d", label: "Ø" },
+    const rowDefs: Array<{ key: "a" | "b" | "c" | "d"; label: string }> = [
+      { key: "a", label: getColumnLabel(normAddressee, "a") },
+      { key: "b", label: getColumnLabel(normAddressee, "b") },
+      { key: "c", label: getColumnLabel(normAddressee, "c") },
+      { key: "d", label: getColumnLabel(normAddressee, "d") },
     ];
     const rows: TileTableRow[] = [];
     rowDefs.forEach(({ key, label }) => {
@@ -434,7 +438,7 @@ export function buildTileMetricTable(tile: Tile): TileMetricTable | null {
     const fallbackRows = parseLegacyStepText(tile.text || "").rows;
     const mergedRows = orderRows(
       mergeRows(rows, fallbackRows),
-      ["eD/mD", "gD", "hD", "Ø", "Sachaufwand", "Kosten/Jahr"]
+      [...rowDefs.map((r) => r.label), "Sachaufwand", "Kosten/Jahr"]
     );
     return mergedRows.length > 0 ? { rows: mergedRows } : null;
   }
