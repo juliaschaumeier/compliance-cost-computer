@@ -3,7 +3,94 @@ import sqlite3
 import pytest
 
 from backend.core import config, db
-from backend.core.norm_addressees import BUSINESS, CITIZENS
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+
+
+def test_pragma_foreign_keys_is_enabled_on_every_fresh_connection(tmp_path, monkeypatch):
+    """Defense in depth: _open_connection muss PRAGMA foreign_keys=ON
+    ausnahmslos setzen, sonst sind Cascade-Regeln wirkungslos."""
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "test.db")
+    db.init_db()
+    conn = db.get_conn()
+    try:
+        value = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        assert value == 1
+
+
+    finally:
+        conn.close()
+    # Frische Verbindung erzeugen, ebenfalls FK an
+    fresh = db._open_connection()
+    try:
+        assert fresh.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        fresh.close()
+
+
+def test_session_delete_cascades_regulations_and_processes(tmp_path, monkeypatch):
+    """Systemkritisch: Loeschen einer Session muss alle abhaengigen
+    Rows (Regulations, Prozesse, Fallgruppen, Steps) per Cascade
+    entfernen. Verwaiste Rows wuerden spaetere Kostenberechnungen
+    kontaminieren."""
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "test.db")
+    db.init_db()
+    session_id, _ = db.upsert_session("CASCADE-DELETE", "test-model")
+    regulation_id = db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Vorgabe",
+        applies_to_administration=True,
+        applies_to_business=True,
+    )
+    process_id = db.insert_process(
+        session_id, "Prozess", "Beschreibung", norm_addressee=ADMINISTRATION
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Fallgruppe",
+        "Beschreibung",
+        norm_addressee=ADMINISTRATION,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt",
+        "Beschreibung",
+        norm_addressee=ADMINISTRATION,
+    )
+    assert regulation_id and process_id and case_group_id and step_id
+
+    conn = db.get_conn()
+    try:
+        conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        conn.commit()
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM regulations WHERE session_id = ?", (session_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM processes WHERE session_id = ?", (session_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM case_groups WHERE session_id = ?", (session_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM process_steps WHERE session_id = ?", (session_id,)
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        conn.close()
 
 
 @pytest.fixture
