@@ -313,6 +313,12 @@ def propagate_case_group_edits_to_mirror_targets(
             continue
         if int(source_cgid) not in edited_case_group_ids:
             continue
+        # Race-Schutz: Wenn der Nutzer beide Seiten eines Spiegelpaares
+        # im selben Bulk-Update bearbeitet, darf die Propagation die
+        # direkte Eingabe der Zielseite nicht ueberschreiben. Wir lassen
+        # solche Ziele unveraendert.
+        if int(target_cgid) in edited_case_group_ids:
+            continue
         source_norm_addressee = str(match.get("source_norm_addressee") or "")
         target_norm_addressee = str(match.get("target_norm_addressee") or "")
         if not source_norm_addressee or not target_norm_addressee:
