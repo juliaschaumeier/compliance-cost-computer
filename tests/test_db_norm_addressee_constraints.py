@@ -225,6 +225,17 @@ def test_citizens_effort_trigger_rejects_direct_hourly_rate_updates(tmp_path, mo
         conn.close()
 
 
+def test_get_default_pay_rates_for_business_uses_handbook_overall_defaults(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "business_defaults.db")
+    db.init_db()
+
+    defaults = db.get_default_pay_rates_for_addressee(BUSINESS)
+    assert defaults == {"a": 26.1, "b": 37.1, "c": 62.4, "d": 38.6}
+
+
 def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_addressee_metrics.db")
     db.init_db()

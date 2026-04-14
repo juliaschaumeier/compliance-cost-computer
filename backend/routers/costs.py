@@ -557,7 +557,11 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
     pay_rates = db.get_session_pay_rates(session_id)
     if not pay_rates:
         raise HTTPException(status_code=404, detail="Session pay rates not found")
-    active_rates = pay_rates["active"]
+    active_rates = (
+        pay_rates["active"]
+        if norm_addressee == ADMINISTRATION
+        else db.get_default_pay_rates_for_addressee(norm_addressee)
+    )
     effective_case_groups = [
         db.resolve_effective_case_group_metrics(group) for group in case_groups
     ]

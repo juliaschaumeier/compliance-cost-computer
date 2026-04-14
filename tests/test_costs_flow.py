@@ -441,7 +441,7 @@ def test_compute_costs_allows_business_time_only_inputs_with_active_rates(test_c
         json={"app_session_id": "COST-BUSINESS-TIME-ONLY", "norm_addressee": BUSINESS},
     )
     assert resp.status_code == 200
-    assert resp.json()["total_cost"] == pytest.approx(33.8)
+    assert resp.json()["total_cost"] == pytest.approx(26.1)
 
 
 def test_compute_costs_business_counts_mixed_information_obligation_steps_as_bureaucracy(

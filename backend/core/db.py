@@ -19,6 +19,7 @@ from .models import Tile
 from .norm_addressees import (
     ADMINISTRATION,
     ALL_NORM_ADDRESSEES,
+    BUSINESS,
     SUPPORTED_NORM_ADDRESSEES,
     normalize_norm_addressee,
 )
@@ -37,6 +38,12 @@ PAY_RATE_BUND_DEFAULTS: dict[str, float] = {
     "b": 40.4,
     "c": 67.6,
     "d": 44.4,
+}
+PAY_RATE_BUSINESS_DEFAULTS: dict[str, float] = {
+    "a": 26.1,
+    "b": 37.1,
+    "c": 62.4,
+    "d": 38.6,
 }
 NORM_ADDRESSEE_CHECK_SQL = (
     "CHECK (norm_addressee IN ('administration', 'business', 'citizens'))"
@@ -256,6 +263,22 @@ def _resolve_pay_rate_defaults(
             "d": float(row["hourly_rate_d"]),
         }
     return dict(PAY_RATE_BUND_DEFAULTS)
+
+
+def get_default_pay_rates_for_addressee(
+    norm_addressee: str,
+    administration_level: str | None = None,
+) -> dict[str, float]:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == BUSINESS:
+        return dict(PAY_RATE_BUSINESS_DEFAULTS)
+    if resolved == ADMINISTRATION:
+        conn = get_conn()
+        cur = conn.cursor()
+        defaults = _resolve_pay_rate_defaults(cur, administration_level)
+        _maybe_close(conn)
+        return defaults
+    return {key: 0.0 for key in PAY_RATE_KEYS}
 
 
 def _used_models_expr(session_id_sql: str) -> str:
