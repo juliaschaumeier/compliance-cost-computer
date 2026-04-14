@@ -5,6 +5,13 @@ from backend.core import config, db
 from backend.main import app
 
 
+@pytest.fixture(autouse=True)
+def isolated_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "test.db")
+    db.init_db()
+    yield
+
+
 @pytest.fixture
 def test_client(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "db_path", tmp_path / "test.db")
