@@ -474,6 +474,119 @@ def test_replace_mirror_matches_rejects_inconsistent_reverse_sync_flags(
         )
 
 
+def _seed_step_with_fields(
+    session_id: int,
+    norm_addressee: str,
+    *,
+    hourly_rate_a_current=None,
+    time_required_in_min_a_current=None,
+    expenses_current=None,
+    execution_per_case=None,
+) -> int:
+    process_id = db.insert_process(
+        session_id, f"Prozess {norm_addressee}", "", norm_addressee=norm_addressee
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        f"Fallgruppe {norm_addressee}",
+        "",
+        norm_addressee=norm_addressee,
+    )
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=norm_addressee,
+        addressees_current=10,
+        annual_frequency_current=2,
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
+    )
+    step_id = db.insert_process_step(
+        session_id, case_group_id, f"Schritt {norm_addressee}", "",
+        norm_addressee=norm_addressee,
+    )
+    conn = db.get_conn()
+    conn.execute(
+        """
+        UPDATE process_steps
+        SET hourly_rate_a_current = ?,
+            time_required_in_min_a_current = ?,
+            expenses_current = ?,
+            execution_per_case = ?
+        WHERE step_id = ? AND session_id = ? AND norm_addressee = ?
+        """,
+        (
+            hourly_rate_a_current,
+            time_required_in_min_a_current,
+            expenses_current,
+            execution_per_case,
+            step_id,
+            session_id,
+            norm_addressee,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return step_id
+
+
+def test_has_effort_metrics_rejects_step_with_only_hourly_rate(tmp_path, monkeypatch):
+    """Regression: Ready-Check akzeptierte bisher Steps, die nur hourly_rate_*
+    gesetzt hatten, ohne time oder expenses. Effort-Router meldete dann
+    "existing", compute_costs warf anschliessend 422. Fix: has_effort_metrics
+    schaut auf dieselben Felder wie _has_step_cost_inputs."""
+    monkeypatch.setattr(
+        config.settings, "db_path", tmp_path / "ready_only_rate.db"
+    )
+    db.init_db()
+    session_id, _ = db.upsert_session("READY-RATE", "test-model")
+    _seed_step_with_fields(
+        session_id, ADMINISTRATION, hourly_rate_a_current=50.0
+    )
+    assert db.has_effort_metrics(session_id, ADMINISTRATION) is False
+
+
+def test_has_effort_metrics_rejects_step_with_only_execution_per_case(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        config.settings, "db_path", tmp_path / "ready_only_exec.db"
+    )
+    db.init_db()
+    session_id, _ = db.upsert_session("READY-EXEC", "test-model")
+    _seed_step_with_fields(
+        session_id, BUSINESS, execution_per_case=True
+    )
+    assert db.has_effort_metrics(session_id, BUSINESS) is False
+
+
+def test_has_effort_metrics_accepts_step_with_time_only(tmp_path, monkeypatch):
+    """Positiv: Ein Step mit gesetzter Zeit (ohne expenses) ist ready."""
+    monkeypatch.setattr(
+        config.settings, "db_path", tmp_path / "ready_time_only.db"
+    )
+    db.init_db()
+    session_id, _ = db.upsert_session("READY-TIME", "test-model")
+    _seed_step_with_fields(
+        session_id, CITIZENS, time_required_in_min_a_current=30.0
+    )
+    assert db.has_effort_metrics(session_id, CITIZENS) is True
+
+
+def test_has_effort_metrics_accepts_step_with_expenses_only(tmp_path, monkeypatch):
+    """Positiv: Ein Step mit nur expenses (z.B. Porto) ist ready."""
+    monkeypatch.setattr(
+        config.settings, "db_path", tmp_path / "ready_expenses_only.db"
+    )
+    db.init_db()
+    session_id, _ = db.upsert_session("READY-EXP", "test-model")
+    _seed_step_with_fields(
+        session_id, CITIZENS, expenses_current=5.0
+    )
+    assert db.has_effort_metrics(session_id, CITIZENS) is True
+
+
 def test_delete_case_groups_for_session_preserves_unrelated_mirror_matches(
     tmp_path, monkeypatch
 ):

@@ -1877,27 +1877,27 @@ def has_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) ->
         (session_id, resolved),
     )
     total_steps = int(cur.fetchone()["total_count"] or 0)
+    # Ready-Check MUSS auf dieselben Felder schauen, die _has_step_cost_inputs
+    # in costs.py fordert, sonst meldet die Pipeline faelschlich "fertig",
+    # effort.py skippt die Neuberechnung, und compute_costs wirft 422.
+    # hourly_rate und execution_per_case sind allein nicht kostenrelevant
+    # (Rate kommt ggf. aus active_rates, execution_per_case ist Metadaten).
     cur.execute(
         """
         SELECT COUNT(*) AS count
         FROM process_steps
         WHERE session_id = ? AND norm_addressee = ?
           AND (
-            hourly_rate_a_current IS NOT NULL OR hourly_rate_b_current IS NOT NULL
-            OR hourly_rate_c_current IS NOT NULL OR hourly_rate_d_current IS NOT NULL
-            OR time_required_in_min_a_current IS NOT NULL
+            time_required_in_min_a_current IS NOT NULL
             OR time_required_in_min_b_current IS NOT NULL
             OR time_required_in_min_c_current IS NOT NULL
             OR time_required_in_min_d_current IS NOT NULL
-            OR expenses_current IS NOT NULL
-            OR hourly_rate_a_proposed IS NOT NULL OR hourly_rate_b_proposed IS NOT NULL
-            OR hourly_rate_c_proposed IS NOT NULL OR hourly_rate_d_proposed IS NOT NULL
             OR time_required_in_min_a_proposed IS NOT NULL
             OR time_required_in_min_b_proposed IS NOT NULL
             OR time_required_in_min_c_proposed IS NOT NULL
             OR time_required_in_min_d_proposed IS NOT NULL
+            OR expenses_current IS NOT NULL
             OR expenses_proposed IS NOT NULL
-            OR execution_per_case IS NOT NULL
           )
         """,
         (session_id, resolved),
