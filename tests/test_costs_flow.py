@@ -734,6 +734,8 @@ def test_compute_costs_citizens_ignores_persisted_hourly_rates(test_client):
 
     conn = db.get_conn()
     try:
+        conn.execute("DROP TRIGGER IF EXISTS trg_process_steps_citizens_no_hourly_rates_ai")
+        conn.execute("DROP TRIGGER IF EXISTS trg_process_steps_citizens_no_hourly_rates_au")
         conn.execute(
             """
             UPDATE process_steps

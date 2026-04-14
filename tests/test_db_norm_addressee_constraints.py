@@ -180,6 +180,51 @@ def test_citizens_effort_rejects_hourly_rates(tmp_path, monkeypatch):
         )
 
 
+def test_citizens_effort_trigger_rejects_direct_hourly_rate_updates(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "citizens_rates_trigger.db")
+    db.init_db()
+
+    session_id, _ = db.upsert_session("CITIZENS-RATES-TRIGGER", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Buergerprozess",
+        "Beschreibung",
+        norm_addressee=CITIZENS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Fallgruppe",
+        "Beschreibung",
+        norm_addressee=CITIZENS,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt",
+        "Beschreibung",
+        norm_addressee=CITIZENS,
+    )
+
+    conn = db.get_conn()
+    try:
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="Citizens process steps must not persist hourly rates",
+        ):
+            conn.execute(
+                """
+                UPDATE process_steps
+                SET hourly_rate_a_proposed = 999
+                WHERE session_id = ? AND step_id = ? AND norm_addressee = 'citizens'
+                """,
+                (session_id, step_id),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+
 def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_addressee_metrics.db")
     db.init_db()

@@ -316,6 +316,53 @@ def _create_used_models_triggers(cur: sqlite3.Cursor) -> None:
     )
 
 
+def _create_citizens_hourly_rate_triggers(cur: sqlite3.Cursor) -> None:
+    """Prevent persisted hourly rates for citizens rows in process_steps."""
+    citizen_rate_guard = """
+        NEW.norm_addressee = 'citizens'
+        AND (
+            NEW.hourly_rate_a_current IS NOT NULL
+            OR NEW.hourly_rate_b_current IS NOT NULL
+            OR NEW.hourly_rate_c_current IS NOT NULL
+            OR NEW.hourly_rate_d_current IS NOT NULL
+            OR NEW.hourly_rate_a_proposed IS NOT NULL
+            OR NEW.hourly_rate_b_proposed IS NOT NULL
+            OR NEW.hourly_rate_c_proposed IS NOT NULL
+            OR NEW.hourly_rate_d_proposed IS NOT NULL
+        )
+    """
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_process_steps_citizens_no_hourly_rates_ai
+        AFTER INSERT ON process_steps
+        WHEN {citizen_rate_guard}
+        BEGIN
+            SELECT RAISE(ABORT, 'Citizens process steps must not persist hourly rates');
+        END
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_process_steps_citizens_no_hourly_rates_au
+        AFTER UPDATE OF
+            norm_addressee,
+            hourly_rate_a_current,
+            hourly_rate_b_current,
+            hourly_rate_c_current,
+            hourly_rate_d_current,
+            hourly_rate_a_proposed,
+            hourly_rate_b_proposed,
+            hourly_rate_c_proposed,
+            hourly_rate_d_proposed
+        ON process_steps
+        WHEN {citizen_rate_guard}
+        BEGIN
+            SELECT RAISE(ABORT, 'Citizens process steps must not persist hourly rates');
+        END
+        """
+    )
+
+
 def _refresh_all_session_used_models(cur: sqlite3.Cursor) -> None:
     """Migration helper: one-off backfill for existing sessions rows.
 
@@ -1351,6 +1398,7 @@ def init_db() -> None:
     )
     _migrate_tile_tables_to_norm_addressee(cur)
     _create_used_models_triggers(cur)
+    _create_citizens_hourly_rate_triggers(cur)
     _maybe_commit(conn)
     _maybe_close(conn)
 
