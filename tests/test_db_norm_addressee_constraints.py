@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from backend.core import config, db
-from backend.core.norm_addressees import CITIZENS
+from backend.core.norm_addressees import BUSINESS, CITIZENS
 
 
 @pytest.fixture
