@@ -3640,10 +3640,6 @@ def upsert_process_step_cost_by_addressee(
     norm_addressee: str,
     cost_current: float | None,
     cost_proposed: float | None,
-    bureaucracy_cost_current: float | None = None,
-    bureaucracy_cost_proposed: float | None = None,
-    other_cost_current: float | None = None,
-    other_cost_proposed: float | None = None,
 ) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()

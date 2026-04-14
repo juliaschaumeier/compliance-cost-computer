@@ -1,8 +1,28 @@
+import inspect
+
 import pytest
 
 from backend.core import db
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+
+
+def test_upsert_process_step_cost_by_addressee_has_no_dead_breakdown_params():
+    """Regression: Die Funktion hatte tote Parameter bureaucracy_cost_* /
+    other_cost_*, die vom UPDATE ignoriert wurden (entsprechende Spalten
+    existieren nicht im process_steps-Schema). Die Bürokratiekosten-
+    Aggregation läuft ausschließlich auf Session-Ebene
+    (session_total_costs_by_addressee.bureaucracy_cost). Signatur darf
+    keine versteckten Kostenaufteilungs-Parameter zurückbringen, bevor
+    ein konkreter Step-Level-Consumer existiert."""
+    params = set(inspect.signature(db.upsert_process_step_cost_by_addressee).parameters)
+    assert params == {
+        "session_id",
+        "step_id",
+        "norm_addressee",
+        "cost_current",
+        "cost_proposed",
+    }
 
 
 def _seed_flow(session_id: int) -> dict:

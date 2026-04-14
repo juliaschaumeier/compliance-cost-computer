@@ -428,10 +428,6 @@ def _persist_step_costs(
             norm_addressee,
             cost_current,
             cost_proposed,
-            step_bureaucracy_current[step_id],
-            step_bureaucracy_proposed[step_id],
-            cost_current - step_bureaucracy_current[step_id],
-            cost_proposed - step_bureaucracy_proposed[step_id],
         )
 
 
