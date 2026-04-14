@@ -236,7 +236,7 @@ def test_get_default_pay_rates_for_business_uses_handbook_overall_defaults(
     assert defaults == {"a": 26.1, "b": 37.1, "c": 62.4, "d": 38.6}
 
 
-def test_get_session_pay_rates_for_business_uses_non_editable_business_defaults(
+def test_get_session_pay_rates_for_business_uses_editable_business_defaults(
     tmp_path,
     monkeypatch,
 ):
@@ -248,7 +248,7 @@ def test_get_session_pay_rates_for_business_uses_non_editable_business_defaults(
 
     assert pay_rates is not None
     assert pay_rates["norm_addressee"] == BUSINESS
-    assert pay_rates["editable"] is False
+    assert pay_rates["editable"] is True
     assert pay_rates["administration_level"] is None
     assert pay_rates["defaults"] == {"a": 26.1, "b": 37.1, "c": 62.4, "d": 38.6}
     assert pay_rates["edited"] == {"a": None, "b": None, "c": None, "d": None}

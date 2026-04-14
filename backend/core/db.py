@@ -20,6 +20,7 @@ from .norm_addressees import (
     ADMINISTRATION,
     ALL_NORM_ADDRESSEES,
     BUSINESS,
+    CITIZENS,
     SUPPORTED_NORM_ADDRESSEES,
     normalize_norm_addressee,
 )
