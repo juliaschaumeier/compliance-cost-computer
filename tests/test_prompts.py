@@ -120,7 +120,7 @@ def test_cases_calculation_prompt_skips_citizens_case_example_for_administration
     assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" not in prompt
 
 
-def test_process_compilation_prompt_includes_structured_mirror_context_from_session():
+def test_process_compilation_prompt_includes_structured_mirror_context_from_session(enable_mirror_feature):
     session_id, _ = db.upsert_session("PROMPT-MIRROR-PROCESS", "test-model")
     business_regulation_id = db.insert_regulation(
         session_id,

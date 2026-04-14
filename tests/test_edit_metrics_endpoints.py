@@ -297,7 +297,7 @@ def test_case_groups_editable_and_bulk_update(test_client):
     assert after_row["cases_proposed_effective"] == 60
 
 
-def test_case_groups_bulk_update_propagates_to_mirror_targets(test_client):
+def test_case_groups_bulk_update_propagates_to_mirror_targets(test_client, enable_mirror_feature):
     """Regression: wenn eine mirror-source Fallgruppe editiert wird, muss
     sich die Fallzahl/Adressatenzahl auf die mirror-target Fallgruppe
     propagieren (sync_cases=True). Ohne Propagation laufen Quelle und

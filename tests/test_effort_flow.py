@@ -431,7 +431,7 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
     assert payload["steps_updated"] == 0
 
 
-def test_calculate_effort_syncs_exact_mirror_case_group_metrics(test_client, monkeypatch):
+def test_calculate_effort_syncs_exact_mirror_case_group_metrics(test_client, monkeypatch, enable_mirror_feature):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-SYNC", "test-model")
 
     admin_regulation_id = db.insert_regulation(
@@ -606,7 +606,7 @@ def test_calculate_effort_syncs_exact_mirror_case_group_metrics(test_client, mon
 
 
 def test_calculate_effort_syncs_exact_mirror_case_group_metrics_into_administration(
-    test_client, monkeypatch
+    test_client, monkeypatch, enable_mirror_feature
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-SYNC-ADMIN", "test-model")
 
@@ -783,7 +783,7 @@ def test_calculate_effort_syncs_exact_mirror_case_group_metrics_into_administrat
 
 
 def test_calculate_effort_syncs_exact_mirror_case_group_metrics_from_citizens_into_administration(
-    test_client, monkeypatch
+    test_client, monkeypatch, enable_mirror_feature
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-SYNC-CITIZENS-ADMIN", "test-model")
 
@@ -962,7 +962,7 @@ def test_calculate_effort_syncs_exact_mirror_case_group_metrics_from_citizens_in
 
 
 def test_calculate_effort_syncs_exact_mirror_case_group_metrics_from_citizens_into_business(
-    test_client, monkeypatch
+    test_client, monkeypatch, enable_mirror_feature
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-SYNC-CITIZENS-BUSINESS", "test-model")
 
@@ -1702,7 +1702,7 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
 
 
 def test_calculate_effort_rejects_mirror_cases_without_explicit_match(
-    test_client, monkeypatch
+    test_client, monkeypatch, enable_mirror_feature
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-NO-IMPLICIT-SYNC", "test-model")
 
@@ -1846,7 +1846,7 @@ def test_calculate_effort_rejects_mirror_cases_without_explicit_match(
 
 
 def test_calculate_effort_replaces_stale_mirror_matches_before_sync(
-    test_client, monkeypatch
+    test_client, monkeypatch, enable_mirror_feature
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-STALE", "test-model")
 
@@ -2158,7 +2158,7 @@ def test_parse_mirror_matching_payload_rejects_unknown_case_group_ids():
 
 
 def test_calculate_effort_rejects_sync_cases_match_without_source_metrics(
-    test_client, monkeypatch
+    test_client, monkeypatch, enable_mirror_feature
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-MISSING-SOURCE-METRICS", "test-model")
 
@@ -2317,7 +2317,7 @@ def test_calculate_effort_rejects_sync_cases_match_without_source_metrics(
 
 
 def test_calculate_effort_rejects_missing_mirror_matches_for_mirrored_addressee(
-    test_client, monkeypatch
+    test_client, monkeypatch, enable_mirror_feature
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-MATCHING-REQUIRED", "test-model")
 
