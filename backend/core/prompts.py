@@ -537,11 +537,20 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         um Rechtsverstöße oder den Verlust von Ansprüchen zu vermeiden. Auch Regelungen, die nur Ziele, Grenzwerte oder förderbedingte Verhaltensänderungen 
         vorgeben, gelten als Vorgaben, wenn sie direkt Aufwand auslösen.
 
-        Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum Teil neben  Ge- oder Verboten lediglich Ziele oder Grenzwerte festlegt 
-        oder zum Beispiel durch staatliche Förderungen Verhaltensänderungen erreichen will. Auch solche Einzelregelungen sind  als Vorgaben zu verstehen, weil 
+        Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum Teil neben  Ge- oder Verboten lediglich Ziele oder Grenzwerte festlegt
+        oder zum Beispiel durch staatliche Förderungen Verhaltensänderungen erreichen will. Auch solche Einzelregelungen sind  als Vorgaben zu verstehen, weil
         sie unmittelbar zur Änderung von Kosten bzw. Zeitaufwand  bei den Normadressaten führen.
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
+        Wichtig fuer den Normadressaten `administration` (Verwaltung): Uebersehen Sie die Verwaltung nicht. Pruefen Sie bei jeder Vorgabe ausdruecklich,
+        ob sie der zustaendigen Behoerde einen konkreten Vollzugsauftrag auferlegt – typische Auslöser sind Antrags-, Anzeige-, Genehmigungs-,
+        Anerkennungs-, Melde-, Register- oder Nachweisverfahren, laufende Aufsicht und Kontrollen, anlassbezogene Einzelfallpruefungen,
+        Bescheidung und Rechtsbehelfsverfahren, Auszahlungs- oder Foerderverfahren sowie einmalige interne Umstellungen (IT, Formulare,
+        Schulung). Wenn die Erfuellung einer Vorgabe durch Wirtschaft oder Buergerinnen/Buerger praktisch nur moeglich ist, weil die
+        Verwaltung etwas pruefen, bescheiden, registrieren, kontrollieren oder auszahlen muss, ist `administration` zusaetzlich als
+        betroffener Normadressat auszuweisen und die Vorgabe als Spiegelsituation zu kennzeichnen. Ein bloss mittelbarer Mehraufwand ohne
+        konkreten Vollzugsauftrag ist hingegen nicht der Verwaltung zuzuordnen – erfinden Sie keine Verwaltungsvorgaben, wo keine sind.
+
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
 
         {{
           "vorgaben": [

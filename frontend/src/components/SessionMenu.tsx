@@ -252,10 +252,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     try {
       resetStatus();
       setIsUndoing(true);
-      const result = await apiClient.undoLastStep(
-        state.appSessionId,
-        state.selectedNormAddressee
-      );
+      const result = await apiClient.undoLastStep(state.appSessionId);
       if (result.status === "no-op") {
         setStatus("Kein Schritt zum Zurücksetzen vorhanden.");
         return;

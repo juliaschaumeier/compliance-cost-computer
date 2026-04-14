@@ -13,14 +13,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
-from backend.core import db, llm_monitor
+from backend.core import db, llm_monitor, llm_trace
 from backend.core.config import settings
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
-    get_last_completed_step_for_norm_addressee,
     undo_step,
 )
 from backend.routers._llm_router_utils import ensure_session_or_400
@@ -54,7 +53,6 @@ class SessionUpsertRequest(BaseModel):
 
 class SessionUndoRequest(BaseModel):
     app_session_id: AppSessionId
-    norm_addressee: str | None = None
 
 
 class SessionUpsertResponse(BaseModel):
@@ -922,22 +920,13 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
-    norm_addressee = (
-        normalize_norm_addressee_or_422(payload.norm_addressee)
-        if payload.norm_addressee is not None
-        else None
-    )
 
-    step = (
-        get_last_completed_step_for_norm_addressee(session_id, norm_addressee)
-        if norm_addressee is not None
-        else get_last_completed_step(status)
-    )
+    step = get_last_completed_step(status)
     if not step:
         return SessionUndoResponse(status="no-op", message="No completed steps")
 
     with db.transaction():
-        undo_step(session_id, step.key, norm_addressee=norm_addressee)
+        undo_step(session_id, step.key)
 
     return SessionUndoResponse(
         status="ok",
@@ -952,6 +941,14 @@ async def _run_all_background(
     api_keys: ApiKeys,
     model: str,
 ) -> None:
+    trace_token = None
+    if llm_trace.trace_enabled_by_env():
+        trace_token = llm_trace.start_run(
+            request_id=run_id,
+            route_method="BACKGROUND",
+            route_path=f"/sessions/{payload.app_session_id}/run-all",
+            app_session_id=payload.app_session_id,
+        )
     lock = _get_run_all_lock(payload.app_session_id)
     try:
         start_record = await _get_run_record(run_id)
@@ -1003,6 +1000,11 @@ async def _run_all_background(
             },
         )
         await _trim_finished_runs()
+        if trace_token is not None:
+            try:
+                llm_trace.flush_run(trace_token, status_code=499)
+            except Exception:
+                pass
         return
     except Exception as exc:
         final_status: SessionStatusResponse | None = None
@@ -1033,6 +1035,11 @@ async def _run_all_background(
             },
         )
         await _trim_finished_runs()
+        if trace_token is not None:
+            try:
+                llm_trace.flush_run(trace_token, status_code=500)
+            except Exception:
+                pass
         return
 
     async with _RUN_REGISTRY_LOCK:
@@ -1053,6 +1060,11 @@ async def _run_all_background(
         _run_snapshot_payload(record_after),
     )
     await _trim_finished_runs()
+    if trace_token is not None:
+        try:
+            llm_trace.flush_run(trace_token, status_code=200 if ok else 500)
+        except Exception:
+            pass
 
 
 @router.post("/run-all/start", response_model=SessionRunAllStartResponse)

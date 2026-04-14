@@ -315,8 +315,7 @@ export const apiClient = {
   },
 
   async undoLastStep(
-    appSessionId: string,
-    normAddressee?: NormAddressee
+    appSessionId: string
   ): Promise<UndoStepResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions/undo`, {
       method: "POST",
@@ -325,7 +324,6 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: appSessionId,
-        norm_addressee: normAddressee,
       }),
     });
     if (!response.ok) {

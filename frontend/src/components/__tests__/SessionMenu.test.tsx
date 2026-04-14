@@ -145,6 +145,6 @@ describe("SessionMenu", () => {
     await waitFor(() =>
       expect(mockRebuildTiles).toHaveBeenCalledWith("ABC123", "business")
     );
-    expect(mockUndoLastStep).toHaveBeenCalledWith("ABC123", "business");
+    expect(mockUndoLastStep).toHaveBeenCalledWith("ABC123");
   });
 });

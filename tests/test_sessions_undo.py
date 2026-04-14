@@ -344,7 +344,7 @@ def test_undo_effort_invalidates_llm_answers_instead_of_deleting(test_client):
     assert all(row["state_reason"] == "session_reverted" for row in rows)
 
 
-def test_undo_effort_scopes_to_selected_norm_addressee(test_client):
+def test_undo_effort_clears_all_norm_addressees(test_client):
     admin = _seed_flow_for_addressee("UNDO-EFFORT-SCOPED", ADMINISTRATION)
     business = _seed_flow_for_addressee("UNDO-EFFORT-SCOPED", BUSINESS)
     session_id = admin["session_id"]
@@ -388,66 +388,42 @@ def test_undo_effort_scopes_to_selected_norm_addressee(test_client):
 
     resp = test_client.post(
         "/sessions/undo",
-        json={"app_session_id": "UNDO-EFFORT-SCOPED", "norm_addressee": BUSINESS},
+        json={"app_session_id": "UNDO-EFFORT-SCOPED"},
     )
     assert resp.status_code == 200
     assert resp.json()["undone_step"] == "effort"
 
     conn = db.get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT addressees_proposed, annual_frequency_proposed
-        FROM case_groups
-        WHERE case_group_id = ?
-        """,
-        (admin["case_group_id"],),
-    )
-    admin_group = cur.fetchone()
-    assert admin_group["addressees_proposed"] == 10
-    assert admin_group["annual_frequency_proposed"] == 2
+    for seed in (admin, business):
+        cur.execute(
+            """
+            SELECT addressees_proposed, annual_frequency_proposed
+            FROM case_groups
+            WHERE case_group_id = ?
+            """,
+            (seed["case_group_id"],),
+        )
+        row = cur.fetchone()
+        assert row["addressees_proposed"] is None
+        assert row["annual_frequency_proposed"] is None
 
-    cur.execute(
-        """
-        SELECT addressees_proposed, annual_frequency_proposed
-        FROM case_groups
-        WHERE case_group_id = ?
-        """,
-        (business["case_group_id"],),
-    )
-    business_group = cur.fetchone()
-    assert business_group["addressees_proposed"] is None
-    assert business_group["annual_frequency_proposed"] is None
-
-    cur.execute(
-        """
-        SELECT hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed
-        FROM process_steps
-        WHERE step_id = ?
-        """,
-        (admin["step_id"],),
-    )
-    admin_step = cur.fetchone()
-    assert admin_step["hourly_rate_a_proposed"] == 40
-    assert admin_step["time_required_in_min_a_proposed"] == 30
-    assert admin_step["expenses_proposed"] == 5
-
-    cur.execute(
-        """
-        SELECT hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed
-        FROM process_steps
-        WHERE step_id = ?
-        """,
-        (business["step_id"],),
-    )
-    business_step = cur.fetchone()
-    assert business_step["hourly_rate_a_proposed"] is None
-    assert business_step["time_required_in_min_a_proposed"] is None
-    assert business_step["expenses_proposed"] is None
+        cur.execute(
+            """
+            SELECT hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed
+            FROM process_steps
+            WHERE step_id = ?
+            """,
+            (seed["step_id"],),
+        )
+        step = cur.fetchone()
+        assert step["hourly_rate_a_proposed"] is None
+        assert step["time_required_in_min_a_proposed"] is None
+        assert step["expenses_proposed"] is None
     conn.close()
 
 
-def test_undo_total_cost_scopes_to_selected_norm_addressee(test_client):
+def test_undo_total_cost_clears_all_norm_addressees(test_client):
     admin = _seed_flow_for_addressee("UNDO-COST-SCOPED", ADMINISTRATION)
     business = _seed_flow_for_addressee("UNDO-COST-SCOPED", BUSINESS)
     session_id = admin["session_id"]
@@ -479,7 +455,7 @@ def test_undo_total_cost_scopes_to_selected_norm_addressee(test_client):
 
     resp = test_client.post(
         "/sessions/undo",
-        json={"app_session_id": "UNDO-COST-SCOPED", "norm_addressee": BUSINESS},
+        json={"app_session_id": "UNDO-COST-SCOPED"},
     )
     assert resp.status_code == 200
     assert resp.json()["undone_step"] == "total_cost"
@@ -487,17 +463,14 @@ def test_undo_total_cost_scopes_to_selected_norm_addressee(test_client):
     conn = db.get_conn()
     cur = conn.cursor()
     cur.execute("SELECT cc_cost FROM sessions WHERE session_id = ?", (session_id,))
-    assert cur.fetchone()["cc_cost"] == 50
-    admin_totals = db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION)
-    assert admin_totals is not None
-    assert admin_totals["total_cost"] == 50
+    assert cur.fetchone()["cc_cost"] is None
+    assert db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION) is None
     assert db.get_session_total_costs_by_addressee(session_id, BUSINESS) is None
 
-    cur.execute("SELECT cost FROM processes WHERE process_id = ?", (admin["process_id"],))
-    assert cur.fetchone()["cost"] == 50
-    cur.execute(
-        "SELECT cost FROM processes WHERE process_id = ?",
-        (business["process_id"],),
-    )
-    assert cur.fetchone()["cost"] is None
+    for seed in (admin, business):
+        cur.execute(
+            "SELECT cost FROM processes WHERE process_id = ?",
+            (seed["process_id"],),
+        )
+        assert cur.fetchone()["cost"] is None
     conn.close()
