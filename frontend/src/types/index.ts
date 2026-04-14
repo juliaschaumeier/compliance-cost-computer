@@ -290,7 +290,13 @@ export interface EffortCalculationResponse {
 }
 
 export interface TotalCostResponse {
-  total_cost: number;
+  norm_addressee?: NormAddressee;
+  total_cost: number | null;
+  bureaucracy_cost?: number | null;
+  other_cost?: number | null;
+  total_time_minutes?: number | null;
+  total_time_hours?: number | null;
+  total_expenses?: number | null;
 }
 
 export interface SessionPayRatesResponse {

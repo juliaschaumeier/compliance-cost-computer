@@ -22,7 +22,6 @@ from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
     CITIZENS,
-    normalize_norm_addressee,
 )
 from backend.core.parsing import parse_first_int, parse_optional_number
 from backend.core.payload_builders import (
@@ -33,6 +32,7 @@ from backend.core.payload_builders import (
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.tile_refresh import refresh_case_group_tiles, refresh_step_tiles
 from backend.routers._llm_router_utils import ensure_session_or_400
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 
 
 router = APIRouter(prefix="/effort", tags=["effort"])
@@ -471,7 +471,7 @@ async def calculate_effort(
         payload.model,
     )
 
-    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
     processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
     regulations = db.list_regulations_for_session_and_addressee(
         session_id,
@@ -483,12 +483,17 @@ async def calculate_effort(
     )
     steps = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
     if not case_groups and norm_addressee != ADMINISTRATION:
-        return {
-            "status": "skipped",
-            "case_groups_updated": 0,
-            "steps_updated": 0,
-            "norm_addressee": norm_addressee,
-        }
+        if not db.has_applicable_regulations_for_addressee(session_id, norm_addressee):
+            return {
+                "status": "skipped",
+                "case_groups_updated": 0,
+                "steps_updated": 0,
+                "norm_addressee": norm_addressee,
+            }
+        raise HTTPException(
+            status_code=400,
+            detail="No case groups for selected norm addressee",
+        )
     if not case_groups:
         raise HTTPException(status_code=400, detail="No case groups for session")
     if not steps:

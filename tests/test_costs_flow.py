@@ -2,6 +2,7 @@ import pytest
 
 from backend.core import db
 from backend.core.models import Tile
+from backend.core.norm_addressees import BUSINESS
 
 
 def _seed_flow(session_id: int) -> dict:
@@ -344,3 +345,302 @@ def test_compute_costs_allows_admin_time_only_inputs_with_active_rates(test_clie
     )
     assert resp.status_code == 200
     assert resp.json()["total_cost"] == pytest.approx(33.8)
+
+
+def test_compute_costs_business_bureaucracy_requires_consistent_information_obligation(
+    test_client,
+):
+    session_id, _ = db.upsert_session("COST-BUSINESS-MIXED", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Business Process",
+        "Beschreibung Prozess",
+        norm_addressee=BUSINESS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Business Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=BUSINESS,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Business Step",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+
+    regulation_info = db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Informationspflicht",
+        applies_to_administration=False,
+        applies_to_business=True,
+        is_business_information_obligation=True,
+    )
+    regulation_other = db.insert_regulation(
+        session_id,
+        "§ 2",
+        "Sonstige Vorgabe",
+        applies_to_administration=False,
+        applies_to_business=True,
+        is_business_information_obligation=False,
+    )
+    assert db.update_regulation_process(
+        regulation_id=regulation_info,
+        process_id=process_id,
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=regulation_other,
+        process_id=process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    db.upsert_tile(
+        Tile(
+            id=f"process_{process_id}",
+            title="Business Process",
+            text="Beschreibung Prozess",
+            meta_information={"process_id": process_id},
+            column=2,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Business Case Group",
+            text="Beschreibung Fallgruppe",
+            meta_information={"case_group_id": case_group_id, "process_id": process_id},
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"process_{process_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"step_{step_id}",
+            title="Business Step",
+            text="Beschreibung Schritt",
+            meta_information={"step_id": step_id, "case_group_id": case_group_id},
+            column=4,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"case_group_{case_group_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+    )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=40,
+    )
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-BUSINESS-MIXED", "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total_cost"] == pytest.approx(100.0)
+    assert payload["bureaucracy_cost"] == pytest.approx(0.0)
+    assert payload["other_cost"] == pytest.approx(100.0)
+
+
+def test_compute_costs_rejects_invalid_norm_addressee(test_client):
+    session_id, _ = db.upsert_session("COST-INVALID-ADDRESSEE", "test-model")
+    _seed_flow(session_id)
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={
+            "app_session_id": "COST-INVALID-ADDRESSEE",
+            "norm_addressee": "verwaltung",
+        },
+    )
+    assert resp.status_code == 422
+    assert "Unsupported norm_addressee" in resp.json()["detail"]
+
+
+def test_compute_costs_business_uses_explicit_step_regulation_links_for_bureaucracy(
+    test_client,
+):
+    session_id, _ = db.upsert_session("COST-BUSINESS-STEP-LINKS", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Business Process",
+        "Beschreibung Prozess",
+        norm_addressee=BUSINESS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Business Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=BUSINESS,
+    )
+    step_info = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Info Step",
+        "Beschreibung Info",
+        norm_addressee=BUSINESS,
+    )
+    step_other = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Other Step",
+        "Beschreibung Other",
+        previous_id=step_info,
+        norm_addressee=BUSINESS,
+    )
+    db.update_process_step_next(step_info, step_other)
+
+    regulation_info = db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Informationspflicht",
+        applies_to_administration=False,
+        applies_to_business=True,
+        is_business_information_obligation=True,
+    )
+    regulation_other = db.insert_regulation(
+        session_id,
+        "§ 2",
+        "Materielle Pflicht",
+        applies_to_administration=False,
+        applies_to_business=True,
+        is_business_information_obligation=False,
+    )
+    assert db.update_regulation_process(
+        regulation_id=regulation_info,
+        process_id=process_id,
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=regulation_other,
+        process_id=process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    for tile_id, title, link_from, column, meta in (
+        (
+            f"process_{process_id}",
+            "Business Process",
+            [],
+            2,
+            {"process_id": process_id},
+        ),
+        (
+            f"case_group_{case_group_id}",
+            "Business Case Group",
+            [f"process_{process_id}"],
+            3,
+            {"case_group_id": case_group_id, "process_id": process_id},
+        ),
+        (
+            f"step_{step_info}",
+            "Info Step",
+            [f"case_group_{case_group_id}"],
+            4,
+            {"step_id": step_info, "case_group_id": case_group_id},
+        ),
+        (
+            f"step_{step_other}",
+            "Other Step",
+            [f"step_{step_info}"],
+            5,
+            {"step_id": step_other, "case_group_id": case_group_id},
+        ),
+    ):
+        db.upsert_tile(
+            Tile(
+                id=tile_id,
+                title=title,
+                text=title,
+                meta_information=meta,
+                column=column,
+                row=0,
+                deletable=True,
+                link_from_tile=link_from,
+            ),
+            session_id=session_id,
+            norm_addressee=BUSINESS,
+        )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_info,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=40,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_other,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 60, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=10,
+    )
+    db.replace_process_step_regulation_links(
+        session_id,
+        step_info,
+        BUSINESS,
+        [regulation_info],
+    )
+    db.replace_process_step_regulation_links(
+        session_id,
+        step_other,
+        BUSINESS,
+        [regulation_other],
+    )
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-BUSINESS-STEP-LINKS", "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total_cost"] == pytest.approx(140.0)
+    assert payload["bureaucracy_cost"] == pytest.approx(100.0)
+    assert payload["other_cost"] == pytest.approx(40.0)

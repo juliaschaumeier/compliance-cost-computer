@@ -10,9 +10,9 @@ from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
     CITIZENS,
-    normalize_norm_addressee,
 )
 from backend.core.tile_refresh import refresh_case_group_tiles, refresh_step_tiles
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 
 
 router = APIRouter(prefix="/costs", tags=["costs"])
@@ -129,11 +129,22 @@ def _load_structure_rows(session_id: int, norm_addressee: str) -> tuple[list[dic
     return processes, case_groups, steps
 
 
-def _list_business_information_process_ids(session_id: int, norm_addressee: str) -> set[int]:
-    return {
-        int(row["process_id"])
+def _list_business_information_step_ids(session_id: int, norm_addressee: str) -> set[int]:
+    business_regulation_ids = {
+        int(row["regulation_id"])
         for row in db.list_regulations_for_session_and_addressee(session_id, norm_addressee)
-        if row.get("process_id") is not None and bool(row.get("is_business_information_obligation"))
+        if bool(row.get("is_business_information_obligation"))
+    }
+    if not business_regulation_ids:
+        return set()
+    regulation_ids_by_step = db.get_process_step_regulation_ids_by_step(
+        session_id,
+        norm_addressee,
+    )
+    return {
+        step_id
+        for step_id, regulation_ids in regulation_ids_by_step.items()
+        if regulation_ids and all(regulation_id in business_regulation_ids for regulation_id in regulation_ids)
     }
 
 
@@ -233,7 +244,7 @@ def _compute_step_metrics(
     case_groups: list[dict],
     norm_addressee: str,
     active_rates: dict[str, float],
-    business_information_processes: set[int],
+    business_information_step_ids: set[int],
 ) -> tuple[
     dict[int, float],
     dict[int, float],
@@ -250,9 +261,6 @@ def _compute_step_metrics(
     step_bureaucracy_current: dict[int, float] = {}
     step_bureaucracy_proposed: dict[int, float] = {}
     per_case_flags: dict[int, bool] = {}
-    case_group_process_ids = {
-        int(group["case_group_id"]): int(group["process_id"]) for group in case_groups
-    }
 
     for step in steps:
         step_id = int(step["step_id"])
@@ -264,11 +272,9 @@ def _compute_step_metrics(
             cost_proposed = _compute_step_cost(step, "proposed", norm_addressee, active_rates)
         time_current = _compute_step_time_minutes(step, "current")
         time_proposed = _compute_step_time_minutes(step, "proposed")
-        process_id = case_group_process_ids.get(int(step["case_group_id"]))
         is_bureaucracy = (
             norm_addressee == BUSINESS
-            and process_id is not None
-            and process_id in business_information_processes
+            and step_id in business_information_step_ids
         )
         step_costs_current[step_id] = cost_current
         step_costs_proposed[step_id] = cost_proposed
@@ -522,7 +528,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
-    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
 
     processes, case_groups, steps = _load_structure_rows(session_id, norm_addressee)
     pay_rates = db.get_session_pay_rates(session_id)
@@ -569,8 +575,8 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         )
 
     with db.transaction():
-        business_information_processes = (
-            _list_business_information_process_ids(session_id, norm_addressee)
+        business_information_step_ids = (
+            _list_business_information_step_ids(session_id, norm_addressee)
             if norm_addressee == BUSINESS
             else set()
         )
@@ -587,7 +593,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
             case_groups=effective_case_groups,
             norm_addressee=norm_addressee,
             active_rates=active_rates,
-            business_information_processes=business_information_processes,
+            business_information_step_ids=business_information_step_ids,
         )
         _persist_step_costs(
             session_id=session_id,

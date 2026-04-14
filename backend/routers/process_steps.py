@@ -16,7 +16,6 @@ from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
-    normalize_norm_addressee,
 )
 from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
@@ -34,6 +33,7 @@ from backend.routers._llm_router_utils import (
     query_and_stage_or_http,
     run_with_answer_apply_guard,
 )
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -145,6 +145,7 @@ def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
         if not isinstance(process, dict):
             continue
         process_status = extract_change_status(process)
+        process_regulation_ids = _parse_regulation_ids(process.get("vorgaben"))
         fallgruppen = process.get("fallgruppen")
         if not isinstance(fallgruppen, list):
             continue
@@ -186,6 +187,9 @@ def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
                         "taetigkeit": step,
                         "beschreibung": description,
                         "aenderungsstatus": step_status,
+                        "regulation_ids": _parse_regulation_ids(
+                            entry.get("vorgaben_ids") or entry.get("vorgaben")
+                        ),
                     }
                 )
             if steps:
@@ -193,6 +197,7 @@ def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
                     {
                         "case_group_id": case_group_id,
                         "aenderungsstatus": case_group_status or process_status,
+                        "process_regulation_ids": process_regulation_ids,
                         "taetigkeiten": steps,
                     }
                 )
@@ -237,6 +242,9 @@ def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
                     "taetigkeit": step,
                     "beschreibung": description,
                     "aenderungsstatus": step_status,
+                    "regulation_ids": _parse_regulation_ids(
+                        entry.get("vorgaben_ids") or entry.get("vorgaben")
+                    ),
                 }
             )
         if steps:
@@ -244,6 +252,7 @@ def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
                 {
                     "case_group_id": case_group_id,
                     "aenderungsstatus": case_group_status,
+                    "process_regulation_ids": [],
                     "taetigkeiten": steps,
                 }
             )
@@ -256,6 +265,7 @@ def _add_step_tiles(
     session_id: int,
     parsed: list[dict],
     case_group_lookup: dict[int, dict],
+    process_regulation_ids_by_process: dict[int, list[int]],
     norm_addressee: str = ADMINISTRATION,
 ) -> list[dict]:
     tiles = db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
@@ -278,6 +288,11 @@ def _add_step_tiles(
             title = step.get("taetigkeit") or f"Schritt {idx + 1}"
             description = step.get("beschreibung") or ""
             step_status = normalize_change_status(step.get("aenderungsstatus"))
+            process_id = int(case_group_lookup[case_group_id]["process_id"])
+            linked_regulation_ids = _resolve_step_regulation_ids(
+                step.get("regulation_ids") or [],
+                process_regulation_ids_by_process.get(process_id, []),
+            )
             step_id = db.insert_process_step(
                 session_id=session_id,
                 case_group_id=case_group_id,
@@ -289,6 +304,12 @@ def _add_step_tiles(
             )
             if prev_step_id is not None:
                 db.update_process_step_next(prev_step_id, step_id)
+            db.replace_process_step_regulation_links(
+                session_id=session_id,
+                step_id=step_id,
+                norm_addressee=norm_addressee,
+                regulation_ids=linked_regulation_ids,
+            )
             link_from = (
                 [f"step_{prev_step_id}"]
                 if prev_step_id is not None
@@ -301,7 +322,8 @@ def _add_step_tiles(
                 meta_information={
                     "step_id": step_id,
                     "case_group_id": case_group_id,
-                    "process_id": case_group_lookup[case_group_id]["process_id"],
+                    "process_id": process_id,
+                    "regulation_ids": linked_regulation_ids,
                     "description": description,
                     "change_status": step_status,
                     "time_required_current": {"a": None, "b": None, "c": None, "d": None},
@@ -324,10 +346,44 @@ def _add_step_tiles(
                     "taetigkeit": title,
                     "beschreibung": description,
                     "aenderungsstatus": step_status,
+                    "regulation_ids": linked_regulation_ids,
                 }
             )
             prev_step_id = step_id
     return created
+
+
+def _parse_regulation_ids(raw_value: object) -> list[int]:
+    if isinstance(raw_value, list):
+        parsed: list[int] = []
+        for entry in raw_value:
+            regulation_id = None
+            if isinstance(entry, dict):
+                regulation_id = parse_first_int(entry, "vorgaben_id", "regulation_id")
+            elif entry is not None:
+                regulation_id = parse_first_int({"value": entry}, "value")
+            if regulation_id is not None:
+                parsed.append(regulation_id)
+        return sorted(set(parsed))
+    return []
+
+
+def _resolve_step_regulation_ids(
+    parsed_regulation_ids: list[int],
+    process_regulation_ids: list[int],
+) -> list[int]:
+    valid_ids = sorted(
+        {
+            int(regulation_id)
+            for regulation_id in parsed_regulation_ids
+            if int(regulation_id) in set(process_regulation_ids)
+        }
+    )
+    if valid_ids:
+        return valid_ids
+    if len(process_regulation_ids) == 1:
+        return list(process_regulation_ids)
+    return []
 
 
 @router.post("/analyze")
@@ -339,7 +395,7 @@ async def analyze_process_steps(
         payload.app_session_id,
         payload.model,
     )
-    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
     existing = db.list_process_steps_for_session_and_addressee(
         session_id,
         norm_addressee,
@@ -397,6 +453,17 @@ async def analyze_process_steps(
             raise HTTPException(status_code=422, detail="No process steps parsed")
 
         case_group_lookup = {row["case_group_id"]: row for row in case_groups}
+        process_regulation_ids_by_process: dict[int, list[int]] = {}
+        for row in regulations:
+            process_id = row.get("process_id")
+            regulation_id = row.get("regulation_id")
+            if process_id is None or regulation_id is None:
+                continue
+            process_regulation_ids_by_process.setdefault(int(process_id), []).append(
+                int(regulation_id)
+            )
+        for process_id, regulation_ids in list(process_regulation_ids_by_process.items()):
+            process_regulation_ids_by_process[process_id] = sorted(set(regulation_ids))
         missing = [
             str(entry["case_group_id"])
             for entry in parsed
@@ -408,11 +475,36 @@ async def analyze_process_steps(
                 detail="Unknown fallgruppen_id values: " + ", ".join(missing),
             )
 
+        invalid_regulation_links: list[str] = []
+        for entry in parsed:
+            process_id = int(case_group_lookup[entry["case_group_id"]]["process_id"])
+            valid_regulation_ids = set(process_regulation_ids_by_process.get(process_id, []))
+            for step in entry["taetigkeiten"]:
+                unknown_ids = sorted(
+                    {
+                        int(regulation_id)
+                        for regulation_id in (step.get("regulation_ids") or [])
+                        if int(regulation_id) not in valid_regulation_ids
+                    }
+                )
+                if not unknown_ids:
+                    continue
+                invalid_regulation_links.append(
+                    f"{step.get('taetigkeit') or 'Unbenannte Taetigkeit'} -> "
+                    + ", ".join(str(regulation_id) for regulation_id in unknown_ids)
+                )
+        if invalid_regulation_links:
+            raise HTTPException(
+                status_code=422,
+                detail="Unknown vorgaben_ids in process steps: " + "; ".join(invalid_regulation_links),
+            )
+
         with db.transaction():
             created_local = _add_step_tiles(
                 session_id,
                 parsed,
                 case_group_lookup,
+                process_regulation_ids_by_process,
                 norm_addressee=norm_addressee,
             )
             mark_llm_answer_applied(

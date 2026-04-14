@@ -117,13 +117,88 @@ def test_analyze_process_steps_parses_change_status_and_sets_tile_meta(
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["steps"][0]["aenderungsstatus"] == "abgeschafft"
-
     steps = db.list_process_steps_for_session(session_id)
     assert steps[0]["change_status"] == "abgeschafft"
 
     tiles = db.fetch_tiles(session_id=session_id)
     step_tile = next(tile for tile in tiles if tile.id.startswith("step_"))
     assert step_tile.meta_information.get("change_status") == "abgeschafft"
+
+
+def test_analyze_process_steps_persists_regulation_links(test_client, monkeypatch):
+    session_id, process_id, case_group_id, _step_id = _seed_steps("STEPS-REG-LINKS")
+    db.delete_process_steps_for_session(session_id)
+    regulation_id = db.insert_regulation(
+        session_id,
+        "§ 10",
+        "Informationspflicht",
+    )
+    assert db.update_regulation_process(regulation_id, process_id, "administration")
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={
+                "case_group_id": case_group_id,
+                "process_id": process_id,
+            },
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    response_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{process_id}",
+          "vorgaben": [
+            {{
+              "vorgaben_id": "{regulation_id}",
+              "normzitat": "§ 10",
+              "beschreibung": "Informationspflicht"
+            }}
+          ],
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeit": "Unterlagen pruefen",
+                  "beschreibung": "Beschreibung",
+                  "aenderungsstatus": "geaendert",
+                  "vorgaben_ids": ["{regulation_id}"]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return response_text
+
+    monkeypatch.setattr(process_steps_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/process-steps/analyze",
+        json={
+            "app_session_id": "STEPS-REG-LINKS",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 200
+    step_id = resp.json()["steps"][0]["step_id"]
+    assert db.get_process_step_regulation_ids_by_step(session_id, "administration") == {
+        step_id: [regulation_id]
+    }
 
 
 def test_analyze_process_steps_normalizes_change_status_variants(test_client, monkeypatch):

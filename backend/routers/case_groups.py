@@ -14,7 +14,6 @@ from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
-    normalize_norm_addressee,
 )
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import (
@@ -36,6 +35,7 @@ from backend.routers._llm_router_utils import (
     query_and_stage_or_http,
     run_with_answer_apply_guard,
 )
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -249,7 +249,7 @@ async def develop_case_groups(
         payload.app_session_id,
         payload.model,
     )
-    norm_addressee = normalize_norm_addressee(payload.norm_addressee)
+    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
     existing = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
     if existing:
         processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)

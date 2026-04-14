@@ -509,6 +509,31 @@ def _create_regulation_process_links_by_addressee_table(
     )
 
 
+def _create_process_step_regulation_links_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "process_step_regulation_links",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id       INTEGER NOT NULL,
+            norm_addressee   TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            step_id          INTEGER NOT NULL,
+            regulation_id    INTEGER NOT NULL,
+            PRIMARY KEY (session_id, norm_addressee, step_id, regulation_id),
+            FOREIGN KEY (session_id, norm_addressee, step_id)
+            REFERENCES process_steps (session_id, norm_addressee, step_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (session_id, regulation_id)
+            REFERENCES regulations (session_id, regulation_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
 def _create_parent_composite_indexes(cur: sqlite3.Cursor) -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_processes_session_addressee_process_id ON processes(session_id, norm_addressee, process_id)"
@@ -1227,6 +1252,7 @@ def init_db() -> None:
         },
     )
     _create_regulation_process_links_by_addressee_table(cur)
+    _create_process_step_regulation_links_table(cur)
     _run_legacy_migrations(cur)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_current_law_id ON sessions(current_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_proposed_law_id ON sessions(proposed_law_id)")
@@ -1234,6 +1260,9 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_process_id ON regulations(process_id)")
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_mirror_matches_session_anchor ON mirror_matches(session_id, mirror_anchor_key)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_process_step_regulation_links_session_addressee_step ON process_step_regulation_links(session_id, norm_addressee, step_id)"
     )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_processes_session_id ON processes(session_id)")
     cur.execute(
@@ -2494,6 +2523,9 @@ def list_process_steps_for_session_and_addressee(
     )
     rows = [dict(row) for row in cur.fetchall()]
     _maybe_close(conn)
+    regulation_ids_by_step = get_process_step_regulation_ids_by_step(session_id, resolved)
+    for row in rows:
+        row["regulation_ids"] = regulation_ids_by_step.get(int(row["step_id"]), [])
     return rows
 
 
@@ -3353,6 +3385,61 @@ def update_regulation_process(
     updated = cur.rowcount > 0
     _maybe_close(conn)
     return updated
+
+
+def replace_process_step_regulation_links(
+    session_id: int,
+    step_id: int,
+    norm_addressee: str,
+    regulation_ids: list[int],
+) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    unique_ids = sorted({int(regulation_id) for regulation_id in regulation_ids})
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM process_step_regulation_links
+        WHERE session_id = ? AND norm_addressee = ? AND step_id = ?
+        """,
+        (session_id, resolved, step_id),
+    )
+    for regulation_id in unique_ids:
+        cur.execute(
+            """
+            INSERT INTO process_step_regulation_links (
+                session_id, norm_addressee, step_id, regulation_id
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (session_id, resolved, step_id, regulation_id),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def get_process_step_regulation_ids_by_step(
+    session_id: int,
+    norm_addressee: str,
+) -> dict[int, list[int]]:
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT step_id, regulation_id
+        FROM process_step_regulation_links
+        WHERE session_id = ? AND norm_addressee = ?
+        ORDER BY step_id, regulation_id
+        """,
+        (session_id, resolved),
+    )
+    rows = cur.fetchall()
+    _maybe_close(conn)
+    links: dict[int, list[int]] = {}
+    for row in rows:
+        links.setdefault(int(row["step_id"]), []).append(int(row["regulation_id"]))
+    return links
 
 
 def update_session_documents(

@@ -12,7 +12,8 @@ from backend.core.session_graph import (
     persist_session_tiles_snapshot,
 )
 from backend.core.models import Tile, TilesResponse
-from backend.core.norm_addressees import ADMINISTRATION, normalize_norm_addressee
+from backend.core.norm_addressees import ADMINISTRATION
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 
 
 router = APIRouter(prefix="/tiles", tags=["tiles"])
@@ -116,7 +117,7 @@ def _rebuild_tiles_for_session(
     norm_addressee: str = ADMINISTRATION,
 ) -> None:
     session_id = int(session["session_id"])
-    resolved = normalize_norm_addressee(norm_addressee)
+    resolved = normalize_norm_addressee_or_422(norm_addressee)
     tiles = build_session_tiles_snapshot(session, resolved)
     with db.transaction():
         db.clear_tiles(session_id=session_id, norm_addressee=resolved)
@@ -133,7 +134,7 @@ async def list_tiles(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
-    resolved = normalize_norm_addressee(norm_addressee)
+    resolved = normalize_norm_addressee_or_422(norm_addressee)
     tiles = db.fetch_tiles(session_id=session_id, norm_addressee=resolved)
     if not tiles:
         has_process_steps = bool(
@@ -186,7 +187,7 @@ async def create_tile(
     norm_addressee: str | None = Query(default=None),
 ) -> Tile:
     session_id = _session_id_for_app(app_session_id)
-    resolved = normalize_norm_addressee(norm_addressee)
+    resolved = normalize_norm_addressee_or_422(norm_addressee)
     db.upsert_tile(tile, session_id=session_id, norm_addressee=resolved)
     return tile
 
@@ -198,7 +199,7 @@ async def remove_tile(
     norm_addressee: str | None = Query(default=None),
 ) -> dict:
     session_id = _session_id_for_app(app_session_id)
-    resolved = normalize_norm_addressee(norm_addressee)
+    resolved = normalize_norm_addressee_or_422(norm_addressee)
     db.delete_tile(tile_id, session_id=session_id, norm_addressee=resolved)
     return {"ok": True}
 
@@ -214,7 +215,7 @@ async def rebuild_tiles(payload: RebuildTilesRequest) -> dict:
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    resolved = normalize_norm_addressee(payload.norm_addressee)
+    resolved = normalize_norm_addressee_or_422(payload.norm_addressee)
     _rebuild_tiles_for_session(session, resolved)
 
     return {"ok": True}

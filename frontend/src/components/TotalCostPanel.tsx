@@ -7,6 +7,10 @@ import { apiClient } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
+function formatEuro(value: number | null | undefined): string {
+  return typeof value === "number" ? `${value.toFixed(2)} EUR` : "n. v.";
+}
+
 export default function TotalCostPanel() {
   const { state, setCurrentTab, setTotalCostReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
@@ -51,12 +55,21 @@ export default function TotalCostPanel() {
       ]);
       window.dispatchEvent(new Event("tiles-updated"));
       setTotalCostReady(true);
-      const adminLine = ` Verwaltung: ${adminResult.total_cost.toFixed(2)} EUR.`;
-      const businessLine = ` Wirtschaft: ${businessResult.total_cost.toFixed(2)} EUR.`;
-      const citizensLine =
-        typeof citizensResult.total_cost === "number"
-          ? ` Buerger: ${citizensResult.total_cost.toFixed(2)} EUR.`
-          : " Buerger: Aufwand berechnet.";
+      const adminLine = ` Verwaltung: ${formatEuro(adminResult.total_cost)}.`;
+      const businessLine = ` Wirtschaft: ${formatEuro(businessResult.total_cost)}.`;
+      const citizensTimeLine =
+        typeof citizensResult.total_time_hours === "number"
+          ? ` Zeit ${citizensResult.total_time_hours.toFixed(2)} Std.`
+          : null;
+      const citizensExpensesLine =
+        typeof citizensResult.total_expenses === "number"
+          ? ` Sachaufwand ${citizensResult.total_expenses.toFixed(2)} EUR`
+          : null;
+      const citizensDetail =
+        citizensTimeLine || citizensExpensesLine
+          ? ` ${[citizensTimeLine, citizensExpensesLine].filter(Boolean).join(", ")}.`
+          : " Aufwand berechnet.";
+      const citizensLine = ` Buerger:${citizensDetail}`;
       setStatusTone("success");
       setStatus(
         `Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.${adminLine}${businessLine}${citizensLine}`

@@ -34,6 +34,7 @@ class TaetigkeitPayload(_PromptPayloadModel):
     taetigkeit: str
     beschreibung: str
     aenderungsstatus: str | None = None
+    vorgaben_ids: list[int] = Field(default_factory=list)
 
 
 class ProzessWithVorgabenPayload(_PromptPayloadModel):
@@ -252,6 +253,10 @@ def build_step_analysis_payload(
                     taetigkeit=str(step.get("step") or ""),
                     beschreibung=str(step.get("description") or ""),
                     aenderungsstatus=step.get("change_status"),
+                    vorgaben_ids=[
+                        int(regulation_id)
+                        for regulation_id in (step.get("regulation_ids") or [])
+                    ],
                 )
                 for step in ordered_steps
             ]

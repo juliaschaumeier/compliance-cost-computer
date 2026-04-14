@@ -222,7 +222,9 @@ def test_build_step_analysis_payload_includes_vorgaben():
         "taetigkeit",
         "beschreibung",
         "aenderungsstatus",
+        "vorgaben_ids",
     }
+    assert taetigkeit["vorgaben_ids"] == []
 
 
 def test_build_case_groups_payload_omits_null_metrics():
@@ -576,6 +578,7 @@ def test_build_step_analysis_payload_omits_null_effort_fields():
     taetigkeit = payload[0]["fallgruppen"][0]["taetigkeiten"][0]
     assert taetigkeit["taetigkeiten_id"] == 40
     assert taetigkeit["taetigkeit"] == "Schritt 1"
+    assert taetigkeit["vorgaben_ids"] == []
     assert "stundenlohn_satz_a_gueltig" not in taetigkeit
     assert "stundenlohn_satz_b_gueltig" not in taetigkeit
     assert "stundenlohn_satz_c_gueltig" not in taetigkeit
@@ -655,6 +658,7 @@ def test_build_step_analysis_payload_omits_effort_fields_even_when_present():
     taetigkeit = payload[0]["fallgruppen"][0]["taetigkeiten"][0]
     assert taetigkeit["taetigkeiten_id"] == 40
     assert taetigkeit["taetigkeit"] == "Schritt 1"
+    assert taetigkeit["vorgaben_ids"] == []
     assert "stundenlohn_satz_a_gueltig" not in taetigkeit
     assert "stundenlohn_satz_b_gueltig" not in taetigkeit
     assert "stundenlohn_satz_c_gueltig" not in taetigkeit

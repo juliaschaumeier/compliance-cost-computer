@@ -319,73 +319,7 @@ def get_deterministic_mirror_case_group_metrics(
             "source_norm_addressee": source_norm_addressee,
         }
 
-    if overrides:
-        return overrides
-
-    source_groups = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
-    source_by_anchor = _group_case_groups_by_anchor(
-        session_id=session_id,
-        norm_addressee=norm_addressee,
-        case_groups=source_groups,
-    )
-
-    for anchor_key, current_groups in source_by_anchor.items():
-        if len(current_groups) != 1:
-            continue
-        target_candidates: list[dict[str, Any]] = []
-        for target_addressee in ALL_NORM_ADDRESSEES:
-            if target_addressee == norm_addressee:
-                continue
-            target_groups = db.list_case_groups_for_session_and_addressee(session_id, target_addressee)
-            target_by_anchor = _group_case_groups_by_anchor(
-                session_id=session_id,
-                norm_addressee=target_addressee,
-                case_groups=target_groups,
-            )
-            anchored_target_groups = target_by_anchor.get(anchor_key, [])
-            if len(anchored_target_groups) != 1:
-                continue
-            resolved = db.resolve_effective_case_group_metrics(anchored_target_groups[0])
-            metrics = {
-                "addressees_current": resolved.get("addressees_current_effective"),
-                "annual_frequency_current": resolved.get("annual_frequency_current_effective"),
-                "addressees_proposed": resolved.get("addressees_proposed_effective"),
-                "annual_frequency_proposed": resolved.get("annual_frequency_proposed_effective"),
-            }
-            if not all(value is not None for value in metrics.values()):
-                continue
-            target_candidates.append({**metrics, "source_norm_addressee": target_addressee})
-        if len(target_candidates) != 1:
-            continue
-        overrides[int(current_groups[0]["case_group_id"])] = target_candidates[0]
     return overrides
-
-
-def _group_case_groups_by_anchor(
-    session_id: int,
-    norm_addressee: str,
-    case_groups: list[dict[str, Any]],
-) -> dict[str, list[dict[str, Any]]]:
-    from backend.core import db
-
-    regulations = db.list_regulations_for_session_and_addressee(session_id, norm_addressee)
-    anchor_by_process_id: dict[int, set[str]] = {}
-    for row in regulations:
-        anchor_key = str(row.get("mirror_anchor_key") or "").strip()
-        process_id = row.get("process_id")
-        if not anchor_key or process_id is None:
-            continue
-        anchor_by_process_id.setdefault(int(process_id), set()).add(anchor_key)
-
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for group in case_groups:
-        process_id = int(group["process_id"])
-        anchors = anchor_by_process_id.get(process_id, set())
-        if len(anchors) != 1:
-            continue
-        anchor_key = next(iter(anchors))
-        grouped.setdefault(anchor_key, []).append(group)
-    return grouped
 
 
 def _build_related_addressee_context(

@@ -723,6 +723,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Wenn bereits strukturierte Spiegel-Matches oder Gegenstrukturen vorliegen, behandeln Sie diese als verbindliche Orientierung fuer die Zuordnung der
         Taetigkeiten zu demselben gemeinsamen Fall. Erfinden Sie keine fachlich abweichende Schrittlogik fuer bereits gematchte Spiegel-Fallgruppen.
 
+        Ordnen Sie jede Taetigkeit denjenigen Vorgaben des Prozesses zu, die diese Taetigkeit fachlich ausloesen. Geben Sie dazu je Taetigkeit das Feld
+        `vorgaben_ids` als Liste der passenden `vorgaben_id`-Werte an. Wenn im Prozess nur genau eine Vorgabe enthalten ist, soll diese eine `vorgaben_id`
+        auch bei allen zugehoerigen Taetigkeiten angegeben werden.
+
         Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten zur Erfüllung 
         von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.
 
@@ -787,12 +791,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
+                            "vorgaben_ids": [""]
                         }},
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
+                            "vorgaben_ids": [""]
                         }}
                     ]
                 }},
@@ -805,7 +811,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
+                            "vorgaben_ids": [""]
                         }}
                     ]
                 }}
@@ -840,12 +847,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
+                            "vorgaben_ids": [""]
                         }},
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
+                            "vorgaben_ids": [""]
                         }}
                     ]
                 }}
