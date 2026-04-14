@@ -91,23 +91,23 @@ def _parse_cases_payload(payload: str) -> tuple[list[dict], set[str]]:
             continue
         addressees_current_raw, current_alias = _value_from_keys(
             fallgruppe,
-            "anzahl_betroffene_current",
-            ("anzahl_betroffene_gueltig",),
+            "anzahl_betroffene_gueltig",
+            ("anzahl_betroffene_current",),
         )
         annual_frequency_current_raw, frequency_current_alias = _value_from_keys(
             fallgruppe,
-            "haeufigkeit_pro_jahr_current",
-            ("haeufigkeit_pro_jahr_gueltig",),
+            "haeufigkeit_pro_jahr_gueltig",
+            ("haeufigkeit_pro_jahr_current",),
         )
         addressees_proposed_raw, proposed_alias = _value_from_keys(
             fallgruppe,
-            "anzahl_betroffene_proposed",
-            ("anzahl_betroffene_vorschlag",),
+            "anzahl_betroffene_vorschlag",
+            ("anzahl_betroffene_proposed",),
         )
         annual_frequency_proposed_raw, frequency_proposed_alias = _value_from_keys(
             fallgruppe,
-            "haeufigkeit_pro_jahr_proposed",
-            ("haeufigkeit_pro_jahr_vorschlag",),
+            "haeufigkeit_pro_jahr_vorschlag",
+            ("haeufigkeit_pro_jahr_proposed",),
         )
         if any(
             alias is not None
@@ -118,7 +118,7 @@ def _parse_cases_payload(payload: str) -> tuple[list[dict], set[str]]:
                 frequency_proposed_alias,
             )
         ):
-            fallback_kinds.add("cases_legacy_key_alias")
+            fallback_kinds.add("cases_legacy_english_alias")
         addressees_current = parse_optional_number(
             addressees_current_raw
         )
@@ -332,79 +332,79 @@ def _parse_org_effort_entry(
         if not uses_role_format_current:
             hourly_rates_current_raw, current_rate_alias = _value_from_keys(
                 entry,
-                f"stundenlohn_satz_{key}_current",
+                f"stundenlohn_satz_{key}_gueltig",
                 (
-                    f"stundenlohn_satz_{key}_gueltig",
-                    f"stundenlohn_satz_{key.upper()}_current",
+                    f"stundenlohn_satz_{key}_current",
                     f"stundenlohn_satz_{key.upper()}_gueltig",
-                    *(f"stundenlohn_satz_{alias}_current" for alias in business_aliases[key]),
+                    f"stundenlohn_satz_{key.upper()}_current",
                     *(f"stundenlohn_satz_{alias}_gueltig" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_current" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias}_current" for alias in business_aliases[key]),
                     *(f"stundenlohn_satz_{alias.upper()}_gueltig" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias.upper()}_current" for alias in business_aliases[key]),
                 ),
             )
             time_required_current_raw, current_time_alias = _value_from_keys(
                 entry,
-                f"zeitaufwand_in_min_{key}_current",
+                f"zeitaufwand_in_min_{key}_gueltig",
                 (
-                    f"zeitaufwand_in_min_{key}_gueltig",
-                    f"zeitaufwand_in_min_{key.upper()}_current",
+                    f"zeitaufwand_in_min_{key}_current",
                     f"zeitaufwand_in_min_{key.upper()}_gueltig",
-                    *(f"zeitaufwand_in_min_{alias}_current" for alias in business_aliases[key]),
+                    f"zeitaufwand_in_min_{key.upper()}_current",
                     *(f"zeitaufwand_in_min_{alias}_gueltig" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_current" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias}_current" for alias in business_aliases[key]),
                     *(f"zeitaufwand_in_min_{alias.upper()}_gueltig" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias.upper()}_current" for alias in business_aliases[key]),
                 ),
             )
             if current_rate_alias is not None or current_time_alias is not None:
-                fallback_kinds.add("effort_legacy_key_alias")
+                fallback_kinds.add("effort_legacy_english_alias")
             hourly_rates_current[key] = parse_optional_number(hourly_rates_current_raw)
             time_required_current[key] = parse_optional_number(time_required_current_raw)
 
         if not uses_role_format_proposed:
             hourly_rates_proposed_raw, proposed_rate_alias = _value_from_keys(
                 entry,
-                f"stundenlohn_satz_{key}_proposed",
+                f"stundenlohn_satz_{key}_vorschlag",
                 (
-                    f"stundenlohn_satz_{key}_vorschlag",
-                    f"stundenlohn_satz_{key.upper()}_proposed",
+                    f"stundenlohn_satz_{key}_proposed",
                     f"stundenlohn_satz_{key.upper()}_vorschlag",
-                    *(f"stundenlohn_satz_{alias}_proposed" for alias in business_aliases[key]),
+                    f"stundenlohn_satz_{key.upper()}_proposed",
                     *(f"stundenlohn_satz_{alias}_vorschlag" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_proposed" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias}_proposed" for alias in business_aliases[key]),
                     *(f"stundenlohn_satz_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
+                    *(f"stundenlohn_satz_{alias.upper()}_proposed" for alias in business_aliases[key]),
                 ),
             )
             time_required_proposed_raw, proposed_time_alias = _value_from_keys(
                 entry,
-                f"zeitaufwand_in_min_{key}_proposed",
+                f"zeitaufwand_in_min_{key}_vorschlag",
                 (
-                    f"zeitaufwand_in_min_{key}_vorschlag",
-                    f"zeitaufwand_in_min_{key.upper()}_proposed",
+                    f"zeitaufwand_in_min_{key}_proposed",
                     f"zeitaufwand_in_min_{key.upper()}_vorschlag",
-                    *(f"zeitaufwand_in_min_{alias}_proposed" for alias in business_aliases[key]),
+                    f"zeitaufwand_in_min_{key.upper()}_proposed",
                     *(f"zeitaufwand_in_min_{alias}_vorschlag" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_proposed" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias}_proposed" for alias in business_aliases[key]),
                     *(f"zeitaufwand_in_min_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
+                    *(f"zeitaufwand_in_min_{alias.upper()}_proposed" for alias in business_aliases[key]),
                 ),
             )
             if proposed_rate_alias is not None or proposed_time_alias is not None:
-                fallback_kinds.add("effort_legacy_key_alias")
+                fallback_kinds.add("effort_legacy_english_alias")
             hourly_rates_proposed[key] = parse_optional_number(hourly_rates_proposed_raw)
             time_required_proposed[key] = parse_optional_number(time_required_proposed_raw)
 
     expenses_current_raw, expenses_current_alias = _value_from_keys(
         entry,
-        "sachaufwand_current",
-        ("sachaufwand_gueltig",),
+        "sachaufwand_gueltig",
+        ("sachaufwand_current",),
     )
     expenses_proposed_raw, expenses_proposed_alias = _value_from_keys(
         entry,
-        "sachaufwand_proposed",
-        ("sachaufwand_vorschlag",),
+        "sachaufwand_vorschlag",
+        ("sachaufwand_proposed",),
     )
     if expenses_current_alias is not None or expenses_proposed_alias is not None:
-        fallback_kinds.add("effort_legacy_key_alias")
+        fallback_kinds.add("effort_legacy_english_alias")
     expenses_current = parse_optional_number(expenses_current_raw)
     expenses_proposed = parse_optional_number(expenses_proposed_raw)
 

@@ -1249,10 +1249,10 @@ def test_calculate_effort_logs_parse_fallback_for_alias_keys(test_client, monkey
           "fallgruppen": [
             {{
               "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_gueltig": "10",
-              "haeufigkeit_pro_jahr_gueltig": "3",
-              "anzahl_betroffene_vorschlag": "12",
-              "haeufigkeit_pro_jahr_vorschlag": "4"
+              "anzahl_betroffene_current": "10",
+              "haeufigkeit_pro_jahr_current": "3",
+              "anzahl_betroffene_proposed": "12",
+              "haeufigkeit_pro_jahr_proposed": "4"
             }}
           ]
         }}
@@ -1270,12 +1270,12 @@ def test_calculate_effort_logs_parse_fallback_for_alias_keys(test_client, monkey
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_gueltig": "20",
-                  "zeitaufwand_in_min_a_gueltig": "15",
-                  "sachaufwand_gueltig": "5",
-                  "stundenlohn_satz_a_vorschlag": "25",
-                  "zeitaufwand_in_min_a_vorschlag": "10",
-                  "sachaufwand_vorschlag": "6"
+                  "stundenlohn_satz_a_current": "20",
+                  "zeitaufwand_in_min_a_current": "15",
+                  "sachaufwand_current": "5",
+                  "stundenlohn_satz_a_proposed": "25",
+                  "zeitaufwand_in_min_a_proposed": "10",
+                  "sachaufwand_proposed": "6"
                 }}
               ]
             }}
@@ -1310,8 +1310,8 @@ def test_calculate_effort_logs_parse_fallback_for_alias_keys(test_client, monkey
         },
     )
     assert resp.status_code == 200
-    assert "cases_legacy_key_alias" in fallback_kinds
-    assert "effort_legacy_key_alias" in fallback_kinds
+    assert "cases_legacy_english_alias" in fallback_kinds
+    assert "effort_legacy_english_alias" in fallback_kinds
 
 
 def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):
