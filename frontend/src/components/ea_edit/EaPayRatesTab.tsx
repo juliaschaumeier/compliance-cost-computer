@@ -30,12 +30,29 @@ const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
 
 type PayGradeKey = "a" | "b" | "c" | "d";
 
-const PAY_GRADE_ROWS: Array<{ key: PayGradeKey; label: string }> = [
-  { key: "a", label: "Einfacher/Mittlerer Dienst (eD/mD)" },
-  { key: "b", label: "Gehobener Dienst (gD)" },
-  { key: "c", label: "Höherer Dienst (hD)" },
-  { key: "d", label: "Durchschnitt über Laufbahnen (Ø)" },
-];
+const PAY_GRADE_ROWS_BY_ADDRESSEE: Record<
+  NormAddressee,
+  Array<{ key: PayGradeKey; label: string }>
+> = {
+  administration: [
+    { key: "a", label: "Einfacher/Mittlerer Dienst (eD/mD)" },
+    { key: "b", label: "Gehobener Dienst (gD)" },
+    { key: "c", label: "Höherer Dienst (hD)" },
+    { key: "d", label: "Durchschnitt über Laufbahnen (Ø)" },
+  ],
+  business: [
+    { key: "a", label: "Niedrig" },
+    { key: "b", label: "Mittel" },
+    { key: "c", label: "Hoch" },
+    { key: "d", label: "Durchschnitt (Ø)" },
+  ],
+  citizens: [
+    { key: "a", label: "Zeit" },
+    { key: "b", label: "Reserve B" },
+    { key: "c", label: "Reserve C" },
+    { key: "d", label: "Reserve D" },
+  ],
+};
 
 const EMPTY_EDITED_INPUTS: Record<PayGradeKey, string> = {
   a: "",
@@ -267,7 +284,7 @@ export default function EaPayRatesTab({
             </tr>
           </thead>
           <tbody>
-            {PAY_GRADE_ROWS.map((row) => (
+            {PAY_GRADE_ROWS_BY_ADDRESSEE[normAddressee].map((row) => (
               <tr key={row.key} className="border-b border-slate-100">
                 <td className="px-2 py-2 font-semibold text-slate-800">{row.label}</td>
                 <td className="px-2 py-2">
