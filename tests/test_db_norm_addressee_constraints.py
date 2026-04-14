@@ -1,9 +1,50 @@
+import inspect
+import re
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from backend.core import config, db
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+
+
+def test_db_module_uses_constants_not_hardcoded_norm_addressee_literals():
+    """Regression: db.py muss norm_addressee-Vergleiche über die Konstanten
+    ADMINISTRATION/BUSINESS/CITIZENS machen, nicht über hardcoded Strings.
+    Inkonsistente Nutzung führte bereits dazu, dass der Citizens-Guard
+    fragil gegen Konstanten-Umbenennung wurde. SQL-String-Literale
+    (Trigger, CHECK-Constraints) sind erlaubt — nur Python-Vergleiche
+    sind hier im Fokus."""
+    source = Path(inspect.getfile(db)).read_text(encoding="utf-8")
+    forbidden_patterns = [
+        r'==\s*"administration"',
+        r"==\s*'administration'",
+        r'==\s*"business"',
+        r"==\s*'business'",
+        r'==\s*"citizens"',
+        r"==\s*'citizens'",
+        r'!=\s*"administration"',
+        r"!=\s*'administration'",
+        r'!=\s*"business"',
+        r"!=\s*'business'",
+        r'!=\s*"citizens"',
+        r"!=\s*'citizens'",
+    ]
+    offenders = []
+    for lineno, line in enumerate(source.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for pattern in forbidden_patterns:
+            if re.search(pattern, line):
+                offenders.append(f"{lineno}: {stripped}")
+                break
+    assert not offenders, (
+        "Hardcoded norm_addressee string literals in db.py. Use the "
+        "ADMINISTRATION/BUSINESS/CITIZENS constants instead:\n"
+        + "\n".join(offenders)
+    )
 
 
 def test_pragma_foreign_keys_is_enabled_on_every_fresh_connection(tmp_path, monkeypatch):

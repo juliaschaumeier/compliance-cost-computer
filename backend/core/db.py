@@ -2498,8 +2498,8 @@ def list_regulations_for_session_and_addressee(
             resolved == ADMINISTRATION
             and bool(row.get("applies_to_administration"))
         )
-        or (resolved == "business" and bool(row.get("applies_to_business")))
-        or (resolved == "citizens" and bool(row.get("applies_to_citizens")))
+        or (resolved == BUSINESS and bool(row.get("applies_to_business")))
+        or (resolved == CITIZENS and bool(row.get("applies_to_citizens")))
     ]
     conn = get_conn()
     cur = conn.cursor()
@@ -3546,7 +3546,7 @@ def upsert_process_step_effort_split_by_addressee(
     execution_per_case: bool | None = None,
 ) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
-    if resolved == "citizens":
+    if resolved == CITIZENS:
         citizen_rates = (
             hourly_rates_current.get("a"),
             hourly_rates_current.get("b"),
