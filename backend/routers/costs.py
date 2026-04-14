@@ -676,6 +676,14 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         )
         if norm_addressee == CITIZENS:
             total_cost = None
+        db.upsert_session_total_costs_by_addressee(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            total_cost=total_cost,
+            bureaucracy_cost=bureaucracy_cost,
+            total_time_minutes=total_time_minutes,
+            total_expenses=total_expenses,
+        )
         if norm_addressee == ADMINISTRATION:
             db.update_session_cost(session_id, total_cost or 0.0)
         refresh_case_group_tiles(session_id, case_groups, norm_addressee=norm_addressee)

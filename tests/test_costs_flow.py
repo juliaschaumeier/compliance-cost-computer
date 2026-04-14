@@ -2,7 +2,7 @@ import pytest
 
 from backend.core import db
 from backend.core.models import Tile
-from backend.core.norm_addressees import BUSINESS
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
 
 def _seed_flow(session_id: int) -> dict:
@@ -177,6 +177,12 @@ def test_compute_costs_updates_db_and_tiles(test_client):
     )
     assert cur.fetchone()["cc_cost"] == 2000
     conn.close()
+    totals = db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION)
+    assert totals is not None
+    assert totals["total_cost"] == 2000
+    assert totals["bureaucracy_cost"] is None
+    assert totals["total_time_minutes"] is None
+    assert totals["total_expenses"] is None
 
     tiles = db.fetch_tiles(session_id=session_id)
     process_tile = next(tile for tile in tiles if tile.id == f"process_{seeded['process_id']}")
@@ -470,6 +476,12 @@ def test_compute_costs_business_counts_mixed_information_obligation_steps_as_bur
     assert payload["total_cost"] == pytest.approx(100.0)
     assert payload["bureaucracy_cost"] == pytest.approx(100.0)
     assert payload["other_cost"] == pytest.approx(0.0)
+    totals = db.get_session_total_costs_by_addressee(session_id, BUSINESS)
+    assert totals is not None
+    assert totals["total_cost"] == pytest.approx(100.0)
+    assert totals["bureaucracy_cost"] == pytest.approx(100.0)
+    assert totals["total_time_minutes"] is None
+    assert totals["total_expenses"] is None
 
 
 def test_compute_costs_rejects_invalid_norm_addressee(test_client):
@@ -743,3 +755,9 @@ def test_compute_costs_citizens_ignores_persisted_hourly_rates(test_client):
     assert payload["total_cost"] is None
     assert payload["total_time_minutes"] == pytest.approx(60.0)
     assert payload["total_expenses"] == pytest.approx(10.0)
+    totals = db.get_session_total_costs_by_addressee(session_id, CITIZENS)
+    assert totals is not None
+    assert totals["total_cost"] is None
+    assert totals["bureaucracy_cost"] is None
+    assert totals["total_time_minutes"] == pytest.approx(60.0)
+    assert totals["total_expenses"] == pytest.approx(10.0)

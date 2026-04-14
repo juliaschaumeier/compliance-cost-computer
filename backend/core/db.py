@@ -534,6 +534,29 @@ def _create_process_step_regulation_links_table(
     )
 
 
+def _create_session_total_costs_by_addressee_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "session_total_costs_by_addressee",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id           INTEGER NOT NULL,
+            norm_addressee       TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            total_cost           REAL,
+            bureaucracy_cost     REAL,
+            total_time_minutes   REAL,
+            total_expenses       REAL,
+            PRIMARY KEY (session_id, norm_addressee),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
 def _create_parent_composite_indexes(cur: sqlite3.Cursor) -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_processes_session_addressee_process_id ON processes(session_id, norm_addressee, process_id)"
@@ -1017,6 +1040,7 @@ def init_db() -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
+    _create_session_total_costs_by_addressee_table(cur)
     _create_session_scoped_tile_tables(cur)
     cur.execute(
         """
@@ -1779,6 +1803,26 @@ def has_total_cost_for_addressee(session_id: int, norm_addressee: str = ADMINIST
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT total_cost, bureaucracy_cost, total_time_minutes, total_expenses
+        FROM session_total_costs_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    row = cur.fetchone()
+    if row and any(
+        row[key] is not None
+        for key in (
+            "total_cost",
+            "bureaucracy_cost",
+            "total_time_minutes",
+            "total_expenses",
+        )
+    ):
+        _maybe_close(conn)
+        return True
     cur.execute(
         """
         SELECT
@@ -3523,6 +3567,73 @@ def update_session_cost(session_id: int, cost: float | None) -> None:
     _maybe_close(conn)
 
 
+def upsert_session_total_costs_by_addressee(
+    session_id: int,
+    norm_addressee: str,
+    total_cost: float | None,
+    bureaucracy_cost: float | None,
+    total_time_minutes: float | None,
+    total_expenses: float | None,
+) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO session_total_costs_by_addressee (
+            session_id,
+            norm_addressee,
+            total_cost,
+            bureaucracy_cost,
+            total_time_minutes,
+            total_expenses
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, norm_addressee) DO UPDATE SET
+            total_cost = excluded.total_cost,
+            bureaucracy_cost = excluded.bureaucracy_cost,
+            total_time_minutes = excluded.total_time_minutes,
+            total_expenses = excluded.total_expenses
+        """,
+        (
+            session_id,
+            resolved,
+            total_cost,
+            bureaucracy_cost,
+            total_time_minutes,
+            total_expenses,
+        ),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def get_session_total_costs_by_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> dict | None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            session_id,
+            norm_addressee,
+            total_cost,
+            bureaucracy_cost,
+            total_time_minutes,
+            total_expenses
+        FROM session_total_costs_by_addressee
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return dict(row) if row else None
+
+
 def clear_session_summary(session_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -3718,6 +3829,13 @@ def clear_costs(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
         """
         UPDATE processes
         SET cost = NULL
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    cur.execute(
+        """
+        DELETE FROM session_total_costs_by_addressee
         WHERE session_id = ? AND norm_addressee = ?
         """,
         (session_id, resolved),

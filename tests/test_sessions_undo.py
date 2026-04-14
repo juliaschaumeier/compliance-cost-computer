@@ -81,6 +81,14 @@ def test_undo_total_cost_clears_costs_only(test_client):
     db.update_case_group_cost(session_id, seeded["case_group_id"], 50)
     db.update_process_cost(session_id, seeded["process_id"], 50)
     db.update_session_cost(session_id, 50)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        total_cost=50,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
 
     resp = test_client.post("/sessions/undo", json={"app_session_id": "UNDO-COST"})
     assert resp.status_code == 200
@@ -94,6 +102,7 @@ def test_undo_total_cost_clears_costs_only(test_client):
         (session_id,),
     )
     assert cur.fetchone()["cc_cost"] is None
+    assert db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION) is None
     cur.execute(
         "SELECT cost FROM processes WHERE process_id = ?",
         (seeded["process_id"],),
@@ -447,10 +456,26 @@ def test_undo_total_cost_scopes_to_selected_norm_addressee(test_client):
     db.update_case_group_cost(session_id, admin["case_group_id"], 50)
     db.update_process_cost(session_id, admin["process_id"], 50)
     db.update_session_cost(session_id, 50)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        total_cost=50,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
 
     db.update_process_step_cost(session_id, business["step_id"], None, 75)
     db.update_case_group_cost(session_id, business["case_group_id"], 120)
     db.update_process_cost(session_id, business["process_id"], 120)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+        total_cost=120,
+        bureaucracy_cost=80,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
 
     resp = test_client.post(
         "/sessions/undo",
@@ -463,6 +488,10 @@ def test_undo_total_cost_scopes_to_selected_norm_addressee(test_client):
     cur = conn.cursor()
     cur.execute("SELECT cc_cost FROM sessions WHERE session_id = ?", (session_id,))
     assert cur.fetchone()["cc_cost"] == 50
+    admin_totals = db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION)
+    assert admin_totals is not None
+    assert admin_totals["total_cost"] == 50
+    assert db.get_session_total_costs_by_addressee(session_id, BUSINESS) is None
 
     cur.execute("SELECT cost FROM processes WHERE process_id = ?", (admin["process_id"],))
     assert cur.fetchone()["cost"] == 50

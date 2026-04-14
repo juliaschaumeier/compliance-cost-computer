@@ -244,6 +244,12 @@ Input:
 Speichert:
 
 - Kosten auf Step-/Prozess-/Session-Ebene
+- `sessions.cc_cost` weiterhin als Verwaltungs-Kompatibilitaetsfeld
+- `session_total_costs_by_addressee` fuer addressee-spezifische Gesamtsummen
+  - `total_cost`
+  - `bureaucracy_cost`
+  - `total_time_minutes`
+  - `total_expenses`
 - aktualisierte Tiles
 
 ## Wo die Prompt-Kontexte zusammengesetzt werden
