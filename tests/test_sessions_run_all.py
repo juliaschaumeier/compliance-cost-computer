@@ -744,9 +744,16 @@ def test_run_all_reports_failing_addressee_in_step_message(test_client, monkeypa
     payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
     assert payload["status"] == "failed"
     assert payload["ok"] is False
-    assert payload["steps"][0]["key"] == "processes"
-    assert payload["steps"][0]["status"] == "failed"
-    assert payload["steps"][0]["message"] == "business: No regulations mapped to process cluster"
+    assert payload["steps"][0]["key"] == "summary"
+    assert payload["steps"][0]["status"] == "skipped"
+    assert payload["steps"][1]["key"] == "regulations"
+    assert payload["steps"][1]["status"] == "skipped"
+    assert payload["steps"][2]["key"] == "processes"
+    assert payload["steps"][2]["status"] == "failed"
+    assert (
+        payload["steps"][2]["message"]
+        == "business: No regulations mapped to process cluster"
+    )
     assert payload["final_status"]["summary_ready"] is True
     assert payload["final_status"]["regulations_ready"] is True
     assert payload["final_status"]["processes_ready"] is False
