@@ -15,7 +15,7 @@ def format_number(value: float | int | None) -> str:
     return str(value)
 
 
-def format_currency(value: float | int | None) -> str:
+def format_currency(value: float | int | None, *, annualized: bool = False) -> str:
     if value is None:
         return ""
     amount = float(value)
@@ -32,6 +32,9 @@ def format_currency(value: float | int | None) -> str:
         formatted = f"{num:,.{decimals}f}"
         return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
 
+    if annualized and amount >= 100_000_000:
+        millions = int(round(amount / 1_000_000))
+        return f"{sign}{millions} Millionen Euro pro Jahr"
     if amount >= 1_000_000_000:
         return f"{sign}{_format_compact(amount / 1_000_000_000)} Mrd. €"
     if amount >= 1_000_000:
