@@ -387,3 +387,42 @@ def test_analyze_process_steps_logs_flattened_fallback(test_client, monkeypatch)
     )
     assert resp.status_code == 200
     assert "process_steps_flattened_fallgruppen" in fallback_kinds
+
+
+def test_analyze_process_steps_rejects_invalid_json_payload(test_client, monkeypatch):
+    session_id, process_id, case_group_id, _step_id = _seed_steps("STEPS-BAD-JSON")
+    db.delete_process_steps_for_session(session_id)
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Fallgruppe A",
+            text="Beschreibung Fallgruppe",
+            meta_information={
+                "case_group_id": case_group_id,
+                "process_id": process_id,
+            },
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return "ungueltiger payload"
+
+    monkeypatch.setattr(process_steps_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/process-steps/analyze",
+        json={
+            "app_session_id": "STEPS-BAD-JSON",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == (
+        "Invalid process_step_analysis payload: no JSON object found in LLM response"
+    )

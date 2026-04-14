@@ -14,7 +14,7 @@ from backend.core.llm_attempts import (
     prompt_sha256,
     query_and_stage_llm_answers_parallel,
 )
-from backend.core.llm_json import extract_fallgruppen, parse_json_object_with_mode
+from backend.core.llm_json import extract_fallgruppen, require_json_object
 from backend.core.llm_service import LlmResult, query_llm
 from backend.core.mirror_context import apply_deterministic_mirror_case_group_sync
 from backend.core.mirror_context import ensure_mirror_matching
@@ -68,12 +68,13 @@ def _value_from_keys(
 
 
 def _parse_cases_payload(payload: str) -> tuple[list[dict], set[str]]:
-    data, parse_mode = parse_json_object_with_mode(payload)
+    data, parse_mode = require_json_object(
+        payload,
+        error_context="Invalid cases_calculation payload",
+    )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    if not isinstance(data, dict):
-        return [], fallback_kinds
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -253,6 +254,15 @@ def _parse_role_entries(
 
 
 def _parse_citizens_effort_entry(entry: dict, step_id: int) -> dict | None:
+    for key in ("rollen_current", "rollen_gueltig", "rollen_proposed", "rollen_vorschlag"):
+        if isinstance(entry.get(key), list):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Invalid effort_calculation payload for citizens: "
+                    f"unexpected roles array '{key}' for step_id {step_id}"
+                ),
+            )
     time_current = parse_optional_number(
         entry.get("zeitaufwand_in_min_current")
         or entry.get("zeitaufwand_in_min_gueltig")
@@ -421,12 +431,13 @@ def _parse_org_effort_entry(
 
 
 def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict], set[str]]:
-    data, parse_mode = parse_json_object_with_mode(payload)
+    data, parse_mode = require_json_object(
+        payload,
+        error_context=f"Invalid effort_calculation payload for {norm_addressee}",
+    )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    if not isinstance(data, dict):
-        return [], fallback_kinds
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:

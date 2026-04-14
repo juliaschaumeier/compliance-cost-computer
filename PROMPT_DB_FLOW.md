@@ -4,6 +4,18 @@
 
 Diese Datei beschreibt knapp, welcher Prompt welche Daten erzeugt, wo sie gespeichert werden und welche Folgeschritte darauf zugreifen.
 
+## Parse-Regel
+
+Fuer die strukturierte LLM-Ausgabe gilt ab `regulations_identification`,
+`process_step_analysis`, `cases_calculation` und `effort_calculation`:
+
+- wenn kein JSON-Objekt geparst werden kann, bricht die Route mit `422` ab
+- wenn erwartete Top-Level-Struktur fehlt, wird nichts still als leeres Ergebnis behandelt
+- Citizens-Payloads fuer `effort_calculation` duerfen keine `rollen_*`-Arrays enthalten
+
+Damit werden stille Null-Ergebnisse vermieden; Parse-Fehler sind absichtlich
+fail-closed und muessen neu ausgefuehrt oder korrigiert werden.
+
 ## Grobe Reihenfolge
 
 1. `law_summary`

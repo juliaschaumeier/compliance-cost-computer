@@ -1,6 +1,6 @@
 from backend.core import db
 from backend.core.models import Tile
-from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.routers import effort as effort_router
 
 
@@ -837,6 +837,114 @@ def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):
     )
     assert resp.status_code == 422
     assert "Unknown fallgruppen_id values" in resp.json()["detail"]
+
+
+def test_calculate_effort_rejects_invalid_cases_json_payload(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("EFFORT-BAD-CASES-JSON", "test-model")
+    _process_id, case_group_id = _seed_case_group(session_id)
+    _step_one, _step_two = _seed_steps(session_id, case_group_id)
+
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm("kein json vorhanden", '{"prozesse": []}'),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-BAD-CASES-JSON",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == (
+        "Invalid cases_calculation payload: no JSON object found in LLM response"
+    )
+
+
+def test_calculate_effort_rejects_citizens_roles_payload(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("EFFORT-CITIZENS-ROLES", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Buergerprozess",
+        "Beschreibung Prozess",
+        norm_addressee=CITIZENS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Fallgruppe Buerger",
+        "Beschreibung Fallgruppe",
+        norm_addressee=CITIZENS,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt Buerger",
+        "Beschreibung Schritt",
+        norm_addressee=CITIZENS,
+    )
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "5",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "rollen_gueltig": [
+                    {{
+                      "lohngruppe": "a",
+                      "zeitaufwand_in_min": "10"
+                    }}
+                  ]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-CITIZENS-ROLES",
+            "model": "test-model",
+            "provider": "openai",
+            "norm_addressee": CITIZENS,
+        },
+    )
+    assert resp.status_code == 422
+    assert "Invalid effort_calculation payload for citizens" in resp.json()["detail"]
+    assert "rollen_gueltig" in resp.json()["detail"]
 
 
 def test_calculate_effort_rejects_unknown_step(test_client, monkeypatch):

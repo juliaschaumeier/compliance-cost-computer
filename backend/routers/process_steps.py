@@ -10,7 +10,7 @@ from backend.core.llm_attempts import (
     mark_llm_parse_fallback,
     mark_llm_answer_applied,
 )
-from backend.core.llm_json import extract_fallgruppen, parse_json_object_with_mode
+from backend.core.llm_json import extract_fallgruppen, require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
@@ -129,12 +129,13 @@ async def bulk_update_process_steps(
 
 
 def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
-    data, parse_mode = parse_json_object_with_mode(payload)
+    data, parse_mode = require_json_object(
+        payload,
+        error_context="Invalid process_step_analysis payload",
+    )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    if not isinstance(data, dict):
-        return [], fallback_kinds
 
     parsed: list[dict] = []
     processes = data.get("prozesse")

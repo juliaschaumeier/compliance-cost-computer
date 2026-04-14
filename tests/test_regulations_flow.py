@@ -179,6 +179,48 @@ def test_identify_requires_session_law_selection(test_client, monkeypatch):
     assert resp.json()["detail"] == "Law files not selected for session. Run summary first."
 
 
+def test_identify_regulations_rejects_invalid_json_payload(test_client, monkeypatch):
+    db.insert_law("invalid-current.txt", "aktuelles gesetz")
+    db.insert_law("invalid-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            "kein json vorhanden",
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "invalid-proposed.txt",
+            "current_filename": "invalid-current.txt",
+            "app_session_id": "REG-INVALID-JSON",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "REG-INVALID-JSON",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == (
+        "Invalid regulations_identification payload: no JSON object found in LLM response"
+    )
+
+
 def test_summary_supersedes_previous_active_answer(test_client, monkeypatch):
     db.insert_law("summary-current.txt", "aktuelles gesetz")
     db.insert_law("summary-proposed.txt", "neuer entwurf")

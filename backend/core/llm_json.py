@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any
 
+from fastapi import HTTPException
+
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
 _THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\s\S]*?```", re.IGNORECASE)
 
@@ -49,6 +51,29 @@ def parse_json_object_with_mode(payload: str) -> tuple[dict[str, Any] | None, st
     if not isinstance(data, dict):
         return None, "no_json_object"
     return data, "extract_last_json_object"
+
+
+def require_json_object(
+    payload: str,
+    *,
+    error_context: str,
+    required_top_level_key: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    data, parse_mode = parse_json_object_with_mode(payload)
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{error_context}: no JSON object found in LLM response",
+        )
+    if required_top_level_key is not None and required_top_level_key not in data:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{error_context}: expected top-level key "
+                f"'{required_top_level_key}' in LLM response"
+            ),
+        )
+    return data, parse_mode
 
 
 def extract_fallgruppen(data: dict[str, Any]) -> list[dict[str, Any]]:

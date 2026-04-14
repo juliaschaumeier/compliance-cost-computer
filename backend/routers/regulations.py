@@ -15,7 +15,7 @@ from backend.core import db
 from backend.core.llm_attempts import (
     mark_llm_answer_applied,
 )
-from backend.core.llm_json import clean_llm_payload, parse_json_object
+from backend.core.llm_json import clean_llm_payload, parse_json_object, require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
@@ -109,12 +109,17 @@ def _parse_summary(payload: str) -> tuple[str, str, str]:
 
 
 def _parse_vorgaben(payload: str) -> list[dict]:
-    data = parse_json_object(payload)
-    if not isinstance(data, dict):
-        return []
+    data, _parse_mode = require_json_object(
+        payload,
+        error_context="Invalid regulations_identification payload",
+        required_top_level_key="vorgaben",
+    )
     vorgaben = data.get("vorgaben")
     if not isinstance(vorgaben, list):
-        return []
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid regulations_identification payload: 'vorgaben' must be a list",
+        )
     parsed = []
     for entry in vorgaben:
         if not isinstance(entry, dict):
