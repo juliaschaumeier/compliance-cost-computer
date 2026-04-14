@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from backend.core.auth import ApiKeys
-from backend.core.llm_json import parse_json_object
+from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.norm_addressees import (
@@ -206,9 +206,10 @@ def build_mirror_clusters_for_matching(session_id: int) -> list[dict[str, Any]]:
 
 
 def parse_mirror_matching_payload(payload: str, *, session_id: int | None = None) -> list[dict[str, Any]]:
-    data = parse_json_object(payload)
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=422, detail="No mirror analyses parsed")
+    data, _parse_mode = require_json_object(
+        payload,
+        error_context="mirror matching",
+    )
     analyses = data.get("analyses")
     if not isinstance(analyses, list):
         raise HTTPException(status_code=422, detail="No mirror analyses parsed")

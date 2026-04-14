@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
 _THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\s\S]*?```", re.IGNORECASE)
@@ -50,6 +53,17 @@ def parse_json_object_with_mode(payload: str) -> tuple[dict[str, Any] | None, st
     data = extract_last_json_object(cleaned)
     if not isinstance(data, dict):
         return None, "no_json_object"
+    # Fallback-Pfad: LLM-Output konnte nicht direkt als JSON geladen
+    # werden. Das kommt bei LLMs mit Vor-/Nachtext oder bei abgeschnittenen
+    # Ausgaben vor. Wir loggen das systemweit als WARN, damit Ops
+    # systematische Qualitaetsprobleme eines Modells / Providers erkennen
+    # koennen - auch in Routern, die die fallback_kinds nicht ueber
+    # mark_llm_parse_fallback tracken.
+    logger.warning(
+        "llm_json: fallback extract_last_json_object verwendet "
+        "(payload_len=%d, direct_json_loads fehlgeschlagen)",
+        len(cleaned),
+    )
     return data, "extract_last_json_object"
 
 
