@@ -4100,9 +4100,50 @@ def validate_mirror_match_references(session_id: int, row: dict) -> None:
         _maybe_close(conn)
 
 
+def _validate_mirror_match_symmetry(matches: list[dict]) -> None:
+    indexed: dict[
+        tuple[object, ...],
+        dict,
+    ] = {}
+    for row in matches:
+        key = (
+            row.get("mirror_anchor_key"),
+            row.get("source_norm_addressee"),
+            row.get("target_norm_addressee"),
+            row.get("source_process_id"),
+            row.get("target_process_id"),
+            row.get("source_case_group_id"),
+            row.get("target_case_group_id"),
+            row.get("relation_type"),
+        )
+        indexed[key] = row
+
+    for row in matches:
+        reverse_key = (
+            row.get("mirror_anchor_key"),
+            row.get("target_norm_addressee"),
+            row.get("source_norm_addressee"),
+            row.get("target_process_id"),
+            row.get("source_process_id"),
+            row.get("target_case_group_id"),
+            row.get("source_case_group_id"),
+            row.get("relation_type"),
+        )
+        reverse = indexed.get(reverse_key)
+        if reverse is None:
+            continue
+        for flag in ("sync_addressees", "sync_frequency", "sync_cases"):
+            if bool(row.get(flag)) != bool(reverse.get(flag)):
+                raise ValueError(
+                    "Mirror match reverse pairs must agree on "
+                    f"{flag} for anchor {row.get('mirror_anchor_key')}"
+                )
+
+
 def replace_mirror_matches(session_id: int, matches: list[dict]) -> None:
     for row in matches:
         validate_mirror_match_references(session_id, row)
+    _validate_mirror_match_symmetry(matches)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM mirror_matches WHERE session_id = ?", (session_id,))

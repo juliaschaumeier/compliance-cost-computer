@@ -274,6 +274,78 @@ def test_get_session_pay_rates_for_citizens_returns_zero_rates(
     assert pay_rates["active"] == {"a": 0.0, "b": 0.0, "c": 0.0, "d": 0.0}
 
 
+def test_replace_mirror_matches_rejects_inconsistent_reverse_sync_flags(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "mirror_symmetry.db")
+    db.init_db()
+
+    session_id, _ = db.upsert_session("MIRROR-SYMMETRY", "test-model")
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Beschreibung Verwaltung",
+        norm_addressee="administration",
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Beschreibung Wirtschaft",
+        norm_addressee="business",
+    )
+    admin_case_group_id = db.insert_case_group(
+        session_id,
+        admin_process_id,
+        "Fallgruppe Verwaltung",
+        "Beschreibung",
+        norm_addressee="administration",
+    )
+    business_case_group_id = db.insert_case_group(
+        session_id,
+        business_process_id,
+        "Fallgruppe Wirtschaft",
+        "Beschreibung",
+        norm_addressee="business",
+    )
+
+    with pytest.raises(ValueError, match="reverse pairs must agree on sync_cases"):
+        db.replace_mirror_matches(
+            session_id,
+            [
+                {
+                    "mirror_anchor_key": "gemeinsamer-fall",
+                    "shared_situation": "Test",
+                    "source_norm_addressee": "administration",
+                    "target_norm_addressee": "business",
+                    "source_process_id": admin_process_id,
+                    "target_process_id": business_process_id,
+                    "source_case_group_id": admin_case_group_id,
+                    "target_case_group_id": business_case_group_id,
+                    "relation_type": "mirrored_case_group",
+                    "sync_addressees": True,
+                    "sync_frequency": True,
+                    "sync_cases": True,
+                    "reason": "Hinrichtung A->B",
+                },
+                {
+                    "mirror_anchor_key": "gemeinsamer-fall",
+                    "shared_situation": "Test",
+                    "source_norm_addressee": "business",
+                    "target_norm_addressee": "administration",
+                    "source_process_id": business_process_id,
+                    "target_process_id": admin_process_id,
+                    "source_case_group_id": business_case_group_id,
+                    "target_case_group_id": admin_case_group_id,
+                    "relation_type": "mirrored_case_group",
+                    "sync_addressees": True,
+                    "sync_frequency": True,
+                    "sync_cases": False,
+                    "reason": "Rueckrichtung B->A",
+                },
+            ],
+        )
+
+
 def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_addressee_metrics.db")
     db.init_db()
