@@ -353,6 +353,97 @@ def test_compute_costs_allows_admin_time_only_inputs_with_active_rates(test_clie
     assert resp.json()["total_cost"] == pytest.approx(33.8)
 
 
+def test_compute_costs_allows_business_time_only_inputs_with_active_rates(test_client):
+    session_id, _ = db.upsert_session("COST-BUSINESS-TIME-ONLY", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Business Process",
+        "Beschreibung Prozess",
+        norm_addressee=BUSINESS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Business Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=BUSINESS,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Business Step",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"process_{process_id}",
+            title="Business Process",
+            text="Beschreibung Prozess",
+            meta_information={"process_id": process_id},
+            column=2,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Business Case Group",
+            text="Beschreibung Fallgruppe",
+            meta_information={"case_group_id": case_group_id, "process_id": process_id},
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"process_{process_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"step_{step_id}",
+            title="Business Step",
+            text="Beschreibung Schritt",
+            meta_information={"step_id": step_id, "case_group_id": case_group_id},
+            column=4,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"case_group_{case_group_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+    )
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-BUSINESS-TIME-ONLY", "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total_cost"] == pytest.approx(33.8)
+
+
 def test_compute_costs_business_counts_mixed_information_obligation_steps_as_bureaucracy(
     test_client,
 ):

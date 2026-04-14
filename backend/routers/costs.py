@@ -51,7 +51,7 @@ def _resolve_hourly_rate(
     value = step.get(f"hourly_rate_{key}_{suffix}")
     if value is not None:
         return float(value)
-    if norm_addressee == ADMINISTRATION:
+    if norm_addressee in {ADMINISTRATION, BUSINESS}:
         return _safe_number(active_rates.get(key))
     return 0.0
 
@@ -87,7 +87,7 @@ def _has_step_cost_inputs(step: dict, suffix: str, norm_addressee: str) -> bool:
     for key in ["a", "b", "c", "d"]:
         if step.get(f"time_required_in_min_{key}_{suffix}_effective") is None:
             continue
-        if norm_addressee == ADMINISTRATION:
+        if norm_addressee in {ADMINISTRATION, BUSINESS}:
             return True
         if step.get(f"hourly_rate_{key}_{suffix}") is not None:
             return True
