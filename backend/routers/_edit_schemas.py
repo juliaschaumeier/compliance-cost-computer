@@ -10,6 +10,7 @@ class BulkUpdateResponse(BaseModel):
 class EditableCaseGroupRow(BaseModel):
     case_group_id: int
     process_id: int
+    norm_addressee: str
     case_group: str
     description: str
     change_status: str
@@ -40,6 +41,7 @@ class EditableCaseGroupsResponse(BaseModel):
 class EditableProcessStepRow(BaseModel):
     step_id: int
     case_group_id: int
+    norm_addressee: str
     step: str
     description: str
     change_status: str
