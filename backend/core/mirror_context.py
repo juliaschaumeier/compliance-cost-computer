@@ -264,6 +264,12 @@ def apply_deterministic_mirror_case_group_sync(
         session_id=session_id,
         norm_addressee=norm_addressee,
     )
+    _assert_required_mirror_case_group_sync(
+        session_id=session_id,
+        norm_addressee=norm_addressee,
+        parsed_cases=parsed_cases,
+        overrides=overrides,
+    )
     if not overrides:
         return parsed_cases
     synced: list[dict[str, Any]] = []
@@ -281,6 +287,41 @@ def apply_deterministic_mirror_case_group_sync(
         updated["mirror_sync_source"] = override["source_norm_addressee"]
         synced.append(updated)
     return synced
+
+
+def _assert_required_mirror_case_group_sync(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    parsed_cases: list[dict[str, Any]],
+    overrides: dict[int, dict[str, Any]],
+) -> None:
+    from backend.core import db
+
+    parsed_case_group_ids = {int(entry["case_group_id"]) for entry in parsed_cases}
+    missing_sync_case_group_ids: list[str] = []
+    for match in db.list_mirror_matches(session_id):
+        if not bool(match.get("sync_cases")):
+            continue
+        if str(match.get("target_norm_addressee") or "") != norm_addressee:
+            continue
+        target_case_group_id = match.get("target_case_group_id")
+        if target_case_group_id is None:
+            continue
+        target_case_group_id = int(target_case_group_id)
+        if target_case_group_id not in parsed_case_group_ids:
+            continue
+        if target_case_group_id in overrides:
+            continue
+        missing_sync_case_group_ids.append(str(target_case_group_id))
+    if missing_sync_case_group_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Mirror sync_cases could not be enforced for fallgruppen_id values: "
+                + ", ".join(sorted(missing_sync_case_group_ids))
+            ),
+        )
 
 
 def get_deterministic_mirror_case_group_metrics(

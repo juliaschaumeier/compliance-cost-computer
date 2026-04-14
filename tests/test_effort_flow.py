@@ -1780,3 +1780,162 @@ def test_parse_mirror_matching_payload_rejects_unknown_case_group_ids():
 
     assert exc_info.value.status_code == 422
     assert "Unknown source_case_group_id" in exc_info.value.detail
+
+
+def test_calculate_effort_rejects_sync_cases_match_without_source_metrics(
+    test_client, monkeypatch
+):
+    session_id, _ = db.upsert_session("EFFORT-MIRROR-MISSING-SOURCE-METRICS", "test-model")
+
+    admin_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Verwaltungspruefung E-Sport",
+        applies_to_administration=True,
+        applies_to_business=False,
+        mirror_applies_to_business=True,
+        mirror_description="Spiegel zur Antragstellung der Koerperschaften.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+    business_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Koerperschaft stellt Gemeinnuetzigkeitsantrag fuer E-Sport.",
+        applies_to_administration=False,
+        applies_to_business=True,
+        mirror_applies_to_administration=True,
+        mirror_description="Spiegel zur Pruefung durch die Verwaltung.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Pruefung",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Antragstellung",
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=admin_regulation_id,
+        process_id=admin_process_id,
+        norm_addressee=ADMINISTRATION,
+    )
+    assert db.update_regulation_process(
+        regulation_id=business_regulation_id,
+        process_id=business_process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    admin_case_group_id = db.insert_case_group(
+        session_id,
+        admin_process_id,
+        "Verwaltungsfallgruppe",
+        "Bearbeitung eines Antrags",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_case_group_id = db.insert_case_group(
+        session_id,
+        business_process_id,
+        "Wirtschaftsfallgruppe",
+        "Stellung eines Antrags",
+        norm_addressee=BUSINESS,
+    )
+    business_step_id = db.insert_process_step(
+        session_id,
+        business_case_group_id,
+        "Unterlagen einreichen",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{business_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{business_case_group_id}",
+              "anzahl_betroffene_gueltig": "999",
+              "haeufigkeit_pro_jahr_gueltig": "5",
+              "anzahl_betroffene_vorschlag": "777",
+              "haeufigkeit_pro_jahr_vorschlag": "6"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{business_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{business_case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{business_step_id}",
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "3",
+                  "sachaufwand_vorschlag": "2"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(
+            cases_response,
+            effort_response,
+            mirror_response=f"""
+            {{
+              "analyses": [
+                {{
+                  "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+                  "shared_situation": "Gemeinsamer Antragssachverhalt.",
+                  "matches": [
+                    {{
+                      "source_norm_addressee": "administration",
+                      "target_norm_addressee": "business",
+                      "source_process_id": "{admin_process_id}",
+                      "target_process_id": "{business_process_id}",
+                      "source_case_group_id": "{admin_case_group_id}",
+                      "target_case_group_id": "{business_case_group_id}",
+                      "relation_type": "mirrored_case_group",
+                      "sync_addressees": true,
+                      "sync_frequency": true,
+                      "sync_cases": true,
+                      "reason": "Beide Fallgruppen beschreiben denselben Antragssachverhalt."
+                    }}
+                  ]
+                }}
+              ]
+            }}
+            """,
+        ),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-MIRROR-MISSING-SOURCE-METRICS",
+            "model": "test-model",
+            "provider": "openai",
+            "norm_addressee": BUSINESS,
+        },
+    )
+    assert resp.status_code == 422
+    assert "Mirror sync_cases could not be enforced" in resp.json()["detail"]
