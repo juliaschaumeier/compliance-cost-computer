@@ -16,7 +16,7 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db, llm_monitor
 from backend.core.config import settings
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
-from backend.core.norm_addressees import ADMINISTRATION, CITIZENS
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
@@ -427,11 +427,31 @@ async def _run_single_step(
     api_keys: ApiKeys,
     model: str,
 ) -> None:
+    addressee_labels = {
+        ADMINISTRATION: "administration",
+        BUSINESS: "business",
+        CITIZENS: "citizens",
+    }
+
     async def _run_for_supported_addressees(
         runner: Callable[[str], Awaitable[None]],
     ) -> None:
         for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
-            await runner(norm_addressee)
+            try:
+                await runner(norm_addressee)
+            except HTTPException as exc:
+                detail = _step_error_message(exc)
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail=(
+                        f"{addressee_labels.get(norm_addressee, norm_addressee)}: {detail}"
+                    ),
+                ) from exc
+            except Exception as exc:
+                detail = _step_error_message(exc)
+                raise RuntimeError(
+                    f"{addressee_labels.get(norm_addressee, norm_addressee)}: {detail}"
+                ) from exc
 
     if step_key == "summary":
         current_filename, proposed_filename = _resolve_filenames(

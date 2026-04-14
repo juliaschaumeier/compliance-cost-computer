@@ -714,6 +714,44 @@ def test_run_all_reports_step_failure(test_client):
     assert payload["final_status"]["summary_ready"] is False
 
 
+def test_run_all_reports_failing_addressee_in_step_message(test_client, monkeypatch):
+    app_session_id = "RUNALL-ADDRESSEE-FAIL"
+    db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    db.insert_regulation(
+        session_id,
+        "§ B",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+
+    async def fake_compile_processes(payload, *_args, **_kwargs):
+        if payload.norm_addressee == BUSINESS:
+            raise RuntimeError("No regulations mapped to process cluster")
+        return {"status": "skipped"}
+
+    monkeypatch.setattr(processes_router, "compile_processes", fake_compile_processes)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={"app_session_id": app_session_id, "model": "test-model"},
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "failed"
+    assert payload["ok"] is False
+    assert payload["steps"][0]["key"] == "processes"
+    assert payload["steps"][0]["status"] == "failed"
+    assert payload["steps"][0]["message"] == "business: No regulations mapped to process cluster"
+    assert payload["final_status"]["summary_ready"] is True
+    assert payload["final_status"]["regulations_ready"] is True
+    assert payload["final_status"]["processes_ready"] is False
+
+
 def test_run_all_start_requires_model_for_new_session(test_client):
     start_response = test_client.post(
         "/sessions/run-all/start",
