@@ -635,6 +635,30 @@ def _create_session_total_costs_by_addressee_table(
     )
 
 
+def _create_session_pay_rate_overrides_by_addressee_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "session_pay_rate_overrides_by_addressee",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id           INTEGER NOT NULL,
+            norm_addressee       TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            edited_a             REAL,
+            edited_b             REAL,
+            edited_c             REAL,
+            edited_d             REAL,
+            last_edited_at       TEXT,
+            PRIMARY KEY (session_id, norm_addressee),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
 def _create_parent_composite_indexes(cur: sqlite3.Cursor) -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_processes_session_addressee_process_id ON processes(session_id, norm_addressee, process_id)"
@@ -1119,6 +1143,7 @@ def init_db() -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
     _create_session_total_costs_by_addressee_table(cur)
+    _create_session_pay_rate_overrides_by_addressee_table(cur)
     _create_session_scoped_tile_tables(cur)
     cur.execute(
         """
@@ -2799,13 +2824,35 @@ def get_session_pay_rates_for_addressee(
         }
     if resolved == BUSINESS:
         defaults = get_default_pay_rates_for_addressee(BUSINESS)
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT edited_a, edited_b, edited_c, edited_d
+            FROM session_pay_rate_overrides_by_addressee
+            WHERE session_id = ? AND norm_addressee = ?
+            """,
+            (session_id, resolved),
+        )
+        row = cur.fetchone()
+        _maybe_close(conn)
+        edited = {
+            "a": float(row["edited_a"]) if row and row["edited_a"] is not None else None,
+            "b": float(row["edited_b"]) if row and row["edited_b"] is not None else None,
+            "c": float(row["edited_c"]) if row and row["edited_c"] is not None else None,
+            "d": float(row["edited_d"]) if row and row["edited_d"] is not None else None,
+        }
+        active = {
+            key: (edited[key] if edited[key] is not None else defaults[key])
+            for key in PAY_RATE_KEYS
+        }
         return {
             "norm_addressee": resolved,
-            "editable": False,
+            "editable": True,
             "administration_level": None,
             "defaults": defaults,
-            "edited": _empty_pay_rate_edits(),
-            "active": defaults,
+            "edited": edited,
+            "active": active,
         }
     defaults = _zero_pay_rates()
     return {
@@ -2948,7 +2995,80 @@ def update_session_pay_rate_edits(
             field_name=f"edited_{key}",
             old_value=previous.get(f"pay_rate_edited_{key}"),
             new_value=edited.get(key),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return True
+
+
+def update_session_pay_rate_edits_for_addressee(
+    session_id: int,
+    norm_addressee: str,
+    administration_level: str | None,
+    edited: dict[str, float | None],
+) -> bool:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == ADMINISTRATION:
+        return update_session_pay_rate_edits(
+            session_id=session_id,
+            administration_level=administration_level,
+            edited=edited,
         )
+    if resolved == CITIZENS:
+        raise ValueError("Citizens pay rates are not editable")
+    if administration_level is not None:
+        raise ValueError("administration_level is only supported for administration")
+
+    previous = get_session_pay_rates_for_addressee(session_id, resolved)
+    if previous is None:
+        return False
+    changed = False
+    for key in PAY_RATE_KEYS:
+        changed = changed or value_changed(previous["edited"].get(key), edited.get(key))
+    if not changed:
+        return False
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO session_pay_rate_overrides_by_addressee (
+            session_id,
+            norm_addressee,
+            edited_a,
+            edited_b,
+            edited_c,
+            edited_d,
+            last_edited_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, current_timestamp)
+        ON CONFLICT(session_id, norm_addressee) DO UPDATE SET
+            edited_a = excluded.edited_a,
+            edited_b = excluded.edited_b,
+            edited_c = excluded.edited_c,
+            edited_d = excluded.edited_d,
+            last_edited_at = current_timestamp
+        """,
+        (
+            session_id,
+            resolved,
+            edited.get("a"),
+            edited.get("b"),
+            edited.get("c"),
+            edited.get("d"),
+        ),
+    )
+    for key in PAY_RATE_KEYS:
+        if value_changed(previous["edited"].get(key), edited.get(key)):
+            insert_edit_audit_row(
+                session_id=session_id,
+                entity_type="pay_rate",
+                entity_id=None,
+                field_name=f"{resolved}_edited_{key}",
+                old_value=previous["edited"].get(key),
+                new_value=edited.get(key),
+                cur=cur,
+            )
     _maybe_commit(conn)
     _maybe_close(conn)
     return True

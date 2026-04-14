@@ -89,6 +89,97 @@ def test_sessions_pay_rates_reject_unknown_level(test_client):
     assert "Unknown administration_level" in response.json()["detail"]
 
 
+def test_sessions_pay_rates_support_business_overrides(test_client):
+    session_id, _ = db.upsert_session("EDIT-RATES-BUSINESS", "test-model")
+
+    get_response = test_client.get(
+        "/sessions/pay-rates",
+        params={
+            "app_session_id": "EDIT-RATES-BUSINESS",
+            "norm_addressee": "business",
+        },
+    )
+    assert get_response.status_code == 200
+    initial = get_response.json()
+    assert initial["norm_addressee"] == "business"
+    assert initial["editable"] is True
+    assert initial["administration_level"] is None
+    assert initial["active"]["a"] == initial["defaults"]["a"] == 26.1
+
+    post_response = test_client.post(
+        "/sessions/pay-rates",
+        json={
+            "app_session_id": "EDIT-RATES-BUSINESS",
+            "norm_addressee": "business",
+            "administration_level": None,
+            "edited_a": 41.5,
+            "edited_b": None,
+            "edited_c": None,
+            "edited_d": None,
+        },
+    )
+    assert post_response.status_code == 200
+    updated = post_response.json()
+    assert updated["norm_addressee"] == "business"
+    assert updated["editable"] is True
+    assert updated["edited"]["a"] == 41.5
+    assert updated["active"]["a"] == 41.5
+
+    session_rates = db.get_session_pay_rates_for_addressee(session_id, "business")
+    assert session_rates is not None
+    assert session_rates["edited"]["a"] == 41.5
+    assert session_rates["active"]["a"] == 41.5
+
+
+def test_sessions_pay_rates_reject_administration_level_for_business(test_client):
+    db.upsert_session("EDIT-RATES-BUSINESS-LEVEL", "test-model")
+    response = test_client.post(
+        "/sessions/pay-rates",
+        json={
+            "app_session_id": "EDIT-RATES-BUSINESS-LEVEL",
+            "norm_addressee": "business",
+            "administration_level": "bund",
+            "edited_a": 41.5,
+            "edited_b": None,
+            "edited_c": None,
+            "edited_d": None,
+        },
+    )
+    assert response.status_code == 422
+    assert "only supported for administration" in response.json()["detail"]
+
+
+def test_sessions_pay_rates_reject_citizens_updates(test_client):
+    db.upsert_session("EDIT-RATES-CITIZENS", "test-model")
+
+    get_response = test_client.get(
+        "/sessions/pay-rates",
+        params={
+            "app_session_id": "EDIT-RATES-CITIZENS",
+            "norm_addressee": "citizens",
+        },
+    )
+    assert get_response.status_code == 200
+    payload = get_response.json()
+    assert payload["norm_addressee"] == "citizens"
+    assert payload["editable"] is False
+    assert payload["active"]["a"] == 0.0
+
+    post_response = test_client.post(
+        "/sessions/pay-rates",
+        json={
+            "app_session_id": "EDIT-RATES-CITIZENS",
+            "norm_addressee": "citizens",
+            "edited_a": 1.0,
+            "edited_b": None,
+            "edited_c": None,
+            "edited_d": None,
+        },
+    )
+    assert post_response.status_code == 422
+    assert "not editable" in post_response.json()["detail"]
+
+
 def test_sessions_pay_rates_reject_negative_edited_value(test_client):
     db.upsert_session("EDIT-RATES-NEG", "test-model")
     response = test_client.post(

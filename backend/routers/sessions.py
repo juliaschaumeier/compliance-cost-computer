@@ -16,6 +16,7 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db, llm_monitor
 from backend.core.config import settings
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
+from backend.core.norm_addressees import ADMINISTRATION, CITIZENS
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
@@ -91,6 +92,7 @@ class SessionStatusResponse(BaseModel):
 
 class SessionPayRatesUpdateRequest(BaseModel):
     app_session_id: AppSessionId
+    norm_addressee: str | None = None
     administration_level: str | None = None
     edited_a: float | None
     edited_b: float | None
@@ -100,7 +102,9 @@ class SessionPayRatesUpdateRequest(BaseModel):
 
 class SessionPayRatesResponse(BaseModel):
     app_session_id: str
-    administration_level: str
+    norm_addressee: str = ADMINISTRATION
+    editable: bool = True
+    administration_level: str | None = None
     defaults: dict[str, float]
     edited: dict[str, float | None]
     active: dict[str, float]
@@ -313,16 +317,26 @@ def _as_session_status_response(app_session_id: str) -> SessionStatusResponse:
     )
 
 
-def _as_session_pay_rates_response(app_session_id: str) -> SessionPayRatesResponse:
+def _as_session_pay_rates_response(
+    app_session_id: str,
+    norm_addressee: str | None = None,
+) -> SessionPayRatesResponse:
     session_id = db.get_session_id_by_app_id(app_session_id)
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    pay_rates = db.get_session_pay_rates(session_id)
+    resolved = normalize_norm_addressee_or_422(norm_addressee)
+    pay_rates = db.get_session_pay_rates_for_addressee(session_id, resolved)
     if pay_rates is None:
         raise HTTPException(status_code=404, detail="Session pay rates not found")
     return SessionPayRatesResponse(
         app_session_id=app_session_id,
-        administration_level=str(pay_rates["administration_level"]),
+        norm_addressee=str(pay_rates["norm_addressee"]),
+        editable=bool(pay_rates["editable"]),
+        administration_level=(
+            None
+            if pay_rates["administration_level"] is None
+            else str(pay_rates["administration_level"])
+        ),
         defaults={key: float(value) for key, value in pay_rates["defaults"].items()},
         edited={
             key: (None if value is None else float(value))
@@ -333,6 +347,17 @@ def _as_session_pay_rates_response(app_session_id: str) -> SessionPayRatesRespon
 
 
 def _validate_pay_rates_update_payload(payload: SessionPayRatesUpdateRequest) -> None:
+    resolved = normalize_norm_addressee_or_422(payload.norm_addressee)
+    if resolved == CITIZENS:
+        raise HTTPException(
+            status_code=422,
+            detail="Citizens pay rates are not editable",
+        )
+    if payload.administration_level is not None and resolved != ADMINISTRATION:
+        raise HTTPException(
+            status_code=422,
+            detail="administration_level is only supported for administration",
+        )
     if payload.administration_level is not None:
         requested_level = payload.administration_level.strip().lower()
         allowed_levels = {
@@ -658,8 +683,9 @@ async def session_status(
 @router.get("/pay-rates", response_model=SessionPayRatesResponse)
 async def session_pay_rates(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    norm_addressee: str | None = None,
 ) -> SessionPayRatesResponse:
-    return _as_session_pay_rates_response(app_session_id)
+    return _as_session_pay_rates_response(app_session_id, norm_addressee=norm_addressee)
 
 
 @router.post("/pay-rates", response_model=SessionPayRatesResponse)
@@ -671,8 +697,9 @@ async def session_pay_rates_update(
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
     try:
-        changed = db.update_session_pay_rate_edits(
+        changed = db.update_session_pay_rate_edits_for_addressee(
             session_id=session_id,
+            norm_addressee=normalize_norm_addressee_or_422(payload.norm_addressee),
             administration_level=payload.administration_level,
             edited={
                 "a": payload.edited_a,
@@ -685,7 +712,10 @@ async def session_pay_rates_update(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not changed:
         raise HTTPException(status_code=422, detail="No changes in payload")
-    return _as_session_pay_rates_response(payload.app_session_id)
+    return _as_session_pay_rates_response(
+        payload.app_session_id,
+        norm_addressee=payload.norm_addressee,
+    )
 
 
 @router.get("/edit-audit", response_model=SessionEditAuditResponse)
