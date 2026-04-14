@@ -155,33 +155,19 @@ def _list_business_information_step_ids(session_id: int, norm_addressee: str) ->
         for row in db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
     }
     step_rows = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
-    return {
-        int(step["step_id"])
-        for step in step_rows
-        if (
-            (
-                regulation_ids_by_step.get(int(step["step_id"]), [])
-                or list(
-                    process_regulation_ids.get(
-                        process_id_by_case_group.get(int(step["case_group_id"])),
-                        set(),
-                    )
-                )
-            )
-            and any(
-                regulation_id in business_regulation_ids
-                for regulation_id in (
-                    regulation_ids_by_step.get(int(step["step_id"]), [])
-                    or list(
-                        process_regulation_ids.get(
-                            process_id_by_case_group.get(int(step["case_group_id"])),
-                            set(),
-                        )
-                    )
-                )
-            )
-        )
-    }
+    matched_step_ids: set[int] = set()
+    for step in step_rows:
+        step_id = int(step["step_id"])
+        case_group_id = int(step["case_group_id"])
+        regulation_ids = regulation_ids_by_step.get(step_id)
+        if not regulation_ids:
+            process_id = process_id_by_case_group.get(case_group_id)
+            regulation_ids = sorted(process_regulation_ids.get(process_id, set()))
+        if regulation_ids and any(
+            regulation_id in business_regulation_ids for regulation_id in regulation_ids
+        ):
+            matched_step_ids.add(step_id)
+    return matched_step_ids
 
 
 def _refresh_process_tiles(

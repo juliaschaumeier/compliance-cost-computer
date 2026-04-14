@@ -2316,7 +2316,7 @@ def list_regulations_for_session_and_addressee(
         row for row in list_regulations_for_session(session_id)
         if (
             resolved == ADMINISTRATION
-            and bool(row.get("applies_to_administration", 1))
+            and bool(row.get("applies_to_administration"))
         )
         or (resolved == "business" and bool(row.get("applies_to_business")))
         or (resolved == "citizens" and bool(row.get("applies_to_citizens")))
