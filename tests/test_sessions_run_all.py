@@ -863,6 +863,59 @@ def test_run_all_start_returns_run_id_and_completes(test_client, monkeypatch):
     assert done["final_status"]["total_cost_ready"] is True
 
 
+def test_run_all_status_reports_current_step_and_addressee_while_running(
+    test_client, monkeypatch
+):
+    app_session_id = "RUNALL-CURRENT-STATUS"
+    db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    db.insert_regulation(
+        session_id,
+        "§ A",
+        "Vorgabe Verwaltung",
+        applies_to_administration=True,
+        applies_to_business=False,
+        applies_to_citizens=False,
+    )
+
+    reached_processes = asyncio.Event()
+
+    async def slow_compile_processes(payload, *_args, **_kwargs):
+        reached_processes.set()
+        await asyncio.sleep(0.3)
+        return {"status": "existing"}
+
+    monkeypatch.setattr(processes_router, "compile_processes", slow_compile_processes)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={"app_session_id": app_session_id, "model": "test-model"},
+    )
+    assert start_response.status_code == 200
+    run_id = start_response.json()["run_id"]
+
+    deadline = time.time() + 2.0
+    seen_running_status = None
+    while time.time() < deadline:
+        response = test_client.get(f"/sessions/run-all/{run_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        if (
+            payload["status"] == "running"
+            and payload["current_step"] == "processes"
+            and payload["current_norm_addressee"] == ADMINISTRATION
+        ):
+            seen_running_status = payload
+            break
+        time.sleep(0.05)
+
+    assert reached_processes.is_set()
+    assert seen_running_status is not None
+    assert seen_running_status["current_label"] == "Prozesse bündeln"
+
+
 def test_run_all_events_stream_emits_terminal_event(test_client, monkeypatch):
     app_session_id = "RUNALL-SSE"
     db.insert_law("current_sse.txt", "aktuelles gesetz")
