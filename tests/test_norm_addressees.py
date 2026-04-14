@@ -24,7 +24,17 @@ def test_normalize_norm_addressee_accepts_supported_aliases(raw_value, expected)
 
 @pytest.mark.parametrize(
     "raw_value",
-    ["verwaltung", "wirtschaft", "unternehmen", "buerger", "bürger", "citizen", "invalid"],
+    [
+        "",
+        "   ",
+        "verwaltung",
+        "wirtschaft",
+        "unternehmen",
+        "buerger",
+        "bürger",
+        "citizen",
+        "invalid",
+    ],
 )
 def test_normalize_norm_addressee_rejects_non_canonical_values(raw_value):
     with pytest.raises(ValueError):

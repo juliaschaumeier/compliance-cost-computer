@@ -48,7 +48,11 @@ EFFORT_GROUP_LABELS: dict[str, dict[str, str]] = {
 
 
 def normalize_norm_addressee(value: str | None) -> str:
-    normalized = str(value or ADMINISTRATION).strip().lower()
+    if value is None:
+        return ADMINISTRATION
+    normalized = str(value).strip().lower()
+    if not normalized:
+        raise ValueError("Unsupported norm_addressee: empty value")
     if normalized == ADMINISTRATION:
         return ADMINISTRATION
     if normalized == BUSINESS:
