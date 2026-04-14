@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { SessionPayRatesResponse } from "@/types";
+import { NormAddressee, SessionPayRatesResponse } from "@/types";
 
 import { useEaReviewSave } from "./useEaReviewSave";
 import {
@@ -17,8 +17,15 @@ type EaPayRatesTabProps = {
   open: boolean;
   active: boolean;
   appSessionId: string;
+  normAddressee: NormAddressee;
   runAutoRecompute: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+};
+
+const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
+  administration: "Verwaltung",
+  business: "Wirtschaft",
+  citizens: "Bürgerinnen und Bürger",
 };
 
 type PayGradeKey = "a" | "b" | "c" | "d";
@@ -41,6 +48,7 @@ export default function EaPayRatesTab({
   open,
   active,
   appSessionId,
+  normAddressee,
   runAutoRecompute,
   onDirtyChange,
 }: EaPayRatesTabProps) {
@@ -111,38 +119,43 @@ export default function EaPayRatesTab({
     onDirtyChange?.(hasDirtyEdited);
   }, [hasDirtyEdited, onDirtyChange]);
 
+  const loadKey = `${appSessionId}::${normAddressee}`;
+
   const loadPayRates = useCallback(async () => {
     setIsLoading(true);
     setStatus(null);
     try {
-      const payload = await apiClient.getSessionPayRates({ appSessionId });
+      const payload = await apiClient.getSessionPayRates({
+        appSessionId,
+        normAddressee,
+      });
       setPayRates(payload);
-      setLoadedSessionKey(appSessionId);
+      setLoadedSessionKey(loadKey);
       setPayEditedInputs(EMPTY_EDITED_INPUTS);
     } catch (error) {
-      logClientError("EaPayRatesTab.load", error, { appSessionId });
+      logClientError("EaPayRatesTab.load", error, { appSessionId, normAddressee });
       setStatus("Lohnsätze konnten nicht geladen werden.");
     } finally {
       setIsLoading(false);
     }
-  }, [appSessionId, setStatus]);
+  }, [appSessionId, normAddressee, loadKey, setStatus]);
 
   useEffect(() => {
     setPayRates(null);
     setPayEditedInputs(EMPTY_EDITED_INPUTS);
     setLoadedSessionKey(null);
     setStatus(null);
-  }, [appSessionId, setStatus]);
+  }, [appSessionId, normAddressee, setStatus]);
 
   useEffect(() => {
     if (!open || !active) {
       return;
     }
-    if (loadedSessionKey === appSessionId && payRates) {
+    if (loadedSessionKey === loadKey && payRates) {
       return;
     }
     loadPayRates();
-  }, [open, active, loadPayRates, loadedSessionKey, appSessionId, payRates]);
+  }, [open, active, loadPayRates, loadedSessionKey, loadKey, payRates]);
 
   const handleSave = async () => {
     if (!payRates || !hasDirtyEdited || hasInvalidInput) {
@@ -153,6 +166,7 @@ export default function EaPayRatesTab({
         async () => {
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
+            normAddressee,
             administrationLevel: payRates.administration_level || "bund",
             editedA: nextEdited.a,
             editedB: nextEdited.b,
@@ -182,6 +196,7 @@ export default function EaPayRatesTab({
         async () => {
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
+            normAddressee,
             administrationLevel: payRates.administration_level || "bund",
             editedA: null,
             editedB: null,
@@ -225,10 +240,18 @@ export default function EaPayRatesTab({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-        Verwaltungsebene:{" "}
-        <span className="font-semibold uppercase">
-          {payRates?.administration_level || "bund"}
+        Normadressat:{" "}
+        <span className="font-semibold">
+          {NORM_ADDRESSEE_LABELS[normAddressee]}
         </span>
+        {normAddressee === "administration" && (
+          <>
+            {" · Verwaltungsebene: "}
+            <span className="font-semibold uppercase">
+              {payRates?.administration_level || "bund"}
+            </span>
+          </>
+        )}
       </div>
       <div className="text-[11px] text-slate-500">
         Zahlenformat: z. B. 1.234,56 (de-DE).

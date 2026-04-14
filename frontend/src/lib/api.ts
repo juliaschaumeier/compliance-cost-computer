@@ -655,12 +655,14 @@ export const apiClient = {
 
   async getSessionPayRates(options: {
     appSessionId: string;
+    normAddressee?: NormAddressee;
   }): Promise<SessionPayRatesResponse> {
-    const response = await fetch(
-      `${API_BASE_URL}/sessions/pay-rates?app_session_id=${encodeURIComponent(
-        options.appSessionId
-      )}`
-    );
+    const params = new URLSearchParams();
+    params.set("app_session_id", options.appSessionId);
+    if (options.normAddressee) {
+      params.set("norm_addressee", options.normAddressee);
+    }
+    const response = await fetch(`${API_BASE_URL}/sessions/pay-rates?${params.toString()}`);
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load session pay rates");
     }
@@ -669,6 +671,7 @@ export const apiClient = {
 
   async updateSessionPayRates(options: {
     appSessionId: string;
+    normAddressee?: NormAddressee;
     administrationLevel?: string;
     editedA: number | null;
     editedB: number | null;
@@ -682,6 +685,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
         administration_level: options.administrationLevel,
         edited_a: options.editedA,
         edited_b: options.editedB,

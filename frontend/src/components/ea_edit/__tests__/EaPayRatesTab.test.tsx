@@ -37,7 +37,7 @@ describe("EaPayRatesTab", () => {
   it("loads and saves pay-rate edited values", async () => {
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
     );
 
     const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
@@ -53,6 +53,7 @@ describe("EaPayRatesTab", () => {
     await waitFor(() => expect(mockUpdateSessionPayRates).toHaveBeenCalledTimes(1));
     expect(mockUpdateSessionPayRates).toHaveBeenCalledWith({
       appSessionId: "PAY-TAB",
+      normAddressee: "administration",
       administrationLevel: "bund",
       editedA: 99,
       editedB: null,
@@ -70,7 +71,7 @@ describe("EaPayRatesTab", () => {
         window.dispatchEvent(new Event("tiles-updated"));
       });
       render(
-        <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+        <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
       );
 
       const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
@@ -92,7 +93,7 @@ describe("EaPayRatesTab", () => {
 
   it("disables save for invalid numeric input", async () => {
     render(
-      <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
 
     const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
@@ -114,7 +115,7 @@ describe("EaPayRatesTab", () => {
 
   it("disables save when there are no changes", async () => {
     render(
-      <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
     await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
     expect(
@@ -139,7 +140,7 @@ describe("EaPayRatesTab", () => {
     });
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
     );
     await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
     const user = userEvent.setup();
@@ -151,6 +152,7 @@ describe("EaPayRatesTab", () => {
     await waitFor(() => expect(mockUpdateSessionPayRates).toHaveBeenCalledTimes(1));
     expect(mockUpdateSessionPayRates).toHaveBeenCalledWith({
       appSessionId: "PAY-TAB",
+      normAddressee: "administration",
       administrationLevel: "bund",
       editedA: null,
       editedB: null,
@@ -162,7 +164,7 @@ describe("EaPayRatesTab", () => {
 
   it("disables reset when no saved edited value is active", async () => {
     render(
-      <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
     await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
     expect(
@@ -173,7 +175,7 @@ describe("EaPayRatesTab", () => {
   it("keeps unsaved edited values across tab deactivate/reactivate", async () => {
     const onDirtyChange = jest.fn();
     const { rerender } = render(
-      <EaPayRatesTab
+      <EaPayRatesTab normAddressee="administration"
         open
         active
         appSessionId="PAY-TAB"
@@ -196,7 +198,7 @@ describe("EaPayRatesTab", () => {
     ).toBeEnabled();
 
     rerender(
-      <EaPayRatesTab
+      <EaPayRatesTab normAddressee="administration"
         open
         active={false}
         appSessionId="PAY-TAB"
@@ -206,7 +208,7 @@ describe("EaPayRatesTab", () => {
     );
 
     rerender(
-      <EaPayRatesTab
+      <EaPayRatesTab normAddressee="administration"
         open
         active
         appSessionId="PAY-TAB"
@@ -226,7 +228,7 @@ describe("EaPayRatesTab", () => {
 
   it("keeps active values stable while unsaved input changes", async () => {
     render(
-      <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
 
     const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
@@ -254,7 +256,7 @@ describe("EaPayRatesTab", () => {
       active: { a: 77, b: 20, c: 30, d: 40 },
     });
     render(
-      <EaPayRatesTab open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
 
     const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);

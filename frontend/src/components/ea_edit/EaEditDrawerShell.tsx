@@ -120,6 +120,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
               open={open}
               active={activeTab === "pay_rates"}
               appSessionId={state.appSessionId}
+              normAddressee={state.selectedNormAddressee}
               runAutoRecompute={runAutoRecompute}
               onDirtyChange={(dirty) => markTabDirty("pay_rates", dirty)}
             />
