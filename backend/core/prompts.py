@@ -898,9 +898,17 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         _vorschlag-Werte angegeben, bei der Löschung nur die _gueltig-Werte und bei einer Änderung beide.
 
         Massgeblich ist auch hier die Aenderung des Erfuellungsaufwands. Schaetzen Sie deshalb nicht losgeloest einen abstrakten Gesamtbestand an Faellen,
-        sondern die fuer die geltende und die vorgeschlagene Rechtslage jeweils sachgerechte Fallzahl derselben Fallgruppe. Wenn sich die Fallzahl durch die
-        Gesetzesaenderung nicht aendert, sind identische Werte fuer _gueltig und _vorschlag plausibel. Wenn sich nur der Aufwand pro Fall aendert, duerfen
-        die Fallzahlen nicht kuenstlich mitveraendert werden.
+        sondern die fuer die geltende und die vorgeschlagene Rechtslage jeweils sachgerechte Fallzahl derselben Fallgruppe.
+
+        Pruefen Sie dabei aktiv, ob die Gesetzesaenderung ueber den reinen Aufwand pro Fall hinaus auch die Fallzahl beeinflusst. Typische Treiber sind
+        Verhaltens- und Nachfrageeffekte (ein einfacheres oder attraktiveres Verfahren fuehrt zu mehr Antraegen; hoehere Anforderungen schrecken ab),
+        Erweiterung oder Einschraenkung des Adressatenkreises (neue Zielgruppe wird einbezogen bzw. ausgeschlossen), Aenderung der Antrags- oder
+        Pruefhaeufigkeit sowie Rechtsklarstellungen, die latente Faelle erstmals in das Verfahren ueberfuehren. Begruenden Sie in der Fallgruppen-
+        beschreibung kurz, falls Sie aus solchen Gruenden unterschiedliche Werte fuer _gueltig und _vorschlag ansetzen.
+
+        Identische Werte fuer _gueltig und _vorschlag sind nur dann plausibel, wenn weder Betroffenenkreis noch Haeufigkeit durch die Aenderung
+        beruehrt werden und auch kein indirekter Verhaltens- oder Nachfrageeffekt zu erwarten ist. Umgekehrt duerfen Sie Fallzahlen nicht ohne sachlichen
+        Grund kuenstlich angleichen, nur weil sich primaer der Aufwand pro Fall aendert.
 
         Bei Spiegelsituationen gilt: Wenn aus einem anderen Normadressaten bereits spiegelnde Fallzahlen vorliegen und der zugrunde liegende Sachverhalt
         logisch 1:1 gekoppelt ist, sind dieselben Mengen zu übernehmen statt sie erneut unabhängig zu schätzen. Beispiel: Wenn 500 neue Vereine gegründet
