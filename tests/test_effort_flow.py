@@ -1961,3 +1961,62 @@ def test_calculate_effort_rejects_sync_cases_match_without_source_metrics(
     )
     assert resp.status_code == 422
     assert "Mirror sync_cases could not be enforced" in resp.json()["detail"]
+
+
+def test_calculate_effort_rejects_missing_mirror_matches_for_mirrored_addressee(
+    test_client, monkeypatch
+):
+    session_id, _ = db.upsert_session("EFFORT-MIRROR-MATCHING-REQUIRED", "test-model")
+
+    business_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Koerperschaft stellt Gemeinnuetzigkeitsantrag fuer E-Sport.",
+        applies_to_administration=False,
+        applies_to_business=True,
+        mirror_applies_to_administration=True,
+        mirror_description="Spiegel zur Pruefung durch die Verwaltung.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Antragstellung",
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=business_regulation_id,
+        process_id=business_process_id,
+        norm_addressee=BUSINESS,
+    )
+    business_case_group_id = db.insert_case_group(
+        session_id,
+        business_process_id,
+        "Wirtschaftsfallgruppe",
+        "Stellung eines Antrags",
+        norm_addressee=BUSINESS,
+    )
+    db.insert_process_step(
+        session_id,
+        business_case_group_id,
+        "Unterlagen einreichen",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+
+    async def fake_ensure_mirror_matching(**_kwargs):
+        return []
+
+    monkeypatch.setattr(effort_router, "ensure_mirror_matching", fake_ensure_mirror_matching)
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-MIRROR-MATCHING-REQUIRED",
+            "model": "test-model",
+            "provider": "openai",
+            "norm_addressee": BUSINESS,
+        },
+    )
+    assert resp.status_code == 422
+    assert "Mirror matching required for selected norm addressee" in resp.json()["detail"]

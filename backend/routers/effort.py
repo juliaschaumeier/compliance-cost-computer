@@ -472,6 +472,16 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     return parsed, fallback_kinds
 
 
+def _requires_mirror_matching_for_addressee(
+    regulations: list[dict],
+    norm_addressee: str,
+) -> bool:
+    for row in regulations:
+        if str(row.get("mirror_anchor_key") or "").strip():
+            return True
+    return False
+
+
 @router.post("/calculate")
 async def calculate_effort(
     payload: EffortCalculationRequest,
@@ -535,13 +545,21 @@ async def calculate_effort(
         regulations=regulations,
     )
 
-    await ensure_mirror_matching(
+    mirror_matches = await ensure_mirror_matching(
         session_id=session_id,
         model=model,
         provider=payload.provider,
         api_keys=api_keys,
         query_fn=query_llm,
     )
+    if _requires_mirror_matching_for_addressee(regulations, norm_addressee) and not mirror_matches:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Mirror matching required for selected norm addressee, "
+                "but no mirror matches could be determined"
+            ),
+        )
 
     cases_prompt = render_prompt(
         PromptId.CASES_CALCULATION,
