@@ -269,35 +269,7 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     monkeypatch.setattr(
         effort_router,
         "query_llm",
-        _build_effort_query_llm(
-            cases_response,
-            effort_response,
-            mirror_response=f"""
-            {{
-              "analyses": [
-                {{
-                  "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-                  "shared_situation": "Gemeinnuetzigkeitspruefung fuer E-Sport.",
-                  "matches": [
-                    {{
-                      "source_norm_addressee": "administration",
-                      "target_norm_addressee": "business",
-                      "source_process_id": "{admin_process_id}",
-                      "target_process_id": "{business_process_id}",
-                      "source_case_group_id": "{admin_case_group_id}",
-                      "target_case_group_id": "{business_case_group_id}",
-                      "relation_type": "mirrored_case_group",
-                      "sync_addressees": true,
-                      "sync_frequency": true,
-                      "sync_cases": true,
-                      "reason": "Beide Fallgruppen beschreiben denselben Antragssachverhalt."
-                    }}
-                  ]
-                }}
-              ]
-            }}
-            """,
-        ),
+        _build_effort_query_llm(cases_response, effort_response),
     )
     monkeypatch.setattr(
         effort_router.db,
@@ -578,7 +550,35 @@ def test_calculate_effort_syncs_exact_mirror_case_group_metrics(test_client, mon
     monkeypatch.setattr(
         effort_router,
         "query_llm",
-        _build_effort_query_llm(cases_response, effort_response),
+        _build_effort_query_llm(
+            cases_response,
+            effort_response,
+            mirror_response=f"""
+            {{
+              "analyses": [
+                {{
+                  "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+                  "shared_situation": "Gemeinnuetzigkeitspruefung fuer E-Sport.",
+                  "matches": [
+                    {{
+                      "source_norm_addressee": "administration",
+                      "target_norm_addressee": "business",
+                      "source_process_id": "{admin_process_id}",
+                      "target_process_id": "{business_process_id}",
+                      "source_case_group_id": "{admin_case_group_id}",
+                      "target_case_group_id": "{business_case_group_id}",
+                      "relation_type": "mirrored_case_group",
+                      "sync_addressees": true,
+                      "sync_frequency": true,
+                      "sync_cases": true,
+                      "reason": "Beide Fallgruppen beschreiben denselben Antragssachverhalt."
+                    }}
+                  ]
+                }}
+              ]
+            }}
+            """,
+        ),
     )
 
     resp = test_client.post(
