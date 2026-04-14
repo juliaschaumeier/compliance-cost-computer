@@ -28,6 +28,20 @@ describe("apiClient.rebuildTiles", () => {
     );
   });
 
+  it("also sends citizens explicitly", async () => {
+    await apiClient.rebuildTiles("ABC123", "citizens");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/tiles/rebuild",
+      expect.objectContaining({
+        body: JSON.stringify({
+          app_session_id: "ABC123",
+          norm_addressee: "citizens",
+        }),
+      })
+    );
+  });
+
   it("omits administration because the backend default is administration", async () => {
     await apiClient.rebuildTiles("ABC123", "administration");
 
