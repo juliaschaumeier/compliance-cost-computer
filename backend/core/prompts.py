@@ -1205,38 +1205,34 @@ def _populate_mirror_prompt_contexts(
     norm_addressee: str,
 ) -> None:
     if prompt_id == PromptId.PROCESS_COMPILATION:
-        render_values.setdefault(
-            "mirror_process_context",
-            render_mirror_prompt_context(
-                session_id=session_id,
-                norm_addressee=norm_addressee,
-                stage="processes",
-            ),
+        render_values["mirror_process_context"] = render_values.get(
+            "mirror_process_context"
+        ) or render_mirror_prompt_context(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            stage="processes",
         )
     elif prompt_id == PromptId.CASE_GROUP_DEVELOPMENT:
-        render_values.setdefault(
-            "mirror_case_group_context",
-            render_mirror_prompt_context(
-                session_id=session_id,
-                norm_addressee=norm_addressee,
-                stage="case_groups",
-            ),
+        render_values["mirror_case_group_context"] = render_values.get(
+            "mirror_case_group_context"
+        ) or render_mirror_prompt_context(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            stage="case_groups",
         )
     elif prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
-        render_values.setdefault(
-            "mirror_step_context",
-            render_mirror_prompt_context(
-                session_id=session_id,
-                norm_addressee=norm_addressee,
-                stage="steps",
-            ),
+        render_values["mirror_step_context"] = render_values.get(
+            "mirror_step_context"
+        ) or render_mirror_prompt_context(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            stage="steps",
         )
     elif prompt_id == PromptId.CASES_CALCULATION:
-        render_values.setdefault(
-            "mirror_case_context",
-            render_mirror_prompt_context(
-                session_id=session_id,
-                norm_addressee=norm_addressee,
-                stage="cases",
-            ),
+        render_values["mirror_case_context"] = render_values.get(
+            "mirror_case_context"
+        ) or render_mirror_prompt_context(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            stage="cases",
         )
