@@ -1572,26 +1572,48 @@ def test_calculate_effort_replaces_stale_mirror_matches_before_sync(
         addressees_proposed=80,
         annual_frequency_proposed=1,
     )
-    db.replace_mirror_matches(
-        session_id,
-        [
-            {
-                "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-                "shared_situation": "Veraltetes Match",
-                "source_norm_addressee": ADMINISTRATION,
-                "target_norm_addressee": BUSINESS,
-                "source_process_id": admin_process_id,
-                "target_process_id": business_process_id,
-                "source_case_group_id": 999999,
-                "target_case_group_id": business_case_group_id,
-                "relation_type": "mirrored_case_group",
-                "sync_addressees": True,
-                "sync_frequency": True,
-                "sync_cases": True,
-                "reason": "Veraltete Referenz.",
-            }
-        ],
-    )
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO mirror_matches (
+                session_id,
+                mirror_anchor_key,
+                shared_situation,
+                source_norm_addressee,
+                target_norm_addressee,
+                source_process_id,
+                target_process_id,
+                source_case_group_id,
+                target_case_group_id,
+                relation_type,
+                sync_addressees,
+                sync_frequency,
+                sync_cases,
+                reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                "gemeinnuetzigkeit-esport",
+                "Veraltetes Match",
+                ADMINISTRATION,
+                BUSINESS,
+                admin_process_id,
+                business_process_id,
+                999999,
+                business_case_group_id,
+                "mirrored_case_group",
+                1,
+                1,
+                1,
+                "Veraltete Referenz.",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
     cases_response = f"""
     {{
