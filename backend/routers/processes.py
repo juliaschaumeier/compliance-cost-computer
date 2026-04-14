@@ -9,7 +9,7 @@ from backend.core.change_status import extract_change_status, normalize_change_s
 from backend.core.llm_attempts import (
     mark_llm_answer_applied,
 )
-from backend.core.llm_json import parse_json_object
+from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
@@ -36,9 +36,10 @@ class ProcessCompilationRequest(BaseModel):
 
 
 def _parse_processes(payload: str) -> list[dict]:
-    data = parse_json_object(payload)
-    if not isinstance(data, dict):
-        return []
+    data, _parse_mode = require_json_object(
+        payload,
+        error_context="process compilation",
+    )
     processes = data.get("prozesse")
     if not isinstance(processes, list):
         return []
