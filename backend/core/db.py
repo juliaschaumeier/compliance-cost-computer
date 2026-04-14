@@ -281,6 +281,14 @@ def get_default_pay_rates_for_addressee(
     return {key: 0.0 for key in PAY_RATE_KEYS}
 
 
+def _empty_pay_rate_edits() -> dict[str, float | None]:
+    return {key: None for key in PAY_RATE_KEYS}
+
+
+def _zero_pay_rates() -> dict[str, float]:
+    return {key: 0.0 for key in PAY_RATE_KEYS}
+
+
 def _used_models_expr(session_id_sql: str) -> str:
     return f"""
         (
@@ -2723,7 +2731,7 @@ def list_pay_rate_defaults() -> list[dict]:
     return rows
 
 
-def get_session_pay_rates(session_id: int) -> dict | None:
+def get_session_administration_pay_rates(session_id: int) -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -2769,6 +2777,57 @@ def get_session_pay_rates(session_id: int) -> dict | None:
         "defaults": defaults,
         "edited": edited,
         "active": active,
+    }
+
+
+def get_session_pay_rates_for_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> dict | None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == ADMINISTRATION:
+        administration_rates = get_session_administration_pay_rates(session_id)
+        if administration_rates is None:
+            return None
+        return {
+            "norm_addressee": resolved,
+            "editable": True,
+            "administration_level": administration_rates["administration_level"],
+            "defaults": administration_rates["defaults"],
+            "edited": administration_rates["edited"],
+            "active": administration_rates["active"],
+        }
+    if resolved == BUSINESS:
+        defaults = get_default_pay_rates_for_addressee(BUSINESS)
+        return {
+            "norm_addressee": resolved,
+            "editable": False,
+            "administration_level": None,
+            "defaults": defaults,
+            "edited": _empty_pay_rate_edits(),
+            "active": defaults,
+        }
+    defaults = _zero_pay_rates()
+    return {
+        "norm_addressee": resolved,
+        "editable": False,
+        "administration_level": None,
+        "defaults": defaults,
+        "edited": _empty_pay_rate_edits(),
+        "active": defaults,
+    }
+
+
+def get_session_pay_rates(session_id: int) -> dict | None:
+    """Compatibility wrapper for the existing administration pay-rate UI."""
+    pay_rates = get_session_pay_rates_for_addressee(session_id, ADMINISTRATION)
+    if pay_rates is None:
+        return None
+    return {
+        "administration_level": pay_rates["administration_level"],
+        "defaults": pay_rates["defaults"],
+        "edited": pay_rates["edited"],
+        "active": pay_rates["active"],
     }
 
 

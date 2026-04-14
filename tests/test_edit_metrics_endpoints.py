@@ -63,6 +63,14 @@ def test_sessions_pay_rates_get_and_post(test_client):
     assert session_rates["edited"]["a"] == 99.5
     assert session_rates["active"]["a"] == 99.5
 
+    addressee_rates = db.get_session_pay_rates_for_addressee(
+        session_id,
+        "administration",
+    )
+    assert addressee_rates is not None
+    assert addressee_rates["editable"] is True
+    assert addressee_rates["active"]["a"] == 99.5
+
 
 def test_sessions_pay_rates_reject_unknown_level(test_client):
     db.upsert_session("EDIT-RATES-UNKNOWN", "test-model")

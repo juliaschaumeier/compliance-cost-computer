@@ -236,6 +236,44 @@ def test_get_default_pay_rates_for_business_uses_handbook_overall_defaults(
     assert defaults == {"a": 26.1, "b": 37.1, "c": 62.4, "d": 38.6}
 
 
+def test_get_session_pay_rates_for_business_uses_non_editable_business_defaults(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "session_business_rates.db")
+    db.init_db()
+
+    session_id, _ = db.upsert_session("SESSION-BUSINESS-RATES", "test-model")
+    pay_rates = db.get_session_pay_rates_for_addressee(session_id, BUSINESS)
+
+    assert pay_rates is not None
+    assert pay_rates["norm_addressee"] == BUSINESS
+    assert pay_rates["editable"] is False
+    assert pay_rates["administration_level"] is None
+    assert pay_rates["defaults"] == {"a": 26.1, "b": 37.1, "c": 62.4, "d": 38.6}
+    assert pay_rates["edited"] == {"a": None, "b": None, "c": None, "d": None}
+    assert pay_rates["active"] == {"a": 26.1, "b": 37.1, "c": 62.4, "d": 38.6}
+
+
+def test_get_session_pay_rates_for_citizens_returns_zero_rates(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(config.settings, "db_path", tmp_path / "session_citizens_rates.db")
+    db.init_db()
+
+    session_id, _ = db.upsert_session("SESSION-CITIZENS-RATES", "test-model")
+    pay_rates = db.get_session_pay_rates_for_addressee(session_id, CITIZENS)
+
+    assert pay_rates is not None
+    assert pay_rates["norm_addressee"] == CITIZENS
+    assert pay_rates["editable"] is False
+    assert pay_rates["administration_level"] is None
+    assert pay_rates["defaults"] == {"a": 0.0, "b": 0.0, "c": 0.0, "d": 0.0}
+    assert pay_rates["edited"] == {"a": None, "b": None, "c": None, "d": None}
+    assert pay_rates["active"] == {"a": 0.0, "b": 0.0, "c": 0.0, "d": 0.0}
+
+
 def test_init_db_migrates_addressee_metrics_into_parent_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "db_path", tmp_path / "legacy_addressee_metrics.db")
     db.init_db()

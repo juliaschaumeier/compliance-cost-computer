@@ -554,14 +554,10 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
     norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
 
     processes, case_groups, steps = _load_structure_rows(session_id, norm_addressee)
-    pay_rates = db.get_session_pay_rates(session_id)
+    pay_rates = db.get_session_pay_rates_for_addressee(session_id, norm_addressee)
     if not pay_rates:
         raise HTTPException(status_code=404, detail="Session pay rates not found")
-    active_rates = (
-        pay_rates["active"]
-        if norm_addressee == ADMINISTRATION
-        else db.get_default_pay_rates_for_addressee(norm_addressee)
-    )
+    active_rates = pay_rates["active"]
     effective_case_groups = [
         db.resolve_effective_case_group_metrics(group) for group in case_groups
     ]
