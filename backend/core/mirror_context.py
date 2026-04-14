@@ -255,6 +255,101 @@ def parse_mirror_matching_payload(payload: str, *, session_id: int | None = None
     return parsed
 
 
+def propagate_case_group_edits_to_mirror_targets(
+    session_id: int,
+    edited_case_group_ids: set[int],
+) -> int:
+    """Nach einem manuellen Fallgruppen-Edit die neuen Effektivwerte auf
+    Mirror-Ziele propagieren.
+
+    Warum: Die initiale Spiegelsynchronisation passiert waehrend der
+    LLM-basierten Fallzahlen-Berechnung (effort.py). Bearbeitet der Nutzer
+    danach eine Source-Fallgruppe manuell, driftet die Zielseite
+    auseinander und die Kostenberechnung des Ziel-Normadressaten wird
+    falsch. Diese Funktion findet alle Mirror-Matches, bei denen eine der
+    editierten Fallgruppen Source ist und sync_cases True gesetzt hat,
+    und schreibt die aktuellen Effektivwerte der Source als "_edited"
+    Werte in die Ziel-Fallgruppe. Das wahrt die Leitfaden-Invariante,
+    dass Spiegelvorgaben dieselben Fallzahlen tragen muessen.
+
+    Rueckgabewert: Anzahl aktualisierter Ziel-Fallgruppen.
+    """
+    if not edited_case_group_ids:
+        return 0
+    from backend.core import db
+
+    matches = db.list_mirror_matches(session_id)
+    if not matches:
+        return 0
+
+    # Cache der source Case-Group Rows, um wiederholte DB-Lookups
+    # zu vermeiden.
+    source_cache: dict[tuple[str, int], dict[str, Any]] = {}
+
+    def _fetch_source(norm_addressee: str, case_group_id: int) -> dict[str, Any] | None:
+        key = (norm_addressee, case_group_id)
+        if key in source_cache:
+            return source_cache[key]
+        groups = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
+        match_row = next(
+            (
+                group
+                for group in groups
+                if int(group["case_group_id"]) == case_group_id
+            ),
+            None,
+        )
+        source_cache[key] = match_row
+        return match_row
+
+    updated_targets = 0
+    for match in matches:
+        if not bool(match.get("sync_cases")):
+            continue
+        source_cgid = match.get("source_case_group_id")
+        target_cgid = match.get("target_case_group_id")
+        if source_cgid is None or target_cgid is None:
+            continue
+        if int(source_cgid) not in edited_case_group_ids:
+            continue
+        source_norm_addressee = str(match.get("source_norm_addressee") or "")
+        target_norm_addressee = str(match.get("target_norm_addressee") or "")
+        if not source_norm_addressee or not target_norm_addressee:
+            continue
+        source_row = _fetch_source(source_norm_addressee, int(source_cgid))
+        if not source_row:
+            continue
+        resolved = db.resolve_effective_case_group_metrics(source_row)
+        addressees_current = resolved.get("addressees_current_effective")
+        annual_frequency_current = resolved.get("annual_frequency_current_effective")
+        addressees_proposed = resolved.get("addressees_proposed_effective")
+        annual_frequency_proposed = resolved.get("annual_frequency_proposed_effective")
+        # Leere Werte ueberschreiben nicht - nur real gesetzte Werte
+        # propagieren, um versehentliches Nullen der Zielseite zu
+        # vermeiden.
+        if all(
+            value is None
+            for value in (
+                addressees_current,
+                annual_frequency_current,
+                addressees_proposed,
+                annual_frequency_proposed,
+            )
+        ):
+            continue
+        db.update_case_group_edited_metrics(
+            session_id=session_id,
+            norm_addressee=target_norm_addressee,
+            case_group_id=int(target_cgid),
+            addressees_current_edited=addressees_current,
+            annual_frequency_current_edited=annual_frequency_current,
+            addressees_proposed_edited=addressees_proposed,
+            annual_frequency_proposed_edited=annual_frequency_proposed,
+        )
+        updated_targets += 1
+    return updated_targets
+
+
 def apply_deterministic_mirror_case_group_sync(
     session_id: int,
     norm_addressee: str,

@@ -3333,6 +3333,65 @@ def update_case_group_metrics(
     _maybe_close(conn)
 
 
+def update_case_group_edited_metrics(
+    session_id: int,
+    norm_addressee: str,
+    case_group_id: int,
+    addressees_current_edited: float | None = None,
+    annual_frequency_current_edited: float | None = None,
+    addressees_proposed_edited: float | None = None,
+    annual_frequency_proposed_edited: float | None = None,
+) -> None:
+    """Setze die Edited-Overrides einer Fallgruppe fuer einen bestimmten
+    Normadressaten. Genutzt u.a. fuer Mirror-Propagation nach manuellen
+    Edits, damit Quelle und Ziel konsistent bleiben."""
+    resolved = normalize_norm_addressee(norm_addressee)
+    cases_current_edited: float | None = None
+    cases_proposed_edited: float | None = None
+    if (
+        addressees_current_edited is not None
+        and annual_frequency_current_edited is not None
+    ):
+        cases_current_edited = float(addressees_current_edited) * float(
+            annual_frequency_current_edited
+        )
+    if (
+        addressees_proposed_edited is not None
+        and annual_frequency_proposed_edited is not None
+    ):
+        cases_proposed_edited = float(addressees_proposed_edited) * float(
+            annual_frequency_proposed_edited
+        )
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE case_groups
+        SET addressees_current_edited = ?,
+            annual_frequency_current_edited = ?,
+            cases_current_edited = ?,
+            addressees_proposed_edited = ?,
+            annual_frequency_proposed_edited = ?,
+            cases_proposed_edited = ?,
+            last_edited_at = current_timestamp
+        WHERE case_group_id = ? AND session_id = ? AND norm_addressee = ?
+        """,
+        (
+            addressees_current_edited,
+            annual_frequency_current_edited,
+            cases_current_edited,
+            addressees_proposed_edited,
+            annual_frequency_proposed_edited,
+            cases_proposed_edited,
+            case_group_id,
+            session_id,
+            resolved,
+        ),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
 def upsert_case_group_metrics_by_addressee(
     session_id: int,
     case_group_id: int,
