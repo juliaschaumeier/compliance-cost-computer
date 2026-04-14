@@ -17,11 +17,22 @@ from backend.core.norm_addressees import (
 )
 
 
+# Mirror-Feature kann ueber settings.mirror_matching_enabled deaktiviert
+# werden. Ist der Schalter False, sind auto-Matching, deterministischer
+# Case-Group-Sync, Edit-Propagation und Prompt-Kontextinjektion alle
+# No-Ops. Zum Reaktivieren die Einstellung in config.py / .env setzen.
+def _mirror_enabled() -> bool:
+    from backend.core.config import settings
+    return bool(settings.mirror_matching_enabled)
+
+
 def render_mirror_prompt_context(
     session_id: int,
     norm_addressee: str,
     stage: str,
 ) -> str:
+    if not _mirror_enabled():
+        return ""
     from backend.core import db
 
     clusters = build_mirror_clusters_for_prompt(
@@ -60,6 +71,8 @@ async def ensure_mirror_matching(
     api_keys: ApiKeys,
     query_fn=query_llm,
 ) -> list[dict[str, Any]]:
+    if not _mirror_enabled():
+        return []
     from backend.core import db
     from backend.core.llm_attempts import mark_llm_answer_applied
     from backend.core.prompts import PromptId, render_prompt
@@ -275,6 +288,8 @@ def propagate_case_group_edits_to_mirror_targets(
 
     Rueckgabewert: Anzahl aktualisierter Ziel-Fallgruppen.
     """
+    if not _mirror_enabled():
+        return 0
     if not edited_case_group_ids:
         return 0
     from backend.core import db
@@ -362,6 +377,8 @@ def apply_deterministic_mirror_case_group_sync(
     norm_addressee: str,
     parsed_cases: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    if not _mirror_enabled():
+        return parsed_cases
     overrides = get_deterministic_mirror_case_group_metrics(
         session_id=session_id,
         norm_addressee=norm_addressee,
@@ -401,7 +418,7 @@ def _assert_required_mirror_case_group_sync(
     from backend.core import db
 
     parsed_case_group_ids = {int(entry["case_group_id"]) for entry in parsed_cases}
-    missing_sync_case_group_ids: list[str] = []
+    missing_entries: list[tuple[int, str]] = []
     for match in db.list_mirror_matches(session_id):
         if not bool(match.get("sync_cases")):
             continue
@@ -415,13 +432,26 @@ def _assert_required_mirror_case_group_sync(
             continue
         if target_case_group_id in overrides:
             continue
-        missing_sync_case_group_ids.append(str(target_case_group_id))
-    if missing_sync_case_group_ids:
+        source_norm_addressee = str(match.get("source_norm_addressee") or "")
+        source_case_group_id = match.get("source_case_group_id")
+        source_label = (
+            f"fallgruppen_id={int(source_case_group_id)} ({source_norm_addressee})"
+            if source_case_group_id is not None
+            else f"({source_norm_addressee or 'unbekannt'})"
+        )
+        missing_entries.append((target_case_group_id, source_label))
+    if missing_entries:
+        missing_entries.sort(key=lambda item: item[0])
+        details = ", ".join(
+            f"{target} <- {source}" for target, source in missing_entries
+        )
         raise HTTPException(
             status_code=422,
             detail=(
                 "Mirror sync_cases could not be enforced for fallgruppen_id values: "
-                + ", ".join(sorted(missing_sync_case_group_ids))
+                + details
+                + ". Bitte Kennzahlen der Quell-Fallgruppe setzen oder zuerst den"
+                " Quell-Adressaten berechnen."
             ),
         )
 
