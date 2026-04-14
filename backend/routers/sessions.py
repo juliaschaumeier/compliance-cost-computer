@@ -17,8 +17,13 @@ from backend.core import db, llm_monitor
 from backend.core.config import settings
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.session_graph import build_session_tiles_snapshot
-from backend.core.workflow import get_last_completed_step, undo_step
+from backend.core.workflow import (
+    get_last_completed_step,
+    get_last_completed_step_for_norm_addressee,
+    undo_step,
+)
 from backend.routers._llm_router_utils import ensure_session_or_400
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -48,6 +53,7 @@ class SessionUpsertRequest(BaseModel):
 
 class SessionUndoRequest(BaseModel):
     app_session_id: AppSessionId
+    norm_addressee: str | None = None
 
 
 class SessionUpsertResponse(BaseModel):
@@ -784,13 +790,22 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
+    norm_addressee = (
+        normalize_norm_addressee_or_422(payload.norm_addressee)
+        if payload.norm_addressee is not None
+        else None
+    )
 
-    step = get_last_completed_step(status)
+    step = (
+        get_last_completed_step_for_norm_addressee(session_id, norm_addressee)
+        if norm_addressee is not None
+        else get_last_completed_step(status)
+    )
     if not step:
         return SessionUndoResponse(status="no-op", message="No completed steps")
 
     with db.transaction():
-        undo_step(session_id, step.key)
+        undo_step(session_id, step.key, norm_addressee=norm_addressee)
 
     return SessionUndoResponse(
         status="ok",

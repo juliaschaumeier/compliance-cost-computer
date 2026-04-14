@@ -3529,7 +3529,8 @@ def clear_session_summary(session_id: int) -> None:
     _maybe_close(conn)
 
 
-def clear_effort_metrics(session_id: int) -> None:
+def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -3548,9 +3549,9 @@ def clear_effort_metrics(session_id: int) -> None:
             annual_frequency_proposed_edited = NULL,
             cases_proposed_edited = NULL,
             last_edited_at = NULL
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     cur.execute(
         """
@@ -3584,9 +3585,9 @@ def clear_effort_metrics(session_id: int) -> None:
             expenses_proposed = NULL,
             expenses_proposed_edited = NULL,
             last_edited_at = NULL
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     _maybe_commit(conn)
     _maybe_close(conn)
@@ -3679,7 +3680,8 @@ def delete_mirror_matches_for_session(session_id: int) -> None:
     _maybe_close(conn)
 
 
-def clear_costs(session_id: int) -> None:
+def clear_costs(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -3687,56 +3689,75 @@ def clear_costs(session_id: int) -> None:
         UPDATE process_steps
         SET cost_current = NULL,
             cost_proposed = NULL
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     cur.execute(
         """
         UPDATE case_groups
         SET cost = NULL
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
         """,
-        (session_id,),
+        (session_id, resolved),
     )
     cur.execute(
         """
         UPDATE processes
         SET cost = NULL
-        WHERE session_id = ?
+        WHERE session_id = ? AND norm_addressee = ?
         """,
-        (session_id,),
+        (session_id, resolved),
     )
-    cur.execute(
-        """
-        UPDATE sessions
-        SET cc_cost = NULL
-        WHERE session_id = ?
-        """,
-        (session_id,),
-    )
+    if resolved == ADMINISTRATION:
+        cur.execute(
+            """
+            UPDATE sessions
+            SET cc_cost = NULL
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        )
     _maybe_commit(conn)
     _maybe_close(conn)
 
 
-def delete_process_steps_for_session(session_id: int) -> None:
+def delete_process_steps_for_session(
+    session_id: int,
+    norm_addressee: str | None = None,
+) -> None:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "DELETE FROM process_steps WHERE session_id = ?",
-        (session_id,),
-    )
+    if norm_addressee is None:
+        cur.execute(
+            "DELETE FROM process_steps WHERE session_id = ?",
+            (session_id,),
+        )
+    else:
+        cur.execute(
+            "DELETE FROM process_steps WHERE session_id = ? AND norm_addressee = ?",
+            (session_id, normalize_norm_addressee(norm_addressee)),
+        )
     _maybe_commit(conn)
     _maybe_close(conn)
 
 
-def delete_case_groups_for_session(session_id: int) -> None:
+def delete_case_groups_for_session(
+    session_id: int,
+    norm_addressee: str | None = None,
+) -> None:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "DELETE FROM case_groups WHERE session_id = ?",
-        (session_id,),
-    )
+    if norm_addressee is None:
+        cur.execute(
+            "DELETE FROM case_groups WHERE session_id = ?",
+            (session_id,),
+        )
+    else:
+        cur.execute(
+            "DELETE FROM case_groups WHERE session_id = ? AND norm_addressee = ?",
+            (session_id, normalize_norm_addressee(norm_addressee)),
+        )
     cur.execute(
         "DELETE FROM mirror_matches WHERE session_id = ?",
         (session_id,),
@@ -3745,13 +3766,22 @@ def delete_case_groups_for_session(session_id: int) -> None:
     _maybe_close(conn)
 
 
-def delete_processes_for_session(session_id: int) -> None:
+def delete_processes_for_session(
+    session_id: int,
+    norm_addressee: str | None = None,
+) -> None:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "DELETE FROM processes WHERE session_id = ?",
-        (session_id,),
-    )
+    if norm_addressee is None:
+        cur.execute(
+            "DELETE FROM processes WHERE session_id = ?",
+            (session_id,),
+        )
+    else:
+        cur.execute(
+            "DELETE FROM processes WHERE session_id = ? AND norm_addressee = ?",
+            (session_id, normalize_norm_addressee(norm_addressee)),
+        )
     cur.execute(
         "DELETE FROM mirror_matches WHERE session_id = ?",
         (session_id,),

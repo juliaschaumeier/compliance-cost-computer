@@ -314,13 +314,19 @@ export const apiClient = {
     return response.json();
   },
 
-  async undoLastStep(appSessionId: string): Promise<UndoStepResponse> {
+  async undoLastStep(
+    appSessionId: string,
+    normAddressee?: NormAddressee
+  ): Promise<UndoStepResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions/undo`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ app_session_id: appSessionId }),
+      body: JSON.stringify({
+        app_session_id: appSessionId,
+        norm_addressee: normAddressee,
+      }),
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to undo last step");

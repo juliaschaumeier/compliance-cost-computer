@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from backend.core import db
+from backend.core.norm_addressees import normalize_norm_addressee
 from backend.core.prompts import PromptId
 
 
@@ -32,12 +33,47 @@ def get_last_completed_step(status: dict) -> WorkflowStep | None:
     return None
 
 
-def _undo_total_cost(session_id: int) -> None:
-    db.clear_costs(session_id)
+def get_last_completed_step_for_norm_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> WorkflowStep | None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if db.has_total_cost_for_addressee(session_id, resolved):
+        return WORKFLOW_STEPS[0]
+    if db.has_effort_metrics(session_id, resolved):
+        return WORKFLOW_STEPS[1]
+    if db.list_process_steps_for_session_and_addressee(session_id, resolved):
+        return WORKFLOW_STEPS[2]
+    if db.list_case_groups_for_session_and_addressee(session_id, resolved):
+        return WORKFLOW_STEPS[3]
+    if db.list_processes_for_session_and_addressee(session_id, resolved):
+        return WORKFLOW_STEPS[4]
+    session = db.get_session_by_id(session_id)
+    if session and db.list_regulations_for_session(session_id):
+        return WORKFLOW_STEPS[5]
+    if session and (
+        session.get("law_diff_title")
+        or session.get("law_diff_blurb")
+        or session.get("law_diff_summary")
+        or session.get("current_law_id")
+        or session.get("proposed_law_id")
+    ):
+        return WORKFLOW_STEPS[6]
+    return None
 
 
-def _undo_effort(session_id: int) -> None:
-    db.clear_effort_metrics(session_id)
+def _undo_total_cost(session_id: int, norm_addressee: str | None = None) -> None:
+    if norm_addressee is None:
+        db.clear_costs(session_id)
+        return
+    db.clear_costs(session_id, norm_addressee=norm_addressee)
+
+
+def _undo_effort(session_id: int, norm_addressee: str | None = None) -> None:
+    if norm_addressee is None:
+        db.clear_effort_metrics(session_id)
+    else:
+        db.clear_effort_metrics(session_id, norm_addressee=norm_addressee)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],
@@ -45,8 +81,8 @@ def _undo_effort(session_id: int) -> None:
     )
 
 
-def _undo_process_steps(session_id: int) -> None:
-    db.delete_process_steps_for_session(session_id)
+def _undo_process_steps(session_id: int, norm_addressee: str | None = None) -> None:
+    db.delete_process_steps_for_session(session_id, norm_addressee=norm_addressee)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.PROCESS_STEP_ANALYSIS],
@@ -54,8 +90,8 @@ def _undo_process_steps(session_id: int) -> None:
     )
 
 
-def _undo_case_groups(session_id: int) -> None:
-    db.delete_case_groups_for_session(session_id)
+def _undo_case_groups(session_id: int, norm_addressee: str | None = None) -> None:
+    db.delete_case_groups_for_session(session_id, norm_addressee=norm_addressee)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.CASE_GROUP_DEVELOPMENT],
@@ -63,8 +99,8 @@ def _undo_case_groups(session_id: int) -> None:
     )
 
 
-def _undo_processes(session_id: int) -> None:
-    db.delete_processes_for_session(session_id)
+def _undo_processes(session_id: int, norm_addressee: str | None = None) -> None:
+    db.delete_processes_for_session(session_id, norm_addressee=norm_addressee)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.PROCESS_COMPILATION],
@@ -72,7 +108,7 @@ def _undo_processes(session_id: int) -> None:
     )
 
 
-def _undo_regulations(session_id: int) -> None:
+def _undo_regulations(session_id: int, norm_addressee: str | None = None) -> None:
     db.delete_regulations_for_session(session_id)
     db.invalidate_llm_answers(
         session_id,
@@ -81,7 +117,7 @@ def _undo_regulations(session_id: int) -> None:
     )
 
 
-def _undo_summary(session_id: int) -> None:
+def _undo_summary(session_id: int, norm_addressee: str | None = None) -> None:
     db.clear_session_summary(session_id)
     db.invalidate_llm_answers(
         session_id,
@@ -90,7 +126,7 @@ def _undo_summary(session_id: int) -> None:
     )
 
 
-_UNDO_HANDLERS: dict[str, Callable[[int], None]] = {
+_UNDO_HANDLERS: dict[str, Callable[[int, str | None], None]] = {
     "total_cost": _undo_total_cost,
     "effort": _undo_effort,
     "process_steps": _undo_process_steps,
@@ -101,8 +137,8 @@ _UNDO_HANDLERS: dict[str, Callable[[int], None]] = {
 }
 
 
-def undo_step(session_id: int, step_key: str) -> None:
+def undo_step(session_id: int, step_key: str, norm_addressee: str | None = None) -> None:
     handler = _UNDO_HANDLERS.get(step_key)
     if handler is None:
         raise ValueError(f"Unknown workflow step: {step_key}")
-    handler(session_id)
+    handler(session_id, norm_addressee)
