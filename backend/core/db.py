@@ -4001,7 +4001,108 @@ def list_mirror_matches(session_id: int) -> List[dict]:
     return rows
 
 
+def _get_process_addressee_for_session(
+    cur: sqlite3.Cursor, session_id: int, process_id: int
+) -> str | None:
+    cur.execute(
+        """
+        SELECT norm_addressee
+        FROM processes
+        WHERE session_id = ? AND process_id = ?
+        """,
+        (session_id, process_id),
+    )
+    row = cur.fetchone()
+    return str(row["norm_addressee"]) if row else None
+
+
+def _get_case_group_context_for_session(
+    cur: sqlite3.Cursor, session_id: int, case_group_id: int
+) -> tuple[str, int] | None:
+    cur.execute(
+        """
+        SELECT norm_addressee, process_id
+        FROM case_groups
+        WHERE session_id = ? AND case_group_id = ?
+        """,
+        (session_id, case_group_id),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return str(row["norm_addressee"]), int(row["process_id"])
+
+
+def _validate_mirror_match_side(
+    cur: sqlite3.Cursor,
+    *,
+    session_id: int,
+    side_label: str,
+    norm_addressee: str,
+    process_id: int | None,
+    case_group_id: int | None,
+) -> None:
+    resolved = normalize_norm_addressee(norm_addressee)
+    if process_id is not None:
+        process_addressee = _get_process_addressee_for_session(cur, session_id, process_id)
+        if process_addressee is None:
+            raise ValueError(f"Unknown {side_label}_process_id for mirror match: {process_id}")
+        if process_addressee != resolved:
+            raise ValueError(
+                f"{side_label}_process_id {process_id} belongs to {process_addressee}, not {resolved}"
+            )
+    if case_group_id is not None:
+        case_group_context = _get_case_group_context_for_session(cur, session_id, case_group_id)
+        if case_group_context is None:
+            raise ValueError(
+                f"Unknown {side_label}_case_group_id for mirror match: {case_group_id}"
+            )
+        case_group_addressee, case_group_process_id = case_group_context
+        if case_group_addressee != resolved:
+            raise ValueError(
+                f"{side_label}_case_group_id {case_group_id} belongs to {case_group_addressee}, not {resolved}"
+            )
+        if process_id is not None and case_group_process_id != process_id:
+            raise ValueError(
+                f"{side_label}_case_group_id {case_group_id} does not belong to "
+                f"{side_label}_process_id {process_id}"
+            )
+
+
+def validate_mirror_match_references(session_id: int, row: dict) -> None:
+    source_norm_addressee = str(row.get("source_norm_addressee") or "").strip()
+    target_norm_addressee = str(row.get("target_norm_addressee") or "").strip()
+    if not source_norm_addressee or not target_norm_addressee:
+        raise ValueError("Mirror matches require source_norm_addressee and target_norm_addressee")
+    if source_norm_addressee == target_norm_addressee:
+        raise ValueError("Mirror matches must connect different norm addressees")
+
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        _validate_mirror_match_side(
+            cur,
+            session_id=session_id,
+            side_label="source",
+            norm_addressee=source_norm_addressee,
+            process_id=row.get("source_process_id"),
+            case_group_id=row.get("source_case_group_id"),
+        )
+        _validate_mirror_match_side(
+            cur,
+            session_id=session_id,
+            side_label="target",
+            norm_addressee=target_norm_addressee,
+            process_id=row.get("target_process_id"),
+            case_group_id=row.get("target_case_group_id"),
+        )
+    finally:
+        _maybe_close(conn)
+
+
 def replace_mirror_matches(session_id: int, matches: list[dict]) -> None:
+    for row in matches:
+        validate_mirror_match_references(session_id, row)
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("DELETE FROM mirror_matches WHERE session_id = ?", (session_id,))

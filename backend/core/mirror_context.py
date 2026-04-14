@@ -98,7 +98,7 @@ async def ensure_mirror_matching(
     )
 
     def _apply() -> list[dict[str, Any]]:
-        parsed = parse_mirror_matching_payload(llm_result.text)
+        parsed = parse_mirror_matching_payload(llm_result.text, session_id=session_id)
         db.replace_mirror_matches(session_id, parsed)
         mark_llm_answer_applied(
             answer_id=answer_id,
@@ -205,7 +205,7 @@ def build_mirror_clusters_for_matching(session_id: int) -> list[dict[str, Any]]:
     return list(clusters_by_anchor.values())
 
 
-def parse_mirror_matching_payload(payload: str) -> list[dict[str, Any]]:
+def parse_mirror_matching_payload(payload: str, *, session_id: int | None = None) -> list[dict[str, Any]]:
     data = parse_json_object(payload)
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail="No mirror analyses parsed")
@@ -229,23 +229,29 @@ def parse_mirror_matching_payload(payload: str) -> list[dict[str, Any]]:
             relation_type = str(match.get("relation_type") or "").strip()
             if not source_norm_addressee or not target_norm_addressee or not relation_type:
                 continue
-            parsed.append(
-                {
-                    "mirror_anchor_key": anchor_key,
-                    "shared_situation": shared_situation,
-                    "source_norm_addressee": source_norm_addressee,
-                    "target_norm_addressee": target_norm_addressee,
-                    "source_process_id": parse_first_int(match, "source_process_id"),
-                    "target_process_id": parse_first_int(match, "target_process_id"),
-                    "source_case_group_id": parse_first_int(match, "source_case_group_id"),
-                    "target_case_group_id": parse_first_int(match, "target_case_group_id"),
-                    "relation_type": relation_type,
-                    "sync_addressees": _parse_binary_flag(match.get("sync_addressees")),
-                    "sync_frequency": _parse_binary_flag(match.get("sync_frequency")),
-                    "sync_cases": _parse_binary_flag(match.get("sync_cases")),
-                    "reason": str(match.get("reason") or "").strip(),
-                }
-            )
+            row = {
+                "mirror_anchor_key": anchor_key,
+                "shared_situation": shared_situation,
+                "source_norm_addressee": source_norm_addressee,
+                "target_norm_addressee": target_norm_addressee,
+                "source_process_id": parse_first_int(match, "source_process_id"),
+                "target_process_id": parse_first_int(match, "target_process_id"),
+                "source_case_group_id": parse_first_int(match, "source_case_group_id"),
+                "target_case_group_id": parse_first_int(match, "target_case_group_id"),
+                "relation_type": relation_type,
+                "sync_addressees": _parse_binary_flag(match.get("sync_addressees")),
+                "sync_frequency": _parse_binary_flag(match.get("sync_frequency")),
+                "sync_cases": _parse_binary_flag(match.get("sync_cases")),
+                "reason": str(match.get("reason") or "").strip(),
+            }
+            if session_id is not None:
+                from backend.core import db
+
+                try:
+                    db.validate_mirror_match_references(session_id, row)
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+            parsed.append(row)
     return parsed
 
 

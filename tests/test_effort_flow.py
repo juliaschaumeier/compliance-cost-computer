@@ -1,7 +1,10 @@
 from backend.core import db
 from backend.core.models import Tile
+from backend.core.mirror_context import parse_mirror_matching_payload
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.routers import effort as effort_router
+from fastapi import HTTPException
+import pytest
 
 
 def _is_effort_prompt(prompt: str) -> bool:
@@ -1723,3 +1726,57 @@ def test_calculate_effort_rejects_invalid_norm_addressee(test_client):
     )
     assert resp.status_code == 422
     assert "Unsupported norm_addressee" in resp.json()["detail"]
+
+
+def test_parse_mirror_matching_payload_rejects_unknown_case_group_ids():
+    session_id, _ = db.upsert_session("MIRROR-INVALID-IDS", "test-model")
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Pruefung",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Antrag",
+        norm_addressee=BUSINESS,
+    )
+    business_case_group_id = db.insert_case_group(
+        session_id,
+        business_process_id,
+        "Wirtschaftsfallgruppe",
+        "Beschreibung",
+        norm_addressee=BUSINESS,
+    )
+
+    payload = f"""
+    {{
+      "analyses": [
+        {{
+          "mirror_anchor_key": "invalid-anchor",
+          "shared_situation": "Test",
+          "matches": [
+            {{
+              "source_norm_addressee": "{ADMINISTRATION}",
+              "target_norm_addressee": "{BUSINESS}",
+              "source_process_id": "{admin_process_id}",
+              "target_process_id": "{business_process_id}",
+              "source_case_group_id": "999999",
+              "target_case_group_id": "{business_case_group_id}",
+              "relation_type": "mirrored_case_group",
+              "sync_addressees": 1,
+              "sync_frequency": 1,
+              "sync_cases": 1
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        parse_mirror_matching_payload(payload, session_id=session_id)
+
+    assert exc_info.value.status_code == 422
+    assert "Unknown source_case_group_id" in exc_info.value.detail
