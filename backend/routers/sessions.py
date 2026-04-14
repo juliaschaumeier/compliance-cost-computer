@@ -170,6 +170,7 @@ class SessionRunStatusResponse(BaseModel):
     current_step: str | None = None
     current_label: str | None = None
     current_norm_addressee: str | None = None
+    last_error: str | None = None
 
 
 class SessionRunCancelResponse(BaseModel):
@@ -217,6 +218,7 @@ class _RunRecord:
     current_step: str | None = None
     current_label: str | None = None
     current_norm_addressee: str | None = None
+    last_error: str | None = None
     events: list[tuple[str, dict]] = field(default_factory=list)
     subscribers: set[asyncio.Queue[tuple[str, dict]]] = field(default_factory=set)
     task: asyncio.Task[None] | None = None
@@ -257,6 +259,7 @@ def _run_snapshot_payload(record: _RunRecord) -> dict:
         "current_step": record.current_step,
         "current_label": record.current_label,
         "current_norm_addressee": record.current_norm_addressee,
+        "last_error": record.last_error,
         "steps": [step.model_dump() for step in record.steps],
         "final_status": (
             record.final_status.model_dump() if record.final_status is not None else None
@@ -274,20 +277,30 @@ async def _publish_run_event(run_id: str, event: str, payload: dict) -> None:
             record.current_step = str(payload.get("key") or "")
             record.current_label = str(payload.get("label") or "")
             record.current_norm_addressee = None
+            record.last_error = None
         elif event == "addressee_started":
             norm_addressee = payload.get("norm_addressee")
             record.current_norm_addressee = None if norm_addressee is None else str(norm_addressee)
+        elif event == "step_failed":
+            step = payload.get("step")
+            if isinstance(step, dict):
+                message = step.get("message")
+                record.last_error = None if message is None else str(message)
+        elif event == "run_failed":
+            message = payload.get("message")
+            if message is not None:
+                record.last_error = str(message)
         elif event in {
             "step_completed",
             "step_skipped",
-            "step_failed",
             "run_completed",
-            "run_failed",
             "run_cancelled",
         }:
             if event.startswith("run_"):
                 record.current_step = None
                 record.current_label = None
+                if event in {"run_completed", "run_cancelled"}:
+                    record.last_error = None
             record.current_norm_addressee = None
         record.events.append((event, payload))
         subscribers = list(record.subscribers)
@@ -1133,6 +1146,7 @@ async def get_run_all_status(run_id: str) -> SessionRunStatusResponse:
         current_step=record.current_step,
         current_label=record.current_label,
         current_norm_addressee=record.current_norm_addressee,
+        last_error=record.last_error,
     )
 
 

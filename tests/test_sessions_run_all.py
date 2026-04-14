@@ -757,6 +757,7 @@ def test_run_all_reports_failing_addressee_in_step_message(test_client, monkeypa
     assert payload["final_status"]["summary_ready"] is True
     assert payload["final_status"]["regulations_ready"] is True
     assert payload["final_status"]["processes_ready"] is False
+    assert payload["last_error"] == "business: No regulations mapped to process cluster"
 
 
 def test_run_all_start_requires_model_for_new_session(test_client):
