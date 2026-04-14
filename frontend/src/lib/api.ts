@@ -263,7 +263,10 @@ export const apiClient = {
     }
   },
 
-  async rebuildTiles(appSessionId: string): Promise<{ ok: boolean }> {
+  async rebuildTiles(
+    appSessionId: string,
+    normAddressee?: NormAddressee
+  ): Promise<{ ok: boolean }> {
     const response = await fetch(`${API_BASE_URL}/tiles/rebuild`, {
       method: "POST",
       headers: {
@@ -271,6 +274,10 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: appSessionId,
+        norm_addressee:
+          normAddressee && normAddressee !== "administration"
+            ? normAddressee
+            : undefined,
       }),
     });
     if (!response.ok) {

@@ -203,7 +203,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const handleRebuildCurrent = async () => {
     try {
       resetStatus();
-      await apiClient.rebuildTiles(state.appSessionId);
+      await apiClient.rebuildTiles(
+        state.appSessionId,
+        state.selectedNormAddressee
+      );
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus("Tiles der Session wurden neu geladen.");
     } catch (error) {
@@ -229,7 +232,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       const sessionStatus = await apiClient.getSessionStatus(selectedSession);
       setAppSessionId(selectedSession);
       applySessionStatus(sessionStatus);
-      await apiClient.rebuildTiles(selectedSession);
+      await apiClient.rebuildTiles(
+        selectedSession,
+        state.selectedNormAddressee
+      );
       setIsOpen(false);
     } catch (error) {
       logClientError("SessionMenu.loadSession", error, {
@@ -251,7 +257,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setStatus("Kein Schritt zum Zurücksetzen vorhanden.");
         return;
       }
-      await apiClient.rebuildTiles(state.appSessionId);
+      await apiClient.rebuildTiles(
+        state.appSessionId,
+        state.selectedNormAddressee
+      );
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus(`Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`);
     } catch (error) {
