@@ -27,88 +27,120 @@ type EaEffortMetricsTabProps = {
   onDirtyChange?: (dirty: boolean) => void;
 };
 
+type PayGradeSlot = "a" | "b" | "c" | "d" | "expenses";
+
 const STEP_FIELDS = [
   {
     key: "time_required_in_min_a_current",
     editedKey: "time_required_in_min_a_current_edited",
     effectiveKey: "time_required_in_min_a_current_effective",
     side: "current",
-    columnLabel: "eD/mD",
-    reviewLabel: "Gültig Zeit eD/mD",
+    slot: "a" as PayGradeSlot,
   },
   {
     key: "time_required_in_min_b_current",
     editedKey: "time_required_in_min_b_current_edited",
     effectiveKey: "time_required_in_min_b_current_effective",
     side: "current",
-    columnLabel: "gD",
-    reviewLabel: "Gültig Zeit gD",
+    slot: "b" as PayGradeSlot,
   },
   {
     key: "time_required_in_min_c_current",
     editedKey: "time_required_in_min_c_current_edited",
     effectiveKey: "time_required_in_min_c_current_effective",
     side: "current",
-    columnLabel: "hD",
-    reviewLabel: "Gültig Zeit hD",
+    slot: "c" as PayGradeSlot,
   },
   {
     key: "time_required_in_min_d_current",
     editedKey: "time_required_in_min_d_current_edited",
     effectiveKey: "time_required_in_min_d_current_effective",
     side: "current",
-    columnLabel: "Ø",
-    reviewLabel: "Gültig Zeit Ø",
+    slot: "d" as PayGradeSlot,
   },
   {
     key: "expenses_current",
     editedKey: "expenses_current_edited",
     effectiveKey: "expenses_current_effective",
     side: "current",
-    columnLabel: "Sach",
-    reviewLabel: "Gültig Sachaufwand",
+    slot: "expenses" as PayGradeSlot,
   },
   {
     key: "time_required_in_min_a_proposed",
     editedKey: "time_required_in_min_a_proposed_edited",
     effectiveKey: "time_required_in_min_a_proposed_effective",
     side: "proposed",
-    columnLabel: "eD/mD",
-    reviewLabel: "Vorschlag Zeit eD/mD",
+    slot: "a" as PayGradeSlot,
   },
   {
     key: "time_required_in_min_b_proposed",
     editedKey: "time_required_in_min_b_proposed_edited",
     effectiveKey: "time_required_in_min_b_proposed_effective",
     side: "proposed",
-    columnLabel: "gD",
-    reviewLabel: "Vorschlag Zeit gD",
+    slot: "b" as PayGradeSlot,
   },
   {
     key: "time_required_in_min_c_proposed",
     editedKey: "time_required_in_min_c_proposed_edited",
     effectiveKey: "time_required_in_min_c_proposed_effective",
     side: "proposed",
-    columnLabel: "hD",
-    reviewLabel: "Vorschlag Zeit hD",
+    slot: "c" as PayGradeSlot,
   },
   {
     key: "time_required_in_min_d_proposed",
     editedKey: "time_required_in_min_d_proposed_edited",
     effectiveKey: "time_required_in_min_d_proposed_effective",
     side: "proposed",
-    columnLabel: "Ø",
-    reviewLabel: "Vorschlag Zeit Ø",
+    slot: "d" as PayGradeSlot,
   },
   {
     key: "expenses_proposed",
     editedKey: "expenses_proposed_edited",
     effectiveKey: "expenses_proposed_effective",
     side: "proposed",
-    columnLabel: "Sach",
-    reviewLabel: "Vorschlag Sachaufwand",
+    slot: "expenses" as PayGradeSlot,
   },
 ] as const;
+
+const COLUMN_LABELS_BY_ADDRESSEE: Record<NormAddressee, Record<PayGradeSlot, string>> = {
+  administration: {
+    a: "eD/mD",
+    b: "gD",
+    c: "hD",
+    d: "Ø",
+    expenses: "Sach",
+  },
+  business: {
+    a: "Niedrig",
+    b: "Mittel",
+    c: "Hoch",
+    d: "Ø",
+    expenses: "Sach",
+  },
+  citizens: {
+    a: "Zeit",
+    b: "Reserve B",
+    c: "Reserve C",
+    d: "Reserve D",
+    expenses: "Sach",
+  },
+};
+
+function getColumnLabel(normAddressee: NormAddressee, slot: PayGradeSlot): string {
+  return COLUMN_LABELS_BY_ADDRESSEE[normAddressee][slot];
+}
+
+function getReviewLabel(
+  normAddressee: NormAddressee,
+  slot: PayGradeSlot,
+  side: "current" | "proposed",
+): string {
+  const sidePrefix = side === "current" ? "Gültig" : "Vorschlag";
+  if (slot === "expenses") {
+    return `${sidePrefix} Sachaufwand`;
+  }
+  return `${sidePrefix} Zeit ${getColumnLabel(normAddressee, slot)}`;
+}
 
 type StepField = (typeof STEP_FIELDS)[number];
 type StepFieldKey = StepField["key"];
@@ -503,7 +535,7 @@ export default function EaEffortMetricsTab({
           groupId: item.row.case_group_id,
           groupLabel: caseGroupLabel,
           fieldKey: field.key,
-          fieldLabel: field.reviewLabel,
+          fieldLabel: getReviewLabel(normAddressee, field.slot, field.side),
           modelValue,
           activeValue: resolveEffectiveValue(modelValue, item.row[field.editedKey]),
           newValue: resolveEffectiveValue(modelValue, item.next[field.key]),
@@ -692,7 +724,7 @@ export default function EaEffortMetricsTab({
                 <th className="px-2 py-2" />
                 {currentFields.map((field) => (
                   <th key={field.key} className="bg-sky-50/70 px-2 py-2 text-sky-800">
-                    {field.columnLabel}
+                    {getColumnLabel(normAddressee, field.slot)}
                   </th>
                 ))}
                 {proposedFields.map((field) => (
@@ -702,7 +734,7 @@ export default function EaEffortMetricsTab({
                       field === proposedFields[0] ? "border-l border-slate-200" : ""
                     }`}
                   >
-                    {field.columnLabel}
+                    {getColumnLabel(normAddressee, field.slot)}
                   </th>
                 ))}
               </tr>

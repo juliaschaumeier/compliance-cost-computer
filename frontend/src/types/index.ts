@@ -326,6 +326,7 @@ export interface SessionEditAuditResponse {
 export interface EditableCaseGroupRow {
   case_group_id: number;
   process_id: number;
+  norm_addressee: NormAddressee;
   case_group: string;
   description: string;
   change_status: string;
@@ -356,6 +357,7 @@ export interface EditableCaseGroupsResponse {
 export interface EditableProcessStepRow {
   step_id: number;
   case_group_id: number;
+  norm_addressee: NormAddressee;
   step: string;
   description: string;
   change_status: string;
