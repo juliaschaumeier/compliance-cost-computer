@@ -58,11 +58,24 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         """
         Dieser Lauf betrifft den Normadressaten Verwaltung.
 
-        Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Verwaltung. Dazu
-        gehoeren insbesondere Vollzugsaufwand sowie sonstige verwaltungsinterne oder
-        verwaltungsseitig ausgeloeste Taetigkeiten. Uebernehmen Sie keine wirtschaftlichen
-        oder buergerbezogenen Prozesse, Fallgruppen, Taetigkeiten, Fallzahlen oder Werte,
-        sofern diese nicht ausdruecklich als Spiegelwirkung der Verwaltung zuzurechnen sind.
+        Ein Verwaltungsprozess ist die durch die Regelung ausgeloeste Bearbeitungs-
+        oder Vollzugshandlung einer zustaendigen Behoerde bei einem konkreten
+        Vorgang. Typische Auspraegungen sind Antragsbearbeitung und Bescheidung,
+        Anerkennung/Genehmigung/Registrierung, turnusmaessige oder anlassbezogene
+        Pruefung und Aufsicht, Erstattungs- und Auszahlungsverfahren, Register- und
+        Aktenfuehrung, Rechtsbehelfs- und Widerspruchsbearbeitung sowie einmalige
+        Umstellungsaufwaende (Schulung, IT-Anpassung, Formular- und Merkblatt-
+        pflege). Der verwaltungsseitige Erfuellungsaufwand entsteht dort, wo die
+        Behoerde tatsaechlich taetig wird.
+
+        Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Verwaltung.
+        Uebernehmen Sie keine wirtschaftlichen oder buergerbezogenen Prozesse,
+        Fallgruppen, Taetigkeiten, Fallzahlen oder Werte, sofern diese nicht
+        ausdruecklich als Spiegelwirkung der Verwaltung zuzurechnen sind. Vermeiden
+        Sie zugleich, aus Vorsicht ganze Vollzugsstraenge wegzulassen: wenn eine
+        Regelung die Verwaltung zur Pruefung, Bescheidung oder Aufsicht verpflichtet,
+        ist dieser Vollzugsaufwand auszuweisen, auch wenn er aus einem wirtschafts-
+        oder buergerseitigen Antrag ausgeloest wird.
         """
     ),
     BUSINESS: (
@@ -110,6 +123,87 @@ PROMPT_IDS_WITH_NORM_ADDRESSEE_CLAUSE = {
     PromptId.PROCESS_STEP_ANALYSIS,
     PromptId.CASES_CALCULATION,
     PromptId.EFFORT_CALCULATION,
+}
+
+
+ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
+    PromptId.PROCESS_COMPILATION: (
+        "Zusatz fuer die Verwaltung bei der Prozessbildung: "
+        "Buendeln Sie Vorgaben zu Prozessen entlang der Bearbeitungslogik der "
+        "zustaendigen Behoerde, nicht entlang einzelner Paragraphen. Typische "
+        "Prozessbildende Raster sind: (i) Antrags-/Anerkennungsverfahren mit "
+        "Bescheidung, (ii) turnusmaessige Pruefung bzw. laufende Aufsicht und "
+        "Kontrolle, (iii) anlassbezogene Einzelfallpruefung (z.B. Verdacht, "
+        "Stichprobe, Beschwerde), (iv) Rechtsbehelfs-/Widerspruchsverfahren, "
+        "(v) Erstattungs-, Auszahlungs- oder Foerderverfahren, (vi) Register-, "
+        "Melde- und Aktenfuehrung, (vii) einmalige interne Umstellung "
+        "(IT-Anpassung, Formular- und Merkblattpflege, Schulung). Vorgaben, "
+        "die praktisch innerhalb desselben Verfahrensganges erfuellt werden, "
+        "gehoeren in denselben Prozess; fachlich klar getrennte Verfahren "
+        "bleiben getrennt. Fuehren Sie Vollzugsaufwand auch dann aus, wenn er "
+        "durch einen Antrag der Wirtschaft oder der Buergerinnen/Buerger "
+        "ausgeloest wird - die Verwaltungstaetigkeit ist ein eigener Prozess "
+        "auf der Spiegelseite. Erfinden Sie keine Verwaltungsprozesse, zu "
+        "denen die Regelung keinen konkreten Vollzugsauftrag enthaelt."
+    ),
+    PromptId.CASE_GROUP_DEVELOPMENT: (
+        "Zusatz fuer die Verwaltung bei der Fallgruppenbildung: "
+        "Typische verwaltungsseitige Differenzierungsachsen sind: (i) "
+        "Ersterfuellung/Erstanerkennung versus turnusmaessige oder wiederholte "
+        "Bearbeitung, (ii) Standardfall mit glatter Bescheidung versus "
+        "Sonderpruefung mit Rueckfragen, Anhoerung oder Gutachtenbedarf, "
+        "(iii) weitgehend automatisierter oder digital gestuetzter Vollzug "
+        "versus manuelle Einzelbearbeitung, (iv) Massengeschaeft mit "
+        "standardisierter Pruefung versus aufwaendige Einzelpruefung, "
+        "(v) einmaliger Umstellungsaufwand (Schulung, IT-Anpassung, "
+        "Formularpflege) versus laufender Vollzug. Bilden Sie solche "
+        "Fallgruppen nur, wenn daraus wesentliche Unterschiede im "
+        "Bearbeitungsaufwand pro Fall folgen - ausgedrueckt in Zeit pro "
+        "Vorgang, erforderlicher Lohngruppe oder benoetigter "
+        "IT-/Sachunterstuetzung. Bilden Sie keine Fallgruppen, nur weil "
+        "unterschiedliche Paragraphen beruehrt werden oder die materielle "
+        "Rechtslage leicht abweicht, solange der Bearbeitungsweg derselbe "
+        "bleibt. Setzen Sie den `aenderungsstatus` je Fallgruppe differenziert: "
+        "`eingefuehrt` nur bei durch die Regelung neu entstehenden Fallgruppen, "
+        "`abgeschafft` nur bei wegfallenden, `geaendert` nur dann, wenn sich "
+        "Bearbeitungsaufwand oder Fallzahl der Fallgruppe durch die Regelung "
+        "tatsaechlich aendert. Unveraenderte Nebenfallgruppen sind nicht "
+        "auszuweisen. Bei Spiegelsituationen zur Wirtschaft oder zu "
+        "Buergerinnen/Buergern muss die Zahl der Verwaltungs-Fallgruppen nicht "
+        "1:1 zur Gegenseite passen, aber jeder Kernfall einer Verwaltungs-"
+        "Fallgruppe muss auf der Spiegelseite auffindbar sein."
+    ),
+    PromptId.CASES_CALCULATION: (
+        "Zusatz fuer die Verwaltung bei der Fallzahlermittlung: "
+        "Fuer die Verwaltung ist die `Anzahl Betroffene` NICHT die Zahl extern "
+        "betroffener Buerger oder Unternehmen, sondern die Zahl der jaehrlich "
+        "tatsaechlich von der Verwaltung zu bearbeitenden Vorgaenge, Faelle oder "
+        "Antraege derselben Fallgruppe. Die `Haeufigkeit pro Jahr` ist in der "
+        "Regel 1, es sei denn ein Vorgang wiederholt sich nachweislich mehrfach "
+        "pro Jahr pro Fall (z.B. periodische Kontrollen). Setzen Sie niemals "
+        "`anzahl_betroffene = 0`, wenn es eine zugeordnete Fallgruppe mit "
+        "Bearbeitungsaufwand gibt - ohne Faelle waere die Fallgruppe nicht zu "
+        "bilden. Wenn eine Spiegelsituation zu Wirtschaft oder Buergerinnen/"
+        "Buergern besteht (z.B. 500 Antraege werden gestellt und von der "
+        "Verwaltung bearbeitet), uebernehmen Sie dieselbe Fallzahl "
+        "deterministisch; die Anzahl der Antragsteller und die Anzahl der zu "
+        "bearbeitenden Vorgaenge sind dann identisch. Liegen keine konkreten "
+        "Zahlen vor, schaetzen Sie sachgerecht basierend auf dem "
+        "Normzitat/Regelungsgegenstand und typischen Vollzugsmengen der "
+        "zustaendigen Behoerde; geben Sie niemals Platzhalter-Nullen aus."
+    ),
+    PromptId.PROCESS_STEP_ANALYSIS: (
+        "Zusatz fuer die Verwaltung bei der Schrittanalyse: "
+        "Jede Taetigkeit beschreibt eine Bearbeitungshandlung der Verwaltung "
+        "pro einzelnem Vorgang (z.B. Unterlagen sichten, Zweckzuordnung "
+        "pruefen, Bescheid erstellen). Weisen Sie pro Taetigkeit mindestens "
+        "eine Lohngruppe (A=einfacher/mittlerer Dienst, B=gehobener Dienst, "
+        "C=hoeherer Dienst, D=Durchschnitt) mit realistischem Zeitaufwand in "
+        "Minuten aus. Null-Zeitaufwaende sind nur zulaessig, wenn die "
+        "Taetigkeit tatsaechlich entfaellt (aenderungsstatus=abgeschafft) "
+        "oder durch IT-Automatisierung ersetzt ist; in diesem Fall ist dies "
+        "in der Beschreibung zu begruenden."
+    ),
 }
 
 
@@ -1178,6 +1272,13 @@ def _apply_norm_addressee_prompt_rules(
 
     citizens_rule = CITIZENS_PROMPT_RULES.get(prompt_id) if norm_addressee == CITIZENS else None
     prompt = _append_prompt_section(prompt, citizens_rule)
+
+    admin_rule = (
+        ADMINISTRATION_PROMPT_RULES.get(prompt_id)
+        if norm_addressee == ADMINISTRATION
+        else None
+    )
+    prompt = _append_prompt_section(prompt, admin_rule)
 
     return prompt
 

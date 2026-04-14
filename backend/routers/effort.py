@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from backend.core import db
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status
+from backend.core.config import settings
 from backend.core.llm_attempts import (
     LlmPromptSpec,
     mark_llm_answer_applied,
@@ -476,9 +477,24 @@ def _requires_mirror_matching_for_addressee(
     regulations: list[dict],
     norm_addressee: str,
 ) -> bool:
+    # Eine Spiegelung erfordert Matching nur, wenn der Anchor-Key gesetzt ist
+    # UND mindestens ein `mirror_applies_to_*`-Flag auf einen anderen
+    # Normadressaten zeigt. Ohne Zielseite gibt es nichts zu spiegeln und der
+    # Gate darf nicht greifen - das entspricht der Cluster-Logik in
+    # build_mirror_clusters_for_prompt.
+    target_flag_by_addressee = {
+        ADMINISTRATION: "mirror_applies_to_administration",
+        BUSINESS: "mirror_applies_to_business",
+        CITIZENS: "mirror_applies_to_citizens",
+    }
     for row in regulations:
-        if str(row.get("mirror_anchor_key") or "").strip():
-            return True
+        if not str(row.get("mirror_anchor_key") or "").strip():
+            continue
+        for target, flag in target_flag_by_addressee.items():
+            if target == norm_addressee:
+                continue
+            if row.get(flag):
+                return True
     return False
 
 
@@ -545,21 +561,24 @@ async def calculate_effort(
         regulations=regulations,
     )
 
-    mirror_matches = await ensure_mirror_matching(
-        session_id=session_id,
-        model=model,
-        provider=payload.provider,
-        api_keys=api_keys,
-        query_fn=query_llm,
-    )
-    if _requires_mirror_matching_for_addressee(regulations, norm_addressee) and not mirror_matches:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Mirror matching required for selected norm addressee, "
-                "but no mirror matches could be determined"
-            ),
+    if settings.mirror_matching_enabled:
+        mirror_matches = await ensure_mirror_matching(
+            session_id=session_id,
+            model=model,
+            provider=payload.provider,
+            api_keys=api_keys,
+            query_fn=query_llm,
         )
+        if _requires_mirror_matching_for_addressee(regulations, norm_addressee) and not mirror_matches:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Mirror matching required for selected norm addressee, "
+                    "but no mirror matches could be determined"
+                ),
+            )
+    else:
+        mirror_matches = []
 
     cases_prompt = render_prompt(
         PromptId.CASES_CALCULATION,
