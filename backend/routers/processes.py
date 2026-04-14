@@ -244,7 +244,8 @@ async def compile_processes(
         session_id,
         norm_addressee,
     )
-    if not regulations and norm_addressee != ADMINISTRATION:
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not regulations and session_has_any_regulations:
         return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not regulations:
         raise HTTPException(status_code=400, detail="No regulations for session")

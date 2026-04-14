@@ -303,6 +303,32 @@ def test_compile_processes_requires_regulations(test_client):
     assert resp.json()["detail"] == "No regulations for session"
 
 
+def test_compile_processes_skips_administration_when_only_other_addressee_has_regulations(
+    test_client,
+):
+    session_id, _ = db.upsert_session("PROC-ADMIN-SKIP", "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Nur Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+    )
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-ADMIN-SKIP",
+            "model": "test-model",
+            "provider": "deepinfra",
+            "norm_addressee": "administration",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "skipped"
+    assert resp.json()["norm_addressee"] == "administration"
+
+
 def test_compile_processes_stores_query_failed_attempt(test_client, monkeypatch):
     session_id, _ = db.upsert_session("PROC-QUERY-FAILED", "test-model")
     reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
