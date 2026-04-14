@@ -11,6 +11,7 @@ from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core import db
+from backend.core import llm_trace
 from backend.core.request_context import bind_request_context, reset_request_context
 from backend.routers import (
     models,
@@ -101,6 +102,18 @@ async def log_backend_communication(request: Request, call_next):
         app_session_id=(str(app_session_id).strip() if app_session_id else None),
     )
 
+    trace_header = request.headers.get("x-llm-trace", "").strip().lower()
+    trace_enabled = llm_trace.trace_enabled_by_env() or trace_header in {"1", "true", "yes", "on"}
+    trace_token = None
+    if trace_enabled:
+        trace_token = llm_trace.start_run(
+            request_id=request_id,
+            route_method=request.method,
+            route_path=path,
+            app_session_id=(str(app_session_id).strip() if app_session_id else None),
+        )
+
+    response = None
     try:
         response = await call_next(request)
     except Exception:
@@ -118,6 +131,14 @@ async def log_backend_communication(request: Request, call_next):
         )
         raise
     finally:
+        if trace_token is not None:
+            try:
+                llm_trace.flush_run(
+                    trace_token,
+                    status_code=(response.status_code if response is not None else 500),
+                )
+            except Exception:
+                logger.exception("Failed to flush LLM trace for req=%s", request_id)
         reset_request_context(token)
 
     elapsed_ms = (perf_counter() - started) * 1000

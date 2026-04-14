@@ -441,6 +441,7 @@ async def analyze_process_steps(
         model=model,
         provider=payload.provider,
         query_fn=query_llm,
+        norm_addressee=norm_addressee,
     )
     response_text = llm_result.text
 

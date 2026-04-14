@@ -579,11 +579,13 @@ async def calculate_effort(
             prompt_id=PromptId.CASES_CALCULATION,
             query_label="CASES_CALCULATION",
             prompt=cases_prompt,
+            norm_addressee=norm_addressee,
         ),
         LlmPromptSpec(
             prompt_id=PromptId.EFFORT_CALCULATION,
             query_label="EFFORT_CALCULATION",
             prompt=effort_prompt,
+            norm_addressee=norm_addressee,
         ),
     ]
     pending_answer_ids = {}
@@ -598,6 +600,7 @@ async def calculate_effort(
             model=model,
             provider=payload.provider,
             prompt_sha256=prompt_sha256(spec.prompt),
+            norm_addressee=spec.norm_addressee,
         )
         if reusable:
             pending_answer_ids[spec.prompt_id] = int(reusable["answer_id"])

@@ -1701,6 +1701,135 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
     assert calls == {"cases": 1, "effort": 2}
 
 
+def test_llm_answers_scoped_by_norm_addressee_do_not_supersede():
+    # Regression fuer Session 37Z9IJ: wenn zuerst der Verwaltungs-Lauf und
+    # danach der Wirtschafts-Lauf einen Answer fuer denselben Prompt staged,
+    # darf der spaetere Business-Answer den Verwaltungs-Answer NICHT als
+    # superseded markieren. Beide muessen parallel `active` bleiben.
+    session_id, _ = db.upsert_session("LLM-ANSWERS-NORM-SCOPING", "test-model")
+
+    admin_id = db.create_pending_llm_answer(
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        model="test-model",
+        answer_text='{"prozesse": []}',
+        metadata={"provider": "openai"},
+        norm_addressee=ADMINISTRATION,
+    )
+    db.activate_llm_answer(
+        answer_id=admin_id,
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        reason="session_updated",
+    )
+
+    business_id = db.create_pending_llm_answer(
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        model="test-model",
+        answer_text='{"prozesse": []}',
+        metadata={"provider": "openai"},
+        norm_addressee=BUSINESS,
+    )
+    db.activate_llm_answer(
+        answer_id=business_id,
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        reason="session_updated",
+    )
+
+    admin_row = db.get_llm_answer_by_id(admin_id)
+    business_row = db.get_llm_answer_by_id(business_id)
+    assert admin_row["answer_state"] == db.LLM_ANSWER_STATE_ACTIVE
+    assert business_row["answer_state"] == db.LLM_ANSWER_STATE_ACTIVE
+    assert admin_row["norm_addressee"] == ADMINISTRATION
+    assert business_row["norm_addressee"] == BUSINESS
+
+
+def test_llm_answers_same_addressee_second_staging_supersedes():
+    # Gegenprobe: zwei Stagings fuer denselben (session, prompt, addressee)
+    # muessen sich weiterhin gegenseitig verdraengen.
+    session_id, _ = db.upsert_session("LLM-ANSWERS-SAME-SCOPING", "test-model")
+
+    first_id = db.create_pending_llm_answer(
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        model="test-model",
+        answer_text='{"prozesse": []}',
+        metadata={"provider": "openai"},
+        norm_addressee=ADMINISTRATION,
+    )
+    db.activate_llm_answer(
+        answer_id=first_id,
+        session_id=session_id,
+        prompt_id="effort_calculation",
+    )
+
+    second_id = db.create_pending_llm_answer(
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        model="test-model",
+        answer_text='{"prozesse": []}',
+        metadata={"provider": "openai"},
+        norm_addressee=ADMINISTRATION,
+    )
+    db.activate_llm_answer(
+        answer_id=second_id,
+        session_id=session_id,
+        prompt_id="effort_calculation",
+    )
+
+    first_row = db.get_llm_answer_by_id(first_id)
+    second_row = db.get_llm_answer_by_id(second_id)
+    assert first_row["answer_state"] == db.LLM_ANSWER_STATE_INVALID
+    assert first_row["state_reason"] == "superseded_by_new_attempt"
+    assert second_row["answer_state"] == db.LLM_ANSWER_STATE_ACTIVE
+
+
+def test_requires_mirror_matching_ignores_anchor_without_target_flag():
+    # Anchor-Key gesetzt, aber keiner der mirror_applies_to_*-Flags zeigt auf
+    # einen anderen Adressaten -> es gibt nichts zu spiegeln, der Gate darf
+    # nicht feuern. Regression fuer eine verwaiste Spiegel-Definition, die
+    # sonst 422 ausloeste (Session 37Z9IJ).
+    regulations = [
+        {
+            "mirror_anchor_key": "some-anchor",
+            "mirror_applies_to_administration": 0,
+            "mirror_applies_to_business": 0,
+            "mirror_applies_to_citizens": 0,
+        }
+    ]
+    assert not effort_router._requires_mirror_matching_for_addressee(
+        regulations, ADMINISTRATION
+    )
+
+
+def test_requires_mirror_matching_true_when_other_addressee_targeted():
+    regulations = [
+        {
+            "mirror_anchor_key": "some-anchor",
+            "mirror_applies_to_administration": 0,
+            "mirror_applies_to_business": 1,
+            "mirror_applies_to_citizens": 0,
+        }
+    ]
+    assert effort_router._requires_mirror_matching_for_addressee(
+        regulations, ADMINISTRATION
+    )
+    # Zeigt nur auf sich selbst -> kein Ziel, kein Matching-Bedarf.
+    regulations_self_only = [
+        {
+            "mirror_anchor_key": "some-anchor",
+            "mirror_applies_to_administration": 1,
+            "mirror_applies_to_business": 0,
+            "mirror_applies_to_citizens": 0,
+        }
+    ]
+    assert not effort_router._requires_mirror_matching_for_addressee(
+        regulations_self_only, ADMINISTRATION
+    )
+
+
 def test_calculate_effort_rejects_mirror_cases_without_explicit_match(
     test_client, monkeypatch, enable_mirror_feature
 ):

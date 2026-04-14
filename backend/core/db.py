@@ -970,6 +970,7 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
         "TEXT NOT NULL DEFAULT 'active'",
     )
     _ensure_column(cur, "llm_answers", "state_reason", "TEXT")
+    _ensure_column(cur, "llm_answers", "norm_addressee", "TEXT")
     cur.execute(
         """
         UPDATE llm_answers
@@ -1415,7 +1416,14 @@ def init_db() -> None:
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_llm_answers_state ON llm_answers(answer_state)"
     )
-    # Keep at most one active answer per (session_id, prompt_id).
+    # Keep at most one active answer per (session_id, prompt_id, norm_addressee).
+    # Normadressaten-spezifische Prompts (z.B. cases_calculation, effort_calculation)
+    # muessen pro Adressat einen eigenen aktiven Answer halten koennen - sonst
+    # verdraengt ein spaeterer Business-Lauf den zuvor gespeicherten
+    # Verwaltungs-Answer und die Fallzahlen/Effort-Werte der Verwaltung gehen
+    # verloren. COALESCE(norm_addressee, '') sorgt dafuer, dass auch NULL-Werte
+    # (z.B. mirror_matching, law_summary) deterministisch verglichen werden.
+    cur.execute("DROP INDEX IF EXISTS idx_llm_answers_one_active")
     cur.execute(
         """
         UPDATE llm_answers
@@ -1426,14 +1434,14 @@ def init_db() -> None:
             SELECT MAX(answer_id)
             FROM llm_answers
             WHERE answer_state = 'active'
-            GROUP BY session_id, prompt_id
+            GROUP BY session_id, prompt_id, COALESCE(norm_addressee, '')
           )
         """
     )
     cur.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_llm_answers_one_active
-        ON llm_answers(session_id, prompt_id)
+        ON llm_answers(session_id, prompt_id, COALESCE(norm_addressee, ''))
         WHERE answer_state = 'active'
         """
     )
@@ -2063,6 +2071,7 @@ def insert_llm_answer(
     provider_response_json: dict | list | None = None,
     answer_state: str = LLM_ANSWER_STATE_ACTIVE,
     state_reason: str | None = None,
+    norm_addressee: str | None = None,
 ) -> int:
     if answer_state not in {
         LLM_ANSWER_STATE_PENDING,
@@ -2086,9 +2095,10 @@ def insert_llm_answer(
             estimated_cost_usd,
             provider_response_json,
             answer_state,
-            state_reason
+            state_reason,
+            norm_addressee
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -2107,6 +2117,7 @@ def insert_llm_answer(
             ),
             answer_state,
             state_reason,
+            norm_addressee,
         ),
     )
     answer_id = int(cur.lastrowid)
@@ -2126,12 +2137,15 @@ def create_pending_llm_answer(
     hidden_thinking_tokens: int | None = None,
     estimated_cost_usd: float | None = None,
     provider_response_json: dict | list | None = None,
+    norm_addressee: str | None = None,
 ) -> int:
     invalidate_llm_answers(
         session_id=session_id,
         prompt_ids=[prompt_id],
         states=[LLM_ANSWER_STATE_PENDING],
         reason="superseded_by_new_attempt",
+        norm_addressee=norm_addressee,
+        match_norm_addressee=True,
     )
     return insert_llm_answer(
         session_id=session_id,
@@ -2146,6 +2160,7 @@ def create_pending_llm_answer(
         provider_response_json=provider_response_json,
         answer_state=LLM_ANSWER_STATE_PENDING,
         state_reason="waiting_for_session_update",
+        norm_addressee=norm_addressee,
     )
 
 
@@ -2173,6 +2188,8 @@ def invalidate_llm_answers(
     states: Iterable[str] | None = None,
     reason: str = "invalidated",
     exclude_answer_id: int | None = None,
+    norm_addressee: str | None = None,
+    match_norm_addressee: bool = False,
 ) -> int:
     ids = [pid for pid in prompt_ids if pid]
     if not ids:
@@ -2190,6 +2207,9 @@ def invalidate_llm_answers(
           AND prompt_id IN ({placeholders_ids})
           AND answer_state IN ({placeholders_states})
     """
+    if match_norm_addressee:
+        sql += " AND COALESCE(norm_addressee, '') = COALESCE(?, '')"
+        params.append(norm_addressee)
     if exclude_answer_id is not None:
         sql += " AND answer_id <> ?"
         params.append(exclude_answer_id)
@@ -2209,6 +2229,7 @@ def get_reusable_pending_llm_answer(
     model: str,
     provider: str | None,
     prompt_sha256: str,
+    norm_addressee: str | None = None,
 ) -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
@@ -2220,9 +2241,10 @@ def get_reusable_pending_llm_answer(
           AND prompt_id = ?
           AND model = ?
           AND answer_state = ?
+          AND COALESCE(norm_addressee, '') = COALESCE(?, '')
         ORDER BY answer_id DESC
         """,
-        (session_id, prompt_id, model, LLM_ANSWER_STATE_PENDING),
+        (session_id, prompt_id, model, LLM_ANSWER_STATE_PENDING, norm_addressee),
     )
     rows = cur.fetchall()
     _maybe_close(conn)
@@ -2281,6 +2303,10 @@ def activate_llm_answer(
 ) -> None:
     conn = get_conn()
     cur = conn.cursor()
+    # Sibling-Answers zum selben (session, prompt, norm_addressee) verdraengen.
+    # Answers mit abweichendem norm_addressee bleiben unberuehrt, damit z.B.
+    # ein Verwaltungs-Answer nicht vom spaeter laufenden Business-Lauf
+    # invalidiert wird.
     cur.execute(
         """
         UPDATE llm_answers
@@ -2289,6 +2315,9 @@ def activate_llm_answer(
           AND prompt_id = ?
           AND answer_state IN (?, ?)
           AND answer_id <> ?
+          AND COALESCE(norm_addressee, '') = COALESCE(
+              (SELECT norm_addressee FROM llm_answers WHERE answer_id = ?), ''
+          )
         """,
         (
             LLM_ANSWER_STATE_INVALID,
@@ -2297,6 +2326,7 @@ def activate_llm_answer(
             prompt_id,
             LLM_ANSWER_STATE_ACTIVE,
             LLM_ANSWER_STATE_PENDING,
+            answer_id,
             answer_id,
         ),
     )
@@ -2339,6 +2369,7 @@ def get_llm_answer_by_id(answer_id: int) -> dict | None:
             output_tokens,
             hidden_thinking_tokens,
             estimated_cost_usd,
+            norm_addressee,
             created_at
         FROM llm_answers
         WHERE answer_id = ?

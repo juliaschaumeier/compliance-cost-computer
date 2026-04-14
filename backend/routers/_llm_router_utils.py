@@ -36,6 +36,7 @@ async def query_and_stage_or_http(
     model: str,
     provider: str | None,
     query_fn: Callable[..., Awaitable[str | LlmResult]],
+    norm_addressee: str | None = None,
 ) -> tuple[int, LlmResult]:
     try:
         return await query_and_stage_llm_answer(
@@ -46,6 +47,7 @@ async def query_and_stage_or_http(
             model=model,
             provider=provider,
             query_fn=query_fn,
+            norm_addressee=norm_addressee,
         )
     except Exception as exc:
         status, detail = llm_query_error_to_status_detail(exc)

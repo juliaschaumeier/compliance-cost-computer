@@ -12,6 +12,7 @@ import uuid
 from backend.core import db
 from backend.core.auth import ApiKeys
 from backend.core import llm_monitor
+from backend.core import llm_trace
 from backend.core.config import settings
 from backend.core.llm_service import (
     LlmQueryError,
@@ -164,6 +165,7 @@ class LlmPromptSpec:
     prompt_id: str
     query_label: str
     prompt: str
+    norm_addressee: str | None = None
 
 
 def mark_llm_query_failed(
@@ -177,6 +179,7 @@ def mark_llm_query_failed(
     elapsed_ms: int | None = None,
     attempt_id: str | None = None,
     request_context: dict[str, str | None] | None = None,
+    norm_addressee: str | None = None,
 ) -> None:
     request_context = request_context or {}
     error_kind = getattr(exc, "reason", None)
@@ -208,6 +211,7 @@ def mark_llm_query_failed(
         ),
         answer_state=db.LLM_ANSWER_STATE_INVALID,
         state_reason="query_failed",
+        norm_addressee=norm_addressee,
     )
 
 
@@ -222,6 +226,7 @@ def stage_llm_response(
     elapsed_ms: int | None = None,
     attempt_id: str | None = None,
     request_context: dict[str, str | None] | None = None,
+    norm_addressee: str | None = None,
 ) -> int:
     request_context = request_context or {}
     metadata_extra: dict[str, Any] = {
@@ -247,6 +252,7 @@ def stage_llm_response(
         hidden_thinking_tokens=llm_result.hidden_thinking_tokens,
         estimated_cost_usd=llm_result.estimated_cost_usd,
         provider_response_json=llm_result.provider_response_json,
+        norm_addressee=norm_addressee,
     )
 
 
@@ -259,6 +265,7 @@ async def query_and_stage_llm_answer(
     model: str,
     provider: str | None,
     query_fn: Callable[..., Awaitable[str | LlmResult]] | None = None,
+    norm_addressee: str | None = None,
 ) -> tuple[int, LlmResult]:
     query_impl = query_fn or query_llm
     request_ctx = get_request_context()
@@ -354,6 +361,16 @@ async def query_and_stage_llm_answer(
             )
         )
     except Exception as exc:
+        failure_elapsed_ms = int((time.perf_counter() - started) * 1000)
+        llm_trace.record_failure(
+            prompt_id=prompt_id,
+            model=model,
+            provider=provider,
+            attempt_id=attempt_id,
+            prompt=prompt,
+            exc=exc,
+            elapsed_ms=failure_elapsed_ms,
+        )
         mark_llm_query_failed(
             session_id=session_id,
             prompt_id=prompt_id,
@@ -361,9 +378,10 @@ async def query_and_stage_llm_answer(
             provider=provider,
             prompt=prompt,
             exc=exc,
-            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            elapsed_ms=failure_elapsed_ms,
             attempt_id=attempt_id,
             request_context=request_ctx,
+            norm_addressee=norm_addressee,
         )
         await _publish_monitor_event(
             app_session_id=app_session_id,
@@ -385,6 +403,15 @@ async def query_and_stage_llm_answer(
         )
         raise
     elapsed_ms = int((time.perf_counter() - started) * 1000)
+    llm_trace.record_success(
+        prompt_id=prompt_id,
+        model=model,
+        provider=provider,
+        attempt_id=attempt_id,
+        prompt=prompt,
+        llm_result=llm_result,
+        elapsed_ms=elapsed_ms,
+    )
     answer_id = stage_llm_response(
         session_id=session_id,
         prompt_id=prompt_id,
@@ -395,6 +422,7 @@ async def query_and_stage_llm_answer(
         elapsed_ms=elapsed_ms,
         attempt_id=attempt_id,
         request_context=request_ctx,
+        norm_addressee=norm_addressee,
     )
     await _publish_monitor_event(
         app_session_id=app_session_id,
@@ -440,6 +468,7 @@ async def query_and_stage_llm_answers_parallel(
                 model=model,
                 provider=provider,
                 query_fn=query_fn,
+                norm_addressee=spec.norm_addressee,
             )
             return spec, answer_id, result, None
         except Exception as exc:
@@ -628,3 +657,12 @@ def mark_llm_parse_fallback(
         event.get("route_path") or "-",
     )
     _publish_monitor_event_sync(app_session_id=app_session_id, event=event)
+    llm_trace.record_fallback(
+        prompt_id=prompt_id,
+        fallback_kind=fallback_kind,
+        attempt_id=event.get("attempt_id"),
+        model=event.get("model"),
+        provider=event.get("provider"),
+        detail=detail,
+        extra=_jsonable(extra) if extra else None,
+    )

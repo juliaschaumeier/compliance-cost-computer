@@ -322,6 +322,7 @@ async def develop_case_groups(
         model=model,
         provider=payload.provider,
         query_fn=query_llm,
+        norm_addressee=norm_addressee,
     )
     response_text = llm_result.text
 
