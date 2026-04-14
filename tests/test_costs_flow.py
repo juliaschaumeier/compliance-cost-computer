@@ -347,7 +347,7 @@ def test_compute_costs_allows_admin_time_only_inputs_with_active_rates(test_clie
     assert resp.json()["total_cost"] == pytest.approx(33.8)
 
 
-def test_compute_costs_business_bureaucracy_requires_consistent_information_obligation(
+def test_compute_costs_business_counts_mixed_information_obligation_steps_as_bureaucracy(
     test_client,
 ):
     session_id, _ = db.upsert_session("COST-BUSINESS-MIXED", "test-model")
@@ -468,8 +468,8 @@ def test_compute_costs_business_bureaucracy_requires_consistent_information_obli
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["total_cost"] == pytest.approx(100.0)
-    assert payload["bureaucracy_cost"] == pytest.approx(0.0)
-    assert payload["other_cost"] == pytest.approx(100.0)
+    assert payload["bureaucracy_cost"] == pytest.approx(100.0)
+    assert payload["other_cost"] == pytest.approx(0.0)
 
 
 def test_compute_costs_rejects_invalid_norm_addressee(test_client):

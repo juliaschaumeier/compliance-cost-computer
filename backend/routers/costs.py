@@ -144,7 +144,7 @@ def _list_business_information_step_ids(session_id: int, norm_addressee: str) ->
     return {
         step_id
         for step_id, regulation_ids in regulation_ids_by_step.items()
-        if regulation_ids and all(regulation_id in business_regulation_ids for regulation_id in regulation_ids)
+        if regulation_ids and any(regulation_id in business_regulation_ids for regulation_id in regulation_ids)
     }
 
 
