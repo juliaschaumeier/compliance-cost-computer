@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 import json
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -139,7 +142,19 @@ def _parse_vorgaben(payload: str) -> list[dict]:
                 or entry.get("informationspflicht_wirtschaft")
             )
         )
+        # Per Leitfaden (StBA): Die Unterscheidung zwischen Informationspflichten
+        # und uebrigen Vorgaben ist nur fuer Wirtschaft gefordert. Setzt das LLM
+        # das Flag ohne BUSINESS im Normadressaten-Set, ergaenzen wir BUSINESS
+        # (robust gegen unvollstaendige LLM-Ausgaben) UND loggen den Vorfall,
+        # damit Folge-Korrekturen auffindbar sind.
         if is_business_information_obligation and BUSINESS not in normadressaten:
+            logger.warning(
+                "regulations_identification: informationspflicht-Flag ohne "
+                "BUSINESS-Normadressat; BUSINESS wird ergaenzt. normzitat=%r "
+                "normadressaten=%r",
+                normzitat[:120],
+                list(normadressaten),
+            )
             normadressaten.append(BUSINESS)
         mirror = _parse_spiegelsituation(
             entry.get("spiegelsituation"),
