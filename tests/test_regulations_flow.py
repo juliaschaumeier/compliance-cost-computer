@@ -501,6 +501,80 @@ def test_identify_regulations_business_information_flag_adds_business_addressee(
     assert row["is_business_information_obligation"] == 1
 
 
+def test_identify_regulations_persists_spiegelsituation_metadata(test_client, monkeypatch):
+    db.insert_law("mirror-current.txt", "aktuelles gesetz")
+    db.insert_law("mirror-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            """
+            {
+              "vorgaben": [
+                {
+                  "normzitat": "§ 52 Abs. 2 Nr. 21 AO",
+                  "beschreibung": "E-Sport-Vereine koennen sich auf Sportfoerderung stuetzen.",
+                  "aenderungsstatus": "eingefuehrt",
+                  "normadressaten": ["business"],
+                  "spiegelsituation": {
+                    "liegt_vor": "1",
+                    "normadressaten": ["administration", "business"],
+                    "beschreibung": "Korrespondierender Pruefaufwand bei der Finanzverwaltung.",
+                    "mirror_anchor_key": "Gemeinnuetzigkeit E-Sport"
+                  }
+                }
+              ]
+            }
+            """,
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "mirror-proposed.txt",
+            "current_filename": "mirror-current.txt",
+            "app_session_id": "REG-MIRROR",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "REG-MIRROR",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["vorgaben"][0]["mirror_anchor_key"] == "gemeinnuetzigkeit-e-sport"
+
+    session_id = db.get_session_id_by_app_id("REG-MIRROR")
+    assert session_id is not None
+    row = db.list_regulations_for_session(session_id)[0]
+    assert row["mirror_applies_to_administration"] == 1
+    assert row["mirror_applies_to_business"] == 0
+    assert row["mirror_applies_to_citizens"] == 0
+    assert row["mirror_description"] == "Korrespondierender Pruefaufwand bei der Finanzverwaltung."
+    assert row["mirror_anchor_key"] == "gemeinnuetzigkeit-e-sport"
+
+    tile = next(
+        tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="business")
+        if tile.id.startswith("regulation_")
+    )
+    assert tile.meta_information["mirror_normadressaten"] == ["administration"]
+    assert tile.meta_information["mirror_anchor_key"] == "gemeinnuetzigkeit-e-sport"
+
+
 def test_prompt_opening_falls_back_to_blurb_when_summary_empty(test_client):
     session_id, _ = db.upsert_session("PROMPT-BLURB-FALLBACK", "test-model")
     db.update_session_summary(

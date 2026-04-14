@@ -9,6 +9,7 @@ from backend.core.handbook_examples import (
     PROCESS_COMPILATION_EXAMPLE,
 )
 from backend.core.handbook_tables import Appendix
+from backend.core.mirror_context import render_mirror_prompt_context
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
 
@@ -478,6 +479,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Spiegelbeziehung nachvollziehbar bleibt. Unterschiede zwischen Normadressaten sollen sich aus der jeweiligen Perspektive und den jeweiligen
         Tätigkeiten ergeben, nicht aus einer widersprüchlichen Beschreibung des zugrunde liegenden Fallgeschehens.
 
+        Wenn zusaetzlicher strukturierter Spiegelkontext mit bereits bekannten Zuordnungen oder Gegenstrukturen vorliegt, behandeln Sie diesen als
+        verbindlichen fachlichen Konsistenzrahmen. Passen Sie Ihre Prozessbildung daran an, statt parallele konkurrierende Spiegelstrukturen zu erzeugen.
+
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_process_example}
 
@@ -543,6 +547,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Fall betrachtet wird, sollen die Fallgruppen logisch zueinander passen. Unterschiede sind nur dort auszuweisen, wo sie sich aus unterschiedlichen
         Verfahrenswegen, unterschiedlichen Betroffenheiten oder unterschiedlichen Rollen des jeweiligen Normadressaten ergeben. Erfinden Sie keine
         voneinander losgeloesten Fallgruppen fuer denselben Spiegel-Sachverhalt.
+
+        Wenn strukturierter Spiegelkontext mit bereits bekannten Gegenstrukturen oder Matches vorliegt, nutzen Sie diesen als bindenden Abgleichsrahmen.
+        Erfinden Sie keine abweichenden Fallgruppen, wenn der gemeinsame Spiegel-Sachverhalt dort bereits hinreichend konkretisiert ist.
 
         Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
@@ -713,6 +720,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Fall erkennbar spiegeln. Das bedeutet: unterschiedliche Schritte sind zulaessig, wenn sie sich aus der Rolle des Normadressaten ergeben; unzulaessig
         ist jedoch eine voellig andere, nicht mehr wiedererkennbare Struktur fuer denselben Spiegel-Sachverhalt.
 
+        Wenn bereits strukturierte Spiegel-Matches oder Gegenstrukturen vorliegen, behandeln Sie diese als verbindliche Orientierung fuer die Zuordnung der
+        Taetigkeiten zu demselben gemeinsamen Fall. Erfinden Sie keine fachlich abweichende Schrittlogik fuer bereits gematchte Spiegel-Fallgruppen.
+
         Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten zur Erfüllung 
         von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.
 
@@ -871,6 +881,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         logisch 1:1 gekoppelt ist, sind dieselben Mengen zu übernehmen statt sie erneut unabhängig zu schätzen. Beispiel: Wenn 500 neue Vereine gegründet
         werden und deshalb 500 Anträge bei der Verwaltung zu bearbeiten sind, muss dieselbe Fallzahl auf beiden Seiten zugrunde gelegt werden; unterschiedlich
         sind dann nur die Tätigkeiten und Kosten, nicht die Zahl der Fälle.
+
+        Wenn strukturierte Spiegel-Matches mit `sync_cases = 1`, `sync_addressees = 1` oder `sync_frequency = 1` vorliegen, befolgen Sie diese Vorgaben
+        vorrangig. Solche Matches sind als autoritative Synchronisierungshinweise zu behandeln und nicht erneut frei zu ueberschreiben.
 
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_cases_frequency_example}
@@ -1100,6 +1113,16 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
                 current_text, proposed_text = db.get_session_law_texts(session_id)
                 render_values.setdefault("gesetz_gueltig", current_text)
                 render_values.setdefault("gesetz_vorschlag", proposed_text)
+    else:
+        session_id = _resolve_session_id(render_values)
+
+    if session_id is not None and norm_addressee:
+        _populate_mirror_prompt_contexts(
+            prompt_id=prompt_id,
+            render_values=render_values,
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+        )
 
     prompt = template.format(**appendix_values, **render_values)
     norm_addressee = render_values.get("norm_addressee")
@@ -1173,3 +1196,47 @@ def _render_effort_json_schema(norm_addressee: str | None) -> str:
     if not norm_addressee:
         norm_addressee = ADMINISTRATION
     return EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee, EFFORT_JSON_SCHEMA_DEFAULT).strip()
+
+
+def _populate_mirror_prompt_contexts(
+    prompt_id: str,
+    render_values: dict[str, Any],
+    session_id: int,
+    norm_addressee: str,
+) -> None:
+    if prompt_id == PromptId.PROCESS_COMPILATION:
+        render_values.setdefault(
+            "mirror_process_context",
+            render_mirror_prompt_context(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                stage="processes",
+            ),
+        )
+    elif prompt_id == PromptId.CASE_GROUP_DEVELOPMENT:
+        render_values.setdefault(
+            "mirror_case_group_context",
+            render_mirror_prompt_context(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                stage="case_groups",
+            ),
+        )
+    elif prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
+        render_values.setdefault(
+            "mirror_step_context",
+            render_mirror_prompt_context(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                stage="steps",
+            ),
+        )
+    elif prompt_id == PromptId.CASES_CALCULATION:
+        render_values.setdefault(
+            "mirror_case_context",
+            render_mirror_prompt_context(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                stage="cases",
+            ),
+        )

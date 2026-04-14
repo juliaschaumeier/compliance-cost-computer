@@ -18,6 +18,10 @@ def _is_effort_prompt(prompt: str) -> bool:
     return "prozessschritte differenziert werden" in prompt.lower()
 
 
+def _is_mirror_matching_prompt(prompt: str) -> bool:
+    return "verknuepft sein koennen" in prompt.lower() and "mirror_anchor_key" in prompt
+
+
 def _detect_addressee_from_prompt(prompt: str) -> str:
     lowered = prompt.lower()
     if (
@@ -160,6 +164,8 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
     async def fake_effort_llm(prompt, *_args, **_kwargs):
         session_id = db.get_session_id_by_app_id(app_session_id)
         assert session_id is not None
+        if _is_mirror_matching_prompt(prompt):
+            return json.dumps({"analyses": []})
         processes = db.list_processes_for_session(session_id)
         case_groups = db.list_case_groups_for_session(session_id)
         steps = db.list_process_steps_for_session(session_id)
@@ -347,6 +353,8 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         addressee = _detect_addressee_from_prompt(prompt)
         session_id = db.get_session_id_by_app_id(app_session_id)
         assert session_id is not None
+        if _is_mirror_matching_prompt(prompt):
+            return json.dumps({"analyses": []})
         processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)

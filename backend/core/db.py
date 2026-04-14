@@ -1141,6 +1141,32 @@ def init_db() -> None:
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mirror_matches (
+            mirror_match_id          INTEGER PRIMARY KEY,
+            session_id               INTEGER NOT NULL,
+            mirror_anchor_key        TEXT NOT NULL,
+            shared_situation         TEXT,
+            source_norm_addressee    TEXT NOT NULL,
+            target_norm_addressee    TEXT NOT NULL,
+            source_process_id        INTEGER,
+            target_process_id        INTEGER,
+            source_case_group_id     INTEGER,
+            target_case_group_id     INTEGER,
+            relation_type            TEXT NOT NULL,
+            sync_addressees          INTEGER NOT NULL DEFAULT 0 CHECK (sync_addressees IN (0, 1)),
+            sync_frequency           INTEGER NOT NULL DEFAULT 0 CHECK (sync_frequency IN (0, 1)),
+            sync_cases               INTEGER NOT NULL DEFAULT 0 CHECK (sync_cases IN (0, 1)),
+            reason                   TEXT,
+            created_at               TEXT NOT NULL DEFAULT current_timestamp,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
     # TODO: Handle list insertion, possibly change to position list instead of linked list? Does it need to be doubly linked? Single just seems easier.
     # TODO: Change prozessschritt mit tätigkeiten?
     _create_process_steps_table(cur)
@@ -1170,6 +1196,11 @@ def init_db() -> None:
             "applies_to_business": "INTEGER NOT NULL DEFAULT 0 CHECK (applies_to_business IN (0, 1))",
             "applies_to_citizens": "INTEGER NOT NULL DEFAULT 0 CHECK (applies_to_citizens IN (0, 1))",
             "is_business_information_obligation": "INTEGER NOT NULL DEFAULT 0 CHECK (is_business_information_obligation IN (0, 1))",
+            "mirror_applies_to_administration": "INTEGER NOT NULL DEFAULT 0 CHECK (mirror_applies_to_administration IN (0, 1))",
+            "mirror_applies_to_business": "INTEGER NOT NULL DEFAULT 0 CHECK (mirror_applies_to_business IN (0, 1))",
+            "mirror_applies_to_citizens": "INTEGER NOT NULL DEFAULT 0 CHECK (mirror_applies_to_citizens IN (0, 1))",
+            "mirror_description": "TEXT",
+            "mirror_anchor_key": "TEXT",
         },
     )
     _ensure_columns(
@@ -1199,6 +1230,9 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_proposed_law_id ON sessions(proposed_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_session_id ON regulations(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_process_id ON regulations(process_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mirror_matches_session_anchor ON mirror_matches(session_id, mirror_anchor_key)"
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_processes_session_id ON processes(session_id)")
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_processes_session_addressee ON processes(session_id, norm_addressee)"
@@ -2225,7 +2259,12 @@ def list_regulations_for_session(session_id: int) -> List[dict]:
             applies_to_administration,
             applies_to_business,
             applies_to_citizens,
-            is_business_information_obligation
+            is_business_information_obligation,
+            mirror_applies_to_administration,
+            mirror_applies_to_business,
+            mirror_applies_to_citizens,
+            mirror_description,
+            mirror_anchor_key
         FROM regulations
         WHERE session_id = ?
         ORDER BY regulation_id
@@ -2288,7 +2327,12 @@ def get_regulation_by_id(regulation_id: int) -> dict | None:
             applies_to_administration,
             applies_to_business,
             applies_to_citizens,
-            is_business_information_obligation
+            is_business_information_obligation,
+            mirror_applies_to_administration,
+            mirror_applies_to_business,
+            mirror_applies_to_citizens,
+            mirror_description,
+            mirror_anchor_key
         FROM regulations
         WHERE regulation_id = ?
         """,
@@ -2763,6 +2807,11 @@ def insert_regulation(
     applies_to_business: bool = False,
     applies_to_citizens: bool = False,
     is_business_information_obligation: bool = False,
+    mirror_applies_to_administration: bool = False,
+    mirror_applies_to_business: bool = False,
+    mirror_applies_to_citizens: bool = False,
+    mirror_description: str | None = None,
+    mirror_anchor_key: str | None = None,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
@@ -2777,9 +2826,14 @@ def insert_regulation(
             applies_to_administration,
             applies_to_business,
             applies_to_citizens,
-            is_business_information_obligation
+            is_business_information_obligation,
+            mirror_applies_to_administration,
+            mirror_applies_to_business,
+            mirror_applies_to_citizens,
+            mirror_description,
+            mirror_anchor_key
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -2791,6 +2845,11 @@ def insert_regulation(
             int(bool(applies_to_business)),
             int(bool(applies_to_citizens)),
             int(bool(is_business_information_obligation)),
+            int(bool(mirror_applies_to_administration)),
+            int(bool(mirror_applies_to_business)),
+            int(bool(mirror_applies_to_citizens)),
+            mirror_description,
+            mirror_anchor_key,
         ),
     )
     _maybe_commit(conn)
@@ -3442,6 +3501,93 @@ def clear_effort_metrics(session_id: int) -> None:
     _maybe_close(conn)
 
 
+def list_mirror_matches(session_id: int) -> List[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            mirror_match_id,
+            session_id,
+            mirror_anchor_key,
+            shared_situation,
+            source_norm_addressee,
+            target_norm_addressee,
+            source_process_id,
+            target_process_id,
+            source_case_group_id,
+            target_case_group_id,
+            relation_type,
+            sync_addressees,
+            sync_frequency,
+            sync_cases,
+            reason,
+            created_at
+        FROM mirror_matches
+        WHERE session_id = ?
+        ORDER BY mirror_match_id
+        """,
+        (session_id,),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
+def replace_mirror_matches(session_id: int, matches: list[dict]) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM mirror_matches WHERE session_id = ?", (session_id,))
+    for row in matches:
+        cur.execute(
+            """
+            INSERT INTO mirror_matches (
+                session_id,
+                mirror_anchor_key,
+                shared_situation,
+                source_norm_addressee,
+                target_norm_addressee,
+                source_process_id,
+                target_process_id,
+                source_case_group_id,
+                target_case_group_id,
+                relation_type,
+                sync_addressees,
+                sync_frequency,
+                sync_cases,
+                reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                row.get("mirror_anchor_key"),
+                row.get("shared_situation"),
+                row.get("source_norm_addressee"),
+                row.get("target_norm_addressee"),
+                row.get("source_process_id"),
+                row.get("target_process_id"),
+                row.get("source_case_group_id"),
+                row.get("target_case_group_id"),
+                row.get("relation_type"),
+                int(bool(row.get("sync_addressees"))),
+                int(bool(row.get("sync_frequency"))),
+                int(bool(row.get("sync_cases"))),
+                row.get("reason"),
+            ),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def delete_mirror_matches_for_session(session_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM mirror_matches WHERE session_id = ?", (session_id,))
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
 def clear_costs(session_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -3500,6 +3646,10 @@ def delete_case_groups_for_session(session_id: int) -> None:
         "DELETE FROM case_groups WHERE session_id = ?",
         (session_id,),
     )
+    cur.execute(
+        "DELETE FROM mirror_matches WHERE session_id = ?",
+        (session_id,),
+    )
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -3511,6 +3661,10 @@ def delete_processes_for_session(session_id: int) -> None:
         "DELETE FROM processes WHERE session_id = ?",
         (session_id,),
     )
+    cur.execute(
+        "DELETE FROM mirror_matches WHERE session_id = ?",
+        (session_id,),
+    )
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -3520,6 +3674,10 @@ def delete_regulations_for_session(session_id: int) -> None:
     cur = conn.cursor()
     cur.execute(
         "DELETE FROM regulations WHERE session_id = ?",
+        (session_id,),
+    )
+    cur.execute(
+        "DELETE FROM mirror_matches WHERE session_id = ?",
         (session_id,),
     )
     _maybe_commit(conn)

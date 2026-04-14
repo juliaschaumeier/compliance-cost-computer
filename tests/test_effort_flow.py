@@ -1,5 +1,6 @@
 from backend.core import db
 from backend.core.models import Tile
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
 from backend.routers import effort as effort_router
 
 
@@ -7,10 +8,16 @@ def _is_effort_prompt(prompt: str) -> bool:
     return "prozessschritte differenziert werden" in prompt.lower()
 
 
-def _build_effort_query_llm(cases_response, effort_response, *, calls=None):
+def _is_mirror_matching_prompt(prompt: str) -> bool:
+    return "verknuepft sein koennen" in prompt.lower() and "mirror_anchor_key" in prompt
+
+
+def _build_effort_query_llm(cases_response, effort_response, *, mirror_response=None, calls=None):
     async def fake_query_llm(prompt, *_args, **_kwargs):
         if calls is not None:
             calls.append(prompt)
+        if _is_mirror_matching_prompt(prompt):
+            return mirror_response or '{"analyses": []}'
         if _is_effort_prompt(prompt):
             return effort_response
         return cases_response
@@ -148,7 +155,7 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     payload = resp.json()
     assert payload["case_groups_updated"] == 1
     assert payload["steps_updated"] == 1
-    assert len(calls) == 2
+    assert len(calls) == 3
 
     case_groups = db.list_case_groups_for_session(session_id)
     assert case_groups[0]["addressees_current"] == 100
@@ -262,7 +269,35 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     monkeypatch.setattr(
         effort_router,
         "query_llm",
-        _build_effort_query_llm(cases_response, effort_response),
+        _build_effort_query_llm(
+            cases_response,
+            effort_response,
+            mirror_response=f"""
+            {{
+              "analyses": [
+                {{
+                  "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+                  "shared_situation": "Ein Antrag der Koerperschaft fuehrt zu einer korrespondierenden Bearbeitung.",
+                  "matches": [
+                    {{
+                      "source_norm_addressee": "administration",
+                      "target_norm_addressee": "business",
+                      "source_process_id": "{admin_process_id}",
+                      "target_process_id": "{business_process_id}",
+                      "source_case_group_id": "{admin_case_group_id}",
+                      "target_case_group_id": "{business_case_group_id}",
+                      "relation_type": "one_to_one",
+                      "sync_addressees": "1",
+                      "sync_frequency": "1",
+                      "sync_cases": "1",
+                      "reason": "Gleicher Antrag, gleiche Fallzahl."
+                    }}
+                  ]
+                }}
+              ]
+            }}
+            """,
+        ),
     )
     monkeypatch.setattr(
         effort_router.db,
@@ -419,6 +454,152 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
     assert payload["status"] == "existing"
     assert payload["case_groups_updated"] == 0
     assert payload["steps_updated"] == 0
+
+
+def test_calculate_effort_syncs_exact_mirror_case_group_metrics(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("EFFORT-MIRROR-SYNC", "test-model")
+
+    admin_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Verwaltungspruefung E-Sport",
+        applies_to_administration=True,
+        applies_to_business=False,
+        mirror_applies_to_business=True,
+        mirror_description="Spiegel zur Antragstellung der Koerperschaften.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+    business_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Koerperschaft stellt Gemeinnuetzigkeitsantrag fuer E-Sport.",
+        applies_to_administration=False,
+        applies_to_business=True,
+        mirror_applies_to_administration=True,
+        mirror_description="Spiegel zur Pruefung durch die Verwaltung.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Pruefung",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Antragstellung",
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=admin_regulation_id,
+        process_id=admin_process_id,
+        norm_addressee=ADMINISTRATION,
+    )
+    assert db.update_regulation_process(
+        regulation_id=business_regulation_id,
+        process_id=business_process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    admin_case_group_id = db.insert_case_group(
+        session_id,
+        admin_process_id,
+        "Verwaltungsfallgruppe",
+        "Bearbeitung eines Antrags",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_case_group_id = db.insert_case_group(
+        session_id,
+        business_process_id,
+        "Wirtschaftsfallgruppe",
+        "Stellung eines Antrags",
+        norm_addressee=BUSINESS,
+    )
+    business_step_id = db.insert_process_step(
+        session_id,
+        business_case_group_id,
+        "Unterlagen einreichen",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=admin_case_group_id,
+        addressees_current=50,
+        annual_frequency_current=1,
+        addressees_proposed=80,
+        annual_frequency_proposed=1,
+    )
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{business_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{business_case_group_id}",
+              "anzahl_betroffene_gueltig": "999",
+              "haeufigkeit_pro_jahr_gueltig": "5",
+              "anzahl_betroffene_vorschlag": "777",
+              "haeufigkeit_pro_jahr_vorschlag": "6"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{business_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{business_case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{business_step_id}",
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "3",
+                  "sachaufwand_vorschlag": "2"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-MIRROR-SYNC",
+            "model": "test-model",
+            "provider": "openai",
+            "norm_addressee": BUSINESS,
+        },
+    )
+    assert resp.status_code == 200
+
+    business_case_group = db.list_case_groups_for_session_and_addressee(
+        session_id,
+        BUSINESS,
+    )[0]
+    assert business_case_group["addressees_current"] == 50
+    assert business_case_group["annual_frequency_current"] == 1
+    assert business_case_group["addressees_proposed"] == 80
+    assert business_case_group["annual_frequency_proposed"] == 1
 
 
 def test_calculate_effort_rejects_legacy_keys(test_client, monkeypatch):

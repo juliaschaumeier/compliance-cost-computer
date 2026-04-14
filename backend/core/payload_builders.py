@@ -19,6 +19,7 @@ class VorgabePayload(_PromptPayloadModel):
     aenderungsstatus: str | None = None
     normadressaten: list[str] = Field(default_factory=list)
     ist_informationspflicht_wirtschaft: bool = False
+    spiegelsituation: dict[str, Any] | None = None
 
 
 class FallgruppePayload(_PromptPayloadModel):
@@ -93,6 +94,7 @@ def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
                 ist_informationspflicht_wirtschaft=bool(
                     row.get("is_business_information_obligation")
                 ),
+                spiegelsituation=_build_spiegelsituation_payload(row),
             ).model_dump()
         )
     return payload
@@ -120,9 +122,32 @@ def _serialize_process_regulations(
             ist_informationspflicht_wirtschaft=bool(
                 row.get("is_business_information_obligation")
             ),
+            spiegelsituation=_build_spiegelsituation_payload(row),
         )
         for row in regs_by_process.get(process_id, [])
     ]
+
+
+def _build_spiegelsituation_payload(row: dict) -> dict[str, Any] | None:
+    mirror_addressees = [
+        name
+        for name, enabled in (
+            (ADMINISTRATION, row.get("mirror_applies_to_administration")),
+            (BUSINESS, row.get("mirror_applies_to_business")),
+            (CITIZENS, row.get("mirror_applies_to_citizens")),
+        )
+        if enabled
+    ]
+    mirror_description = str(row.get("mirror_description") or "")
+    mirror_anchor_key = str(row.get("mirror_anchor_key") or "")
+    if not (mirror_addressees or mirror_description or mirror_anchor_key):
+        return None
+    return {
+        "liegt_vor": True,
+        "normadressaten": mirror_addressees,
+        "beschreibung": mirror_description,
+        "mirror_anchor_key": mirror_anchor_key,
+    }
 
 
 def build_case_groups_payload(

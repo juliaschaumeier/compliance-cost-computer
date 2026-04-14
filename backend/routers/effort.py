@@ -16,6 +16,8 @@ from backend.core.llm_attempts import (
 )
 from backend.core.llm_json import extract_fallgruppen, parse_json_object_with_mode
 from backend.core.llm_service import LlmResult, query_llm
+from backend.core.mirror_context import apply_deterministic_mirror_case_group_sync
+from backend.core.mirror_context import ensure_mirror_matching
 from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
@@ -512,6 +514,13 @@ async def calculate_effort(
         regulations=regulations,
     )
 
+    await ensure_mirror_matching(
+        session_id=session_id,
+        model=model,
+        provider=payload.provider,
+        api_keys=api_keys,
+    )
+
     cases_prompt = render_prompt(
         PromptId.CASES_CALCULATION,
         session_id=session_id,
@@ -591,6 +600,11 @@ async def calculate_effort(
             )
         if not parsed_cases:
             raise HTTPException(status_code=422, detail="No case group metrics parsed")
+        parsed_cases = apply_deterministic_mirror_case_group_sync(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            parsed_cases=parsed_cases,
+        )
         parsed_effort, effort_fallback_kinds = _parse_effort_payload(
             effort_result.text,
             norm_addressee,

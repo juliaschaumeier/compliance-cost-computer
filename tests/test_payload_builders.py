@@ -27,6 +27,7 @@ def test_build_vorgaben_payload_contract_keys():
             "aenderungsstatus": "geaendert",
             "normadressaten": [],
             "ist_informationspflicht_wirtschaft": False,
+            "spiegelsituation": None,
         }
     ]
     assert set(payload[0].keys()) == {
@@ -36,6 +37,7 @@ def test_build_vorgaben_payload_contract_keys():
         "aenderungsstatus",
         "normadressaten",
         "ist_informationspflicht_wirtschaft",
+        "spiegelsituation",
     }
 
 
@@ -75,6 +77,7 @@ def test_build_processes_payload_with_regulations_contract_keys():
         "aenderungsstatus",
         "normadressaten",
         "ist_informationspflicht_wirtschaft",
+        "spiegelsituation",
     }
 
 
@@ -126,6 +129,7 @@ def test_build_case_groups_payload_includes_vorgaben():
             "aenderungsstatus": "geaendert",
             "normadressaten": [],
             "ist_informationspflicht_wirtschaft": False,
+            "spiegelsituation": None,
         }
     ]
     assert set(process.keys()) == {
@@ -200,6 +204,7 @@ def test_build_step_analysis_payload_includes_vorgaben():
             "aenderungsstatus": "geaendert",
             "normadressaten": [],
             "ist_informationspflicht_wirtschaft": False,
+            "spiegelsituation": None,
         }
     ]
     assert set(process.keys()) == {
@@ -317,6 +322,7 @@ def test_build_vorgaben_payload_includes_norm_addressees_and_business_flag():
             "aenderungsstatus": "neu",
             "normadressaten": ["administration", "business"],
             "ist_informationspflicht_wirtschaft": True,
+            "spiegelsituation": None,
         }
     ]
 
@@ -354,6 +360,7 @@ def test_build_processes_payload_with_regulations_includes_norm_addressees_and_b
             "aenderungsstatus": "neu",
             "normadressaten": ["administration", "business"],
             "ist_informationspflicht_wirtschaft": True,
+            "spiegelsituation": None,
         }
     ]
 
@@ -404,6 +411,7 @@ def test_build_case_groups_payload_preserves_norm_addressees_and_business_flag()
             "aenderungsstatus": "neu",
             "normadressaten": ["administration", "citizens"],
             "ist_informationspflicht_wirtschaft": False,
+            "spiegelsituation": None,
         }
     ]
 
@@ -466,6 +474,46 @@ def test_build_step_analysis_payload_preserves_norm_addressees_and_business_flag
             "aenderungsstatus": "neu",
             "normadressaten": ["business", "citizens"],
             "ist_informationspflicht_wirtschaft": True,
+            "spiegelsituation": None,
+        }
+    ]
+
+
+def test_build_vorgaben_payload_includes_spiegelsituation():
+    regulations = [
+        {
+            "regulation_id": 41,
+            "process_id": 10,
+            "legal_citation": "§ 3",
+            "description": "Vorgabe C",
+            "change_status": "geaendert",
+            "applies_to_administration": 0,
+            "applies_to_business": 1,
+            "applies_to_citizens": 0,
+            "mirror_applies_to_administration": 1,
+            "mirror_applies_to_business": 0,
+            "mirror_applies_to_citizens": 0,
+            "mirror_description": "Korrespondierender Pruefaufwand",
+            "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+        }
+    ]
+
+    payload = build_vorgaben_payload(regulations)
+
+    assert payload == [
+        {
+            "vorgaben_id": 41,
+            "normzitat": "§ 3",
+            "beschreibung": "Vorgabe C",
+            "aenderungsstatus": "geaendert",
+            "normadressaten": ["business"],
+            "ist_informationspflicht_wirtschaft": False,
+            "spiegelsituation": {
+                "liegt_vor": True,
+                "normadressaten": ["administration"],
+                "beschreibung": "Korrespondierender Pruefaufwand",
+                "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+            },
         }
     ]
 
