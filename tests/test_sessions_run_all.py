@@ -1009,3 +1009,59 @@ def test_run_all_cancel_preserves_completed_steps_and_allows_restart(
     restart_run_id = restart_payload["run_id"]
     second_cancel = test_client.post(f"/sessions/run-all/{restart_run_id}/cancel")
     assert second_cancel.status_code == 200
+
+
+def test_run_all_successful_restart_clears_transient_status_fields(test_client, monkeypatch):
+    app_session_id = "RUNALL-RESTART-CLEARS-STATUS"
+    current_name = "current_restart_status.txt"
+    proposed_name = "proposed_restart_status.txt"
+    db.insert_law(current_name, "aktuelles gesetz")
+    db.insert_law(proposed_name, "neuer entwurf")
+    db.upsert_session(app_session_id, "test-model")
+    db.update_session_documents(app_session_id, current_name, proposed_name)
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    db.insert_regulation(
+        session_id,
+        "§ B",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+
+    async def failing_compile_processes(payload, *_args, **_kwargs):
+        if payload.norm_addressee == BUSINESS:
+            raise RuntimeError("No regulations mapped to process cluster")
+        return {"status": "skipped"}
+
+    monkeypatch.setattr(processes_router, "compile_processes", failing_compile_processes)
+
+    first_start = test_client.post(
+        "/sessions/run-all/start",
+        json={"app_session_id": app_session_id, "model": "test-model"},
+    )
+    assert first_start.status_code == 200
+    first_done = _wait_for_run_completion(test_client, first_start.json()["run_id"])
+    assert first_done["status"] == "failed"
+    assert first_done["last_error"] == "business: No regulations mapped to process cluster"
+
+    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
+
+    restart_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert restart_response.status_code == 200
+    restart_done = _wait_for_run_completion(test_client, restart_response.json()["run_id"])
+    assert restart_done["status"] == "completed"
+    assert restart_done["ok"] is True
+    assert restart_done["last_error"] is None
+    assert restart_done["current_step"] is None
+    assert restart_done["current_label"] is None
+    assert restart_done["current_norm_addressee"] is None
