@@ -782,6 +782,185 @@ def test_calculate_effort_syncs_exact_mirror_case_group_metrics_into_administrat
     assert admin_case_group["annual_frequency_proposed"] == 1
 
 
+def test_calculate_effort_syncs_exact_mirror_case_group_metrics_from_citizens_into_administration(
+    test_client, monkeypatch
+):
+    session_id, _ = db.upsert_session("EFFORT-MIRROR-SYNC-CITIZENS-ADMIN", "test-model")
+
+    admin_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 12 Abs. 1",
+        "Behoerde prueft eingereichten Antrag.",
+        applies_to_administration=True,
+        applies_to_business=False,
+        applies_to_citizens=False,
+        mirror_applies_to_citizens=True,
+        mirror_description="Spiegel zur Antragseinreichung durch Buergerinnen und Buerger.",
+        mirror_anchor_key="antrag-buerger-verwaltung",
+    )
+    citizens_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 12 Abs. 1",
+        "Buergerinnen und Buerger reichen einen Antrag ein.",
+        applies_to_administration=False,
+        applies_to_business=False,
+        applies_to_citizens=True,
+        mirror_applies_to_administration=True,
+        mirror_description="Spiegel zur Pruefung durch die Behoerde.",
+        mirror_anchor_key="antrag-buerger-verwaltung",
+    )
+
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Pruefung",
+        norm_addressee=ADMINISTRATION,
+    )
+    citizens_process_id = db.insert_process(
+        session_id,
+        "Buergerprozess",
+        "Antragstellung",
+        norm_addressee=CITIZENS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=admin_regulation_id,
+        process_id=admin_process_id,
+        norm_addressee=ADMINISTRATION,
+    )
+    assert db.update_regulation_process(
+        regulation_id=citizens_regulation_id,
+        process_id=citizens_process_id,
+        norm_addressee=CITIZENS,
+    )
+
+    admin_case_group_id = db.insert_case_group(
+        session_id,
+        admin_process_id,
+        "Verwaltungsfallgruppe",
+        "Bearbeitung eines Antrags",
+        norm_addressee=ADMINISTRATION,
+    )
+    citizens_case_group_id = db.insert_case_group(
+        session_id,
+        citizens_process_id,
+        "Buergerfallgruppe",
+        "Stellung eines Antrags",
+        norm_addressee=CITIZENS,
+    )
+    admin_step_id = db.insert_process_step(
+        session_id,
+        admin_case_group_id,
+        "Antrag pruefen",
+        "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=citizens_case_group_id,
+        norm_addressee=CITIZENS,
+        addressees_current=25,
+        annual_frequency_current=1,
+        addressees_proposed=40,
+        annual_frequency_proposed=1,
+    )
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{admin_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{admin_case_group_id}",
+              "anzahl_betroffene_gueltig": "999",
+              "haeufigkeit_pro_jahr_gueltig": "5",
+              "anzahl_betroffene_vorschlag": "777",
+              "haeufigkeit_pro_jahr_vorschlag": "6"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{admin_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{admin_case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{admin_step_id}",
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "3",
+                  "sachaufwand_vorschlag": "2"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(
+            cases_response,
+            effort_response,
+            mirror_response=f"""
+            {{
+              "analyses": [
+                {{
+                  "mirror_anchor_key": "antrag-buerger-verwaltung",
+                  "shared_situation": "Antragstellung und behoerdliche Bearbeitung.",
+                  "matches": [
+                    {{
+                      "source_norm_addressee": "citizens",
+                      "target_norm_addressee": "administration",
+                      "source_process_id": "{citizens_process_id}",
+                      "target_process_id": "{admin_process_id}",
+                      "source_case_group_id": "{citizens_case_group_id}",
+                      "target_case_group_id": "{admin_case_group_id}",
+                      "relation_type": "mirrored_case_group",
+                      "sync_addressees": true,
+                      "sync_frequency": true,
+                      "sync_cases": true,
+                      "reason": "Jeder Antrag fuehrt zu genau einer behoerdlichen Bearbeitung."
+                    }}
+                  ]
+                }}
+              ]
+            }}
+            """,
+        ),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-MIRROR-SYNC-CITIZENS-ADMIN",
+            "model": "test-model",
+            "provider": "openai",
+            "norm_addressee": ADMINISTRATION,
+        },
+    )
+    assert resp.status_code == 200
+
+    admin_case_group = db.list_case_groups_for_session_and_addressee(
+        session_id,
+        ADMINISTRATION,
+    )[0]
+    assert admin_case_group["addressees_current"] == 25
+    assert admin_case_group["annual_frequency_current"] == 1
+    assert admin_case_group["addressees_proposed"] == 40
+    assert admin_case_group["annual_frequency_proposed"] == 1
+
+
 def test_calculate_effort_rejects_legacy_keys(test_client, monkeypatch):
     """Rejects unsuffixed legacy keys in effort payloads."""
     session_id, _ = db.upsert_session("EFFORT-LEGACY", "test-model")
@@ -1343,7 +1522,7 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
     assert calls == {"cases": 1, "effort": 2}
 
 
-def test_calculate_effort_does_not_sync_mirror_cases_without_explicit_match(
+def test_calculate_effort_rejects_mirror_cases_without_explicit_match(
     test_client, monkeypatch
 ):
     session_id, _ = db.upsert_session("EFFORT-MIRROR-NO-IMPLICIT-SYNC", "test-model")
@@ -1483,13 +1662,8 @@ def test_calculate_effort_does_not_sync_mirror_cases_without_explicit_match(
             "norm_addressee": BUSINESS,
         },
     )
-    assert resp.status_code == 200
-
-    group = db.list_case_groups_for_session_and_addressee(session_id, BUSINESS)[0]
-    assert group["addressees_current"] == 999
-    assert group["annual_frequency_current"] == 5
-    assert group["addressees_proposed"] == 777
-    assert group["annual_frequency_proposed"] == 6
+    assert resp.status_code == 422
+    assert "Mirror matching required for selected norm addressee" in resp.json()["detail"]
 
 
 def test_calculate_effort_replaces_stale_mirror_matches_before_sync(
