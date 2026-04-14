@@ -68,13 +68,18 @@ async def ensure_mirror_matching(
         run_with_answer_apply_guard,
     )
 
-    existing = db.list_mirror_matches(session_id)
-    if existing:
-        return existing
-
     clusters = build_mirror_clusters_for_matching(session_id)
     if not clusters:
         return []
+    existing = db.list_mirror_matches(session_id)
+    if existing and _mirror_matches_are_current(
+        session_id=session_id,
+        matches=existing,
+        clusters=clusters,
+    ):
+        return existing
+    if existing:
+        db.delete_mirror_matches_for_session(session_id)
 
     prompt = render_prompt(
         PromptId.MIRROR_MATCHING,
@@ -277,9 +282,6 @@ def get_deterministic_mirror_case_group_metrics(
 ) -> dict[int, dict[str, Any]]:
     from backend.core import db
 
-    if norm_addressee == ADMINISTRATION:
-        return {}
-
     overrides: dict[int, dict[str, Any]] = {}
     matches = db.list_mirror_matches(session_id)
     for match in matches:
@@ -320,6 +322,81 @@ def get_deterministic_mirror_case_group_metrics(
         }
 
     return overrides
+
+
+def _mirror_matches_are_current(
+    *,
+    session_id: int,
+    matches: list[dict[str, Any]],
+    clusters: list[dict[str, Any]],
+) -> bool:
+    from backend.core import db
+
+    cluster_addressees: dict[str, set[str]] = {}
+    for cluster in clusters:
+        anchor_key = str(cluster.get("mirror_anchor_key") or "").strip()
+        norm_addressees = cluster.get("norm_addressees")
+        if not anchor_key or not isinstance(norm_addressees, dict):
+            continue
+        cluster_addressees[anchor_key] = {
+            str(addressee).strip()
+            for addressee in norm_addressees.keys()
+            if str(addressee).strip()
+        }
+
+    process_ids_by_addressee = {
+        addressee: {
+            int(row["process_id"])
+            for row in db.list_processes_for_session_and_addressee(session_id, addressee)
+        }
+        for addressee in ALL_NORM_ADDRESSEES
+    }
+    case_group_ids_by_addressee = {
+        addressee: {
+            int(row["case_group_id"])
+            for row in db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        }
+        for addressee in ALL_NORM_ADDRESSEES
+    }
+
+    for match in matches:
+        anchor_key = str(match.get("mirror_anchor_key") or "").strip()
+        source_addressee = str(match.get("source_norm_addressee") or "").strip()
+        target_addressee = str(match.get("target_norm_addressee") or "").strip()
+        if (
+            not anchor_key
+            or anchor_key not in cluster_addressees
+            or source_addressee not in cluster_addressees[anchor_key]
+            or target_addressee not in cluster_addressees[anchor_key]
+        ):
+            return False
+        source_process_id = match.get("source_process_id")
+        if (
+            source_process_id is not None
+            and int(source_process_id) not in process_ids_by_addressee.get(source_addressee, set())
+        ):
+            return False
+        target_process_id = match.get("target_process_id")
+        if (
+            target_process_id is not None
+            and int(target_process_id) not in process_ids_by_addressee.get(target_addressee, set())
+        ):
+            return False
+        source_case_group_id = match.get("source_case_group_id")
+        if (
+            source_case_group_id is not None
+            and int(source_case_group_id)
+            not in case_group_ids_by_addressee.get(source_addressee, set())
+        ):
+            return False
+        target_case_group_id = match.get("target_case_group_id")
+        if (
+            target_case_group_id is not None
+            and int(target_case_group_id)
+            not in case_group_ids_by_addressee.get(target_addressee, set())
+        ):
+            return False
+    return True
 
 
 def _build_related_addressee_context(

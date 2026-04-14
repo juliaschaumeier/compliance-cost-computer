@@ -602,6 +602,183 @@ def test_calculate_effort_syncs_exact_mirror_case_group_metrics(test_client, mon
     assert business_case_group["annual_frequency_proposed"] == 1
 
 
+def test_calculate_effort_syncs_exact_mirror_case_group_metrics_into_administration(
+    test_client, monkeypatch
+):
+    session_id, _ = db.upsert_session("EFFORT-MIRROR-SYNC-ADMIN", "test-model")
+
+    admin_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Verwaltungspruefung E-Sport",
+        applies_to_administration=True,
+        applies_to_business=False,
+        mirror_applies_to_business=True,
+        mirror_description="Spiegel zur Antragstellung der Koerperschaften.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+    business_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Koerperschaft stellt Gemeinnuetzigkeitsantrag fuer E-Sport.",
+        applies_to_administration=False,
+        applies_to_business=True,
+        mirror_applies_to_administration=True,
+        mirror_description="Spiegel zur Pruefung durch die Verwaltung.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Pruefung",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Antragstellung",
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=admin_regulation_id,
+        process_id=admin_process_id,
+        norm_addressee=ADMINISTRATION,
+    )
+    assert db.update_regulation_process(
+        regulation_id=business_regulation_id,
+        process_id=business_process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    admin_case_group_id = db.insert_case_group(
+        session_id,
+        admin_process_id,
+        "Verwaltungsfallgruppe",
+        "Bearbeitung eines Antrags",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_case_group_id = db.insert_case_group(
+        session_id,
+        business_process_id,
+        "Wirtschaftsfallgruppe",
+        "Stellung eines Antrags",
+        norm_addressee=BUSINESS,
+    )
+    admin_step_id = db.insert_process_step(
+        session_id,
+        admin_case_group_id,
+        "Antrag pruefen",
+        "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=business_case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_current=50,
+        annual_frequency_current=1,
+        addressees_proposed=80,
+        annual_frequency_proposed=1,
+    )
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{admin_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{admin_case_group_id}",
+              "anzahl_betroffene_gueltig": "999",
+              "haeufigkeit_pro_jahr_gueltig": "5",
+              "anzahl_betroffene_vorschlag": "777",
+              "haeufigkeit_pro_jahr_vorschlag": "6"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{admin_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{admin_case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{admin_step_id}",
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "3",
+                  "sachaufwand_vorschlag": "2"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(
+            cases_response,
+            effort_response,
+            mirror_response=f"""
+            {{
+              "analyses": [
+                {{
+                  "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+                  "shared_situation": "Gemeinnuetzigkeitspruefung fuer E-Sport.",
+                  "matches": [
+                    {{
+                      "source_norm_addressee": "business",
+                      "target_norm_addressee": "administration",
+                      "source_process_id": "{business_process_id}",
+                      "target_process_id": "{admin_process_id}",
+                      "source_case_group_id": "{business_case_group_id}",
+                      "target_case_group_id": "{admin_case_group_id}",
+                      "relation_type": "mirrored_case_group",
+                      "sync_addressees": true,
+                      "sync_frequency": true,
+                      "sync_cases": true,
+                      "reason": "Beide Fallgruppen beschreiben denselben Antragssachverhalt."
+                    }}
+                  ]
+                }}
+              ]
+            }}
+            """,
+        ),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-MIRROR-SYNC-ADMIN",
+            "model": "test-model",
+            "provider": "openai",
+            "norm_addressee": ADMINISTRATION,
+        },
+    )
+    assert resp.status_code == 200
+
+    admin_case_group = db.list_case_groups_for_session_and_addressee(
+        session_id,
+        ADMINISTRATION,
+    )[0]
+    assert admin_case_group["addressees_current"] == 50
+    assert admin_case_group["annual_frequency_current"] == 1
+    assert admin_case_group["addressees_proposed"] == 80
+    assert admin_case_group["annual_frequency_proposed"] == 1
+
+
 def test_calculate_effort_rejects_legacy_keys(test_client, monkeypatch):
     """Rejects unsuffixed legacy keys in effort payloads."""
     session_id, _ = db.upsert_session("EFFORT-LEGACY", "test-model")
@@ -1310,6 +1487,200 @@ def test_calculate_effort_does_not_sync_mirror_cases_without_explicit_match(
     assert group["annual_frequency_current"] == 5
     assert group["addressees_proposed"] == 777
     assert group["annual_frequency_proposed"] == 6
+
+
+def test_calculate_effort_replaces_stale_mirror_matches_before_sync(
+    test_client, monkeypatch
+):
+    session_id, _ = db.upsert_session("EFFORT-MIRROR-STALE", "test-model")
+
+    admin_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Verwaltungspruefung E-Sport",
+        applies_to_administration=True,
+        applies_to_business=False,
+        mirror_applies_to_business=True,
+        mirror_description="Spiegel zur Antragstellung der Koerperschaften.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+    business_regulation_id = db.insert_regulation(
+        session_id,
+        "§ 52 Abs. 2 Nr. 21 AO",
+        "Koerperschaft stellt Gemeinnuetzigkeitsantrag fuer E-Sport.",
+        applies_to_administration=False,
+        applies_to_business=True,
+        mirror_applies_to_administration=True,
+        mirror_description="Spiegel zur Pruefung durch die Verwaltung.",
+        mirror_anchor_key="gemeinnuetzigkeit-esport",
+    )
+
+    admin_process_id = db.insert_process(
+        session_id,
+        "Verwaltungsprozess",
+        "Pruefung",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Wirtschaftsprozess",
+        "Antragstellung",
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=admin_regulation_id,
+        process_id=admin_process_id,
+        norm_addressee=ADMINISTRATION,
+    )
+    assert db.update_regulation_process(
+        regulation_id=business_regulation_id,
+        process_id=business_process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    admin_case_group_id = db.insert_case_group(
+        session_id,
+        admin_process_id,
+        "Verwaltungsfallgruppe",
+        "Bearbeitung eines Antrags",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_case_group_id = db.insert_case_group(
+        session_id,
+        business_process_id,
+        "Wirtschaftsfallgruppe",
+        "Stellung eines Antrags",
+        norm_addressee=BUSINESS,
+    )
+    business_step_id = db.insert_process_step(
+        session_id,
+        business_case_group_id,
+        "Unterlagen einreichen",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=admin_case_group_id,
+        norm_addressee=ADMINISTRATION,
+        addressees_current=50,
+        annual_frequency_current=1,
+        addressees_proposed=80,
+        annual_frequency_proposed=1,
+    )
+    db.replace_mirror_matches(
+        session_id,
+        [
+            {
+                "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+                "shared_situation": "Veraltetes Match",
+                "source_norm_addressee": ADMINISTRATION,
+                "target_norm_addressee": BUSINESS,
+                "source_process_id": admin_process_id,
+                "target_process_id": business_process_id,
+                "source_case_group_id": 999999,
+                "target_case_group_id": business_case_group_id,
+                "relation_type": "mirrored_case_group",
+                "sync_addressees": True,
+                "sync_frequency": True,
+                "sync_cases": True,
+                "reason": "Veraltete Referenz.",
+            }
+        ],
+    )
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{business_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{business_case_group_id}",
+              "anzahl_betroffene_gueltig": "999",
+              "haeufigkeit_pro_jahr_gueltig": "5",
+              "anzahl_betroffene_vorschlag": "777",
+              "haeufigkeit_pro_jahr_vorschlag": "6"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "{business_process_id}",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{business_case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{business_step_id}",
+                  "stundenlohn_satz_a_vorschlag": "45",
+                  "zeitaufwand_in_min_a_vorschlag": "3",
+                  "sachaufwand_vorschlag": "2"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(
+            cases_response,
+            effort_response,
+            mirror_response=f"""
+            {{
+              "analyses": [
+                {{
+                  "mirror_anchor_key": "gemeinnuetzigkeit-esport",
+                  "shared_situation": "Gemeinnuetzigkeitspruefung fuer E-Sport.",
+                  "matches": [
+                    {{
+                      "source_norm_addressee": "administration",
+                      "target_norm_addressee": "business",
+                      "source_process_id": "{admin_process_id}",
+                      "target_process_id": "{business_process_id}",
+                      "source_case_group_id": "{admin_case_group_id}",
+                      "target_case_group_id": "{business_case_group_id}",
+                      "relation_type": "mirrored_case_group",
+                      "sync_addressees": true,
+                      "sync_frequency": true,
+                      "sync_cases": true,
+                      "reason": "Aktuelles Match."
+                    }}
+                  ]
+                }}
+              ]
+            }}
+            """,
+        ),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-MIRROR-STALE",
+            "model": "test-model",
+            "provider": "openai",
+            "norm_addressee": BUSINESS,
+        },
+    )
+    assert resp.status_code == 200
+
+    group = db.list_case_groups_for_session_and_addressee(session_id, BUSINESS)[0]
+    assert group["addressees_current"] == 50
+    assert group["annual_frequency_current"] == 1
+    assert group["addressees_proposed"] == 80
+    assert group["annual_frequency_proposed"] == 1
 
 
 def test_calculate_effort_rejects_missing_business_case_groups_when_regulations_exist(

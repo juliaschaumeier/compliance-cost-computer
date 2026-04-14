@@ -116,7 +116,9 @@ Vor der Fallzahl- und Aufwandsermittlung wird jetzt `ensure_mirror_matching(...)
 
 Das heisst:
 
-1. Falls bereits Matches existieren, werden sie wiederverwendet
+1. Falls bereits Matches existieren, werden sie nur dann wiederverwendet,
+   wenn Anchor, Normadressaten sowie referenzierte Prozesse/Fallgruppen noch
+   zur aktuellen Session-Struktur passen
 2. Falls nicht, wird der `MIRROR_MATCHING`-Prompt ausgefuehrt
 3. Das Ergebnis wird in `mirror_matches` persistiert
 
@@ -136,6 +138,7 @@ Logik:
 
 - Wenn fuer eine Ziel-Fallgruppe ein persistiertes Match mit `sync_cases = 1` vorliegt,
   werden die Fallzahl-Werte von der Quellseite uebernommen
+- das gilt jetzt symmetrisch auch dann, wenn `administration` die Zielseite ist
 - nur wenn kein persistiertes Match vorliegt, greift die konservative Fallback-Logik ueber eindeutige 1:1-Anker
 
 Damit werden klare Spiegel-Faelle nicht mehr auf beiden Seiten separat frei geschaetzt.
