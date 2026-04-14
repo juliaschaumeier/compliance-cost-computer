@@ -100,6 +100,7 @@ def _add_process_tiles(
         if law_tile:
             base_col = law_tile.column + 2
             base_row = law_tile.row
+    available_tile_ids = {tile.id for tile in tiles}
     row_spacing = 1
     created = []
     for idx, process in enumerate(processes):
@@ -143,7 +144,9 @@ def _add_process_tiles(
                         f"{regulation_id}"
                     ),
                 )
-            link_from_tile.append(f"regulation_{regulation_id}")
+            regulation_tile_id = f"regulation_{regulation_id}"
+            if regulation_tile_id in available_tile_ids:
+                link_from_tile.append(regulation_tile_id)
         tile = Tile(
             id=f"process_{process_id}",
             title=name,
