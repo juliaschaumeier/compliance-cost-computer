@@ -95,6 +95,22 @@ def _tiles_need_empty_state_rebuild(
     return not has_any_structure
 
 
+def _tiles_need_missing_structure_rebuild(
+    session: dict,
+    tiles: list[Tile],
+    *,
+    norm_addressee: str,
+) -> bool:
+    expected_tiles = build_session_tiles_snapshot(session, norm_addressee)
+    expected_ids = {tile.id for tile in expected_tiles}
+    current_ids = {tile.id for tile in tiles}
+    if expected_ids == current_ids:
+        return False
+    # Only rebuild when persisted domain structure implies that tiles should exist.
+    # This restores deleted derived tiles from the underlying DB state.
+    return expected_ids.issuperset(current_ids) and bool(expected_ids - current_ids)
+
+
 def _rebuild_tiles_for_session(
     session: dict,
     norm_addressee: str = ADMINISTRATION,
@@ -145,6 +161,10 @@ async def list_tiles(
     elif _tiles_need_structured_rebuild(tiles) or _tiles_need_empty_state_rebuild(
         tiles,
         session_id=session_id,
+        norm_addressee=resolved,
+    ) or _tiles_need_missing_structure_rebuild(
+        session,
+        tiles,
         norm_addressee=resolved,
     ):
         has_process_steps = bool(
