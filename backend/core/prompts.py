@@ -24,6 +24,16 @@ class PromptId:
     EFFORT_CALCULATION = "effort_calculation"
 
 
+PROMPTS_REQUIRING_NORM_ADDRESSEE = {
+    PromptId.PROCESS_COMPILATION,
+    PromptId.CASE_GROUP_DEVELOPMENT,
+    PromptId.MIRROR_MATCHING,
+    PromptId.PROCESS_STEP_ANALYSIS,
+    PromptId.CASES_CALCULATION,
+    PromptId.EFFORT_CALCULATION,
+}
+
+
 LEGIST_PROMPT_OPENING = (
     """
     Sie sind Legist im deutschen Bundestag und damit betraut, die 
@@ -1070,9 +1080,10 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     render_values.setdefault("mirror_step_context", "")
     render_values.setdefault("mirror_case_context", "")
     render_values.setdefault("mirror_clusters_json", "[]")
-    if "norm_addressee" not in render_values or render_values.get("norm_addressee") in (None, ""):
+    raw_norm_addressee = render_values.get("norm_addressee")
+    if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and raw_norm_addressee in (None, ""):
         raise KeyError("render_prompt requires explicit norm_addressee")
-    norm_addressee = str(render_values["norm_addressee"])
+    norm_addressee = str(raw_norm_addressee or ADMINISTRATION)
     render_values.setdefault(
         "handbook_process_example",
         _render_handbook_process_example(norm_addressee),

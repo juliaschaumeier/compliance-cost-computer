@@ -1,4 +1,5 @@
 from backend.core import db
+from backend.core.norm_addressees import ADMINISTRATION
 from backend.core.prompts import PromptId, render_prompt
 from backend.routers import regulations as regulations_router
 
