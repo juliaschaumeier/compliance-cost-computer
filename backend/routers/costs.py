@@ -384,7 +384,7 @@ def _build_total_tile_text(
         if total_expenses is not None:
             lines.append(f"Sachaufwand: {format_currency(total_expenses)}")
         return "\n".join(lines).strip()
-    return format_currency(total_cost or 0.0, annualized=True)
+    return format_currency(total_cost or 0.0)
 
 
 def _persist_step_costs(

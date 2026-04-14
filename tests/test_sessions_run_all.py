@@ -1031,6 +1031,8 @@ def test_run_all_successful_restart_clears_transient_status_fields(test_client, 
         applies_to_citizens=False,
     )
 
+    original_compile_processes = processes_router.compile_processes
+
     async def failing_compile_processes(payload, *_args, **_kwargs):
         if payload.norm_addressee == BUSINESS:
             raise RuntimeError("No regulations mapped to process cluster")
@@ -1047,6 +1049,7 @@ def test_run_all_successful_restart_clears_transient_status_fields(test_client, 
     assert first_done["status"] == "failed"
     assert first_done["last_error"] == "business: No regulations mapped to process cluster"
 
+    monkeypatch.setattr(processes_router, "compile_processes", original_compile_processes)
     _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
 
     restart_response = test_client.post(

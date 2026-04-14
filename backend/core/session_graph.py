@@ -334,7 +334,7 @@ def build_session_tiles_snapshot(
             Tile(
                 id="total_cost",
                 title="Jährliche Kosten",
-                text=db.format_currency(total_cost, annualized=True),
+                text=db.format_currency(total_cost),
                 meta_information=(
                     {"app_session_id": session["app_session_id"]}
                     if session.get("app_session_id")
