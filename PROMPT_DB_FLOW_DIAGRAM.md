@@ -24,7 +24,7 @@ flowchart TD
     E --> PS[(process_steps)]
     E --> PST[step_tiles]
 
-    R --> M[mirror_matching]
+    R --> M[mirror_matching<br/>via ensure_mirror_matching<br/>aus effort-Route]
     P --> M
     CG --> M
     M --> MM[(mirror_matches)]
@@ -36,7 +36,7 @@ flowchart TD
 
     PS --> G[effort_calculation<br/>pro Normadressat]
     CG --> G
-    MM --> G
+    MM -.gate.-> G
     G --> PS
 
     CG --> H[total_cost]
@@ -64,6 +64,7 @@ flowchart TD
     R --> MC
     P --> MC
     CG --> MC
+    PS --> MC
     MM --> MC
 
     MC --> C
@@ -77,6 +78,12 @@ flowchart TD
 - `law_summary` schreibt die Zusammenfassung in `sessions`
 - `regulations_identification` erzeugt `regulations`
 - ab `process_compilation` laufen die Schritte getrennt pro Normadressat
-- `mirror_matching` erzeugt persistierte `mirror_matches`
-- `cases_calculation` und `effort_calculation` lesen sowohl Fachstruktur als auch Spiegelkontext
+- `mirror_matching` ist kein eigener Workflow-Schritt, sondern wird implizit
+  aus der cases/effort-Route via `ensure_mirror_matching` getriggert und schreibt
+  persistierte `mirror_matches`
+- `cases_calculation` liest Mirror-Kontext und kann Fallzahlen deterministisch
+  aus `mirror_matches` synchronisieren (`sync_cases = 1`)
+- `effort_calculation` erhält **keinen** `mirror_*_context` im Prompt; Mirror
+  wirkt hier nur als Precondition/Gate (422 wenn erforderlich und fehlend) und
+  liest `process_steps` + `case_groups`
 - `total_cost` ist rein deterministisch und nutzt die bereits gespeicherten Werte

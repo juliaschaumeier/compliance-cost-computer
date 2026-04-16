@@ -97,8 +97,8 @@
 
   <rect x="70" y="820" width="250" height="74" class="box prompt" />
   <text x="195" y="847" text-anchor="middle" class="label">mirror_matching</text>
-  <text x="195" y="868" text-anchor="middle" class="small">ein expliziter Spiegel-Abgleich</text>
-  <text x="195" y="886" text-anchor="middle" class="small">zwischen Normadressaten</text>
+  <text x="195" y="868" text-anchor="middle" class="small">implizit via ensure_mirror_matching</text>
+  <text x="195" y="886" text-anchor="middle" class="small">aus effort-Route (kein UI-Schritt)</text>
 
   <rect x="410" y="820" width="260" height="74" class="box db" />
   <text x="540" y="847" text-anchor="middle" class="label">mirror_matches</text>
@@ -112,8 +112,8 @@
 
   <rect x="410" y="952" width="260" height="74" class="box prompt" />
   <text x="540" y="979" text-anchor="middle" class="label">effort_calculation</text>
-  <text x="540" y="1000" text-anchor="middle" class="small">pro Normadressat</text>
-  <text x="540" y="1018" text-anchor="middle" class="small">liest Match + Prozessschritte</text>
+  <text x="540" y="1000" text-anchor="middle" class="small">pro Normadressat (Match nur als Gate)</text>
+  <text x="540" y="1018" text-anchor="middle" class="small">liest Prozessschritte + Fallgruppen</text>
 
   <rect x="760" y="944" width="190" height="82" class="box db" />
   <text x="855" y="973" text-anchor="middle" class="label">Kostenbasis</text>
@@ -136,11 +136,13 @@
   <text x="1330" y="370" text-anchor="middle" class="small">Verwaltung / Wirtschaft / Buerger</text>
   <text x="1330" y="389" text-anchor="middle" class="small">werden beim Rendern automatisch angehaengt</text>
 
-  <rect x="1150" y="468" width="360" height="120" class="box ctx" />
+  <rect x="1150" y="468" width="360" height="138" class="box ctx" />
   <text x="1330" y="495" text-anchor="middle" class="label">mirror_context</text>
   <text x="1330" y="516" text-anchor="middle" class="small">liest regulations, processes, case_groups,</text>
-  <text x="1330" y="535" text-anchor="middle" class="small">mirror_matches und baut strukturierten</text>
-  <text x="1330" y="554" text-anchor="middle" class="small">Spiegelkontext fuer Folgeprompts auf</text>
+  <text x="1330" y="535" text-anchor="middle" class="small">process_steps, mirror_matches und baut</text>
+  <text x="1330" y="554" text-anchor="middle" class="small">strukturierten Spiegelkontext fuer</text>
+  <text x="1330" y="573" text-anchor="middle" class="small">process/case_group/step/cases-Prompts auf</text>
+  <text x="1330" y="592" text-anchor="middle" class="small">(nicht fuer effort_calculation)</text>
 
   <rect x="1110" y="724" width="450" height="408" class="group" />
   <text x="1132" y="754" class="group-title">Kernaussage</text>
@@ -189,5 +191,4 @@
   <path d="M1510 366 C 1540 366, 1540 591, 950 591" class="arrow" />
   <path d="M1510 528 C 1540 528, 1540 725, 950 725" class="arrow" />
   <path d="M1510 528 C 1540 528, 1540 989, 320 989" class="arrow" />
-  <path d="M1510 528 C 1540 528, 1540 989, 540 989" class="arrow" />
 </svg>
