@@ -17,7 +17,6 @@ Nur eine Unter-Suite:
 python -m pytest tests_review/invariants/ -v
 python -m pytest tests_review/regressions/ -v
 python -m pytest tests_review/contracts/ -v
-python -m pytest tests_review/mirror/ -v
 ```
 
 ## Struktur
@@ -27,7 +26,6 @@ python -m pytest tests_review/mirror/ -v
 - `regressions/` — Ein Test pro Befund aus `tmp/CODE_REVIEW_2026-04-14.md`.
   Test-Name referenziert Block und Befundnummer.
 - `contracts/` — JSON-Schema- und Parser-Verträge zwischen LLM und Backend.
-- `mirror/` — Spiegel-Suite gemäß Schicht 4 der Test-Strategie.
 
 ## Begleitdokumente
 

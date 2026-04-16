@@ -78,15 +78,6 @@ def build_session_tiles_snapshot(
     regulations = db.list_regulations_for_session_and_addressee(session_id, resolved)
     for idx, regulation in enumerate(regulations):
         regulation_id = int(regulation["regulation_id"])
-        mirror_normadressaten = [
-            addressee
-            for addressee, enabled in (
-                (ADMINISTRATION, regulation.get("mirror_applies_to_administration")),
-                ("business", regulation.get("mirror_applies_to_business")),
-                ("citizens", regulation.get("mirror_applies_to_citizens")),
-            )
-            if enabled
-        ]
         tiles.append(
             Tile(
                 id=f"regulation_{regulation_id}",
@@ -104,9 +95,6 @@ def build_session_tiles_snapshot(
                         )
                         if enabled
                     ],
-                    "mirror_normadressaten": mirror_normadressaten,
-                    "mirror_description": regulation.get("mirror_description") or "",
-                    "mirror_anchor_key": regulation.get("mirror_anchor_key") or "",
                 },
                 column=1,
                 row=idx,

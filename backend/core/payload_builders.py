@@ -19,7 +19,6 @@ class VorgabePayload(_PromptPayloadModel):
     aenderungsstatus: str | None = None
     normadressaten: list[str] = Field(default_factory=list)
     ist_informationspflicht_wirtschaft: bool = False
-    spiegelsituation: dict[str, Any] | None = None
 
 
 class FallgruppePayload(_PromptPayloadModel):
@@ -27,7 +26,6 @@ class FallgruppePayload(_PromptPayloadModel):
     fallgruppe_bezeichnung: str
     fallgruppe_beschreibung: str
     aenderungsstatus: str | None = None
-    spiegelsituationen: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class TaetigkeitPayload(_PromptPayloadModel):
@@ -96,7 +94,6 @@ def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
                 ist_informationspflicht_wirtschaft=bool(
                     row.get("is_business_information_obligation")
                 ),
-                spiegelsituation=_build_spiegelsituation_payload(row),
             ).model_dump()
         )
     return payload
@@ -124,50 +121,9 @@ def _serialize_process_regulations(
             ist_informationspflicht_wirtschaft=bool(
                 row.get("is_business_information_obligation")
             ),
-            spiegelsituation=_build_spiegelsituation_payload(row),
         )
         for row in regs_by_process.get(process_id, [])
     ]
-
-
-def _build_spiegelsituation_payload(row: dict) -> dict[str, Any] | None:
-    mirror_addressees = [
-        name
-        for name, enabled in (
-            (ADMINISTRATION, row.get("mirror_applies_to_administration")),
-            (BUSINESS, row.get("mirror_applies_to_business")),
-            (CITIZENS, row.get("mirror_applies_to_citizens")),
-        )
-        if enabled
-    ]
-    mirror_description = str(row.get("mirror_description") or "")
-    mirror_anchor_key = str(row.get("mirror_anchor_key") or "")
-    if not (mirror_addressees or mirror_description or mirror_anchor_key):
-        return None
-    return {
-        "liegt_vor": True,
-        "normadressaten": mirror_addressees,
-        "beschreibung": mirror_description,
-        "mirror_anchor_key": mirror_anchor_key,
-    }
-
-
-def _build_process_spiegelsituationen(
-    regs_by_process: dict[int, list[dict]],
-    process_id: int,
-) -> list[dict[str, Any]]:
-    situations: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for row in regs_by_process.get(process_id, []):
-        payload = _build_spiegelsituation_payload(row)
-        if payload is None:
-            continue
-        dedupe_key = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-        situations.append(payload)
-    return situations
 
 
 def build_case_groups_payload(
@@ -184,7 +140,6 @@ def build_case_groups_payload(
             fallgruppe_bezeichnung=str(group.get("case_group") or ""),
             fallgruppe_beschreibung=str(group.get("description") or ""),
             aenderungsstatus=group.get("change_status"),
-            spiegelsituationen=_build_process_spiegelsituationen(regs_by_process, process_id),
         )
         groups_by_process.setdefault(process_id, []).append(group_payload)
 
@@ -286,9 +241,6 @@ def build_step_analysis_payload(
                     fallgruppe_bezeichnung=str(group.get("case_group") or ""),
                     fallgruppe_beschreibung=str(group.get("description") or ""),
                     aenderungsstatus=group.get("change_status"),
-                    spiegelsituationen=_build_process_spiegelsituationen(
-                        regs_by_process, process_id
-                    ),
                     taetigkeiten=taetigkeiten,
                 )
             )

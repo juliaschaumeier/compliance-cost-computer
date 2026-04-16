@@ -9,7 +9,6 @@ from backend.core.handbook_examples import (
     PROCESS_COMPILATION_EXAMPLE,
 )
 from backend.core.handbook_tables import Appendix
-from backend.core.mirror_context import render_mirror_prompt_context
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
 
@@ -18,7 +17,6 @@ class PromptId:
     REGULATIONS_IDENTIFICATION = "regulations_identification"
     PROCESS_COMPILATION = "process_compilation"
     CASE_GROUP_DEVELOPMENT = "case_group_development"
-    MIRROR_MATCHING = "mirror_matching"
     PROCESS_STEP_ANALYSIS = "process_step_analysis"
     CASES_CALCULATION = "cases_calculation"
     EFFORT_CALCULATION = "effort_calculation"
@@ -27,7 +25,6 @@ class PromptId:
 PROMPTS_REQUIRING_NORM_ADDRESSEE = {
     PromptId.PROCESS_COMPILATION,
     PromptId.CASE_GROUP_DEVELOPMENT,
-    PromptId.MIRROR_MATCHING,
     PromptId.PROCESS_STEP_ANALYSIS,
     PromptId.CASES_CALCULATION,
     PromptId.EFFORT_CALCULATION,
@@ -70,12 +67,11 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
 
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Verwaltung.
         Uebernehmen Sie keine wirtschaftlichen oder buergerbezogenen Prozesse,
-        Fallgruppen, Taetigkeiten, Fallzahlen oder Werte, sofern diese nicht
-        ausdruecklich als Spiegelwirkung der Verwaltung zuzurechnen sind. Vermeiden
-        Sie zugleich, aus Vorsicht ganze Vollzugsstraenge wegzulassen: wenn eine
-        Regelung die Verwaltung zur Pruefung, Bescheidung oder Aufsicht verpflichtet,
-        ist dieser Vollzugsaufwand auszuweisen, auch wenn er aus einem wirtschafts-
-        oder buergerseitigen Antrag ausgeloest wird.
+        Fallgruppen, Taetigkeiten, Fallzahlen oder Werte. Vermeiden Sie zugleich,
+        aus Vorsicht ganze Vollzugsstraenge wegzulassen: wenn eine Regelung die
+        Verwaltung zur Pruefung, Bescheidung oder Aufsicht verpflichtet, ist dieser
+        Vollzugsaufwand auszuweisen, auch wenn er aus einem wirtschafts- oder
+        buergerseitigen Antrag ausgeloest wird.
         """
     ),
     BUSINESS: (
@@ -85,11 +81,9 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Wirtschaft.
         Analysieren Sie nur wirtschaftsbezogene Prozesse, Fallgruppen, Taetigkeiten,
         Fallzahlen und Werte. Uebernehmen Sie keine Verwaltungslogik, Verwaltungswerte
-        oder buergerbezogenen Inhalte, sofern diese nicht ausdruecklich als Spiegelwirkung
-        oder wirtschaftsrelevante Folge der Vorgabe begruendet sind. Informationspflichten
-        der Wirtschaft, Spiegelsituationen, interne Umstellungen, externe Dienstleistungen
-        sowie wirtschaftsspezifische Pruef-, Melde-, Nachweis- und Dokumentationspflichten
-        sind mitzudenken.
+        oder buergerbezogenen Inhalte. Informationspflichten der Wirtschaft, interne
+        Umstellungen, externe Dienstleistungen sowie wirtschaftsspezifische Pruef-,
+        Melde-, Nachweis- und Dokumentationspflichten sind mitzudenken.
         """
     ),
     CITIZENS: (
@@ -98,9 +92,8 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
 
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand von Buergerinnen und
         Buergern. Analysieren Sie nur buergerbezogene Prozesse, Fallgruppen, Taetigkeiten,
-        Fallzahlen und Werte. Uebernehmen Sie keine Verwaltungs- oder Unternehmenslogik,
-        sofern diese nicht ausdruecklich als Spiegelwirkung oder unmittelbare Folge fuer
-        Buergerinnen und Buerger begruendet sind. Fuer Buergerinnen und Buerger stehen
+        Fallzahlen und Werte. Uebernehmen Sie keine Verwaltungs- oder Unternehmenslogik.
+        Fuer Buergerinnen und Buerger stehen
         Zeitaufwand und privater Sachaufwand im Vordergrund; eine generelle Monetarisierung
         des Zeitaufwands findet nicht statt. Achten Sie besonders auf alltagsnahe
         Pflichterfuellung, persoenliches Erscheinen, Beschaffung von Nachweisen oder Material,
@@ -142,8 +135,7 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "gehoeren in denselben Prozess; fachlich klar getrennte Verfahren "
         "bleiben getrennt. Fuehren Sie Vollzugsaufwand auch dann aus, wenn er "
         "durch einen Antrag der Wirtschaft oder der Buergerinnen/Buerger "
-        "ausgeloest wird - die Verwaltungstaetigkeit ist ein eigener Prozess "
-        "auf der Spiegelseite. Erfinden Sie keine Verwaltungsprozesse, zu "
+        "ausgeloest wird. Erfinden Sie keine Verwaltungsprozesse, zu "
         "denen die Regelung keinen konkreten Vollzugsauftrag enthaelt."
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
@@ -168,10 +160,7 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "`abgeschafft` nur bei wegfallenden, `geaendert` nur dann, wenn sich "
         "Bearbeitungsaufwand oder Fallzahl der Fallgruppe durch die Regelung "
         "tatsaechlich aendert. Unveraenderte Nebenfallgruppen sind nicht "
-        "auszuweisen. Bei Spiegelsituationen zur Wirtschaft oder zu "
-        "Buergerinnen/Buergern muss die Zahl der Verwaltungs-Fallgruppen nicht "
-        "1:1 zur Gegenseite passen, aber jeder Kernfall einer Verwaltungs-"
-        "Fallgruppe muss auf der Spiegelseite auffindbar sein."
+        "auszuweisen."
     ),
     PromptId.CASES_CALCULATION: (
         "Zusatz fuer die Verwaltung bei der Fallzahlermittlung: "
@@ -183,11 +172,7 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "pro Jahr pro Fall (z.B. periodische Kontrollen). Setzen Sie niemals "
         "`anzahl_betroffene = 0`, wenn es eine zugeordnete Fallgruppe mit "
         "Bearbeitungsaufwand gibt - ohne Faelle waere die Fallgruppe nicht zu "
-        "bilden. Wenn eine Spiegelsituation zu Wirtschaft oder Buergerinnen/"
-        "Buergern besteht (z.B. 500 Antraege werden gestellt und von der "
-        "Verwaltung bearbeitet), uebernehmen Sie dieselbe Fallzahl "
-        "deterministisch; die Anzahl der Antragsteller und die Anzahl der zu "
-        "bearbeitenden Vorgaenge sind dann identisch. Liegen keine konkreten "
+        "bilden. Liegen keine konkreten "
         "Zahlen vor, schaetzen Sie sachgerecht basierend auf dem "
         "Normzitat/Regelungsgegenstand und typischen Vollzugsmengen der "
         "zustaendigen Behoerde; geben Sie niemals Platzhalter-Nullen aus."
@@ -496,15 +481,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Bestimmen Sie fuer jede Vorgabe ausserdem:
         * welche Normadressaten betroffen sind: administration, business, citizens,
-        * ob es sich um eine Informationspflicht der Wirtschaft handelt,
-        * ob eine Spiegelsituation vorliegt, also ob die Befolgung der Vorgabe unmittelbar Aufwand bei einem anderen Normadressaten ausloest,
-        * und falls ja, fuer welche weiteren Normadressaten diese Spiegelwirkung auftritt.
-
-        Wenn eine Spiegelsituation vorliegt, vergeben Sie zusaetzlich einen kurzen,
-        stabilen `mirror_anchor_key`, der den gemeinsamen zugrunde liegenden
-        Lebenssachverhalt beschreibt. Verwenden Sie dafuer eine kurze,
-        kleingeschriebene, bindestrichgetrennte Kennung, zum Beispiel
-        `antrag-gemeinnuetzigkeit` oder `nachweis-vorlage`.
+        * ob es sich um eine Informationspflicht der Wirtschaft handelt.
 
         Zum Normadressaten Verwaltung zählen alle mit der Wahrnehmung von Verwaltungsaufgaben betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen 
         des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen hoheitlichen Kompetenzen). Soweit Körperschaften/Anstalten des 
@@ -547,7 +524,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Bescheidung und Rechtsbehelfsverfahren, Auszahlungs- oder Foerderverfahren sowie einmalige interne Umstellungen (IT, Formulare,
         Schulung). Wenn die Erfuellung einer Vorgabe durch Wirtschaft oder Buergerinnen/Buerger praktisch nur moeglich ist, weil die
         Verwaltung etwas pruefen, bescheiden, registrieren, kontrollieren oder auszahlen muss, ist `administration` zusaetzlich als
-        betroffener Normadressat auszuweisen und die Vorgabe als Spiegelsituation zu kennzeichnen. Ein bloss mittelbarer Mehraufwand ohne
+        betroffener Normadressat auszuweisen. Ein bloss mittelbarer Mehraufwand ohne
         konkreten Vollzugsauftrag ist hingegen nicht der Verwaltung zuzuordnen – erfinden Sie keine Verwaltungsvorgaben, wo keine sind.
 
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
@@ -559,13 +536,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
               "beschreibung": "",
               "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft",
               "normadressaten": ["administration | business | citizens"],
-              "ist_informationspflicht_wirtschaft": "0 | 1",
-              "spiegelsituation": {{
-                "liegt_vor": "0 | 1",
-                "normadressaten": ["administration | business | citizens"],
-                "beschreibung": "",
-                "mirror_anchor_key": ""
-              }}
+              "ist_informationspflicht_wirtschaft": "0 | 1"
             }}
           ]
         }}
@@ -581,21 +552,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         LEGIST_PROMPT_OPENING
         + """
         Die Gesetzesänderung führt zu folgenden Einzelvorgaben für den betroffenen Normadressaten: {vorgaben_json}
-        {mirror_process_context}
 
-        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, zu gemeinsamen 
+        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, zu gemeinsamen
         Prozessen zu bündeln. Soweit eine Bündelung von Vorgaben in Prozesse nicht möglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
         einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschließlich aus einer Vorgabe. Geben Sie außerdem den Status an, 
         also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung des Prozesses handelt. Orientieren Sie sich dazu an den 
         Statusangaben der Vorgaben.
-
-        Wenn Vorgaben als Spiegelsituation gekennzeichnet sind, beziehen sie sich auf denselben zugrunde liegenden Lebenssachverhalt wie beim anderen
-        Normadressaten. Bilden Sie solche Vorgaben daher nicht als fachlich losgelöste Sonderprozesse, sondern strukturieren Sie sie so, dass die
-        Spiegelbeziehung nachvollziehbar bleibt. Unterschiede zwischen Normadressaten sollen sich aus der jeweiligen Perspektive und den jeweiligen
-        Tätigkeiten ergeben, nicht aus einer widersprüchlichen Beschreibung des zugrunde liegenden Fallgeschehens.
-
-        Wenn zusaetzlicher strukturierter Spiegelkontext mit bereits bekannten Zuordnungen oder Gegenstrukturen vorliegt, behandeln Sie diesen als
-        verbindlichen fachlichen Konsistenzrahmen. Passen Sie Ihre Prozessbildung daran an, statt parallele konkurrierende Spiegelstrukturen zu erzeugen.
 
         Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess. Wenn der zugrunde liegende Rechtsrahmen
         unterschiedlich ist, muessen getrennte Prozesse ausgewiesen werden, auch wenn die praktische Bearbeitung aehnlich erscheint. Die spaetere
@@ -654,21 +616,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         LEGIST_PROMPT_OPENING
         + """
         Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten: {prozesse_json}
-        {mirror_case_group_context}
 
-        Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfüllt, sind dafür sogenannte Fallgruppen zu bilden. 
-        Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Für jede Fallgruppe ist der Erfüllungsaufwand separat zu 
-        ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmöglichkeiten genutzt werden 
-        oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie außerdem den Status an, also ob es sich um entweder eine Einführung, 
+        Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfüllt, sind dafür sogenannte Fallgruppen zu bilden.
+        Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Für jede Fallgruppe ist der Erfüllungsaufwand separat zu
+        ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmöglichkeiten genutzt werden
+        oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie außerdem den Status an, also ob es sich um entweder eine Einführung,
         eine Änderung, oder eine Streichung/Löschung der Fallgruppe handelt.
-
-        Bei Spiegelsituationen ist auf strukturelle Konsistenz mit dem anderen Normadressaten zu achten: Wenn auf beiden Seiten derselbe zugrunde liegende
-        Fall betrachtet wird, sollen die Fallgruppen logisch zueinander passen. Unterschiede sind nur dort auszuweisen, wo sie sich aus unterschiedlichen
-        Verfahrenswegen, unterschiedlichen Betroffenheiten oder unterschiedlichen Rollen des jeweiligen Normadressaten ergeben. Erfinden Sie keine
-        voneinander losgeloesten Fallgruppen fuer denselben Spiegel-Sachverhalt.
-
-        Wenn strukturierter Spiegelkontext mit bereits bekannten Gegenstrukturen oder Matches vorliegt, nutzen Sie diesen als bindenden Abgleichsrahmen.
-        Erfinden Sie keine abweichenden Fallgruppen, wenn der gemeinsame Spiegel-Sachverhalt dort bereits hinreichend konkretisiert ist.
 
         Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
@@ -738,81 +691,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
         """
     ),
-    PromptId.MIRROR_MATCHING: (
-        LEGIST_PROMPT_OPENING
-        + """
-        Fuer die folgende Gesetzesaenderung liegen bereits Prozesse und Fallgruppen
-        mehrerer Normadressaten vor, die ueber Spiegelsituationen miteinander
-        verknuepft sein koennen: {mirror_clusters_json}
-
-        Ihre Aufgabe ist zweistufig:
-        1. Analysieren Sie pro Spiegelanker zuerst den gemeinsamen realen Sachverhalt.
-        2. Ordnen Sie danach nur bereits vorhandene Strukturen ueber diesen
-           gemeinsamen Sachverhalt hinweg zu.
-
-        Ihre Aufgabe ist nicht, neue Prozesse oder Fallgruppen zu erzeugen.
-        Formulieren Sie fuer jeden Spiegelanker zuerst kurz die
-        `shared_situation`. Diese beschreibt in einem Satz, was der gemeinsame
-        reale Kernfall ueber alle Normadressaten hinweg ist.
-
-        Ordnen Sie anschliessend nur solche Fallgruppen einander zu, die diesen
-        gemeinsamen Kernfall beschreiben. Unterschiede in Perspektive und
-        Benennung sind zulaessig. Unzulaessig ist eine Zuordnung, wenn die
-        Fallgruppen fachlich verschiedene Sachverhalte betreffen.
-
-        Entscheiden Sie fuer jede Zuordnung ausserdem gesondert:
-        - ob die Zahl der Betroffenen synchronisiert werden soll
-        - ob die Haeufigkeit synchronisiert werden soll
-        - ob die gesamte Fallzahl direkt synchronisiert werden soll
-
-        Verwenden Sie diese Felder streng fachlich:
-        - `sync_addressees = 1`, wenn dieselbe Menge Betroffener auf beiden Seiten zugrunde liegt
-        - `sync_frequency = 1`, wenn dieselbe Haeufigkeit pro Jahr zugrunde liegt
-        - `sync_cases = 1`, wenn die resultierende Fallzahl als Ganzes direkt uebernommen werden soll
-
-        Beziehen Sie bei der Analyse alle vorliegenden Informationen gemeinsam
-        ein: Vorgaben, Spiegelbeschreibung, Prozessbeschreibungen,
-        Fallgruppenbeschreibungen und eventuell bereits bekannte Fallzahlen.
-
-        Geben Sie nur solche Zuordnungen aus, die fachlich belastbar sind. Wenn
-        keine verlaessliche Zuordnung moeglich ist, lassen Sie die betreffende
-        Fallgruppe ungemappt.
-
-        Verwenden Sie fuer `relation_type` nur:
-        - `one_to_one`
-        - `one_to_many`
-        - `many_to_one`
-        - `loosely_coupled`
-
-        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
-
-        {{
-          "analyses": [
-            {{
-              "mirror_anchor_key": "",
-              "shared_situation": "",
-              "matches": [
-                {{
-                  "source_norm_addressee": "administration | business | citizens",
-                  "target_norm_addressee": "administration | business | citizens",
-                  "source_process_id": "",
-                  "target_process_id": "",
-                  "source_case_group_id": "",
-                  "target_case_group_id": "",
-                  "relation_type": "one_to_one | one_to_many | many_to_one | loosely_coupled",
-                  "sync_addressees": "0 | 1",
-                  "sync_frequency": "0 | 1",
-                  "sync_cases": "0 | 1",
-                  "reason": ""
-                }}
-              ]
-            }}
-          ]
-        }}
-
-        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
-        """
-    ),
     # TODO: ausfuehrung_pro_einzelfall bereits hier abfragen und nicht erst in effort_calculation??
     # Input contract:
     # - gesetz_gueltig: str
@@ -823,24 +701,16 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         Die Gesetzesänderung führt zu folgenden, positiven oder negativen Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende 
         Fallgruppen differenziert werden: {case_groups_json}
-        {mirror_step_context}
 
-        Ihre Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten zur Erfüllung eines Prozesses pro Fallgruppe 
+        Ihre Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten zur Erfüllung eines Prozesses pro Fallgruppe
         zu identifizieren. Auf dieser Grundlage werden später der anfallende Personal- und ggf. Sachaufwand bestimmt. Die einzelnen Tätigkeiten können vor und nach
-        der Gesetzesänderung unterschiedlich sein, hinzukommen oder wegfallen, einige Tätigkeiten des Prozess können beibehalten bleiben. Geben Sie diesen 
+        der Gesetzesänderung unterschiedlich sein, hinzukommen oder wegfallen, einige Tätigkeiten des Prozess können beibehalten bleiben. Geben Sie diesen
         Änderungsstatus an, orientieren Sie sich dabei wenn nötig an den vorhandenen Statusangaben in den Fallgruppen und Prozessen.
 
         Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche
         Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte
         Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu,
         wenn sich tatsaechlich nur einzelne Schritte aendern.
-
-        Bei Spiegelsituationen sollen die Prozessschritte die Perspektive des betroffenen Normadressaten abbilden, aber dennoch denselben zugrunde liegenden
-        Fall erkennbar spiegeln. Das bedeutet: unterschiedliche Schritte sind zulaessig, wenn sie sich aus der Rolle des Normadressaten ergeben; unzulaessig
-        ist jedoch eine voellig andere, nicht mehr wiedererkennbare Struktur fuer denselben Spiegel-Sachverhalt.
-
-        Wenn bereits strukturierte Spiegel-Matches oder Gegenstrukturen vorliegen, behandeln Sie diese als verbindliche Orientierung fuer die Zuordnung der
-        Taetigkeiten zu demselben gemeinsamen Fall. Erfinden Sie keine fachlich abweichende Schrittlogik fuer bereits gematchte Spiegel-Fallgruppen.
 
         Ordnen Sie jede Taetigkeit denjenigen Vorgaben des Prozesses zu, die diese Taetigkeit fachlich ausloesen. Geben Sie dazu je Taetigkeit das Feld
         `vorgaben_ids` als Liste der passenden `vorgaben_id`-Werte an. Wenn im Prozess nur genau eine Vorgabe enthalten ist, soll diese eine `vorgaben_id`
@@ -994,7 +864,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende Fallgruppen 
         differenziert werden: {case_groups_json}
-        {mirror_case_context}
 
         Ihre Aufgabe ist es, die Änderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Häufigkeit und die Anzahl der Betroffenen 
         vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesänderung betrachtet. Bei der Einführung einer Fallgruppe werden typischerweise nur die 
@@ -1012,14 +881,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Identische Werte fuer _gueltig und _vorschlag sind nur dann plausibel, wenn weder Betroffenenkreis noch Haeufigkeit durch die Aenderung
         beruehrt werden und auch kein indirekter Verhaltens- oder Nachfrageeffekt zu erwarten ist. Umgekehrt duerfen Sie Fallzahlen nicht ohne sachlichen
         Grund kuenstlich angleichen, nur weil sich primaer der Aufwand pro Fall aendert.
-
-        Bei Spiegelsituationen gilt: Wenn aus einem anderen Normadressaten bereits spiegelnde Fallzahlen vorliegen und der zugrunde liegende Sachverhalt
-        logisch 1:1 gekoppelt ist, sind dieselben Mengen zu übernehmen statt sie erneut unabhängig zu schätzen. Beispiel: Wenn 500 neue Vereine gegründet
-        werden und deshalb 500 Anträge bei der Verwaltung zu bearbeiten sind, muss dieselbe Fallzahl auf beiden Seiten zugrunde gelegt werden; unterschiedlich
-        sind dann nur die Tätigkeiten und Kosten, nicht die Zahl der Fälle.
-
-        Wenn strukturierte Spiegel-Matches mit `sync_cases = 1`, `sync_addressees = 1` oder `sync_frequency = 1` vorliegen, befolgen Sie diese Vorgaben
-        vorrangig. Solche Matches sind als autoritative Synchronisierungshinweise zu behandeln und nicht erneut frei zu ueberschreiben.
 
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_cases_frequency_example}
@@ -1186,11 +1047,6 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         if not name.startswith("_") and isinstance(value, str)
     }
     render_values = dict(kwargs)
-    render_values.setdefault("mirror_process_context", "")
-    render_values.setdefault("mirror_case_group_context", "")
-    render_values.setdefault("mirror_step_context", "")
-    render_values.setdefault("mirror_case_context", "")
-    render_values.setdefault("mirror_clusters_json", "[]")
     raw_norm_addressee = render_values.get("norm_addressee")
     if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and raw_norm_addressee in (None, ""):
         raise KeyError("render_prompt requires explicit norm_addressee")
@@ -1254,14 +1110,6 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
                 render_values.setdefault("gesetz_vorschlag", proposed_text)
     else:
         session_id = _resolve_session_id(render_values)
-
-    if session_id is not None and norm_addressee:
-        _populate_mirror_prompt_contexts(
-            prompt_id=prompt_id,
-            render_values=render_values,
-            session_id=session_id,
-            norm_addressee=norm_addressee,
-        )
 
     prompt = template.format(**appendix_values, **render_values)
     norm_addressee = render_values.get("norm_addressee")
@@ -1344,41 +1192,3 @@ def _render_effort_json_schema(norm_addressee: str | None) -> str:
     return EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee, EFFORT_JSON_SCHEMA_DEFAULT).strip()
 
 
-def _populate_mirror_prompt_contexts(
-    prompt_id: str,
-    render_values: dict[str, Any],
-    session_id: int,
-    norm_addressee: str,
-) -> None:
-    if prompt_id == PromptId.PROCESS_COMPILATION:
-        render_values["mirror_process_context"] = render_values.get(
-            "mirror_process_context"
-        ) or render_mirror_prompt_context(
-            session_id=session_id,
-            norm_addressee=norm_addressee,
-            stage="processes",
-        )
-    elif prompt_id == PromptId.CASE_GROUP_DEVELOPMENT:
-        render_values["mirror_case_group_context"] = render_values.get(
-            "mirror_case_group_context"
-        ) or render_mirror_prompt_context(
-            session_id=session_id,
-            norm_addressee=norm_addressee,
-            stage="case_groups",
-        )
-    elif prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
-        render_values["mirror_step_context"] = render_values.get(
-            "mirror_step_context"
-        ) or render_mirror_prompt_context(
-            session_id=session_id,
-            norm_addressee=norm_addressee,
-            stage="steps",
-        )
-    elif prompt_id == PromptId.CASES_CALCULATION:
-        render_values["mirror_case_context"] = render_values.get(
-            "mirror_case_context"
-        ) or render_mirror_prompt_context(
-            session_id=session_id,
-            norm_addressee=norm_addressee,
-            stage="cases",
-        )

@@ -23,10 +23,9 @@ fail-closed und muessen neu ausgefuehrt oder korrigiert werden.
 3. `process_compilation`
 4. `case_group_development`
 5. `process_step_analysis`
-6. `mirror_matching`
-7. `cases_calculation`
-8. `effort_calculation`
-9. `total_cost` (kein LLM-Prompt)
+6. `cases_calculation`
+7. `effort_calculation`
+8. `total_cost` (kein LLM-Prompt)
 
 Ab `process_compilation` laufen die Schritte getrennt pro Normadressat:
 
@@ -68,16 +67,11 @@ Speichert:
   - `change_status`
   - Normadressaten-Flags
   - Informationspflicht-Flag
-  - Spiegelinfos:
-    - `mirror_anchor_key`
-    - `mirror_description`
-    - Mirror-Adressaten-Flags
 - Regulation-Tiles
 
 Wird spaeter gelesen von:
 
 - `process_compilation`
-- Mirror-Kontext-Aufbau
 
 ## 3. `process_compilation`
 
@@ -87,8 +81,6 @@ Route:
 Input:
 
 - Regulations der jeweiligen Normadressaten
-- strukturierter Mirror-Kontext aus
-  [backend/core/mirror_context.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/core/mirror_context.py)
 
 Speichert:
 
@@ -101,7 +93,6 @@ Speichert:
 Wird spaeter gelesen von:
 
 - `case_group_development`
-- Mirror-Kontext
 
 ## 4. `case_group_development`
 
@@ -112,7 +103,6 @@ Input:
 
 - Prozesse des jeweiligen Normadressaten
 - zugeordnete Regulations
-- strukturierter Mirror-Kontext
 
 Speichert:
 
@@ -122,7 +112,6 @@ Speichert:
 Wird spaeter gelesen von:
 
 - `process_step_analysis`
-- `mirror_matching`
 - `cases_calculation`
 
 ## 5. `process_step_analysis`
@@ -135,7 +124,6 @@ Input:
 - Prozesse
 - Fallgruppen
 - Regulations
-- strukturierter Mirror-Kontext
 
 Speichert:
 
@@ -145,43 +133,8 @@ Speichert:
 Wird spaeter gelesen von:
 
 - `effort_calculation`
-- Mirror-Kontext
 
-## 6. `mirror_matching`
-
-Prompt:
-[backend/core/prompts.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/core/prompts.py)
-
-Logik:
-[backend/core/mirror_context.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/core/mirror_context.py)
-
-Ausfuehrung:
-derzeit vor `cases_calculation` / `effort_calculation`
-
-Input:
-
-- bereits vorhandene Regulations
-- Prozesse
-- Fallgruppen
-- Spiegelanker (`mirror_anchor_key`)
-
-Speichert:
-
-- `mirror_matches`
-  - gemeinsame Situation
-  - Source/Target-Normadressat
-  - Source/Target-Prozess
-  - Source/Target-Fallgruppe
-  - `sync_addressees`
-  - `sync_frequency`
-  - `sync_cases`
-
-Wird spaeter gelesen von:
-
-- Mirror-Prompt-Kontext
-- deterministische Fallzahl-Synchronisierung
-
-## 7. `cases_calculation`
+## 6. `cases_calculation`
 
 Route:
 [backend/routers/effort.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/effort.py)
@@ -191,8 +144,6 @@ Input:
 - Prozesse
 - Fallgruppen
 - Regulations
-- strukturierter Mirror-Kontext
-- vorhandene `mirror_matches`
 
 Speichert in `case_groups`:
 
@@ -203,12 +154,7 @@ Speichert in `case_groups`:
 - `annual_frequency_proposed`
 - `cases_proposed`
 
-Besonderheit:
-
-- wenn `mirror_matches` ein klares `sync_cases = 1` vorgeben,
-  werden Fallzahlen deterministisch von der Quellseite uebernommen
-
-## 8. `effort_calculation`
+## 7. `effort_calculation`
 
 Route:
 [backend/routers/effort.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/effort.py)
@@ -218,7 +164,6 @@ Input:
 - Prozesse
 - Fallgruppen
 - Prozessschritte
-- strukturierter Mirror-Kontext
 
 Speichert in `process_steps`:
 
@@ -231,7 +176,7 @@ Wird spaeter gelesen von:
 - `total_cost`
 - Tile-Refresh
 
-## 9. `total_cost`
+## 8. `total_cost`
 
 Route:
 [backend/routers/costs.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/costs.py)
@@ -262,9 +207,7 @@ Wichtige Mechanik:
 - `render_prompt(...)`
 - zieht `law_summary` aus `sessions`
 - haengt Normadressaten-spezifische Zusatztexte an
-- befuellt `mirror_*_context` automatisch aus
-  [backend/core/mirror_context.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/core/mirror_context.py)
 
 ## Kurzform zum Erklaeren
 
-Jeder Prompt schreibt einen klaren Zwischenschritt in die DB, und der naechste Prompt liest genau diese strukturierte Vorstufe wieder ein. Die Pipeline ist also nicht nur eine Folge loser LLM-Antworten, sondern ein stufenweiser Datenaufbau: Zusammenfassung -> Vorgaben -> Prozesse -> Fallgruppen -> Schritte -> Spiegel-Matching -> Fallzahlen -> Aufwand -> Kosten.
+Jeder Prompt schreibt einen klaren Zwischenschritt in die DB, und der naechste Prompt liest genau diese strukturierte Vorstufe wieder ein. Die Pipeline ist also nicht nur eine Folge loser LLM-Antworten, sondern ein stufenweiser Datenaufbau: Zusammenfassung -> Vorgaben -> Prozesse -> Fallgruppen -> Schritte -> Fallzahlen -> Aufwand -> Kosten.

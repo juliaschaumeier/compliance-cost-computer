@@ -27,7 +27,6 @@ def test_build_vorgaben_payload_contract_keys():
             "aenderungsstatus": "geaendert",
             "normadressaten": [],
             "ist_informationspflicht_wirtschaft": False,
-            "spiegelsituation": None,
         }
     ]
     assert set(payload[0].keys()) == {
@@ -37,7 +36,6 @@ def test_build_vorgaben_payload_contract_keys():
         "aenderungsstatus",
         "normadressaten",
         "ist_informationspflicht_wirtschaft",
-        "spiegelsituation",
     }
 
 
@@ -77,7 +75,6 @@ def test_build_processes_payload_with_regulations_contract_keys():
         "aenderungsstatus",
         "normadressaten",
         "ist_informationspflicht_wirtschaft",
-        "spiegelsituation",
     }
 
 
@@ -129,7 +126,6 @@ def test_build_case_groups_payload_includes_vorgaben():
             "aenderungsstatus": "geaendert",
             "normadressaten": [],
             "ist_informationspflicht_wirtschaft": False,
-            "spiegelsituation": None,
         }
     ]
     assert set(process.keys()) == {
@@ -145,7 +141,6 @@ def test_build_case_groups_payload_includes_vorgaben():
         "fallgruppe_bezeichnung",
         "fallgruppe_beschreibung",
         "aenderungsstatus",
-        "spiegelsituationen",
     }
 
 
@@ -205,7 +200,6 @@ def test_build_step_analysis_payload_includes_vorgaben():
             "aenderungsstatus": "geaendert",
             "normadressaten": [],
             "ist_informationspflicht_wirtschaft": False,
-            "spiegelsituation": None,
         }
     ]
     assert set(process.keys()) == {
@@ -325,7 +319,6 @@ def test_build_vorgaben_payload_includes_norm_addressees_and_business_flag():
             "aenderungsstatus": "neu",
             "normadressaten": ["administration", "business"],
             "ist_informationspflicht_wirtschaft": True,
-            "spiegelsituation": None,
         }
     ]
 
@@ -363,7 +356,6 @@ def test_build_processes_payload_with_regulations_includes_norm_addressees_and_b
             "aenderungsstatus": "neu",
             "normadressaten": ["administration", "business"],
             "ist_informationspflicht_wirtschaft": True,
-            "spiegelsituation": None,
         }
     ]
 
@@ -414,7 +406,6 @@ def test_build_case_groups_payload_preserves_norm_addressees_and_business_flag()
             "aenderungsstatus": "neu",
             "normadressaten": ["administration", "citizens"],
             "ist_informationspflicht_wirtschaft": False,
-            "spiegelsituation": None,
         }
     ]
 
@@ -477,162 +468,6 @@ def test_build_step_analysis_payload_preserves_norm_addressees_and_business_flag
             "aenderungsstatus": "neu",
             "normadressaten": ["business", "citizens"],
             "ist_informationspflicht_wirtschaft": True,
-            "spiegelsituation": None,
-        }
-    ]
-
-
-def test_build_vorgaben_payload_includes_spiegelsituation():
-    regulations = [
-        {
-            "regulation_id": 41,
-            "process_id": 10,
-            "legal_citation": "§ 3",
-            "description": "Vorgabe C",
-            "change_status": "geaendert",
-            "applies_to_administration": 0,
-            "applies_to_business": 1,
-            "applies_to_citizens": 0,
-            "mirror_applies_to_administration": 1,
-            "mirror_applies_to_business": 0,
-            "mirror_applies_to_citizens": 0,
-            "mirror_description": "Korrespondierender Pruefaufwand",
-            "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-        }
-    ]
-
-    payload = build_vorgaben_payload(regulations)
-
-    assert payload == [
-        {
-            "vorgaben_id": 41,
-            "normzitat": "§ 3",
-            "beschreibung": "Vorgabe C",
-            "aenderungsstatus": "geaendert",
-            "normadressaten": ["business"],
-            "ist_informationspflicht_wirtschaft": False,
-            "spiegelsituation": {
-                "liegt_vor": True,
-                "normadressaten": ["administration"],
-                "beschreibung": "Korrespondierender Pruefaufwand",
-                "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-            },
-        }
-    ]
-
-
-def test_build_case_groups_payload_includes_spiegelsituationen_on_case_groups():
-    processes = [
-        {
-            "process_id": 10,
-            "process": "Prozess A",
-            "description": "Beschreibung A",
-            "change_status": "geaendert",
-        }
-    ]
-    case_groups = [
-        {
-            "case_group_id": 20,
-            "process_id": 10,
-            "case_group": "Fallgruppe A",
-            "description": "Beschreibung Fallgruppe A",
-            "change_status": "geaendert",
-        }
-    ]
-    regulations = [
-        {
-            "regulation_id": 41,
-            "process_id": 10,
-            "legal_citation": "§ 3",
-            "description": "Vorgabe C",
-            "change_status": "geaendert",
-            "applies_to_administration": 0,
-            "applies_to_business": 1,
-            "applies_to_citizens": 0,
-            "mirror_applies_to_administration": 1,
-            "mirror_applies_to_business": 0,
-            "mirror_applies_to_citizens": 0,
-            "mirror_description": "Korrespondierender Pruefaufwand",
-            "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-        }
-    ]
-
-    payload = build_case_groups_payload(
-        processes=processes,
-        case_groups=case_groups,
-        regulations=regulations,
-    )
-
-    assert payload[0]["fallgruppen"][0]["spiegelsituationen"] == [
-        {
-            "liegt_vor": True,
-            "normadressaten": ["administration"],
-            "beschreibung": "Korrespondierender Pruefaufwand",
-            "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-        }
-    ]
-
-
-def test_build_step_analysis_payload_includes_spiegelsituationen_on_case_groups():
-    processes = [
-        {
-            "process_id": 10,
-            "process": "Prozess A",
-            "description": "Beschreibung A",
-            "change_status": "geaendert",
-        }
-    ]
-    case_groups = [
-        {
-            "case_group_id": 20,
-            "process_id": 10,
-            "case_group": "Fallgruppe A",
-            "description": "Beschreibung Fallgruppe A",
-            "change_status": "geaendert",
-        }
-    ]
-    steps = [
-        {
-            "step_id": 40,
-            "case_group_id": 20,
-            "step": "Schritt 1",
-            "description": "Beschreibung Schritt 1",
-            "change_status": "geaendert",
-            "previous_id": None,
-            "next_id": None,
-        }
-    ]
-    regulations = [
-        {
-            "regulation_id": 41,
-            "process_id": 10,
-            "legal_citation": "§ 3",
-            "description": "Vorgabe C",
-            "change_status": "geaendert",
-            "applies_to_administration": 0,
-            "applies_to_business": 1,
-            "applies_to_citizens": 0,
-            "mirror_applies_to_administration": 1,
-            "mirror_applies_to_business": 0,
-            "mirror_applies_to_citizens": 0,
-            "mirror_description": "Korrespondierender Pruefaufwand",
-            "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-        }
-    ]
-
-    payload = build_step_analysis_payload(
-        processes=processes,
-        case_groups=case_groups,
-        steps=steps,
-        regulations=regulations,
-    )
-
-    assert payload[0]["fallgruppen"][0]["spiegelsituationen"] == [
-        {
-            "liegt_vor": True,
-            "normadressaten": ["administration"],
-            "beschreibung": "Korrespondierender Pruefaufwand",
-            "mirror_anchor_key": "gemeinnuetzigkeit-esport",
         }
     ]
 

@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     prompt_audit_enabled: bool = False
     prompt_audit_output_dir: Path = BASE_DIR / "prompt_audits"
     prompt_audit_session_ids: str = ""
-    mirror_matching_enabled: bool = False
     db_path: Path = DEFAULT_DB_PATH
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 

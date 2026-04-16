@@ -1,4 +1,3 @@
-from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.prompts import PromptId, render_prompt
 import pytest
@@ -118,79 +117,6 @@ def test_cases_calculation_prompt_skips_citizens_case_example_for_administration
 
     assert "- einmal jährlich: Häufigkeit = 1" in prompt
     assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" not in prompt
-
-
-def test_process_compilation_prompt_includes_structured_mirror_context_from_session(enable_mirror_feature):
-    session_id, _ = db.upsert_session("PROMPT-MIRROR-PROCESS", "test-model")
-    business_regulation_id = db.insert_regulation(
-        session_id,
-        "§ 52 Abs. 2 Nr. 21 AO",
-        "E-Sport-Vereine koennen den Zweck geltend machen.",
-        applies_to_administration=False,
-        applies_to_business=True,
-        mirror_applies_to_administration=True,
-        mirror_description="Korrespondierender Pruefaufwand bei der Verwaltung.",
-        mirror_anchor_key="gemeinnuetzigkeit-esport",
-    )
-    admin_regulation_id = db.insert_regulation(
-        session_id,
-        "§ 52 Abs. 2 Nr. 21 AO",
-        "Die Finanzverwaltung prueft die Anerkennung.",
-        applies_to_administration=True,
-        applies_to_business=False,
-        mirror_applies_to_business=True,
-        mirror_description="Korrespondierender Aufwand bei den Koerperschaften.",
-        mirror_anchor_key="gemeinnuetzigkeit-esport",
-    )
-    admin_process_id = db.insert_process(
-        session_id,
-        "Pruefung der Gemeinnuetzigkeit",
-        "Verwaltungsprozess",
-        norm_addressee=ADMINISTRATION,
-    )
-    db.update_regulation_process(
-        regulation_id=admin_regulation_id,
-        process_id=admin_process_id,
-        norm_addressee=ADMINISTRATION,
-    )
-    db.replace_mirror_matches(
-        session_id,
-        [
-            {
-                "mirror_anchor_key": "gemeinnuetzigkeit-esport",
-                "shared_situation": "Ein Antrag fuehrt zu korrespondierender Bearbeitung.",
-                "source_norm_addressee": ADMINISTRATION,
-                "target_norm_addressee": BUSINESS,
-                "source_process_id": admin_process_id,
-                "target_process_id": None,
-                "source_case_group_id": None,
-                "target_case_group_id": None,
-                "relation_type": "one_to_one",
-                "sync_addressees": True,
-                "sync_frequency": True,
-                "sync_cases": True,
-                "reason": "Gleicher Lebenssachverhalt.",
-            }
-        ],
-    )
-
-    prompt = render_prompt(
-        PromptId.PROCESS_COMPILATION,
-        session_id=session_id,
-        law_summary="Kurzfassung",
-        vorgaben_json=(
-            '[{"vorgaben_id": %d, "normzitat": "§ 52 Abs. 2 Nr. 21 AO", '
-            '"beschreibung": "E-Sport-Vereine koennen den Zweck geltend machen."}]'
-            % business_regulation_id
-        ),
-        norm_addressee=BUSINESS,
-    )
-
-    assert "Zusaetzlicher strukturierter Spiegelkontext" in prompt
-    assert '"mirror_anchor_key": "gemeinnuetzigkeit-esport"' in prompt
-    assert '"mirror_matches"' in prompt
-    assert '"source_norm_addressee": "business"' in prompt
-    assert '"prozess_bezeichnung": "Pruefung der Gemeinnuetzigkeit"' in prompt
 
 
 def test_render_prompt_requires_explicit_norm_addressee():

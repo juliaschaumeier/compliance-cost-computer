@@ -156,10 +156,6 @@ def _parse_vorgaben(payload: str) -> list[dict]:
                 list(normadressaten),
             )
             normadressaten.append(BUSINESS)
-        mirror = _parse_spiegelsituation(
-            entry.get("spiegelsituation"),
-            own_addressees=normadressaten,
-        )
         if not normzitat and not beschreibung:
             continue
         parsed.append(
@@ -172,12 +168,6 @@ def _parse_vorgaben(payload: str) -> list[dict]:
                 "applies_to_citizens": CITIZENS in normadressaten,
                 "normadressaten": normadressaten,
                 "is_business_information_obligation": is_business_information_obligation,
-                "mirror_applies_to_administration": mirror["applies_to_administration"],
-                "mirror_applies_to_business": mirror["applies_to_business"],
-                "mirror_applies_to_citizens": mirror["applies_to_citizens"],
-                "mirror_normadressaten": mirror["normadressaten"],
-                "mirror_description": mirror["beschreibung"],
-                "mirror_anchor_key": mirror["mirror_anchor_key"],
             }
         )
     return parsed
@@ -225,54 +215,6 @@ def _parse_addressee_list(value: object) -> list[str]:
             elif normalized == CITIZENS and CITIZENS not in parsed:
                 parsed.append(CITIZENS)
     return parsed
-
-
-def _normalize_mirror_anchor_key(value: object) -> str:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return ""
-    normalized = re.sub(r"[^a-z0-9]+", "-", raw)
-    normalized = re.sub(r"-{2,}", "-", normalized).strip("-")
-    return normalized
-
-
-def _parse_spiegelsituation(
-    value: object,
-    own_addressees: list[str],
-) -> dict[str, object]:
-    empty = {
-        "applies_to_administration": False,
-        "applies_to_business": False,
-        "applies_to_citizens": False,
-        "normadressaten": [],
-        "beschreibung": "",
-        "mirror_anchor_key": "",
-    }
-    if not isinstance(value, dict):
-        return empty
-    mirror_description = str(value.get("beschreibung", "")).strip()
-    mirror_anchor_key = _normalize_mirror_anchor_key(value.get("mirror_anchor_key"))
-    mirror_addressees = _parse_addressee_list(
-        value.get("normadressaten") or value.get("normadressat")
-    )
-    mirror_addressees = [
-        addressee
-        for addressee in mirror_addressees
-        if addressee not in own_addressees
-    ]
-    lies_vor = _parse_bool_like(value.get("liegt_vor"))
-    if lies_vor is None:
-        lies_vor = bool(mirror_addressees or mirror_description or mirror_anchor_key)
-    if not lies_vor:
-        return empty
-    return {
-        "applies_to_administration": ADMINISTRATION in mirror_addressees,
-        "applies_to_business": BUSINESS in mirror_addressees,
-        "applies_to_citizens": CITIZENS in mirror_addressees,
-        "normadressaten": mirror_addressees,
-        "beschreibung": mirror_description,
-        "mirror_anchor_key": mirror_anchor_key,
-    }
 
 
 def _update_law_tile(
@@ -339,13 +281,6 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
             is_business_information_obligation=bool(
                 vorgabe.get("is_business_information_obligation")
             ),
-            mirror_applies_to_administration=bool(
-                vorgabe.get("mirror_applies_to_administration")
-            ),
-            mirror_applies_to_business=bool(vorgabe.get("mirror_applies_to_business")),
-            mirror_applies_to_citizens=bool(vorgabe.get("mirror_applies_to_citizens")),
-            mirror_description=str(vorgabe.get("mirror_description") or "").strip() or None,
-            mirror_anchor_key=str(vorgabe.get("mirror_anchor_key") or "").strip() or None,
         )
         tile = Tile(
             id=f"regulation_{regulation_id}",
@@ -358,11 +293,6 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
                 "is_business_information_obligation": bool(
                     vorgabe.get("is_business_information_obligation")
                 ),
-                "mirror_normadressaten": list(
-                    vorgabe.get("mirror_normadressaten") or []
-                ),
-                "mirror_description": str(vorgabe.get("mirror_description") or ""),
-                "mirror_anchor_key": str(vorgabe.get("mirror_anchor_key") or ""),
             },
             column=base_col + 1,
             row=base_row + (idx * row_spacing),
@@ -376,7 +306,6 @@ def _add_vorgaben_tiles(session_id: int, vorgaben: list[dict]) -> list[dict]:
                 "normzitat": title,
                 "beschreibung": text,
                 "aenderungsstatus": aenderungsstatus,
-                "mirror_anchor_key": str(vorgabe.get("mirror_anchor_key") or ""),
             }
         )
     return created
@@ -411,7 +340,6 @@ async def identify_regulations(
                     "normzitat": row["legal_citation"],
                     "beschreibung": row["description"],
                     "aenderungsstatus": row["change_status"],
-                    "mirror_anchor_key": row.get("mirror_anchor_key") or "",
                 }
                 for row in existing
             ],

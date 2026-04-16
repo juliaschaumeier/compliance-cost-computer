@@ -18,16 +18,3 @@ def test_client(tmp_path, monkeypatch):
     db.init_db()
     with TestClient(app) as client:
         yield client
-
-
-@pytest.fixture
-def enable_mirror_feature(monkeypatch):
-    """Aktiviert das Mirror-Feature fuer Tests, die es brauchen.
-
-    Das Feature ist per Default deaktiviert (siehe
-    config.mirror_matching_enabled). Tests, die Mirror-Matching,
-    deterministischen Sync oder Propagation pruefen, muessen den Schalter
-    explizit anfordern.
-    """
-    monkeypatch.setattr(config.settings, "mirror_matching_enabled", True)
-    yield

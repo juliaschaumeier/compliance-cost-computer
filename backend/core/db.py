@@ -921,6 +921,10 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     schema. Safe to remove when production starts from an empty DB and no
     in-place upgrade path is required.
     """
+    # Drop orphaned mirror_matches table from earlier feature branch.
+    cur.execute("DROP TABLE IF EXISTS mirror_matches")
+    cur.execute("DROP INDEX IF EXISTS idx_mirror_matches_session_anchor")
+
     needs_used_models_backfill = not _table_has_column(cur, "sessions", "used_llm_models")
 
     _ensure_column(cur, "sessions", "law_diff_title", "TEXT")
@@ -982,7 +986,7 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     _create_pay_rate_defaults_table(cur)
     _seed_pay_rate_defaults(cur)
 
-    # Migration helper: add editable mirrors for case group metrics.
+    # Migration helper: add editable overrides for case group metrics.
     _ensure_column(cur, "case_groups", "addressees_current_edited", "REAL")
     _ensure_column(cur, "case_groups", "annual_frequency_current_edited", "REAL")
     _ensure_column(cur, "case_groups", "cases_current_edited", "REAL")
@@ -991,7 +995,7 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     _ensure_column(cur, "case_groups", "cases_proposed_edited", "REAL")
     _ensure_column(cur, "case_groups", "last_edited_at", "TEXT")
 
-    # Migration helper: add editable mirrors for process-step metrics.
+    # Migration helper: add editable overrides for process-step metrics.
     for suffix in ("current", "proposed"):
         _ensure_column(
             cur,
@@ -1297,32 +1301,6 @@ def init_db() -> None:
         )
         """
     )
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS mirror_matches (
-            mirror_match_id          INTEGER PRIMARY KEY,
-            session_id               INTEGER NOT NULL,
-            mirror_anchor_key        TEXT NOT NULL,
-            shared_situation         TEXT,
-            source_norm_addressee    TEXT NOT NULL,
-            target_norm_addressee    TEXT NOT NULL,
-            source_process_id        INTEGER,
-            target_process_id        INTEGER,
-            source_case_group_id     INTEGER,
-            target_case_group_id     INTEGER,
-            relation_type            TEXT NOT NULL,
-            sync_addressees          INTEGER NOT NULL DEFAULT 0 CHECK (sync_addressees IN (0, 1)),
-            sync_frequency           INTEGER NOT NULL DEFAULT 0 CHECK (sync_frequency IN (0, 1)),
-            sync_cases               INTEGER NOT NULL DEFAULT 0 CHECK (sync_cases IN (0, 1)),
-            reason                   TEXT,
-            created_at               TEXT NOT NULL DEFAULT current_timestamp,
-            FOREIGN KEY (session_id)
-            REFERENCES sessions (session_id)
-                ON UPDATE CASCADE
-                ON DELETE CASCADE
-        )
-        """
-    )
     # TODO: Handle list insertion, possibly change to position list instead of linked list? Does it need to be doubly linked? Single just seems easier.
     # TODO: Change prozessschritt mit tätigkeiten?
     _create_process_steps_table(cur)
@@ -1352,11 +1330,6 @@ def init_db() -> None:
             "applies_to_business": "INTEGER NOT NULL DEFAULT 0 CHECK (applies_to_business IN (0, 1))",
             "applies_to_citizens": "INTEGER NOT NULL DEFAULT 0 CHECK (applies_to_citizens IN (0, 1))",
             "is_business_information_obligation": "INTEGER NOT NULL DEFAULT 0 CHECK (is_business_information_obligation IN (0, 1))",
-            "mirror_applies_to_administration": "INTEGER NOT NULL DEFAULT 0 CHECK (mirror_applies_to_administration IN (0, 1))",
-            "mirror_applies_to_business": "INTEGER NOT NULL DEFAULT 0 CHECK (mirror_applies_to_business IN (0, 1))",
-            "mirror_applies_to_citizens": "INTEGER NOT NULL DEFAULT 0 CHECK (mirror_applies_to_citizens IN (0, 1))",
-            "mirror_description": "TEXT",
-            "mirror_anchor_key": "TEXT",
         },
     )
     _ensure_columns(
@@ -1387,9 +1360,6 @@ def init_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_proposed_law_id ON sessions(proposed_law_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_session_id ON regulations(session_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_regulations_process_id ON regulations(process_id)")
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_mirror_matches_session_anchor ON mirror_matches(session_id, mirror_anchor_key)"
-    )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_process_step_regulation_links_session_addressee_step ON process_step_regulation_links(session_id, norm_addressee, step_id)"
     )
@@ -1422,7 +1392,7 @@ def init_db() -> None:
     # verdraengt ein spaeterer Business-Lauf den zuvor gespeicherten
     # Verwaltungs-Answer und die Fallzahlen/Effort-Werte der Verwaltung gehen
     # verloren. COALESCE(norm_addressee, '') sorgt dafuer, dass auch NULL-Werte
-    # (z.B. mirror_matching, law_summary) deterministisch verglichen werden.
+    # (z.B. law_summary) deterministisch verglichen werden.
     cur.execute("DROP INDEX IF EXISTS idx_llm_answers_one_active")
     cur.execute(
         """
@@ -2470,12 +2440,7 @@ def list_regulations_for_session(session_id: int) -> List[dict]:
             applies_to_administration,
             applies_to_business,
             applies_to_citizens,
-            is_business_information_obligation,
-            mirror_applies_to_administration,
-            mirror_applies_to_business,
-            mirror_applies_to_citizens,
-            mirror_description,
-            mirror_anchor_key
+            is_business_information_obligation
         FROM regulations
         WHERE session_id = ?
         ORDER BY regulation_id
@@ -2538,12 +2503,7 @@ def get_regulation_by_id(regulation_id: int) -> dict | None:
             applies_to_administration,
             applies_to_business,
             applies_to_citizens,
-            is_business_information_obligation,
-            mirror_applies_to_administration,
-            mirror_applies_to_business,
-            mirror_applies_to_citizens,
-            mirror_description,
-            mirror_anchor_key
+            is_business_information_obligation
         FROM regulations
         WHERE regulation_id = ?
         """,
@@ -3175,11 +3135,6 @@ def insert_regulation(
     applies_to_business: bool = False,
     applies_to_citizens: bool = False,
     is_business_information_obligation: bool = False,
-    mirror_applies_to_administration: bool = False,
-    mirror_applies_to_business: bool = False,
-    mirror_applies_to_citizens: bool = False,
-    mirror_description: str | None = None,
-    mirror_anchor_key: str | None = None,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
@@ -3194,14 +3149,9 @@ def insert_regulation(
             applies_to_administration,
             applies_to_business,
             applies_to_citizens,
-            is_business_information_obligation,
-            mirror_applies_to_administration,
-            mirror_applies_to_business,
-            mirror_applies_to_citizens,
-            mirror_description,
-            mirror_anchor_key
+            is_business_information_obligation
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -3213,11 +3163,6 @@ def insert_regulation(
             int(bool(applies_to_business)),
             int(bool(applies_to_citizens)),
             int(bool(is_business_information_obligation)),
-            int(bool(mirror_applies_to_administration)),
-            int(bool(mirror_applies_to_business)),
-            int(bool(mirror_applies_to_citizens)),
-            mirror_description,
-            mirror_anchor_key,
         ),
     )
     _maybe_commit(conn)
@@ -3380,8 +3325,7 @@ def update_case_group_edited_metrics(
     annual_frequency_proposed_edited: float | None = None,
 ) -> None:
     """Setze die Edited-Overrides einer Fallgruppe fuer einen bestimmten
-    Normadressaten. Genutzt u.a. fuer Mirror-Propagation nach manuellen
-    Edits, damit Quelle und Ziel konsistent bleiben."""
+    Normadressaten."""
     resolved = normalize_norm_addressee(norm_addressee)
     cases_current_edited: float | None = None
     cases_proposed_edited: float | None = None
@@ -4064,235 +4008,6 @@ def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) 
     _maybe_close(conn)
 
 
-def list_mirror_matches(session_id: int) -> List[dict]:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-            mirror_match_id,
-            session_id,
-            mirror_anchor_key,
-            shared_situation,
-            source_norm_addressee,
-            target_norm_addressee,
-            source_process_id,
-            target_process_id,
-            source_case_group_id,
-            target_case_group_id,
-            relation_type,
-            sync_addressees,
-            sync_frequency,
-            sync_cases,
-            reason,
-            created_at
-        FROM mirror_matches
-        WHERE session_id = ?
-        ORDER BY mirror_match_id
-        """,
-        (session_id,),
-    )
-    rows = [dict(row) for row in cur.fetchall()]
-    _maybe_close(conn)
-    return rows
-
-
-def _get_process_addressee_for_session(
-    cur: sqlite3.Cursor, session_id: int, process_id: int
-) -> str | None:
-    cur.execute(
-        """
-        SELECT norm_addressee
-        FROM processes
-        WHERE session_id = ? AND process_id = ?
-        """,
-        (session_id, process_id),
-    )
-    row = cur.fetchone()
-    return str(row["norm_addressee"]) if row else None
-
-
-def _get_case_group_context_for_session(
-    cur: sqlite3.Cursor, session_id: int, case_group_id: int
-) -> tuple[str, int] | None:
-    cur.execute(
-        """
-        SELECT norm_addressee, process_id
-        FROM case_groups
-        WHERE session_id = ? AND case_group_id = ?
-        """,
-        (session_id, case_group_id),
-    )
-    row = cur.fetchone()
-    if row is None:
-        return None
-    return str(row["norm_addressee"]), int(row["process_id"])
-
-
-def _validate_mirror_match_side(
-    cur: sqlite3.Cursor,
-    *,
-    session_id: int,
-    side_label: str,
-    norm_addressee: str,
-    process_id: int | None,
-    case_group_id: int | None,
-) -> None:
-    resolved = normalize_norm_addressee(norm_addressee)
-    if process_id is not None:
-        process_addressee = _get_process_addressee_for_session(cur, session_id, process_id)
-        if process_addressee is None:
-            raise ValueError(f"Unknown {side_label}_process_id for mirror match: {process_id}")
-        if process_addressee != resolved:
-            raise ValueError(
-                f"{side_label}_process_id {process_id} belongs to {process_addressee}, not {resolved}"
-            )
-    if case_group_id is not None:
-        case_group_context = _get_case_group_context_for_session(cur, session_id, case_group_id)
-        if case_group_context is None:
-            raise ValueError(
-                f"Unknown {side_label}_case_group_id for mirror match: {case_group_id}"
-            )
-        case_group_addressee, case_group_process_id = case_group_context
-        if case_group_addressee != resolved:
-            raise ValueError(
-                f"{side_label}_case_group_id {case_group_id} belongs to {case_group_addressee}, not {resolved}"
-            )
-        if process_id is not None and case_group_process_id != process_id:
-            raise ValueError(
-                f"{side_label}_case_group_id {case_group_id} does not belong to "
-                f"{side_label}_process_id {process_id}"
-            )
-
-
-def validate_mirror_match_references(session_id: int, row: dict) -> None:
-    source_norm_addressee = str(row.get("source_norm_addressee") or "").strip()
-    target_norm_addressee = str(row.get("target_norm_addressee") or "").strip()
-    if not source_norm_addressee or not target_norm_addressee:
-        raise ValueError("Mirror matches require source_norm_addressee and target_norm_addressee")
-    if source_norm_addressee == target_norm_addressee:
-        raise ValueError("Mirror matches must connect different norm addressees")
-
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        _validate_mirror_match_side(
-            cur,
-            session_id=session_id,
-            side_label="source",
-            norm_addressee=source_norm_addressee,
-            process_id=row.get("source_process_id"),
-            case_group_id=row.get("source_case_group_id"),
-        )
-        _validate_mirror_match_side(
-            cur,
-            session_id=session_id,
-            side_label="target",
-            norm_addressee=target_norm_addressee,
-            process_id=row.get("target_process_id"),
-            case_group_id=row.get("target_case_group_id"),
-        )
-    finally:
-        _maybe_close(conn)
-
-
-def _validate_mirror_match_symmetry(matches: list[dict]) -> None:
-    indexed: dict[
-        tuple[object, ...],
-        dict,
-    ] = {}
-    for row in matches:
-        key = (
-            row.get("mirror_anchor_key"),
-            row.get("source_norm_addressee"),
-            row.get("target_norm_addressee"),
-            row.get("source_process_id"),
-            row.get("target_process_id"),
-            row.get("source_case_group_id"),
-            row.get("target_case_group_id"),
-            row.get("relation_type"),
-        )
-        indexed[key] = row
-
-    for row in matches:
-        reverse_key = (
-            row.get("mirror_anchor_key"),
-            row.get("target_norm_addressee"),
-            row.get("source_norm_addressee"),
-            row.get("target_process_id"),
-            row.get("source_process_id"),
-            row.get("target_case_group_id"),
-            row.get("source_case_group_id"),
-            row.get("relation_type"),
-        )
-        reverse = indexed.get(reverse_key)
-        if reverse is None:
-            continue
-        for flag in ("sync_addressees", "sync_frequency", "sync_cases"):
-            if bool(row.get(flag)) != bool(reverse.get(flag)):
-                raise ValueError(
-                    "Mirror match reverse pairs must agree on "
-                    f"{flag} for anchor {row.get('mirror_anchor_key')}"
-                )
-
-
-def replace_mirror_matches(session_id: int, matches: list[dict]) -> None:
-    for row in matches:
-        validate_mirror_match_references(session_id, row)
-    _validate_mirror_match_symmetry(matches)
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM mirror_matches WHERE session_id = ?", (session_id,))
-    for row in matches:
-        cur.execute(
-            """
-            INSERT INTO mirror_matches (
-                session_id,
-                mirror_anchor_key,
-                shared_situation,
-                source_norm_addressee,
-                target_norm_addressee,
-                source_process_id,
-                target_process_id,
-                source_case_group_id,
-                target_case_group_id,
-                relation_type,
-                sync_addressees,
-                sync_frequency,
-                sync_cases,
-                reason
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                row.get("mirror_anchor_key"),
-                row.get("shared_situation"),
-                row.get("source_norm_addressee"),
-                row.get("target_norm_addressee"),
-                row.get("source_process_id"),
-                row.get("target_process_id"),
-                row.get("source_case_group_id"),
-                row.get("target_case_group_id"),
-                row.get("relation_type"),
-                int(bool(row.get("sync_addressees"))),
-                int(bool(row.get("sync_frequency"))),
-                int(bool(row.get("sync_cases"))),
-                row.get("reason"),
-            ),
-        )
-    _maybe_commit(conn)
-    _maybe_close(conn)
-
-
-def delete_mirror_matches_for_session(session_id: int) -> None:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM mirror_matches WHERE session_id = ?", (session_id,))
-    _maybe_commit(conn)
-    _maybe_close(conn)
-
-
 def clear_costs(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
@@ -4373,23 +4088,11 @@ def delete_case_groups_for_session(
             "DELETE FROM case_groups WHERE session_id = ?",
             (session_id,),
         )
-        cur.execute(
-            "DELETE FROM mirror_matches WHERE session_id = ?",
-            (session_id,),
-        )
     else:
         resolved = normalize_norm_addressee(norm_addressee)
         cur.execute(
             "DELETE FROM case_groups WHERE session_id = ? AND norm_addressee = ?",
             (session_id, resolved),
-        )
-        cur.execute(
-            """
-            DELETE FROM mirror_matches
-            WHERE session_id = ?
-              AND (source_norm_addressee = ? OR target_norm_addressee = ?)
-            """,
-            (session_id, resolved, resolved),
         )
     _maybe_commit(conn)
     _maybe_close(conn)
@@ -4406,23 +4109,11 @@ def delete_processes_for_session(
             "DELETE FROM processes WHERE session_id = ?",
             (session_id,),
         )
-        cur.execute(
-            "DELETE FROM mirror_matches WHERE session_id = ?",
-            (session_id,),
-        )
     else:
         resolved = normalize_norm_addressee(norm_addressee)
         cur.execute(
             "DELETE FROM processes WHERE session_id = ? AND norm_addressee = ?",
             (session_id, resolved),
-        )
-        cur.execute(
-            """
-            DELETE FROM mirror_matches
-            WHERE session_id = ?
-              AND (source_norm_addressee = ? OR target_norm_addressee = ?)
-            """,
-            (session_id, resolved, resolved),
         )
     _maybe_commit(conn)
     _maybe_close(conn)
@@ -4433,10 +4124,6 @@ def delete_regulations_for_session(session_id: int) -> None:
     cur = conn.cursor()
     cur.execute(
         "DELETE FROM regulations WHERE session_id = ?",
-        (session_id,),
-    )
-    cur.execute(
-        "DELETE FROM mirror_matches WHERE session_id = ?",
         (session_id,),
     )
     _maybe_commit(conn)

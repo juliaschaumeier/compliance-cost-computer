@@ -20,7 +20,6 @@ from backend.core.payload_builders import (
     build_processes_payload_with_regulations,
     dump_prompt_json,
 )
-from backend.core.mirror_context import propagate_case_group_edits_to_mirror_targets
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.tile_refresh import refresh_case_group_tiles
 from backend.routers._edit_schemas import (
@@ -115,16 +114,6 @@ async def bulk_update_case_groups(payload: CaseGroupBulkUpdateRequest) -> BulkUp
                 ),
             )
         validate_non_noop_update_count(updated)
-        # Leitfaden-Invariante: Spiegelsituationen muessen dieselben
-        # Fallzahlen und Adressatenzahlen tragen. Nach dem manuellen Edit
-        # propagieren wir die neuen Effektivwerte der Quelle auf alle
-        # Mirror-Ziele mit sync_cases=True, damit Quelle und Ziel nicht
-        # auseinanderdriften und die Kostenberechnung des Spiegel-
-        # Normadressaten konsistent bleibt.
-        propagate_case_group_edits_to_mirror_targets(
-            session_id=session_id,
-            edited_case_group_ids=edited_case_group_ids,
-        )
         refresh_case_group_tiles(session_id, db.list_case_groups_for_session(session_id))
     return BulkUpdateResponse(updated=updated)
 
