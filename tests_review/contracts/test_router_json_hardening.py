@@ -28,11 +28,13 @@ from backend.routers.processes import _parse_processes
 
 def test_parse_processes_returns_empty_for_wellformed_json_without_prozesse_key():
     """Wohlgeformtes JSON ohne 'prozesse' -> leere Liste, kein Fehler."""
-    assert _parse_processes('{"foo": "bar"}') == []
+    parsed, _fallbacks = _parse_processes('{"foo": "bar"}')
+    assert parsed == []
 
 
 def test_parse_processes_returns_empty_for_explicit_empty_list():
-    assert _parse_processes('{"prozesse": []}') == []
+    parsed, _fallbacks = _parse_processes('{"prozesse": []}')
+    assert parsed == []
 
 
 @pytest.mark.parametrize(
@@ -58,7 +60,7 @@ def test_parse_processes_extracts_minimal_valid_entry():
       ]
     }
     """
-    parsed = _parse_processes(payload)
+    parsed, _fallbacks = _parse_processes(payload)
     assert len(parsed) == 1
     assert parsed[0]["prozess_bezeichnung"] == "Antragstellung"
 
@@ -69,7 +71,8 @@ def test_parse_processes_extracts_minimal_valid_entry():
 
 
 def test_parse_case_groups_returns_empty_for_wellformed_json_without_prozesse_key():
-    assert _parse_case_groups('{"foo": "bar"}') == []
+    parsed, _fallbacks = _parse_case_groups('{"foo": "bar"}')
+    assert parsed == []
 
 
 @pytest.mark.parametrize(

@@ -60,3 +60,36 @@ def normalize_norm_addressee(value: str | None) -> str:
     if normalized == CITIZENS:
         return CITIZENS
     raise ValueError(f"Unsupported norm_addressee: {value}")
+
+
+# Echo-Feld im Antwort-JSON der addressee-spezifischen Prompts. Das LLM soll
+# den erwarteten Normadressaten im Output wiederholen; der Parser vergleicht
+# das Echo mit dem Run-NA als Lane-Telemetrie.
+NORM_ADDRESSEE_ECHO_KEY: Final[str] = "normadressat"
+NORM_ADDRESSEE_ECHO_MISSING: Final[str] = "norm_addressee_missing"
+NORM_ADDRESSEE_ECHO_MISMATCH: Final[str] = "norm_addressee_mismatch"
+
+
+def check_norm_addressee_echo(
+    data: dict,
+    expected: str | None,
+) -> set[str]:
+    """Soft-Validation: vergleicht top-level normadressat-Echo mit Run-NA.
+
+    Liefert ein Set mit Fallback-Kinds fuer mark_llm_parse_fallback. Blockiert
+    den Flow NICHT - reine Telemetrie, um zu erkennen wenn das LLM die
+    Adressaten-Spur verlaesst.
+    """
+    if expected is None:
+        return set()
+    if not isinstance(data, dict):
+        return {NORM_ADDRESSEE_ECHO_MISSING}
+    raw = data.get(NORM_ADDRESSEE_ECHO_KEY)
+    if raw is None:
+        return {NORM_ADDRESSEE_ECHO_MISSING}
+    echoed = str(raw).strip().lower()
+    if not echoed:
+        return {NORM_ADDRESSEE_ECHO_MISSING}
+    if echoed != expected:
+        return {NORM_ADDRESSEE_ECHO_MISMATCH}
+    return set()

@@ -20,6 +20,7 @@ from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
     CITIZENS,
+    check_norm_addressee_echo,
 )
 from backend.core.parsing import parse_first_int, parse_optional_number
 from backend.core.payload_builders import (
@@ -65,7 +66,10 @@ def _value_from_keys(
     return None, None
 
 
-def _parse_cases_payload(payload: str) -> tuple[list[dict], set[str]]:
+def _parse_cases_payload(
+    payload: str,
+    norm_addressee: str | None = None,
+) -> tuple[list[dict], set[str]]:
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid cases_calculation payload",
@@ -73,6 +77,7 @@ def _parse_cases_payload(payload: str) -> tuple[list[dict], set[str]]:
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
+    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -483,6 +488,7 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
+    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -654,7 +660,10 @@ async def calculate_effort(
     effort_result = query_results[PromptId.EFFORT_CALCULATION]
 
     try:
-        parsed_cases, cases_fallback_kinds = _parse_cases_payload(cases_result.text)
+        parsed_cases, cases_fallback_kinds = _parse_cases_payload(
+            cases_result.text,
+            norm_addressee,
+        )
         for fallback_kind in sorted(cases_fallback_kinds):
             mark_llm_parse_fallback(
                 answer_id=pending_answer_ids[PromptId.CASES_CALCULATION],

@@ -8,12 +8,14 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_attempts import (
     mark_llm_answer_applied,
+    mark_llm_parse_fallback,
 )
 from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
+    check_norm_addressee_echo,
 )
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import build_vorgaben_payload, dump_prompt_json
@@ -35,14 +37,18 @@ class ProcessCompilationRequest(BaseModel):
     norm_addressee: str | None = None
 
 
-def _parse_processes(payload: str) -> list[dict]:
+def _parse_processes(
+    payload: str,
+    norm_addressee: str | None = None,
+) -> tuple[list[dict], set[str]]:
     data, _parse_mode = require_json_object(
         payload,
         error_context="process compilation",
     )
+    fallback_kinds = check_norm_addressee_echo(data, norm_addressee)
     processes = data.get("prozesse")
     if not isinstance(processes, list):
-        return []
+        return [], fallback_kinds
     parsed = []
     for entry in processes:
         if not isinstance(entry, dict):
@@ -80,7 +86,7 @@ def _parse_processes(payload: str) -> list[dict]:
                 "vorgaben": parsed_vorgaben,
             }
         )
-    return parsed
+    return parsed, fallback_kinds
 
 
 def _add_process_tiles(
@@ -274,7 +280,14 @@ async def compile_processes(
     response_text = llm_result.text
 
     def _apply() -> list[dict]:
-        processes = _parse_processes(response_text)
+        processes, fallback_kinds = _parse_processes(response_text, norm_addressee)
+        for fallback_kind in sorted(fallback_kinds):
+            mark_llm_parse_fallback(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.PROCESS_COMPILATION,
+                fallback_kind=fallback_kind,
+            )
         if not processes:
             raise HTTPException(status_code=422, detail="No processes parsed")
         regulation_lookup = {row["regulation_id"]: row for row in regulations}

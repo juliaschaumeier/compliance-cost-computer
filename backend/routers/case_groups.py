@@ -8,12 +8,14 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_attempts import (
     mark_llm_answer_applied,
+    mark_llm_parse_fallback,
 )
 from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
+    check_norm_addressee_echo,
 )
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import (
@@ -118,14 +120,18 @@ async def bulk_update_case_groups(payload: CaseGroupBulkUpdateRequest) -> BulkUp
     return BulkUpdateResponse(updated=updated)
 
 
-def _parse_case_groups(payload: str) -> list[dict]:
+def _parse_case_groups(
+    payload: str,
+    norm_addressee: str | None = None,
+) -> tuple[list[dict], set[str]]:
     data, _parse_mode = require_json_object(
         payload,
         error_context="case group development",
     )
+    fallback_kinds = check_norm_addressee_echo(data, norm_addressee)
     processes = data.get("prozesse")
     if not isinstance(processes, list):
-        return []
+        return [], fallback_kinds
     parsed = []
     for entry in processes:
         if not isinstance(entry, dict):
@@ -172,7 +178,7 @@ def _parse_case_groups(payload: str) -> list[dict]:
                 "fallgruppen": parsed_fallgruppen,
             }
         )
-    return parsed
+    return parsed, fallback_kinds
 
 
 def _add_case_group_tiles(
@@ -318,7 +324,14 @@ async def develop_case_groups(
     response_text = llm_result.text
 
     def _apply() -> list[dict]:
-        parsed = _parse_case_groups(response_text)
+        parsed, fallback_kinds = _parse_case_groups(response_text, norm_addressee)
+        for fallback_kind in sorted(fallback_kinds):
+            mark_llm_parse_fallback(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
+                fallback_kind=fallback_kind,
+            )
         if not parsed:
             raise HTTPException(status_code=422, detail="No case groups parsed")
 

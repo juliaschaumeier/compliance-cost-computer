@@ -347,6 +347,7 @@ EFFORT_APPENDICES: Dict[str, str] = {
 
 EFFORT_JSON_SCHEMA_DEFAULT = """
 {{
+"normadressat": "administration | business",
 "prozesse": [
     {{
     "prozess_id": "",
@@ -401,12 +402,15 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
     }}
 ]
 }}
+
+Das Feld `normadressat` ist der Normadressat, fuer den dieser Aufwand berechnet wird. Uebernehmen Sie genau einen der beiden zulaessigen Werte (administration oder business) aus den `normadressaten`-Angaben der eingespielten Prozesse.
 """
 
 
 EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
     CITIZENS: """
 {{
+"normadressat": "citizens",
 "prozesse": [
     {{
     "prozess_id": "",
@@ -445,6 +449,8 @@ EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
     }}
 ]
 }}
+
+Das Feld `normadressat` ist immer `citizens` fuer dieses Schema.
 """
 }
 
@@ -581,9 +587,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_process_example}
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
 
         {{
+        "normadressat": "administration | business | citizens",
         "prozesse": [
             {{
             "prozess_bezeichnung": "",
@@ -620,7 +627,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         ]
         }}
 
-        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        Das Feld `normadressat` ist der Normadressat, fuer den diese Analyse laeuft. Uebernehmen Sie dort genau einen der drei zulaessigen Werte (administration, business oder citizens), basierend auf den Angaben `normadressaten` der Einzelvorgaben. Bearbeiten Sie ausschliesslich Vorgaben fuer diesen Normadressaten.
+
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
     # Input contract:
@@ -644,9 +653,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_case_group_example}
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
 
         {{
+        "normadressat": "administration | business | citizens",
         "prozesse": [
             {{
             "prozess_id": "",
@@ -660,7 +670,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "beschreibung": "",
                     "aenderungsstatus": ""
                 }}
-            ], 
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppe_bezeichnung": "",
@@ -692,7 +702,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "beschreibung": "",
                     "aenderungsstatus": ""
                 }}
-            ], 
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppe_bezeichnung": "",
@@ -703,7 +713,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             }}
         ]
         }}
-        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+
+        Das Feld `normadressat` ist der Normadressat, fuer den diese Fallgruppen entwickelt werden. Uebernehmen Sie genau einen der drei zulaessigen Werte (administration, business oder citizens) aus den `normadressaten`-Angaben der eingespielten Prozesse.
+
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
     # TODO: ausfuehrung_pro_einzelfall bereits hier abfragen und nicht erst in effort_calculation??
@@ -737,9 +750,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
         befüllt.
         
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
-        
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
+
         {{
+        "normadressat": "administration | business | citizens",
         "prozesse": [
             {{
             "prozess_id": "",
@@ -760,7 +774,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
                     "aenderungsstatus": "",
-                    "taetigkeiten": [ 
+                    "taetigkeiten": [
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
@@ -816,7 +830,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
                     "aenderungsstatus": "",
-                    "taetigkeiten": [ 
+                    "taetigkeiten": [
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
@@ -835,7 +849,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             }}
         ]
         }}
-        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+
+        Das Feld `normadressat` ist der Normadressat, fuer den diese Prozessschritte analysiert werden. Uebernehmen Sie genau einen der drei zulaessigen Werte (administration, business oder citizens) aus den `normadressaten`-Angaben der eingespielten Prozesse.
+
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
 
         """
     ),
@@ -884,9 +901,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Gesetzesbegründungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) übernommen werden. Bevor solche Angaben verwendet werden, sollten 
         sie ggf. aktualisiert werden.
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
-        
+        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
+
         {{
+        "normadressat": "administration | business | citizens",
         "prozesse": [
             {{
             "prozess_id": "",
@@ -900,7 +918,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "beschreibung": "",
                     "aenderungsstatus": ""
                 }}
-            ], 
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
@@ -942,7 +960,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "beschreibung": "",
                     "aenderungsstatus": ""
                 }}
-            ], 
+            ],
             "fallgruppen": [
                 {{
                     "fallgruppen_id": "",
@@ -958,7 +976,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             }}
         ]
         }}
-        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+
+        Das Feld `normadressat` ist der Normadressat, fuer den diese Fallzahlen geschaetzt werden. Uebernehmen Sie genau einen der drei zulaessigen Werte (administration, business oder citizens) aus den `normadressaten`-Angaben der eingespielten Prozesse.
+
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
     # TODO: How to add this? Die Bereitstellung und Wartung von Informationstechnologie aufgrund der Änderung von 

@@ -16,6 +16,7 @@ from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
+    check_norm_addressee_echo,
 )
 from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
@@ -128,7 +129,10 @@ async def bulk_update_process_steps(
     return BulkUpdateResponse(updated=updated)
 
 
-def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
+def _parse_process_steps(
+    payload: str,
+    norm_addressee: str | None = None,
+) -> tuple[list[dict], set[str]]:
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid process_step_analysis payload",
@@ -136,6 +140,7 @@ def _parse_process_steps(payload: str) -> tuple[list[dict], set[str]]:
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
+    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
 
     parsed: list[dict] = []
     processes = data.get("prozesse")
@@ -447,7 +452,7 @@ async def analyze_process_steps(
     response_text = llm_result.text
 
     def _apply() -> list[dict]:
-        parsed, fallback_kinds = _parse_process_steps(response_text)
+        parsed, fallback_kinds = _parse_process_steps(response_text, norm_addressee)
         for fallback_kind in sorted(fallback_kinds):
             mark_llm_parse_fallback(
                 answer_id=answer_id,
