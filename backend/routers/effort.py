@@ -169,6 +169,46 @@ def _parse_execution_per_case(entry: dict) -> bool | None:
     return None
 
 
+_ADMIN_LAUFBAHN_ALIASES: dict[str, str] = {
+    "einfach": "a",
+    "einfacher dienst": "a",
+    "mittlerer dienst": "a",
+    "einfacher und mittlerer dienst": "a",
+    "mittel": "a",
+    "m.d.": "a",
+    "m. d.": "a",
+    "md": "a",
+    "gehoben": "b",
+    "gehobener dienst": "b",
+    "g.d.": "b",
+    "g. d.": "b",
+    "gd": "b",
+    "hoeher": "c",
+    "höher": "c",
+    "hoeherer dienst": "c",
+    "höherer dienst": "c",
+    "h.d.": "c",
+    "h. d.": "c",
+    "hd": "c",
+    "durchschnitt": "d",
+    "average": "d",
+    "avg": "d",
+}
+
+_BUSINESS_LEVEL_ALIASES: dict[str, str] = {
+    "niedrig": "a",
+    "low": "a",
+    "einfach": "a",
+    "mittel": "b",
+    "medium": "b",
+    "hoch": "c",
+    "high": "c",
+    "durchschnitt": "d",
+    "average": "d",
+    "avg": "d",
+}
+
+
 def _resolve_effort_group(
     raw_role: dict,
     norm_addressee: str,
@@ -181,6 +221,14 @@ def _resolve_effort_group(
     ).strip().lower()
     if raw_group in {"a", "b", "c", "d"}:
         return raw_group
+    if raw_group:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"effort_calculation: Unbekannte Lohngruppe {raw_group!r}. "
+                "Zulaessig sind nur 'a', 'b', 'c' oder 'd'."
+            ),
+        )
 
     raw_level = str(
         raw_role.get("schwierigkeitsgrad")
@@ -189,26 +237,25 @@ def _resolve_effort_group(
         or raw_role.get("rolle")
         or ""
     ).strip().lower()
-    if norm_addressee == ADMINISTRATION:
-        if raw_level in {"einfach", "mittlerer dienst", "einfacher und mittlerer dienst", "mittel"}:
-            return "a"
-        if raw_level in {"gehoben", "gehobener dienst"}:
-            return "b"
-        if raw_level in {"hoeher", "höher", "hoeherer dienst", "höherer dienst"}:
-            return "c"
-        if raw_level in {"durchschnitt", "average", "avg"}:
-            return "d"
+    if not raw_level:
         return None
 
-    if raw_level in {"niedrig", "low"}:
-        return "a"
-    if raw_level in {"mittel", "medium"}:
-        return "b"
-    if raw_level in {"hoch", "high"}:
-        return "c"
-    if raw_level in {"durchschnitt", "average", "avg"}:
-        return "d"
-    return None
+    aliases = (
+        _ADMIN_LAUFBAHN_ALIASES
+        if norm_addressee == ADMINISTRATION
+        else _BUSINESS_LEVEL_ALIASES
+    )
+    resolved = aliases.get(raw_level)
+    if resolved is not None:
+        return resolved
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"effort_calculation: Unbekannte Laufbahn/Niveau-Angabe "
+            f"{raw_level!r} fuer Normadressat {norm_addressee!r}. "
+            "Bitte Prompt- oder LLM-Antwort pruefen."
+        ),
+    )
 
 
 def _parse_role_entries(
