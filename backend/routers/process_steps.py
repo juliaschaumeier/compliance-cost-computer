@@ -425,6 +425,7 @@ async def analyze_process_steps(
         processes=processes,
         case_groups=case_groups,
         regulations=regulations,
+        norm_addressee=norm_addressee,
     )
 
     prompt = render_prompt(

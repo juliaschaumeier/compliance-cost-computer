@@ -572,12 +572,14 @@ async def calculate_effort(
         processes=processes,
         case_groups=case_groups,
         regulations=regulations,
+        norm_addressee=norm_addressee,
     )
     steps_payload = build_step_analysis_payload(
         processes=processes,
         case_groups=case_groups,
         steps=steps,
         regulations=regulations,
+        norm_addressee=norm_addressee,
     )
 
     cases_prompt = render_prompt(

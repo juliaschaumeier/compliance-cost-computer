@@ -253,7 +253,7 @@ async def compile_processes(
         return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not regulations:
         raise HTTPException(status_code=400, detail="No regulations for session")
-    vorgaben_payload = build_vorgaben_payload(regulations)
+    vorgaben_payload = build_vorgaben_payload(regulations, norm_addressee=norm_addressee)
 
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,

@@ -295,7 +295,9 @@ async def develop_case_groups(
         session_id,
         norm_addressee,
     )
-    prozesse_payload = build_processes_payload_with_regulations(processes, regulations)
+    prozesse_payload = build_processes_payload_with_regulations(
+        processes, regulations, norm_addressee=norm_addressee
+    )
 
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
