@@ -99,6 +99,25 @@ const AppContext = createContext<AppContextValue | undefined>(undefined);
 const APP_SESSION_STORAGE_KEY = "app_session_id";
 const LEGACY_SESSION_STORAGE_KEY = "session_id";
 const SELECTED_NORM_ADDRESSEE_STORAGE_KEY = "selected_norm_addressee";
+
+// Lazy-Initializer fuer selectedNormAddressee: liest den zuletzt gewaehlten
+// Adressaten aus SessionStorage, damit nach Reload keine Verwaltung-Flash
+// entsteht und die Anzeige konsistent mit dem vorherigen User-Zustand ist.
+function readStoredNormAddressee(): NormAddressee {
+  if (typeof window === "undefined") {
+    return "administration";
+  }
+  try {
+    const stored = sessionStorage.getItem(SELECTED_NORM_ADDRESSEE_STORAGE_KEY);
+    if (stored === "administration" || stored === "business" || stored === "citizens") {
+      return stored;
+    }
+  } catch {
+    // SessionStorage kann in privaten Browsing-Modi oder SSR unzugaenglich
+    // sein - dann faellt das Feature auf den Default zurueck.
+  }
+  return "administration";
+}
 const NORM_ADDRESSEE_READINESS_STORAGE_KEY = "norm_addressee_readiness";
 const READINESS_STORAGE_KEYS = [
   "summary_ready",
@@ -122,7 +141,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [appSessionId, setAppSessionIdState] = useState("");
   const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
   const [selectedNormAddressee, setSelectedNormAddresseeState] =
-    useState<NormAddressee>("administration");
+    useState<NormAddressee>(readStoredNormAddressee);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedModelHydrated, setSelectedModelHydrated] = useState(false);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
@@ -282,6 +301,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         for (const storageKey of READINESS_STORAGE_KEYS) {
           readinessSetters[storageKey](status[storageKey]);
+        }
+        // Wenn das Backend keine by_addressee-Maps liefert, rutschen
+        // Business/Citizens auf den Legacy-Pfad mit stummem "false"
+        // zurueck. Das ist nur im Uebergangszustand zulaessig - wir
+        // loggen einen Warnhinweis, damit solche Faelle im Audit
+        // auffindbar bleiben.
+        const missingByAddresseeKeys: string[] = [];
+        if (!status.processes_ready_by_addressee) missingByAddresseeKeys.push("processes_ready_by_addressee");
+        if (!status.case_groups_ready_by_addressee) missingByAddresseeKeys.push("case_groups_ready_by_addressee");
+        if (!status.process_steps_ready_by_addressee) missingByAddresseeKeys.push("process_steps_ready_by_addressee");
+        if (!status.effort_ready_by_addressee) missingByAddresseeKeys.push("effort_ready_by_addressee");
+        if (!status.total_cost_ready_by_addressee) missingByAddresseeKeys.push("total_cost_ready_by_addressee");
+        if (missingByAddresseeKeys.length > 0) {
+          logDebug(
+            "[AppContext] event=addressee_readiness_fallback Backend lieferte keine by_addressee-Maps",
+            { appSessionId, missing: missingByAddresseeKeys }
+          );
         }
         setAddresseeReadiness((prev) =>
           AUTOMATED_NORM_ADDRESSEES.reduce(
