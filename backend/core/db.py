@@ -279,7 +279,10 @@ def get_default_pay_rates_for_addressee(
         defaults = _resolve_pay_rate_defaults(cur, administration_level)
         _maybe_close(conn)
         return defaults
-    return {key: 0.0 for key in PAY_RATE_KEYS}
+    raise ValueError(
+        f"pay-rate defaults are only defined for {ADMINISTRATION} and {BUSINESS}, "
+        f"got norm_addressee={norm_addressee!r}"
+    )
 
 
 def _empty_pay_rate_edits() -> dict[str, float | None]:
