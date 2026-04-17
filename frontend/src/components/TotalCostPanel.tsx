@@ -38,49 +38,81 @@ export default function TotalCostPanel() {
     setStatus(null);
     setStatusTone("success");
     setIsRunning(true);
+    const addressees = ["administration", "business", "citizens"] as const;
+    const labels: Record<(typeof addressees)[number], string> = {
+      administration: "Verwaltung",
+      business: "Wirtschaft",
+      citizens: "Buerger",
+    };
     try {
-      const [adminResult, businessResult, citizensResult] = await Promise.all([
-        apiClient.computeTotalCost({
-          appSessionId: state.appSessionId,
-          normAddressee: "administration",
-        }),
-        apiClient.computeTotalCost({
-          appSessionId: state.appSessionId,
-          normAddressee: "business",
-        }),
-        apiClient.computeTotalCost({
-          appSessionId: state.appSessionId,
-          normAddressee: "citizens",
-        }),
-      ]);
-      window.dispatchEvent(new Event("tiles-updated"));
-      setTotalCostReady(true);
-      const adminLine = ` Verwaltung: ${formatEuro(adminResult.total_cost)}.`;
-      const businessLine = ` Wirtschaft: ${formatEuro(businessResult.total_cost)}.`;
-      const citizensTimeLine =
-        typeof citizensResult.total_time_hours === "number"
-          ? ` Zeit ${citizensResult.total_time_hours.toFixed(2)} Std.`
-          : null;
-      const citizensExpensesLine =
-        typeof citizensResult.total_expenses === "number"
-          ? ` Sachaufwand ${citizensResult.total_expenses.toFixed(2)} EUR`
-          : null;
-      const citizensDetail =
-        citizensTimeLine || citizensExpensesLine
-          ? ` ${[citizensTimeLine, citizensExpensesLine].filter(Boolean).join(", ")}.`
-          : " Aufwand berechnet.";
-      const citizensLine = ` Buerger:${citizensDetail}`;
-      setStatusTone("success");
-      setStatus(
-        `Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.${adminLine}${businessLine}${citizensLine}`
+      const settled = await Promise.allSettled(
+        addressees.map((na) =>
+          apiClient.computeTotalCost({
+            appSessionId: state.appSessionId,
+            normAddressee: na,
+          })
+        )
       );
-      setCurrentTab(6);
-    } catch (error) {
-      logClientError("TotalCostPanel.computeTotalCost", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatusTone("error");
-      setStatus(formatActionErrorMessage("Gesamtkosten konnten nicht berechnet werden", error));
+    const successes: { na: (typeof addressees)[number]; result: Awaited<ReturnType<typeof apiClient.computeTotalCost>> }[] = [];
+    const failures: { na: (typeof addressees)[number]; error: unknown }[] = [];
+    settled.forEach((outcome, idx) => {
+      const na = addressees[idx];
+      if (outcome.status === "fulfilled") {
+        successes.push({ na, result: outcome.value });
+      } else {
+        failures.push({ na, error: outcome.reason });
+        logClientError(`TotalCostPanel.computeTotalCost[${na}]`, outcome.reason, {
+          appSessionId: state.appSessionId,
+        });
+      }
+    });
+
+    window.dispatchEvent(new Event("tiles-updated"));
+
+    const successLines = successes.map(({ na, result }) => {
+      if (na === "citizens") {
+        const timePart =
+          typeof result.total_time_hours === "number"
+            ? `Zeit ${result.total_time_hours.toFixed(2)} Std.`
+            : null;
+        const expensesPart =
+          typeof result.total_expenses === "number"
+            ? `Sachaufwand ${result.total_expenses.toFixed(2)} EUR`
+            : null;
+        const detail =
+          timePart || expensesPart
+            ? [timePart, expensesPart].filter(Boolean).join(", ")
+            : "Aufwand berechnet";
+        return ` ${labels[na]}: ${detail}.`;
+      }
+      return ` ${labels[na]}: ${formatEuro(result.total_cost)}.`;
+    });
+
+    const failureLines = failures.map(
+      ({ na, error }) =>
+        ` ${labels[na]}: Fehler (${formatActionErrorMessage("Berechnung fehlgeschlagen", error)})`
+    );
+
+      if (failures.length === 0) {
+        setTotalCostReady(true);
+        setStatusTone("success");
+        setStatus(
+          `Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.${successLines.join("")}`
+        );
+        setCurrentTab(6);
+      } else if (successes.length === 0) {
+        setStatusTone("error");
+        setStatus(
+          `Gesamtkosten konnten fuer keinen Normadressaten berechnet werden.${failureLines.join("")}`
+        );
+      } else {
+        // Teilweiser Erfolg: totalCostReady bleibt false, damit der Nutzer
+        // den fehlenden NA gezielt nachziehen kann.
+        setStatusTone("error");
+        setStatus(
+          `Teilweise berechnet.${successLines.join("")}${failureLines.join("")}`
+        );
+      }
     } finally {
       setIsRunning(false);
     }
