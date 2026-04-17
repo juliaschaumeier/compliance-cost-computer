@@ -168,11 +168,16 @@ export default function EaPayRatesTab({
     if (!open || !active) {
       return;
     }
+    // Citizens haben keine Lohnsaetze - API-Call und ggf. 422 wegen
+    // fehlendem Support vermeiden.
+    if (normAddressee === "citizens") {
+      return;
+    }
     if (loadedSessionKey === loadKey && payRates) {
       return;
     }
     loadPayRates();
-  }, [open, active, loadPayRates, loadedSessionKey, loadKey, payRates]);
+  }, [open, active, normAddressee, loadPayRates, loadedSessionKey, loadKey, payRates]);
 
   const handleSave = async () => {
     if (!payRates || !hasDirtyEdited || hasInvalidInput) {
@@ -237,6 +242,25 @@ export default function EaPayRatesTab({
 
   if (!active) {
     return null;
+  }
+
+  if (normAddressee === "citizens") {
+    // Bürgerinnen und Bürger haben methodisch keine Lohnsätze (nur Zeit-
+    // und Sachaufwand). Der Tab zeigt deshalb einen klaren Hinweis
+    // statt Pseudo-Eingabefelder ("Zeit", "Reserve B/C/D"), die vom
+    // Backend ohnehin ignoriert werden.
+    return (
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
+        <p className="font-semibold text-slate-800">
+          Lohnsätze sind für Bürgerinnen und Bürger nicht anwendbar.
+        </p>
+        <p className="mt-2">
+          Für diesen Normadressaten werden nur Zeitaufwand (in Minuten) und
+          Sachaufwand (in Euro) berücksichtigt. Eine Monetarisierung der Zeit
+          erfolgt nicht.
+        </p>
+      </div>
+    );
   }
 
   if (isLoading) {
