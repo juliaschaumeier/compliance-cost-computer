@@ -27,11 +27,6 @@ python -m pytest tests_review/contracts/ -v
   Test-Name referenziert Block und Befundnummer.
 - `contracts/` — JSON-Schema- und Parser-Verträge zwischen LLM und Backend.
 
-## Begleitdokumente
-
-- `tmp/CODE_REVIEW_2026-04-14.md` — Befundkatalog
-- `tmp/TEST_STRATEGY_2026-04-14.md` — Vollständige Test-Strategie (10 Schichten)
-
 ## Hinweis zu behobenen Befunden
 
 Vier ursprünglich als KRITISCH markierte Befunde waren beim Schreiben der Tests

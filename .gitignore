@@ -26,7 +26,8 @@ testing_ground.ipynb
 results/
 regulations/
 *.db
-tmp/traces/
+tmp/
+REVIEW_*.md
 
 # Frontend
 frontend/node_modules/
