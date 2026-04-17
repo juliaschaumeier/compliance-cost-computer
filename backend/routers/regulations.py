@@ -148,15 +148,16 @@ def _parse_vorgaben(payload: str) -> list[dict]:
         # Per Leitfaden (StBA): Die Unterscheidung zwischen Informationspflichten
         # und uebrigen Vorgaben ist nur fuer Wirtschaft gefordert. Setzt das LLM
         # das Flag ohne BUSINESS im Normadressaten-Set, ergaenzen wir BUSINESS
-        # (robust gegen unvollstaendige LLM-Ausgaben) UND loggen den Vorfall,
-        # damit Folge-Korrekturen auffindbar sind.
+        # (robust gegen unvollstaendige LLM-Ausgaben) UND emittieren ein
+        # strukturiertes Audit-Event, damit solche Faelle systematisch
+        # auswertbar bleiben (grep "event=ip_flag_repair").
         if is_business_information_obligation and BUSINESS not in normadressaten:
             logger.warning(
-                "regulations_identification: informationspflicht-Flag ohne "
-                "BUSINESS-Normadressat; BUSINESS wird ergaenzt. normzitat=%r "
-                "normadressaten=%r",
+                "event=ip_flag_repair reason=missing_business_in_addressees "
+                "normzitat=%r addressees_before=%r addressees_after=%r",
                 normzitat[:120],
                 list(normadressaten),
+                list(normadressaten) + [BUSINESS],
             )
             normadressaten.append(BUSINESS)
         if not normzitat and not beschreibung:

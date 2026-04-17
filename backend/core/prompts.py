@@ -527,6 +527,13 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         betroffener Normadressat auszuweisen. Ein bloss mittelbarer Mehraufwand ohne
         konkreten Vollzugsauftrag ist hingegen nicht der Verwaltung zuzuordnen – erfinden Sie keine Verwaltungsvorgaben, wo keine sind.
 
+        Hinweis zu `ist_informationspflicht_wirtschaft`: Dieses Flag ist ausschliesslich fuer den Normadressaten
+        Wirtschaft (`business`) vorgesehen und kennzeichnet eine Informationspflicht im Sinne des Leitfadens.
+        Setzen Sie das Flag nur dann auf "1", wenn (a) `business` im `normadressaten`-Array enthalten ist UND
+        (b) die Vorgabe fuer die Wirtschaft eine Informationspflicht darstellt. In allen anderen Faellen - also
+        bei reinen Verwaltungs- oder Buerger-Vorgaben, oder bei Wirtschaftsvorgaben ohne Informationspflicht-Charakter -
+        setzen Sie das Flag auf "0".
+
         Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
 
         {{
