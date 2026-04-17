@@ -91,7 +91,10 @@ def _parse_summary(payload: str) -> tuple[str, str, str]:
         return "", "", ""
 
     cleaned = clean_llm_payload(payload)
-    data = parse_json_object(payload)
+    try:
+        data = parse_json_object(payload)
+    except ValueError:
+        data = None
     if data:
         title = str(data.get("title", "")).strip()
         blurb = str(data.get("blurb", "")).strip()

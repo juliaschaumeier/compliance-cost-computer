@@ -37,8 +37,10 @@ def extract_last_json_object(payload: str) -> dict[str, Any] | None:
     return last
 
 
-def parse_json_object(payload: str) -> dict[str, Any] | None:
+def parse_json_object(payload: str) -> dict[str, Any]:
     data, _parse_mode = parse_json_object_with_mode(payload)
+    if not isinstance(data, dict):
+        raise ValueError("no JSON object found in payload")
     return data
 
 

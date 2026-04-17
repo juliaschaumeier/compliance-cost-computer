@@ -70,16 +70,6 @@ def test_extract_last_json_object_returns_none_for_empty_input():
     assert extract_last_json_object("nichts hier") is None
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Bekannter Silent-Failure-Pfad (Review-Befund Block 2-kritisch): "
-        "parse_json_object gibt bei kaputtem Input still None zurueck. "
-        "Aufrufer in Routern muessen das selber pruefen. Test soll xpassen, "
-        "sobald parse_json_object selbst hart wirft oder durch "
-        "require_json_object ersetzt wurde."
-    ),
-    strict=True,
-)
-def test_parse_json_object_should_raise_on_garbage_not_return_none():
-    with pytest.raises(Exception):
+def test_parse_json_object_raises_on_garbage():
+    with pytest.raises(ValueError):
         parse_json_object("kein json hier")
