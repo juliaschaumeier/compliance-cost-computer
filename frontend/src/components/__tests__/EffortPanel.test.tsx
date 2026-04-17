@@ -151,7 +151,9 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     expect(
-      await screen.findByText("Aufwand konnte nicht berechnet werden: boom")
+      await screen.findByText(
+        /Aufwand berechnen fehlgeschlagen fuer alle Normadressaten.*Verwaltung.*Wirtschaft.*Buerger/
+      )
     ).toBeInTheDocument();
     expect(setCurrentTab).not.toHaveBeenCalled();
   });

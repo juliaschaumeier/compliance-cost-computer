@@ -4,9 +4,8 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { runPerAddressee } from "@/lib/runPerAddressee";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
-import { AUTOMATED_NORM_ADDRESSEES } from "@/types";
 
 export default function ProcessStepsPanel() {
   const { state, setCurrentTab, setProcessStepsReady } = useApp();
@@ -36,27 +35,26 @@ export default function ProcessStepsPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await Promise.all(
-        AUTOMATED_NORM_ADDRESSEES.map((normAddressee) =>
+      const outcome = await runPerAddressee({
+        logScope: "ProcessStepsPanel.analyzeProcessSteps",
+        logContext: { appSessionId: state.appSessionId },
+        operationLabel: "Prozessschritte bestimmen",
+        run: (normAddressee) =>
           apiClient.analyzeProcessSteps({
             appSessionId: state.appSessionId,
             normAddressee,
             model: llm.model,
             provider: llm.provider,
             keys: llm.keys,
-          })
-        )
-      );
-      window.dispatchEvent(new Event("tiles-updated"));
-      setProcessStepsReady(true);
-      setCurrentTab(5);
-    } catch (error) {
-      logClientError("ProcessStepsPanel.analyzeProcessSteps", error, {
-        appSessionId: state.appSessionId,
+          }),
       });
-      setStatus(
-        formatActionErrorMessage("Prozessschritte konnten nicht bestimmt werden", error)
-      );
+      window.dispatchEvent(new Event("tiles-updated"));
+      if (outcome.allSucceeded) {
+        setProcessStepsReady(true);
+        setCurrentTab(5);
+      } else {
+        setStatus(outcome.statusMessage);
+      }
     } finally {
       setIsRunning(false);
     }

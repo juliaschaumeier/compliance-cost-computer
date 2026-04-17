@@ -4,9 +4,8 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { runPerAddressee } from "@/lib/runPerAddressee";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
-import { AUTOMATED_NORM_ADDRESSEES } from "@/types";
 
 export default function ProcessesPanel() {
   const { state, setCurrentTab, setProcessesReady } = useApp();
@@ -36,25 +35,26 @@ export default function ProcessesPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await Promise.all(
-        AUTOMATED_NORM_ADDRESSEES.map((normAddressee) =>
+      const outcome = await runPerAddressee({
+        logScope: "ProcessesPanel.compileProcesses",
+        logContext: { appSessionId: state.appSessionId },
+        operationLabel: "Prozesse buendeln",
+        run: (normAddressee) =>
           apiClient.compileProcesses({
             appSessionId: state.appSessionId,
             normAddressee,
             model: llm.model,
             provider: llm.provider,
             keys: llm.keys,
-          })
-        )
-      );
-      window.dispatchEvent(new Event("tiles-updated"));
-      setProcessesReady(true);
-      setCurrentTab(3);
-    } catch (error) {
-      logClientError("ProcessesPanel.compileProcesses", error, {
-        appSessionId: state.appSessionId,
+          }),
       });
-      setStatus(formatActionErrorMessage("Prozesse konnten nicht gebündelt werden", error));
+      window.dispatchEvent(new Event("tiles-updated"));
+      if (outcome.allSucceeded) {
+        setProcessesReady(true);
+        setCurrentTab(3);
+      } else {
+        setStatus(outcome.statusMessage);
+      }
     } finally {
       setIsRunning(false);
     }

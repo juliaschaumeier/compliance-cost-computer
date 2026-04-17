@@ -4,9 +4,8 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { runPerAddressee } from "@/lib/runPerAddressee";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
-import { AUTOMATED_NORM_ADDRESSEES } from "@/types";
 
 export default function EffortPanel() {
   const { state, setCurrentTab, setEffortReady } = useApp();
@@ -36,18 +35,27 @@ export default function EffortPanel() {
       availableModels: state.availableModels,
     });
     try {
-      const results = await Promise.all(
-        AUTOMATED_NORM_ADDRESSEES.map((normAddressee) =>
+      const outcome = await runPerAddressee({
+        logScope: "EffortPanel.calculateEffort",
+        logContext: { appSessionId: state.appSessionId },
+        operationLabel: "Aufwand berechnen",
+        run: (normAddressee) =>
           apiClient.calculateEffort({
             appSessionId: state.appSessionId,
             normAddressee,
             model: llm.model,
             provider: llm.provider,
             keys: llm.keys,
-          })
-        )
+          }),
+      });
+      if (!outcome.allSucceeded) {
+        setStatus(outcome.statusMessage);
+        return;
+      }
+      const allExisting = outcome.successes.every(
+        ({ result }) => result.status === "existing"
       );
-      if (results.every((result) => result.status === "existing")) {
+      if (allExisting) {
         setStatus(
           "Aufwand fuer Verwaltung, Wirtschaft und Buerger wurde bereits berechnet."
         );
@@ -59,11 +67,6 @@ export default function EffortPanel() {
       setEffortReady(true);
       setStatus("Aufwand fuer Verwaltung, Wirtschaft und Buerger berechnet.");
       setCurrentTab(6);
-    } catch (error) {
-      logClientError("EffortPanel.calculateEffort", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatus(formatActionErrorMessage("Aufwand konnte nicht berechnet werden", error));
     } finally {
       setIsRunning(false);
     }
