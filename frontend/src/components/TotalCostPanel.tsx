@@ -92,8 +92,9 @@ export default function TotalCostPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Beim Klick auf „Gesamtkosten berechnen“ werden Schritt-, Fallgruppen-
-            und Prozesskosten fuer Verwaltung, Wirtschaft und Buerger gleichzeitig
-            berechnet. Der Umschalter in der Graph-Ansicht wechselt nur die Darstellung.
+            und Prozesskosten in einem Durchgang für Verwaltung, Wirtschaft und
+            Bürger berechnet, dabei aber je Normadressat eigene Kostensichten
+            erzeugt. Der Umschalter zeigt die Sicht des ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleCompute}

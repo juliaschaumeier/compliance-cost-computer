@@ -75,9 +75,10 @@ export default function EffortPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Beim Klick auf „Aufwand berechnen“ werden Fallzahlen je Fallgruppe sowie
-            Lohnsatz-, Zeit- und Sachaufwände je Prozessschritt fuer Verwaltung,
-            Wirtschaft und Buerger gleichzeitig ermittelt. Der Umschalter in der
-            Graph-Ansicht wechselt nur die Darstellung.
+            Lohnsatz-, Zeit- und Sachaufwände je Prozessschritt ermittelt. Der Lauf
+            berechnet die Werte in einem Durchgang für Verwaltung, Wirtschaft und
+            Bürger, erzeugt dabei aber je Normadressat eigene Aufwandssichten. Der
+            Umschalter zeigt die Sicht des ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleCalculate}

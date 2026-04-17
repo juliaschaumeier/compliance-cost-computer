@@ -72,9 +72,9 @@ export default function CaseGroupsPanel() {
             <span className="block">
               Jede Fallgruppe beschreibt eine typische Ausprägung der Ausführung,
               damit der Erfüllungsaufwand getrennt ermittelt werden kann. Der Lauf
-              entwickelt die Daten fuer Verwaltung, Wirtschaft und Buerger
-              gleichzeitig; der Umschalter in der Graph-Ansicht wechselt nur die
-              Darstellung.
+              entwickelt Fallgruppen in einem Durchgang für Verwaltung, Wirtschaft
+              und Bürger, erzeugt dabei aber je Normadressat eine eigene fachliche
+              Sicht. Der Umschalter zeigt die Sicht des ausgewählten Normadressaten.
             </span>
           </p>
           <button

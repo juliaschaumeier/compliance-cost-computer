@@ -68,9 +68,10 @@ export default function ProcessStepsPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Für jede Fallgruppe werden die notwendigen Tätigkeiten identifiziert
-            und als Prozessschritte erfasst. Der Lauf entwickelt die Daten fuer
-            Verwaltung, Wirtschaft und Buerger gleichzeitig; der Umschalter in der
-            Graph-Ansicht wechselt nur die Darstellung.
+            und als Prozessschritte erfasst. Der Lauf bestimmt die Prozessschritte
+            in einem Durchgang für Verwaltung, Wirtschaft und Bürger, erzeugt dabei
+            aber je Normadressat eigene Ergebnisse. Der Umschalter zeigt die Sicht
+            des ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleAnalyze}
