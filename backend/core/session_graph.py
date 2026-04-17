@@ -272,8 +272,7 @@ def build_session_tiles_snapshot(
             )
 
     if (
-        resolved != ADMINISTRATION
-        and not regulations
+        not regulations
         and not processes
         and not case_groups
         and not steps

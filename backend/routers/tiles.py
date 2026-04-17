@@ -80,8 +80,6 @@ def _tiles_need_empty_state_rebuild(
     session_id: int,
     norm_addressee: str,
 ) -> bool:
-    if norm_addressee == ADMINISTRATION:
-        return False
     tile_ids = {tile.id for tile in tiles}
     if "empty_addressee" in tile_ids:
         return False
