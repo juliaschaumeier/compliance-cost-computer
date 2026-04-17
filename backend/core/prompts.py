@@ -723,38 +723,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         `vorgaben_ids` als Liste der passenden `vorgaben_id`-Werte an. Wenn im Prozess nur genau eine Vorgabe enthalten ist, soll diese eine `vorgaben_id`
         auch bei allen zugehoerigen Taetigkeiten angegeben werden.
 
-        Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten zur Erfüllung 
-        von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.
-
-        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar
-        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten
-        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.
-        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.
-
-        Checkliste:
-        • Mit der Vorgabe vertraut machen 
-        • Beratung, Führen von Vorgesprächen mit Antragstellerinnen und Antragstellern 
-        • Formelle Prüfung, Daten und Informationen sichten und zusammenstellen, Vollständigkeitsprüfung 
-        • Eingangsbestätigung oder fehlende Daten/Informationen einholen 
-        • Inhaltliche Prüfung, Berechnungen und Bewertungen durchführen 
-        • Interne oder externe Besprechungen (z. B. Anhörungen) 
-        • Formulare ausfüllen bzw. vervollständigen, Daten erfassen, Kennzeichnungen vornehmen 
-        • Ergebnisse/Berechnungen prüfen und ggf. korrigieren 
-        • Datenübermittlung und Veröffentlichung 
-        • Zahlungen anweisen 
-        • Korrektur (z. B. aufgrund von Beteiligungsverfahren) bzw. weitere Informationen bei Rückfragen vorlegen 
-        • Informationen abschließend aufbereiten 
-        • Bescheid erstellen 
-        • Kopieren, verteilen, archivieren, dokumentieren 
-        • Überwachungs- und Aufsichtsmaßnahmen, Risikoklassifizierung 
-        • Beschaffen von Waren, Dienstleistungen und/oder zusätzlichem Personal 
-        • Anpassen von internen Prozessabläufen 
-        • Teilnahme an Fortbildungen und Schulungen 
-        • Wege zu anderen Behörden, Organisationen oder Unternehmen 
-
-        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. 
-        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar
-        abgegrenzter und gut begründbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltätigkeiten.
+        {step_analysis_checklist}
         
         Bei Daueraufgaben oder wenn gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, kann es zweckmäßig 
         sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
@@ -1074,6 +1043,12 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         "handbook_cases_case_example",
         _render_handbook_cases_case_example(norm_addressee),
     )
+    if prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
+        render_values.setdefault(
+            "step_analysis_checklist",
+            _render_step_analysis_checklist(norm_addressee),
+        )
+
     if prompt_id == PromptId.EFFORT_CALCULATION:
         render_values.setdefault(
             "effort_method_guidance",
@@ -1121,6 +1096,54 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     prompt = template.format(**appendix_values, **render_values)
     norm_addressee = render_values.get("norm_addressee")
     return _apply_norm_addressee_prompt_rules(prompt_id, prompt, norm_addressee)
+
+
+# Admin- und Wirtschafts-geprägte Checkliste aus dem Leitfaden. Nicht für
+# Citizens geeignet, weil sie verwaltungsinterne Taetigkeiten (Bescheid,
+# Anhoerung, Aufsicht, Berechnungen etc.) aufzaehlt. Citizens-Runs bekommen
+# stattdessen eine leere Checkliste im Basisprompt und die buergerbezogene
+# Liste aus CITIZENS_PROMPT_RULES.
+_PROCESS_STEP_ANALYSIS_CHECKLIST_ADMIN_BUSINESS = (
+    "Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten zur Erfüllung \n"
+    "        von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.\n\n"
+    "        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
+    "        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
+    "        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
+    "        Checkliste:\n"
+    "        • Mit der Vorgabe vertraut machen \n"
+    "        • Beratung, Führen von Vorgesprächen mit Antragstellerinnen und Antragstellern \n"
+    "        • Formelle Prüfung, Daten und Informationen sichten und zusammenstellen, Vollständigkeitsprüfung \n"
+    "        • Eingangsbestätigung oder fehlende Daten/Informationen einholen \n"
+    "        • Inhaltliche Prüfung, Berechnungen und Bewertungen durchführen \n"
+    "        • Interne oder externe Besprechungen (z. B. Anhörungen) \n"
+    "        • Formulare ausfüllen bzw. vervollständigen, Daten erfassen, Kennzeichnungen vornehmen \n"
+    "        • Ergebnisse/Berechnungen prüfen und ggf. korrigieren \n"
+    "        • Datenübermittlung und Veröffentlichung \n"
+    "        • Zahlungen anweisen \n"
+    "        • Korrektur (z. B. aufgrund von Beteiligungsverfahren) bzw. weitere Informationen bei Rückfragen vorlegen \n"
+    "        • Informationen abschließend aufbereiten \n"
+    "        • Bescheid erstellen \n"
+    "        • Kopieren, verteilen, archivieren, dokumentieren \n"
+    "        • Überwachungs- und Aufsichtsmaßnahmen, Risikoklassifizierung \n"
+    "        • Beschaffen von Waren, Dienstleistungen und/oder zusätzlichem Personal \n"
+    "        • Anpassen von internen Prozessabläufen \n"
+    "        • Teilnahme an Fortbildungen und Schulungen \n"
+    "        • Wege zu anderen Behörden, Organisationen oder Unternehmen \n\n"
+    "        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. \n"
+    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
+    "        abgegrenzter und gut begründbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltätigkeiten."
+)
+
+
+def _render_step_analysis_checklist(norm_addressee: str | None) -> str:
+    if norm_addressee == CITIZENS:
+        # Die Admin/Wirtschaft-Checkliste enthaelt verwaltungsinterne
+        # Taetigkeiten (Bescheid, Anhoerung, Aufsicht), die fuer Buergerinnen
+        # und Buerger nicht passen. Die buergerbezogene Checkliste kommt
+        # stattdessen aus CITIZENS_PROMPT_RULES[PROCESS_STEP_ANALYSIS].
+        return ""
+    return _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMIN_BUSINESS
 
 
 def _apply_norm_addressee_prompt_rules(
