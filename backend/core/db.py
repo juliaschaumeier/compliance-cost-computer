@@ -2204,6 +2204,11 @@ def get_reusable_pending_llm_answer(
     prompt_sha256: str,
     norm_addressee: str | None = None,
 ) -> dict | None:
+    # Nur Zeilen wiederverwenden, die der Paired-Retry-Pfad bewusst auf
+    # "waiting_for_paired_retry" promotet hat. Zombie-Pendings in
+    # "waiting_for_session_update" stammen aus abgebrochenen Requests und
+    # duerfen NICHT reused werden (sie werden beim naechsten Staging via
+    # create_pending_llm_answer ohnehin superseded).
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -2214,6 +2219,7 @@ def get_reusable_pending_llm_answer(
           AND prompt_id = ?
           AND model = ?
           AND answer_state = ?
+          AND state_reason = 'waiting_for_paired_retry'
           AND COALESCE(norm_addressee, '') = COALESCE(?, '')
         ORDER BY answer_id DESC
         """,

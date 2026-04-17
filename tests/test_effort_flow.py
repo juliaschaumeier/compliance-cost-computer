@@ -984,6 +984,53 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
     assert calls == {"cases": 1, "effort": 2}
 
 
+def test_get_reusable_pending_llm_answer_ignores_waiting_for_session_update_zombies():
+    # Regression: Pending-Zeilen mit state_reason="waiting_for_session_update"
+    # stammen aus Requests, die nach dem Staging abnormal terminiert sind
+    # (Crash, Disconnect, Timeout). Sie duerfen NICHT als wiederverwendbar
+    # zurueckgegeben werden — nur explizit auf "waiting_for_paired_retry"
+    # promotete Zeilen sind sichere Retry-Kandidaten.
+    session_id, _ = db.upsert_session("LLM-REUSE-ZOMBIE", "test-model")
+
+    metadata = {"provider": "openai", "prompt_sha256": "deadbeef"}
+    answer_id = db.create_pending_llm_answer(
+        session_id=session_id,
+        prompt_id="cases_calculation",
+        model="test-model",
+        answer_text='{"prozesse": []}',
+        metadata=metadata,
+    )
+
+    # Direkt nach dem Staging steht state_reason auf "waiting_for_session_update".
+    # Der Reuse-Lookup muss diese Zombie-Zeile ignorieren.
+    zombie = db.get_reusable_pending_llm_answer(
+        session_id=session_id,
+        prompt_id="cases_calculation",
+        model="test-model",
+        provider="openai",
+        prompt_sha256="deadbeef",
+    )
+    assert zombie is None
+
+    # Sobald der Paired-Retry-Pfad die Zeile bewusst auf
+    # "waiting_for_paired_retry" promotet hat, darf sie reused werden.
+    db.update_llm_answer_state_reason(
+        answer_id,
+        "waiting_for_paired_retry",
+        state=db.LLM_ANSWER_STATE_PENDING,
+    )
+    reusable = db.get_reusable_pending_llm_answer(
+        session_id=session_id,
+        prompt_id="cases_calculation",
+        model="test-model",
+        provider="openai",
+        prompt_sha256="deadbeef",
+    )
+    assert reusable is not None
+    assert reusable["answer_id"] == answer_id
+    assert reusable["state_reason"] == "waiting_for_paired_retry"
+
+
 def test_llm_answers_scoped_by_norm_addressee_do_not_supersede():
     # Regression fuer Session 37Z9IJ: wenn zuerst der Verwaltungs-Lauf und
     # danach der Wirtschafts-Lauf einen Answer fuer denselben Prompt staged,
