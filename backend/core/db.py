@@ -46,8 +46,8 @@ PAY_RATE_BUSINESS_DEFAULTS: dict[str, float] = {
     "c": 62.4,
     "d": 38.6,
 }
-NORM_ADDRESSEE_CHECK_SQL = (
-    "CHECK (norm_addressee IN ('administration', 'business', 'citizens'))"
+NORM_ADDRESSEE_CHECK_SQL = "CHECK (norm_addressee IN ({values}))".format(
+    values=", ".join(f"'{na}'" for na in SUPPORTED_NORM_ADDRESSEES)
 )
 
 
