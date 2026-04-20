@@ -132,7 +132,7 @@ type ReadinessStorageKey = (typeof READINESS_STORAGE_KEYS)[number];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const logDebug = useCallback((message: string, details?: Record<string, unknown>) => {
-    if (process.env.NODE_ENV !== "production") {
+    if (process.env.NODE_ENV === "development") {
       console.debug(message, details);
     }
   }, []);
