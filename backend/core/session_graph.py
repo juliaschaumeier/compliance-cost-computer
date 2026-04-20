@@ -271,8 +271,10 @@ def build_session_tiles_snapshot(
                 )
             )
 
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
     if (
-        not regulations
+        session_has_any_regulations
+        and not regulations
         and not processes
         and not case_groups
         and not steps
