@@ -80,7 +80,6 @@ def test_undo_total_cost_clears_costs_only(test_client):
     db.update_process_step_cost(session_id, seeded["step_id"], None, 25)
     db.update_case_group_cost(session_id, seeded["case_group_id"], 50)
     db.update_process_cost(session_id, seeded["process_id"], 50)
-    db.update_session_cost(session_id, 50)
     db.upsert_session_total_costs_by_addressee(
         session_id=session_id,
         norm_addressee=ADMINISTRATION,
@@ -431,7 +430,6 @@ def test_undo_total_cost_clears_all_norm_addressees(test_client):
     db.update_process_step_cost(session_id, admin["step_id"], None, 25)
     db.update_case_group_cost(session_id, admin["case_group_id"], 50)
     db.update_process_cost(session_id, admin["process_id"], 50)
-    db.update_session_cost(session_id, 50)
     db.upsert_session_total_costs_by_addressee(
         session_id=session_id,
         norm_addressee=ADMINISTRATION,

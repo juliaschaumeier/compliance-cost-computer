@@ -699,8 +699,6 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
             total_time_minutes=total_time_minutes,
             total_expenses=total_expenses,
         )
-        if norm_addressee == ADMINISTRATION:
-            db.update_session_cost(session_id, total_cost or 0.0)
         refresh_case_group_tiles(session_id, case_groups, norm_addressee=norm_addressee)
         refresh_step_tiles(session_id, steps, norm_addressee=norm_addressee)
         _refresh_process_tiles(

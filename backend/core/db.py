@@ -351,6 +351,51 @@ def _create_used_models_triggers(cur: sqlite3.Cursor) -> None:
     )
 
 
+def _create_session_cc_cost_triggers(cur: sqlite3.Cursor) -> None:
+    """Keep sessions.cc_cost in sync with SUM(total_cost) across all norm
+    addressees in session_total_costs_by_addressee. NULL total_cost entries
+    (e.g. citizens, whose effort is measured in time) contribute nothing;
+    cc_cost becomes NULL when no per-addressee row exists for the session.
+    """
+    recompute = """
+        UPDATE sessions
+        SET cc_cost = (
+            SELECT SUM(total_cost)
+            FROM session_total_costs_by_addressee
+            WHERE session_id = {sid}
+        )
+        WHERE session_id = {sid};
+    """
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_session_total_costs_cc_cost_ai
+        AFTER INSERT ON session_total_costs_by_addressee
+        BEGIN
+            {recompute.format(sid='NEW.session_id')}
+        END
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_session_total_costs_cc_cost_au
+        AFTER UPDATE OF total_cost, session_id ON session_total_costs_by_addressee
+        BEGIN
+            {recompute.format(sid='OLD.session_id')}
+            {recompute.format(sid='NEW.session_id')}
+        END
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_session_total_costs_cc_cost_ad
+        AFTER DELETE ON session_total_costs_by_addressee
+        BEGIN
+            {recompute.format(sid='OLD.session_id')}
+        END
+        """
+    )
+
+
 def _create_citizens_hourly_rate_triggers(cur: sqlite3.Cursor) -> None:
     """Prevent persisted hourly rates for citizens rows in process_steps."""
     citizen_rate_guard = """
@@ -1050,6 +1095,20 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     if needs_used_models_backfill:
         _refresh_all_session_used_models(cur)
 
+    # Backfill sessions.cc_cost auf Summe aller NA total_cost. Bis hierhin lag
+    # cc_cost nur fuer ADMINISTRATION vor; bestehende DBs werden so an die
+    # neue Semantik angeglichen. Idempotent.
+    cur.execute(
+        """
+        UPDATE sessions
+        SET cc_cost = (
+            SELECT SUM(total_cost)
+            FROM session_total_costs_by_addressee
+            WHERE session_id = sessions.session_id
+        )
+        """
+    )
+
     _create_parent_composite_indexes(cur)
     _migrate_addressee_metrics_into_parent_tables(cur)
 
@@ -1437,6 +1496,7 @@ def init_db() -> None:
     _migrate_tile_tables_to_norm_addressee(cur)
     _create_used_models_triggers(cur)
     _create_citizens_hourly_rate_triggers(cur)
+    _create_session_cc_cost_triggers(cur)
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -3848,25 +3908,6 @@ def update_session_summary(
     _maybe_close(conn)
 
 
-def update_session_cost(session_id: int, cost: float | None) -> None:
-    # Legacy-Kompatibilitaetsspiegel nur fuer ADMINISTRATION. Die kanonische
-    # NA-spezifische Aggregation liegt in session_total_costs_by_addressee und
-    # wird ueber upsert_session_total_costs_by_addressee gepflegt. Nicht fuer
-    # business/citizens aufrufen.
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE sessions
-        SET cc_cost = ?
-        WHERE session_id = ?
-        """,
-        (cost, session_id),
-    )
-    _maybe_commit(conn)
-    _maybe_close(conn)
-
-
 def upsert_session_total_costs_by_addressee(
     session_id: int,
     norm_addressee: str,
@@ -4053,15 +4094,6 @@ def clear_costs(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
         """,
         (session_id, resolved),
     )
-    if resolved == ADMINISTRATION:
-        cur.execute(
-            """
-            UPDATE sessions
-            SET cc_cost = NULL
-            WHERE session_id = ?
-            """,
-            (session_id,),
-        )
     _maybe_commit(conn)
     _maybe_close(conn)
 

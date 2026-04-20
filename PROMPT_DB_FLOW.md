@@ -189,7 +189,7 @@ Input:
 Speichert:
 
 - Kosten auf Step-/Prozess-/Session-Ebene
-- `sessions.cc_cost` weiterhin als Verwaltungs-Kompatibilitaetsfeld
+- `sessions.cc_cost` als Summe der `total_cost` ueber alle Normadressaten (via SQL-Trigger auf `session_total_costs_by_addressee` automatisch gepflegt)
 - `session_total_costs_by_addressee` fuer addressee-spezifische Gesamtsummen
   - `total_cost`
   - `bureaucracy_cost`
