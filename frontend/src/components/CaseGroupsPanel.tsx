@@ -65,17 +65,13 @@ export default function CaseGroupsPanel() {
       <div className="mx-auto max-w-6xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
-            <span className="block">
-              Wenn Prozesse auf unterschiedlichen Wegen erfüllt werden, werden
-              Fallgruppen gebildet.
-            </span>
-            <span className="block">
-              Jede Fallgruppe beschreibt eine typische Ausprägung der Ausführung,
-              damit der Erfüllungsaufwand getrennt ermittelt werden kann. Der Lauf
-              entwickelt Fallgruppen in einem Durchgang für Verwaltung, Wirtschaft
-              und Bürger, erzeugt dabei aber je Normadressat eine eigene fachliche
-              Sicht. Der Umschalter zeigt die Sicht des ausgewählten Normadressaten.
-            </span>
+            Wenn Prozesse auf unterschiedlichen Wegen erfüllt werden, werden
+            Fallgruppen gebildet. Jede Fallgruppe beschreibt eine typische
+            Ausprägung der Ausführung, damit der Erfüllungsaufwand getrennt
+            ermittelt werden kann. Der Lauf entwickelt Fallgruppen in einem
+            Durchgang für Verwaltung, Wirtschaft und Bürger, erzeugt dabei aber
+            je Normadressat eine eigene fachliche Sicht. Der Umschalter zeigt
+            die Sicht des ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleDevelop}
