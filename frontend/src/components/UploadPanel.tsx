@@ -122,20 +122,22 @@ export default function UploadPanel() {
     }
   };
 
-  const handleFileSelection = (target: UploadTarget, file: File | null) => {
+  const handleFileSelection = async (target: UploadTarget, file: File | null) => {
     setUploadFiles((prev) => ({ ...prev, [target]: file }));
     setStatus(null);
     setConflicts((prev) => ({ ...prev, [target]: null }));
     setSummaryReady(false);
     setShowLists((prev) => ({ ...prev, [target]: false }));
-    if (file) {
-      setRenameValues((prev) => ({ ...prev, [target]: file.name }));
-      if (target === "current") {
-        setSelectedCurrentLaw("");
-      } else {
-        setSelectedRegulation("");
-      }
+    if (!file) {
+      return;
     }
+    setRenameValues((prev) => ({ ...prev, [target]: file.name }));
+    if (target === "current") {
+      setSelectedCurrentLaw("");
+    } else {
+      setSelectedRegulation("");
+    }
+    await handleUpload(target, undefined, file);
   };
 
   const handleUpload = async (
