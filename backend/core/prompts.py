@@ -1127,19 +1127,20 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     return _apply_norm_addressee_prompt_rules(prompt_id, prompt, norm_addressee)
 
 
-# Admin- und Wirtschafts-geprägte Checkliste aus dem Leitfaden. Nicht für
-# Citizens geeignet, weil sie verwaltungsinterne Taetigkeiten (Bescheid,
-# Anhoerung, Aufsicht, Berechnungen etc.) aufzaehlt. Citizens-Runs bekommen
-# stattdessen eine leere Checkliste im Basisprompt und die buergerbezogene
-# Liste aus CITIZENS_PROMPT_RULES.
-_PROCESS_STEP_ANALYSIS_CHECKLIST_ADMIN_BUSINESS = (
+# Verwaltungs-Checkliste aus Leitfaden Erfuellungsaufwand (Feb 2026),
+# Kap. 7.2.1, S. 49 ("Checkliste: Taetigkeiten der Verwaltung zur Erfuellung
+# von Vorgaben oder Prozessen"). Enthaelt verwaltungsinterne Taetigkeiten
+# (Bescheid erstellen, Eingangsbestaetigung, Ueberwachung/Risikoklassifizierung,
+# Zahlungen anweisen) und ist laut Leitfaden ausschliesslich fuer die
+# Verwaltung vorgesehen.
+_PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION = (
     "Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten zur Erfüllung \n"
     "        von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.\n\n"
     "        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
     "        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
     "        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
     "        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
-    "        Checkliste:\n"
+    "        Checkliste (Verwaltung, Leitfaden Erfüllungsaufwand Feb 2026, Kap. 7.2.1, S. 49):\n"
     "        • Mit der Vorgabe vertraut machen \n"
     "        • Beratung, Führen von Vorgesprächen mit Antragstellerinnen und Antragstellern \n"
     "        • Formelle Prüfung, Daten und Informationen sichten und zusammenstellen, Vollständigkeitsprüfung \n"
@@ -1165,14 +1166,61 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMIN_BUSINESS = (
 )
 
 
+# Wirtschafts-Checkliste aus Leitfaden Erfuellungsaufwand (Feb 2026),
+# Kap. 6.2.1, S. 37-38. Teil A listet Standardaktivitaeten zur Erfuellung
+# von Informationspflichten, Teil B ergaenzende Taetigkeiten fuer Vorgaben,
+# die keine Informationspflichten sind. Die Verwaltungs-Checkliste (Kap. 7)
+# ist fuer die Wirtschaft nicht vorgesehen.
+_PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
+    "Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten können die nachfolgenden Checklisten mit möglichen Tätigkeiten \n"
+    "        zur Erfüllung von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.\n\n"
+    "        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
+    "        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
+    "        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
+    "        Checkliste Teil A – Tätigkeiten zur Erfüllung von Informationspflichten der Wirtschaft\n"
+    "        (Leitfaden Erfüllungsaufwand Feb 2026, Kap. 6.2.1, S. 37):\n"
+    "        • Einarbeitung in die Informationspflicht \n"
+    "        • Beschaffung von Daten \n"
+    "        • Formulare ausfüllen, Beschriftung, Kennzeichnung \n"
+    "        • Berechnungen durchführen \n"
+    "        • Überprüfung der Daten und Eingaben \n"
+    "        • Fehlerkorrektur \n"
+    "        • Aufbereitung der Daten \n"
+    "        • Datenübermittlung und -veröffentlichung \n"
+    "        • Interne Sitzungen \n"
+    "        • Externe Sitzungen (z. B. mit Steuerberaterinnen und -beratern) \n"
+    "        • Ausführen von Zahlungsanweisungen \n"
+    "        • Kopieren, Archivieren, Verteilen \n"
+    "        • Mitwirkung bei Prüfung durch öffentliche Stellen (z. B. Betriebsprüfung) \n"
+    "        • Korrekturen, die aufgrund von Prüfungen durchgeführt werden müssen \n"
+    "        • Weitere Informationsbeschaffung \n"
+    "        • Fortbildungs- und Schulungsteilnahmen \n\n"
+    "        Checkliste Teil B – Mögliche weitere Tätigkeiten bei Vorgaben, die keine Informationspflichten sind\n"
+    "        (Leitfaden Erfüllungsaufwand Feb 2026, Kap. 6.2.1, S. 38):\n"
+    "        • Beschaffen von Waren- und Sachleistungen \n"
+    "        • Beschaffen von Dienstleistungen und/oder zusätzlichem Personal \n"
+    "        • Erbringen von eigenen Leistungen (z. B. Installation von Maschinen) \n"
+    "        • Anpassen von internen Prozessabläufen \n"
+    "        • Überwachungsmaßnahmen (z. B. Kontrolle, ob umgesetzte Vorgabe korrekt durchgeführt oder Grenzwerte eingehalten wurden) \n"
+    "        • Lagerhaltung, Warenwirtschaft, Produktion \n\n"
+    "        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. \n"
+    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
+    "        abgegrenzter und gut begründbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltätigkeiten."
+)
+
+
 def _render_step_analysis_checklist(norm_addressee: str | None) -> str:
-    if norm_addressee == CITIZENS:
-        # Die Admin/Wirtschaft-Checkliste enthaelt verwaltungsinterne
-        # Taetigkeiten (Bescheid, Anhoerung, Aufsicht), die fuer Buergerinnen
-        # und Buerger nicht passen. Die buergerbezogene Checkliste kommt
-        # stattdessen aus CITIZENS_PROMPT_RULES[PROCESS_STEP_ANALYSIS].
-        return ""
-    return _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMIN_BUSINESS
+    # Der Leitfaden Erfuellungsaufwand (Feb 2026) gibt je Normadressat eine
+    # eigene Checkliste vor: Verwaltung (Kap. 7.2.1, S. 49), Wirtschaft
+    # (Kap. 6.2.1 Teil A+B, S. 37-38), Buergerinnen/Buerger (Kap. 5, keine
+    # Checkliste im klassischen Sinn – dort liefert CITIZENS_PROMPT_RULES
+    # die fachspezifischen Hinweise).
+    if norm_addressee == ADMINISTRATION:
+        return _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION
+    if norm_addressee == BUSINESS:
+        return _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS
+    return ""
 
 
 def _apply_norm_addressee_prompt_rules(
