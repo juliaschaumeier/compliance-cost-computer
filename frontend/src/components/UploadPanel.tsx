@@ -122,7 +122,7 @@ export default function UploadPanel() {
     }
   };
 
-  const handleFileSelection = async (target: UploadTarget, file: File | null) => {
+  const handleFileSelection = (target: UploadTarget, file: File | null) => {
     setUploadFiles((prev) => ({ ...prev, [target]: file }));
     setStatus(null);
     setConflicts((prev) => ({ ...prev, [target]: null }));
@@ -137,15 +137,17 @@ export default function UploadPanel() {
     } else {
       setSelectedRegulation("");
     }
-    await handleUpload(target, undefined, file);
+    if (state.availableRegulations.includes(file.name)) {
+      setConflicts((prev) => ({ ...prev, [target]: file.name }));
+      setStatus(`Datei existiert bereits: ${file.name}`);
+    }
   };
 
   const handleUpload = async (
     target: UploadTarget,
-    nameOverride?: string,
-    fileOverride?: File | null
+    nameOverride?: string
   ): Promise<string | null> => {
-    const uploadFile = fileOverride ?? uploadFiles[target];
+    const uploadFile = uploadFiles[target];
     if (!uploadFile) {
       setStatus("Bitte eine Datei auswählen.");
       return null;
