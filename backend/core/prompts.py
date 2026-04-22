@@ -221,20 +221,14 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
     ),
     PromptId.PROCESS_STEP_ANALYSIS: (
         "Zusatz fuer Buergerinnen und Buerger bei der Schrittanalyse: "
-        "Orientieren Sie die Taetigkeiten moeglichst eng an der buergerbezogenen "
-        "Checkliste: sich mit der Vorgabe vertraut machen, Beratung in Anspruch nehmen, "
-        "Daten und Informationen sammeln, Informationen aufbereiten, Formulare "
-        "ausfuellen, Schriftstuecke aufsetzen, Daten uebermitteln, bezahlen, "
-        "Unterlagen abspeichern, bei Pruefungen mitwirken, Material beschaffen, "
-        "Leistung selbst erbringen oder Dritte beauftragen, Umsetzung pruefen und "
-        "Wegezeiten. Waehlen Sie nur die fuer den Vorher-Nachher-Vergleich wirklich "
-        "erforderlichen Hauptschritte. Wenn der Gesamtzeitaufwand fuer eine einfache "
-        "Pflichterfuellung belastbar direkt schaetzbar ist, darf die Fallgruppe auch "
-        "nur eine einzige zusammenfassende Taetigkeit enthalten. Jede ausgegebene "
-        "Taetigkeit muss eine Handlung der Buergerinnen und Buerger selbst sein. "
-        "Unzulaessig sind insbesondere verwaltungsinterne Pruefungen, Bescheiderstellung, "
-        "interne Ruecksprachen oder Unternehmensablaeufe. Geben Sie nur die minimale, "
-        "aber vollstaendige Menge an buergerseitigen Hauptschritten aus."
+        "Jede ausgegebene Taetigkeit muss eine Handlung der Buergerinnen und "
+        "Buerger selbst sein. Unzulaessig sind insbesondere verwaltungsinterne "
+        "Pruefungen, Bescheiderstellung, interne Ruecksprachen oder "
+        "Unternehmensablaeufe. Wenn der Gesamtzeitaufwand fuer eine einfache "
+        "Pflichterfuellung belastbar direkt schaetzbar ist, darf die Fallgruppe "
+        "auch nur eine einzige zusammenfassende Taetigkeit enthalten. Geben Sie "
+        "nur die minimale, aber vollstaendige Menge an buergerseitigen "
+        "Hauptschritten aus."
     ),
     PromptId.CASES_CALCULATION: (
         "Zusatz fuer Buergerinnen und Buerger bei der Fallzahlermittlung: "
@@ -1210,16 +1204,51 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
 )
 
 
+# Buerger-Checkliste aus Leitfaden Erfuellungsaufwand (Feb 2026),
+# Kap. 5.2.1, S. 27 ("Checkliste: Taetigkeiten von Buergerinnen und Buergern
+# zur Erfuellung von Vorgaben oder Prozessen"). 14 Standardtaetigkeiten aus
+# Sicht der privaten Lebensfuehrung (Antrag, Nachweis, Zahlung, Wege,
+# Mitwirkung bei Pruefungen).
+_PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS = (
+    "Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten \n"
+    "        von Bürgerinnen und Bürgern zur Erfüllung einer Vorgabe oder eines Prozesses herangezogen werden. Es kann sich in einzelnen\n"
+    "        Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.\n\n"
+    "        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
+    "        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
+    "        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
+    "        Checkliste (Bürgerinnen und Bürger, Leitfaden Erfüllungsaufwand Feb 2026, Kap. 5.2.1, S. 27):\n"
+    "        • Mit der Vorgabe vertraut machen \n"
+    "        • Beratung in Anspruch nehmen (z. B. Beratungsstellen, Stadtverwaltung, Anwaltskanzlei) \n"
+    "        • Daten und Informationen sammeln und zusammenstellen (z. B. Formularvordrucke, Nachweise, Fotos) \n"
+    "        • Informationen und Daten aufbereiten (inkl. Berechnungen durchführen) \n"
+    "        • Formulare ausfüllen \n"
+    "        • Schriftstücke aufsetzen (z. B. Brief, E-Mail) \n"
+    "        • Informationen oder Daten an die zuständigen Stellen übermitteln \n"
+    "        • Bezahlen (z. B. beim Begleichen einer Rechnung per Überweisung: Ausfüllen eines Überweisungsvordrucks oder Veranlassen einer Online-Überweisung) \n"
+    "        • Unterlagen kopieren, abheften, abspeichern \n"
+    "        • Mitwirkung bei der Prüfung durch öffentliche sowie beliehene und anerkannte Stellen (z. B. Amtsärztin bzw. Amtsarzt, technische Gutachten, Hauptuntersuchungen) \n"
+    "        • Material beschaffen \n"
+    "        • Bestimmte Leistung selbst erbringen oder Dritte beauftragen \n"
+    "        • Umsetzung von Vorgaben überprüfen \n"
+    "        • Zeitaufwand für Wegezeiten (z. B. zu einer Behörde) \n\n"
+    "        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. Wählen Sie nur die für den Vorher-Nachher-Vergleich \n"
+    "        wirklich erforderlichen Hauptschritte: lieber eine kleine Zahl klar abgegrenzter und gut begründbarer Hauptschritte als eine\n"
+    "        lange Liste kleinteiliger Einzeltätigkeiten."
+)
+
+
 def _render_step_analysis_checklist(norm_addressee: str | None) -> str:
     # Der Leitfaden Erfuellungsaufwand (Feb 2026) gibt je Normadressat eine
     # eigene Checkliste vor: Verwaltung (Kap. 7.2.1, S. 49), Wirtschaft
-    # (Kap. 6.2.1 Teil A+B, S. 37-38), Buergerinnen/Buerger (Kap. 5, keine
-    # Checkliste im klassischen Sinn – dort liefert CITIZENS_PROMPT_RULES
-    # die fachspezifischen Hinweise).
+    # (Kap. 6.2.1 Teil A+B, S. 37-38) und Buergerinnen/Buerger
+    # (Kap. 5.2.1, S. 27, 14 Bullets).
     if norm_addressee == ADMINISTRATION:
         return _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION
     if norm_addressee == BUSINESS:
         return _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS
+    if norm_addressee == CITIZENS:
+        return _PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS
     return ""
 
 
