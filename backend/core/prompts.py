@@ -192,6 +192,87 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
 }
 
 
+BUSINESS_PROMPT_RULES: Dict[str, str] = {
+    PromptId.PROCESS_COMPILATION: (
+        "Zusatz fuer die Wirtschaft bei der Prozessbildung: "
+        "Buendeln Sie Vorgaben zu Prozessen entlang des operativen Ablaufs im "
+        "Unternehmen, nicht entlang einzelner Paragraphen. Typische prozessbildende "
+        "Raster sind: (i) Anzeige-, Melde- oder Nachweispflicht gegenueber Behoerden, "
+        "(ii) laufende Dokumentations- und Aufbewahrungspflicht, (iii) "
+        "Informationspflicht gegenueber Kundinnen/Kunden, Beschaeftigten oder "
+        "Geschaeftspartnern, (iv) Beschaffung oder Umruestung von Anlagen, Waren oder "
+        "Material, (v) interne Prozess- und IT-Umstellung inklusive Schulung des "
+        "Personals, (vi) Mitwirkung bei Pruefungen durch oeffentliche Stellen "
+        "(z.B. Betriebspruefung), (vii) fiskalische Pflichten wie Gebuehren oder "
+        "Abgaben. Trennen Sie Informationspflichten von anderen Vorgaben, weil "
+        "Buerokratiekosten aus Informationspflichten spaeter gesondert fuer den "
+        "Buerokratiekostenindex (BKI) auszuweisen sind. Benennen Sie wo moeglich die "
+        "betroffenen Wirtschaftszweige oder Unternehmenskreise; pruefen Sie "
+        "insbesondere, ob kleine und mittlere Unternehmen (KMU) besonders betroffen "
+        "sind. Uebernehmen Sie keine Verwaltungslogik (Bescheide, Vollzugshandeln) "
+        "und keine privaten Buergerhandlungen."
+    ),
+    PromptId.CASE_GROUP_DEVELOPMENT: (
+        "Zusatz fuer die Wirtschaft bei der Fallgruppenbildung: "
+        "Typische wirtschaftsseitige Differenzierungsachsen sind: (i) "
+        "Informationspflicht versus sonstige Vorgabe (BKI-Relevanz), (ii) "
+        "Ersterfuellung mit Einarbeitung versus Routineerfuellung (Einarbeitung "
+        "faellt bei Routine in der Regel weg), (iii) Neuanschaffung versus "
+        "Umruestung bestehender Anlagen, (iv) weitgehend automatisierter oder "
+        "digital gestuetzter Ablauf versus manuelle Bearbeitung, (v) KMU versus "
+        "Grossunternehmen, soweit sich der Aufwand pro Fall wesentlich "
+        "unterscheidet, (vi) einmaliger Umstellungsaufwand (IT, Schulung, "
+        "Formularpflege) versus laufender Aufwand. Bilden Sie solche Fallgruppen "
+        "nur, wenn daraus wesentliche Unterschiede im Personal- oder Sachaufwand "
+        "pro Fall folgen. Bilden Sie keine Fallgruppen nur deshalb, weil "
+        "unterschiedliche Paragraphen oder Behoerden beruehrt sind, solange der "
+        "operative Ablauf im Unternehmen derselbe bleibt. Setzen Sie den "
+        "`aenderungsstatus` je Fallgruppe differenziert: `eingefuehrt` nur bei "
+        "neu entstehenden Fallgruppen, `abgeschafft` nur bei wegfallenden, "
+        "`geaendert` nur dann, wenn sich Aufwand oder Fallzahl der Fallgruppe "
+        "durch die Regelung tatsaechlich aendert."
+    ),
+    PromptId.CASES_CALCULATION: (
+        "Zusatz fuer die Wirtschaft bei der Fallzahlermittlung: "
+        "Bei periodisch zu erfuellenden Vorgaben ergibt sich die Fallzahl aus der "
+        "Multiplikation der betroffenen Unternehmen mit der Periodizitaet pro Jahr. "
+        "Bei anlassbezogenen Vorgaben ist die jaehrlich zu erwartende Zahl der "
+        "Faelle zugrunde zu legen; bei Ueberwachungs- und Kontrollmassnahmen ist "
+        "die Fallzahl oft deutlich geringer als die Zahl der Betroffenen "
+        "(Stichproben). Einmaliger Erfuellungsaufwand bei Einfuehrung der Regelung "
+        "(z.B. IT-Umstellung, Austausch von Anlagen, Erstschulung) ist gesondert "
+        "auszuweisen und nicht mit laufenden jaehrlichen Faellen zu vermischen. "
+        "Bei Ersatzinvestitionen, die ohnehin im Rahmen der wirtschaftlichen "
+        "Nutzungsdauer faellig geworden waeren, sind nur 50 Prozent der "
+        "Anschaffungskosten als Erfuellungsaufwand anzusetzen (Sowieso-Anteil), "
+        "sofern kein anderer Anteil fachlich begruendet ist. Setzen Sie niemals "
+        "`anzahl_betroffene = 0`, wenn es eine zugeordnete Fallgruppe mit "
+        "Aufwand gibt; liegen keine konkreten Zahlen vor, schaetzen Sie "
+        "sachgerecht basierend auf Wirtschaftszweig und typischen "
+        "Unternehmensmengen. Weisen Sie, wenn fachlich relevant, den KMU-Anteil "
+        "an der Fallzahl gesondert aus."
+    ),
+    PromptId.PROCESS_STEP_ANALYSIS: (
+        "Zusatz fuer die Wirtschaft bei der Schrittanalyse: "
+        "Jede Taetigkeit beschreibt eine Handlung des Unternehmens zur "
+        "Erfuellung der Vorgabe (z.B. Daten beschaffen, Meldung erstellen, "
+        "Betriebspruefung begleiten, interne Prozesse anpassen). Orientieren Sie "
+        "sich bei Informationspflichten an Teil A der Checkliste, bei anderen "
+        "Vorgaben zusaetzlich an Teil B. Taetigkeiten, die durch eingesetzte "
+        "Informationstechnologie vollstaendig automatisch ablaufen, loesen keinen "
+        "Zeitaufwand aus; dokumentieren Sie den moeglicherweise entstehenden "
+        "IT-bezogenen Sach- oder Personalaufwand separat an der jeweils "
+        "ausloesenden Taetigkeit. Uebernehmen Sie keine Verwaltungshandlungen "
+        "(z.B. Bescheiderstellung, behoerdliche Pruefung) und keine rein "
+        "privaten Handlungen von Buergerinnen und Buergern als "
+        "Unternehmenstaetigkeit. Null-Zeitaufwaende sind nur zulaessig, wenn die "
+        "Taetigkeit tatsaechlich entfaellt (aenderungsstatus=abgeschafft) oder "
+        "vollstaendig automatisiert ist; in diesem Fall ist dies in der "
+        "Beschreibung zu begruenden."
+    ),
+}
+
+
 CITIZENS_PROMPT_RULES: Dict[str, str] = {
     PromptId.PROCESS_COMPILATION: (
         "Zusatz fuer Buergerinnen und Buerger bei der Prozessbildung: "
@@ -1272,6 +1353,13 @@ def _apply_norm_addressee_prompt_rules(
         else None
     )
     prompt = _append_prompt_section(prompt, admin_rule)
+
+    business_rule = (
+        BUSINESS_PROMPT_RULES.get(prompt_id)
+        if norm_addressee == BUSINESS
+        else None
+    )
+    prompt = _append_prompt_section(prompt, business_rule)
 
     return prompt
 
