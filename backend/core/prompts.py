@@ -136,7 +136,10 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "bleiben getrennt. Fuehren Sie Vollzugsaufwand auch dann aus, wenn er "
         "durch einen Antrag der Wirtschaft oder der Buergerinnen/Buerger "
         "ausgeloest wird. Erfinden Sie keine Verwaltungsprozesse, zu "
-        "denen die Regelung keinen konkreten Vollzugsauftrag enthaelt."
+        "denen die Regelung keinen konkreten Vollzugsauftrag enthaelt. "
+        "Beruecksichtigen Sie auch das fiskalische Handeln der Verwaltung als "
+        "Normadressat (z.B. als Halter von Kfz oder als Bauherr) als Teil des "
+        "Erfuellungsaufwands der Verwaltung."
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
         "Zusatz fuer die Verwaltung bei der Fallgruppenbildung: "
