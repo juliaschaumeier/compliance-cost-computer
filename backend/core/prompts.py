@@ -34,16 +34,16 @@ PROMPTS_REQUIRING_NORM_ADDRESSEE = {
 LEGIST_PROMPT_OPENING = (
     """
     Sie sind Legist im deutschen Bundestag und damit betraut, die 
-    Erfüllungsaufwandsänderung zu einer geplanten Gesetzesänderung zu berechnen.
+    Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen.
 
-    Insbesondere werden zur Ermittlung der zu erwartenden Änderung des Aufwands 
-    pro Fall die wesentlichen Tätigkeiten identifiziert, die zur Erfüllung 
+    Insbesondere werden zur Ermittlung der zu erwartenden Aenderung des Aufwands 
+    pro Fall die wesentlichen Taetigkeiten identifiziert, die zur Erfuellung 
     einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese 
-    schließen Tätigkeiten ein, welche neu hinzukommen, welche sich ändern und 
-    welche wegfallen. Für diese Tätigkeiten werden die zu erwartenden Änderungen des 
+    schliessen Taetigkeiten ein, welche neu hinzukommen, welche sich aendern und 
+    welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen des 
     Zeit-, Personal- sowie Sachaufwands ermittelt.
 
-    Die wesentlichen Unterschiede der Gesetzesänderung sind wie folgt 
+    Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt 
     zusammengefasst: {law_summary}
 
     """
@@ -342,7 +342,7 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "der Regelfall; mehrere Lohngruppen sind nur bei klar getrennten "
         "Bearbeitungsstufen zulaessig, etwa Bearbeitung und anschliessende Freigabe. "
         "Vermeiden Sie schematische Mehrfachbefuellung. Wenn der zu erfuellende Prozess "
-        "nicht in Einzeltätigkeiten zerlegt wurde, koennen gesicherte Erfahrungswerte "
+        "nicht in Einzeltaetigkeiten zerlegt wurde, koennen gesicherte Erfahrungswerte "
         "in Personentagen oder Personenmonaten genutzt und anschliessend umgerechnet "
         "werden. Fuer die Beschaeftigten im oeffentlichen Dienst gelten bei einer "
         "40-Stunden-Woche als Richtwerte 1 Personentag = 8 Stunden, 1 Personenmonat = "
@@ -539,11 +539,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Sie sind Legist im deutschen Bundestag. 
 
         Vergleichen Sie den derzeit gueltigen Gesetzestext mit dem vorgeschlagenen 
-        Gesetzesvorschlag. Leiten Sie daraus ab, was der Gesetzgeber erreichen möchte. 
+        Gesetzesvorschlag. Leiten Sie daraus ab, was der Gesetzgeber erreichen moechte. 
         Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\", \"summary\": \"...\"}}.
 
-        Der 'title' soll ein kurzer Titel sein (max. 12 Wörter), der 'blurb' soll genau ein Satz sein. Für die 'summary' geben Sie bitte eine 
-        ausführliche Zusammenfassung an, mit Hilfe derer man die Ziele und wesentlichen Unterschiede der Gesetzesänderung verstehen kann ohne 
+        Der 'title' soll ein kurzer Titel sein (max. 12 Woerter), der 'blurb' soll genau ein Satz sein. Fuer die 'summary' geben Sie bitte eine 
+        ausfuehrliche Zusammenfassung an, mit Hilfe derer man die Ziele und wesentlichen Unterschiede der Gesetzesaenderung verstehen kann ohne 
         die zwei Gesetzestexte vorliegen zu haben.
 
         Geltendes Gesetz: {gesetz_gueltig}
@@ -561,54 +561,54 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
 
-        Ihre Aufgabe ist, ausgehend von den konsolidierten Versionen die Gesetzesänderungen herauszuarbeiten und alle darin enthaltenen Vorgaben 
+        Ihre Aufgabe ist, ausgehend von den konsolidierten Versionen die Gesetzesaenderungen herauszuarbeiten und alle darin enthaltenen Vorgaben 
         (Einzelregelungen) im nachfolgenden Sinne zu identifizieren. 
-        Wichtig: Jede Gesetzesänderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
-        also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung handelt.
-        Berücksichtigen Sie dabei auch implizite Änderungen von Vorgaben, bei denen bisher Betroffene wegfallen, weil sie künftig stattdessen einem neuen
-        Prozess unterliegen; solche Fälle sind ebenfalls als eigene relevante Vorgaben mit passendem Änderungsstatus auszuweisen.
+        Wichtig: Jede Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
+        also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung handelt.
+        Beruecksichtigen Sie dabei auch implizite Aenderungen von Vorgaben, bei denen bisher Betroffene wegfallen, weil sie kuenftig stattdessen einem neuen
+        Prozess unterliegen; solche Faelle sind ebenfalls als eigene relevante Vorgaben mit passendem Aenderungsstatus auszuweisen.
 
         Bestimmen Sie fuer jede Vorgabe ausserdem:
         * welche Normadressaten betroffen sind: administration, business, citizens,
         * ob es sich um eine Informationspflicht der Wirtschaft handelt.
 
-        Zum Normadressaten Verwaltung zählen alle mit der Wahrnehmung von Verwaltungsaufgaben betrauten Verwaltungsträger (rechtsfähige Körperschaften, Anstalten und Stiftungen 
-        des öffentlichen Rechts einschließlich Beliehene im Rahmen der ihnen übertragenen hoheitlichen Kompetenzen). Soweit Körperschaften/Anstalten des 
-        öffentlichen Rechts privatwirtschaftlich tätig sind und in Wettbewerb stehen (z. B. kostenpflichtige Schulungen der Kammern; Universitäten bei 
-        Forschungsförderungen) sind diese als Wirtschaft zu behandeln. Soweit Unternehmen hoheitliche Aufgaben wahrnehmen (z. B. Beliehene wie Prüfingenieure, 
-        Bezirksschornsteinfegermeister, Tierärzte bei Fleischbeschau), sind diese als Verwaltung zu behandeln. Soweit öffentliche Unternehmen, die Aufgaben der 
-        Daseinsvorsorge im staatlichen Auftrag erfüllen (z. B. Wasserkraftwerke in öffentlicher Hand) sind diese als Verwaltung zu behandeln. Die Rechtsform 
-        bietet nur Anhaltspunkte; maßgeblich ist die vorgeschriebene Tätigkeit.
+        Zum Normadressaten Verwaltung zaehlen alle mit der Wahrnehmung von Verwaltungsaufgaben betrauten Verwaltungstraeger (rechtsfaehige Koerperschaften, Anstalten und Stiftungen 
+        des oeffentlichen Rechts einschliesslich Beliehene im Rahmen der ihnen uebertragenen hoheitlichen Kompetenzen). Soweit Koerperschaften/Anstalten des 
+        oeffentlichen Rechts privatwirtschaftlich taetig sind und in Wettbewerb stehen (z. B. kostenpflichtige Schulungen der Kammern; Universitaeten bei 
+        Forschungsfoerderungen) sind diese als Wirtschaft zu behandeln. Soweit Unternehmen hoheitliche Aufgaben wahrnehmen (z. B. Beliehene wie Pruefingenieure, 
+        Bezirksschornsteinfegermeister, Tieraerzte bei Fleischbeschau), sind diese als Verwaltung zu behandeln. Soweit oeffentliche Unternehmen, die Aufgaben der 
+        Daseinsvorsorge im staatlichen Auftrag erfuellen (z. B. Wasserkraftwerke in oeffentlicher Hand) sind diese als Verwaltung zu behandeln. Die Rechtsform 
+        bietet nur Anhaltspunkte; massgeblich ist die vorgeschriebene Taetigkeit.
 
-        Der Normadressat Wirtschaft umfasst alle Akteure, die eine wirtschaftliche Tätigkeit am Markt ausüben, wobei die Rechtsform oder eine Gewinnerzielungsabsicht
-        nicht ausschlaggebend sind. Hierzu zählen primär private Unternehmen jeder Größe (einschließlich KMU), Selbstständige sowie Freiberufler. Zur Wirtschaft gehören
-        im Sinne des Erfüllungsaufwands auch gemeinnützige Organisationen wie Vereine, Verbände oder Stiftungen, sofern sie als Arbeitgeber agieren oder Dienstleistungen
-        im Wettbewerb anbieten. In Abgrenzung zur Verwaltung sind zudem öffentliche Institutionen (wie Universitäten oder Kammern) der Wirtschaft zuzurechnen,
-        wenn sie privatwirtschaftlich tätig werden und in Konkurrenz zu privaten Anbietern treten.
+        Der Normadressat Wirtschaft umfasst alle Akteure, die eine wirtschaftliche Taetigkeit am Markt ausueben, wobei die Rechtsform oder eine Gewinnerzielungsabsicht
+        nicht ausschlaggebend sind. Hierzu zaehlen primaer private Unternehmen jeder Groesse (einschliesslich KMU), Selbststaendige sowie Freiberufler. Zur Wirtschaft gehoeren
+        im Sinne des Erfuellungsaufwands auch gemeinnuetzige Organisationen wie Vereine, Verbaende oder Stiftungen, sofern sie als Arbeitgeber agieren oder Dienstleistungen
+        im Wettbewerb anbieten. In Abgrenzung zur Verwaltung sind zudem oeffentliche Institutionen (wie Universitaeten oder Kammern) der Wirtschaft zuzurechnen,
+        wenn sie privatwirtschaftlich taetig werden und in Konkurrenz zu privaten Anbietern treten.
 
-        Der Normadressat Bürgerinnen und Bürger definiert sich durch natürliche Personen, die von einer gesetzlichen Regelung in ihrer Rolle als Privatperson betroffen sind.
-        Der Aufwand wird dieser Gruppe immer dann zugeordnet, wenn die Tätigkeit der privaten Lebensführung dient und nicht im Rahmen einer beruflichen, gewerblichen
-        oder hoheitlichen Aufgabe erfolgt. Ein typisches Beispiel ist die Erfüllung von Verhaltenspflichten im Alltag, wie etwa die Einhaltung der M+S-Reifenpflicht
-        bei privaten Kraftfahrzeugen. Im Gegensatz zur Wirtschaft und Verwaltung wird bei den Bürgerinnen und Bürgern primär der Zeitaufwand für Tätigkeiten
-        (z. B. Informationsbeschaffung oder das Ausfüllen von Formularen) sowie der private Sachaufwand ermittelt, ohne dass eine generelle Monetarisierung der Zeit erfolgt.
+        Der Normadressat Buergerinnen und Buerger definiert sich durch natuerliche Personen, die von einer gesetzlichen Regelung in ihrer Rolle als Privatperson betroffen sind.
+        Der Aufwand wird dieser Gruppe immer dann zugeordnet, wenn die Taetigkeit der privaten Lebensfuehrung dient und nicht im Rahmen einer beruflichen, gewerblichen
+        oder hoheitlichen Aufgabe erfolgt. Ein typisches Beispiel ist die Erfuellung von Verhaltenspflichten im Alltag, wie etwa die Einhaltung der M+S-Reifenpflicht
+        bei privaten Kraftfahrzeugen. Im Gegensatz zur Wirtschaft und Verwaltung wird bei den Buergerinnen und Buergern primaer der Zeitaufwand fuer Taetigkeiten
+        (z. B. Informationsbeschaffung oder das Ausfuellen von Formularen) sowie der private Sachaufwand ermittelt, ohne dass eine generelle Monetarisierung der Zeit erfolgt.
 
         Definition von Vorgaben:
-        * Vorgaben sind Einzelregelungen, die unmittelbar zu Änderungen von Kosten oder Zeitaufwand bei den Normadressaten führen.
+        * Vorgaben sind Einzelregelungen, die unmittelbar zu Aenderungen von Kosten oder Zeitaufwand bei den Normadressaten fuehren.
         * Sie beruhen auf bundesrechtlichen Regelungen und verpflichten Normadressaten, bestimmte Ziele zu erreichen, Vorgaben einzuhalten oder Handlungen 
           vorzunehmen bzw. zu unterlassen.
-        * Dazu zählen auch Verpflichtungen zur Kooperation mit Dritten sowie zur Überwachung und Kontrolle von Zuständen, Handlungen, numerischen Werten oder 
+        * Dazu zaehlen auch Verpflichtungen zur Kooperation mit Dritten sowie zur Ueberwachung und Kontrolle von Zustaenden, Handlungen, numerischen Werten oder 
           Verhaltensweisen. Informationspflichten bilden eine Teilmenge der Vorgaben.
 
-        "Unmittelbar" bedeutet, dass der Kosten- oder Zeitaufwand direkt aus der Befolgung der Vorgabe entsteht. Normadressaten müssen die Vorgaben einhalten, 
-        um Rechtsverstöße oder den Verlust von Ansprüchen zu vermeiden. Auch Regelungen, die nur Ziele, Grenzwerte oder förderbedingte Verhaltensänderungen 
-        vorgeben, gelten als Vorgaben, wenn sie direkt Aufwand auslösen.
+        "Unmittelbar" bedeutet, dass der Kosten- oder Zeitaufwand direkt aus der Befolgung der Vorgabe entsteht. Normadressaten muessen die Vorgaben einhalten, 
+        um Rechtsverstoesse oder den Verlust von Anspruechen zu vermeiden. Auch Regelungen, die nur Ziele, Grenzwerte oder foerderbedingte Verhaltensaenderungen 
+        vorgeben, gelten als Vorgaben, wenn sie direkt Aufwand ausloesen.
 
         Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum Teil neben  Ge- oder Verboten lediglich Ziele oder Grenzwerte festlegt
-        oder zum Beispiel durch staatliche Förderungen Verhaltensänderungen erreichen will. Auch solche Einzelregelungen sind  als Vorgaben zu verstehen, weil
-        sie unmittelbar zur Änderung von Kosten bzw. Zeitaufwand  bei den Normadressaten führen.
+        oder zum Beispiel durch staatliche Foerderungen Verhaltensaenderungen erreichen will. Auch solche Einzelregelungen sind  als Vorgaben zu verstehen, weil
+        sie unmittelbar zur Aenderung von Kosten bzw. Zeitaufwand  bei den Normadressaten fuehren.
 
         Wichtig fuer den Normadressaten `administration` (Verwaltung): Uebersehen Sie die Verwaltung nicht. Pruefen Sie bei jeder Vorgabe ausdruecklich,
-        ob sie der zustaendigen Behoerde einen konkreten Vollzugsauftrag auferlegt – typische Auslöser sind Antrags-, Anzeige-, Genehmigungs-,
+        ob sie der zustaendigen Behoerde einen konkreten Vollzugsauftrag auferlegt – typische Ausloeser sind Antrags-, Anzeige-, Genehmigungs-,
         Anerkennungs-, Melde-, Register- oder Nachweisverfahren, laufende Aufsicht und Kontrollen, anlassbezogene Einzelfallpruefungen,
         Bescheidung und Rechtsbehelfsverfahren, Auszahlungs- oder Foerderverfahren sowie einmalige interne Umstellungen (IT, Formulare,
         Schulung). Wenn die Erfuellung einer Vorgabe durch Wirtschaft oder Buergerinnen/Buerger praktisch nur moeglich ist, weil die
@@ -623,7 +623,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         bei reinen Verwaltungs- oder Buerger-Vorgaben, oder bei Wirtschaftsvorgaben ohne Informationspflicht-Charakter -
         setzen Sie das Flag auf "0".
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
           "vorgaben": [
@@ -647,12 +647,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.PROCESS_COMPILATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden Einzelvorgaben für den betroffenen Normadressaten: {vorgaben_json}
+        Die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
 
-        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfüllt werden, zu gemeinsamen
-        Prozessen zu bündeln. Soweit eine Bündelung von Vorgaben in Prozesse nicht möglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
-        einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschließlich aus einer Vorgabe. Geben Sie außerdem den Status an, 
-        also ob es sich um entweder eine Einführung, eine Änderung, oder eine Streichung/Löschung des Prozesses handelt. Orientieren Sie sich dazu an den 
+        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfuellt werden, zu gemeinsamen
+        Prozessen zu buendeln. Soweit eine Buendelung von Vorgaben in Prozesse nicht moeglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
+        einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschliesslich aus einer Vorgabe. Geben Sie ausserdem den Status an, 
+        also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung des Prozesses handelt. Orientieren Sie sich dazu an den 
         Statusangaben der Vorgaben.
 
         Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess. Wenn der zugrunde liegende Rechtsrahmen
@@ -662,7 +662,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_process_example}
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
         "normadressat": "administration | business | citizens",
@@ -714,21 +714,21 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.CASE_GROUP_DEVELOPMENT: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten: {prozesse_json}
+        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
 
-        Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfüllt, sind dafür sogenannte Fallgruppen zu bilden.
-        Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Für jede Fallgruppe ist der Erfüllungsaufwand separat zu
-        ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmöglichkeiten genutzt werden
-        oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie außerdem den Status an, also ob es sich um entweder eine Einführung,
-        eine Änderung, oder eine Streichung/Löschung der Fallgruppe handelt.
+        Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfuellt, sind dafuer sogenannte Fallgruppen zu bilden.
+        Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Fuer jede Fallgruppe ist der Erfuellungsaufwand separat zu
+        ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmoeglichkeiten genutzt werden
+        oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie ausserdem den Status an, also ob es sich um entweder eine Einfuehrung,
+        eine Aenderung, oder eine Streichung/Loeschung der Fallgruppe handelt.
 
-        Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht möglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
-        Ein solcher Prozess besteht daher ausschließlich aus einer Fallgruppe.
+        Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht moeglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
+        Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_case_group_example}
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
         "normadressat": "administration | business | citizens",
@@ -802,13 +802,13 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.PROCESS_STEP_ANALYSIS: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, positiven oder negativen Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende 
+        Die Gesetzesaenderung fuehrt zu folgenden, positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende 
         Fallgruppen differenziert werden: {case_groups_json}
 
-        Ihre Aufgabe ist es, die wesentlichen anfallenden Tätigkeiten zur Erfüllung eines Prozesses pro Fallgruppe
-        zu identifizieren. Auf dieser Grundlage werden später der anfallende Personal- und ggf. Sachaufwand bestimmt. Die einzelnen Tätigkeiten können vor und nach
-        der Gesetzesänderung unterschiedlich sein, hinzukommen oder wegfallen, einige Tätigkeiten des Prozess können beibehalten bleiben. Geben Sie diesen
-        Änderungsstatus an, orientieren Sie sich dabei wenn nötig an den vorhandenen Statusangaben in den Fallgruppen und Prozessen.
+        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
+        zu identifizieren. Auf dieser Grundlage werden spaeter der anfallende Personal- und ggf. Sachaufwand bestimmt. Die einzelnen Taetigkeiten koennen vor und nach
+        der Gesetzesaenderung unterschiedlich sein, hinzukommen oder wegfallen, einige Taetigkeiten des Prozess koennen beibehalten bleiben. Geben Sie diesen
+        Aenderungsstatus an, orientieren Sie sich dabei wenn noetig an den vorhandenen Statusangaben in den Fallgruppen und Prozessen.
 
         Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche
         Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte
@@ -821,11 +821,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {step_analysis_checklist}
         
-        Bei Daueraufgaben oder wenn gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, kann es zweckmäßig 
-        sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltätigkeiten zu ermitteln, entsprechend wird lediglich eine Tätigkeit in dieser Fallgruppe 
-        befüllt.
+        Bei Daueraufgaben oder wenn gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, kann es zweckmaessig 
+        sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltaetigkeiten zu ermitteln, entsprechend wird lediglich eine Taetigkeit in dieser Fallgruppe 
+        befuellt.
         
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
         "normadressat": "administration | business | citizens",
@@ -938,12 +938,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende Fallgruppen 
+        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen 
         differenziert werden: {case_groups_json}
 
-        Ihre Aufgabe ist es, die Änderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Häufigkeit und die Anzahl der Betroffenen 
-        vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesänderung betrachtet. Bei der Einführung einer Fallgruppe werden typischerweise nur die 
-        _vorschlag-Werte angegeben, bei der Löschung nur die _gueltig-Werte und bei einer Änderung beide.
+        Ihre Aufgabe ist es, die Aenderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Haeufigkeit und die Anzahl der Betroffenen 
+        vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung einer Fallgruppe werden typischerweise nur die 
+        _vorschlag-Werte angegeben, bei der Loeschung nur die _gueltig-Werte und bei einer Aenderung beide.
 
         Massgeblich ist auch hier die Aenderung des Erfuellungsaufwands. Schaetzen Sie deshalb nicht losgeloest einen abstrakten Gesamtbestand an Faellen,
         sondern die fuer die geltende und die vorgeschlagene Rechtslage jeweils sachgerechte Fallzahl derselben Fallgruppe.
@@ -964,19 +964,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Offizielles Fallzahlbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_cases_case_example}
 
-        Allgemein gilt: Bei periodisch zu erfüllenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Häufigkeit mit der Anzahl 
-        der Betroffenen. Die Häufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie häufig der damit einhergehende 
-        Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Anträgen anlassbezogen erfüllt werden, sollte die Zahl der 
-        jährlich zu erwartenden Anträge als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl 
-        für Überwachungs- und Kontrollmaßnahmen ist in der Regel wesentlich geringer.
-        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfällt, wird als 
-        einmaliger Erfüllungsaufwand bzw. Umstellungsaufwannd bezeichnet und ist gesondert auszuweisen.
+        Allgemein gilt: Bei periodisch zu erfuellenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Haeufigkeit mit der Anzahl 
+        der Betroffenen. Die Haeufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie haeufig der damit einhergehende 
+        Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Antraegen anlassbezogen erfuellt werden, sollte die Zahl der 
+        jaehrlich zu erwartenden Antraege als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl 
+        fuer Ueberwachungs- und Kontrollmassnahmen ist in der Regel wesentlich geringer.
+        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfaellt, wird als 
+        einmaliger Erfuellungsaufwand bzw. Umstellungsaufwannd bezeichnet und ist gesondert auszuweisen.
 
-        Soweit bestehende Regelungen geändert werden, können Fallzahlen unter Umständen auch aus bereits vorliegenden Aufwandsschätzungen und 
-        Gesetzesbegründungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) übernommen werden. Bevor solche Angaben verwendet werden, sollten 
+        Soweit bestehende Regelungen geaendert werden, koennen Fallzahlen unter Umstaenden auch aus bereits vorliegenden Aufwandsschaetzungen und 
+        Gesetzesbegruendungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) uebernommen werden. Bevor solche Angaben verwendet werden, sollten 
         sie ggf. aktualisiert werden.
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück:
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
         "normadressat": "administration | business | citizens",
@@ -1057,8 +1057,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
-    # TODO: How to add this? Die Bereitstellung und Wartung von Informationstechnologie aufgrund der Änderung von 
-    #                        Vorgaben kann jedoch zusätzlichen Sach- und Personalaufwand erzeugen.
+    # TODO: How to add this? Die Bereitstellung und Wartung von Informationstechnologie aufgrund der Aenderung von 
+    #                        Vorgaben kann jedoch zusaetzlichen Sach- und Personalaufwand erzeugen.
     # Input contract:
     # - gesetz_gueltig: str
     # - gesetz_vorschlag: str
@@ -1066,12 +1066,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesänderung führt zu folgenden, Erfüllungsaufwand auslösenden Prozessen für den betroffenen Normadressaten, welche durch folgende Fallgruppen und 
+        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und 
         Prozessschritte differenziert werden: {step_analysis_json}
 
-        Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Tätigkeiten pro Einzelfall zu identifizieren. 
-        Hierzu werden die Stundenlöhne, Zeit- und Sachaufwände vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesänderung betrachtet. Bei der Einführung
-        eines Prozessschrittes werden typischerweise nur die _vorschlag-Werte angegeben, bei der Löschung nur die _gueltig-Werte und bei einer Änderung beide.
+        Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Taetigkeiten pro Einzelfall zu identifizieren. 
+        Hierzu werden die Stundenloehne, Zeit- und Sachaufwaende vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung
+        eines Prozessschrittes werden typischerweise nur die _vorschlag-Werte angegeben, bei der Loeschung nur die _gueltig-Werte und bei einer Aenderung beide.
 
         Entscheidend ist die Aenderung des Erfuellungsaufwands je Fall. Schaetzen Sie daher nicht den gesamten denkbaren Bearbeitungsaufwand eines Verfahrens
         neu, sondern den fuer die geltende und die vorgeschlagene Rechtslage jeweils relevanten Aufwand derselben Taetigkeit. Wenn sich nur ein Teilaspekt
@@ -1080,21 +1080,21 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {effort_method_guidance}
 
-        Unter Sachaufwand fällt der Betriebs-, Unterhaltungs- und Investitionsaufwand, der zur Erfüllung einer Vorgabe oder eines Prozesses zu erwarten ist. 
-        Gemeinkosten zählen hingegen nicht zum Erfüllungsaufwand. Darüber hinaus notwendige Investitionsaufwendungen des betroffenen Normadressaten sollten bei der 
-        Aufwandsermittlung ebenfalls konkret aufgeschlüsselt werden. Hierzu zählen beispielsweise: 
-        • Aufwand für die Inanspruchnahme Dritter (z. B. Handwerkerleistungen), 
-        • Aufwand für die Beschaffung von spezieller Informations- und Kommunikationstechnik, 
-        • Aufwand für die Nachrüstung von Anlagen, 
-        • Sachaufwand für Wege zu anderen Behörden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
+        Unter Sachaufwand faellt der Betriebs-, Unterhaltungs- und Investitionsaufwand, der zur Erfuellung einer Vorgabe oder eines Prozesses zu erwarten ist. 
+        Gemeinkosten zaehlen hingegen nicht zum Erfuellungsaufwand. Darueber hinaus notwendige Investitionsaufwendungen des betroffenen Normadressaten sollten bei der 
+        Aufwandsermittlung ebenfalls konkret aufgeschluesselt werden. Hierzu zaehlen beispielsweise: 
+        • Aufwand fuer die Inanspruchnahme Dritter (z. B. Handwerkerleistungen), 
+        • Aufwand fuer die Beschaffung von spezieller Informations- und Kommunikationstechnik, 
+        • Aufwand fuer die Nachruestung von Anlagen, 
+        • Sachaufwand fuer Wege zu anderen Behoerden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
 
-        Außerdem soll angegeben werden, ob die Tätigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgeführt wird (=0).
+        Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgefuehrt wird (=0).
         Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
         einzelnen Fall erneut anfaellt.
 
         {effort_appendix}
 
-        Geben Sie nur und ausschließlich JSON im folgenden Format zurück: 
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck: 
 
         {effort_json_schema}
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
@@ -1209,35 +1209,35 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
 # Zahlungen anweisen) und ist laut Leitfaden ausschliesslich fuer die
 # Verwaltung vorgesehen.
 _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION = (
-    "Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten zur Erfüllung \n"
-    "        von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.\n\n"
-    "        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
-    "        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
-    "        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
-    "        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
-    "        Checkliste (Verwaltung, Leitfaden Erfüllungsaufwand Feb 2026, Kap. 7.2.1, S. 49):\n"
+    "Als Hilfsmittel fuer die Identifizierung der zu erwartenden Taetigkeiten kann die nachfolgende Checkliste mit moeglichen Taetigkeiten zur Erfuellung \n"
+    "        von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Faellen anbieten, die Checkliste um spezielle Taetigkeiten zu erweitern.\n\n"
+    "        Orientieren Sie die Bildung der Taetigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
+    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
+    "        pro Fallgruppe etwa drei bis fuenf Taetigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
+    "        Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand Feb 2026, Kap. 7.2.1, S. 49):\n"
     "        • Mit der Vorgabe vertraut machen \n"
-    "        • Beratung, Führen von Vorgesprächen mit Antragstellerinnen und Antragstellern \n"
-    "        • Formelle Prüfung, Daten und Informationen sichten und zusammenstellen, Vollständigkeitsprüfung \n"
-    "        • Eingangsbestätigung oder fehlende Daten/Informationen einholen \n"
-    "        • Inhaltliche Prüfung, Berechnungen und Bewertungen durchführen \n"
-    "        • Interne oder externe Besprechungen (z. B. Anhörungen) \n"
-    "        • Formulare ausfüllen bzw. vervollständigen, Daten erfassen, Kennzeichnungen vornehmen \n"
-    "        • Ergebnisse/Berechnungen prüfen und ggf. korrigieren \n"
-    "        • Datenübermittlung und Veröffentlichung \n"
+    "        • Beratung, Fuehren von Vorgespraechen mit Antragstellerinnen und Antragstellern \n"
+    "        • Formelle Pruefung, Daten und Informationen sichten und zusammenstellen, Vollstaendigkeitspruefung \n"
+    "        • Eingangsbestaetigung oder fehlende Daten/Informationen einholen \n"
+    "        • Inhaltliche Pruefung, Berechnungen und Bewertungen durchfuehren \n"
+    "        • Interne oder externe Besprechungen (z. B. Anhoerungen) \n"
+    "        • Formulare ausfuellen bzw. vervollstaendigen, Daten erfassen, Kennzeichnungen vornehmen \n"
+    "        • Ergebnisse/Berechnungen pruefen und ggf. korrigieren \n"
+    "        • Datenuebermittlung und Veroeffentlichung \n"
     "        • Zahlungen anweisen \n"
-    "        • Korrektur (z. B. aufgrund von Beteiligungsverfahren) bzw. weitere Informationen bei Rückfragen vorlegen \n"
-    "        • Informationen abschließend aufbereiten \n"
+    "        • Korrektur (z. B. aufgrund von Beteiligungsverfahren) bzw. weitere Informationen bei Rueckfragen vorlegen \n"
+    "        • Informationen abschliessend aufbereiten \n"
     "        • Bescheid erstellen \n"
     "        • Kopieren, verteilen, archivieren, dokumentieren \n"
-    "        • Überwachungs- und Aufsichtsmaßnahmen, Risikoklassifizierung \n"
-    "        • Beschaffen von Waren, Dienstleistungen und/oder zusätzlichem Personal \n"
-    "        • Anpassen von internen Prozessabläufen \n"
+    "        • Ueberwachungs- und Aufsichtsmassnahmen, Risikoklassifizierung \n"
+    "        • Beschaffen von Waren, Dienstleistungen und/oder zusaetzlichem Personal \n"
+    "        • Anpassen von internen Prozessablaeufen \n"
     "        • Teilnahme an Fortbildungen und Schulungen \n"
-    "        • Wege zu anderen Behörden, Organisationen oder Unternehmen \n\n"
-    "        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. \n"
-    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
-    "        abgegrenzter und gut begründbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltätigkeiten."
+    "        • Wege zu anderen Behoerden, Organisationen oder Unternehmen \n\n"
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. In der Bestandsmessung der Buerokratiekosten der Wirtschaft hatte sich z. B. \n"
+    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Taetigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
+    "        abgegrenzter und gut begruendbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltaetigkeiten."
 )
 
 
@@ -1247,41 +1247,41 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION = (
 # die keine Informationspflichten sind. Die Verwaltungs-Checkliste (Kap. 7)
 # ist fuer die Wirtschaft nicht vorgesehen.
 _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
-    "Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten können die nachfolgenden Checklisten mit möglichen Tätigkeiten \n"
-    "        zur Erfüllung von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.\n\n"
-    "        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
-    "        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
-    "        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
-    "        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
-    "        Checkliste Teil A – Tätigkeiten zur Erfüllung von Informationspflichten der Wirtschaft\n"
-    "        (Leitfaden Erfüllungsaufwand Feb 2026, Kap. 6.2.1, S. 37):\n"
+    "Als Hilfsmittel fuer die Identifizierung der zu erwartenden Taetigkeiten koennen die nachfolgenden Checklisten mit moeglichen Taetigkeiten \n"
+    "        zur Erfuellung von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Faellen anbieten, die Checkliste um spezielle Taetigkeiten zu erweitern.\n\n"
+    "        Orientieren Sie die Bildung der Taetigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
+    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
+    "        pro Fallgruppe etwa drei bis fuenf Taetigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
+    "        Checkliste Teil A – Taetigkeiten zur Erfuellung von Informationspflichten der Wirtschaft\n"
+    "        (Leitfaden Erfuellungsaufwand Feb 2026, Kap. 6.2.1, S. 37):\n"
     "        • Einarbeitung in die Informationspflicht \n"
     "        • Beschaffung von Daten \n"
-    "        • Formulare ausfüllen, Beschriftung, Kennzeichnung \n"
-    "        • Berechnungen durchführen \n"
-    "        • Überprüfung der Daten und Eingaben \n"
+    "        • Formulare ausfuellen, Beschriftung, Kennzeichnung \n"
+    "        • Berechnungen durchfuehren \n"
+    "        • Ueberpruefung der Daten und Eingaben \n"
     "        • Fehlerkorrektur \n"
     "        • Aufbereitung der Daten \n"
-    "        • Datenübermittlung und -veröffentlichung \n"
+    "        • Datenuebermittlung und -veroeffentlichung \n"
     "        • Interne Sitzungen \n"
     "        • Externe Sitzungen (z. B. mit Steuerberaterinnen und -beratern) \n"
-    "        • Ausführen von Zahlungsanweisungen \n"
+    "        • Ausfuehren von Zahlungsanweisungen \n"
     "        • Kopieren, Archivieren, Verteilen \n"
-    "        • Mitwirkung bei Prüfung durch öffentliche Stellen (z. B. Betriebsprüfung) \n"
-    "        • Korrekturen, die aufgrund von Prüfungen durchgeführt werden müssen \n"
+    "        • Mitwirkung bei Pruefung durch oeffentliche Stellen (z. B. Betriebspruefung) \n"
+    "        • Korrekturen, die aufgrund von Pruefungen durchgefuehrt werden muessen \n"
     "        • Weitere Informationsbeschaffung \n"
     "        • Fortbildungs- und Schulungsteilnahmen \n\n"
-    "        Checkliste Teil B – Mögliche weitere Tätigkeiten bei Vorgaben, die keine Informationspflichten sind\n"
-    "        (Leitfaden Erfüllungsaufwand Feb 2026, Kap. 6.2.1, S. 38):\n"
+    "        Checkliste Teil B – Moegliche weitere Taetigkeiten bei Vorgaben, die keine Informationspflichten sind\n"
+    "        (Leitfaden Erfuellungsaufwand Feb 2026, Kap. 6.2.1, S. 38):\n"
     "        • Beschaffen von Waren- und Sachleistungen \n"
-    "        • Beschaffen von Dienstleistungen und/oder zusätzlichem Personal \n"
+    "        • Beschaffen von Dienstleistungen und/oder zusaetzlichem Personal \n"
     "        • Erbringen von eigenen Leistungen (z. B. Installation von Maschinen) \n"
-    "        • Anpassen von internen Prozessabläufen \n"
-    "        • Überwachungsmaßnahmen (z. B. Kontrolle, ob umgesetzte Vorgabe korrekt durchgeführt oder Grenzwerte eingehalten wurden) \n"
+    "        • Anpassen von internen Prozessablaeufen \n"
+    "        • Ueberwachungsmassnahmen (z. B. Kontrolle, ob umgesetzte Vorgabe korrekt durchgefuehrt oder Grenzwerte eingehalten wurden) \n"
     "        • Lagerhaltung, Warenwirtschaft, Produktion \n\n"
-    "        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. In der Bestandsmessung der Bürokratiekosten der Wirtschaft hatte sich z. B. \n"
-    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Tätigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
-    "        abgegrenzter und gut begründbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltätigkeiten."
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. In der Bestandsmessung der Buerokratiekosten der Wirtschaft hatte sich z. B. \n"
+    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Taetigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
+    "        abgegrenzter und gut begruendbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltaetigkeiten."
 )
 
 
@@ -1291,31 +1291,31 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
 # Sicht der privaten Lebensfuehrung (Antrag, Nachweis, Zahlung, Wege,
 # Mitwirkung bei Pruefungen).
 _PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS = (
-    "Als Hilfsmittel für die Identifizierung der zu erwartenden Tätigkeiten kann die nachfolgende Checkliste mit möglichen Tätigkeiten \n"
-    "        von Bürgerinnen und Bürgern zur Erfüllung einer Vorgabe oder eines Prozesses herangezogen werden. Es kann sich in einzelnen\n"
-    "        Fällen anbieten, die Checkliste um spezielle Tätigkeiten zu erweitern.\n\n"
-    "        Orientieren Sie die Bildung der Tätigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
-    "        und vergleichbar bleiben. Bilden Sie keine künstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
-    "        pro Fallgruppe etwa drei bis fünf Tätigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
-    "        Fassen Sie eng zusammenhängende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
-    "        Checkliste (Bürgerinnen und Bürger, Leitfaden Erfüllungsaufwand Feb 2026, Kap. 5.2.1, S. 27):\n"
+    "Als Hilfsmittel fuer die Identifizierung der zu erwartenden Taetigkeiten kann die nachfolgende Checkliste mit moeglichen Taetigkeiten \n"
+    "        von Buergerinnen und Buergern zur Erfuellung einer Vorgabe oder eines Prozesses herangezogen werden. Es kann sich in einzelnen\n"
+    "        Faellen anbieten, die Checkliste um spezielle Taetigkeiten zu erweitern.\n\n"
+    "        Orientieren Sie die Bildung der Taetigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
+    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
+    "        pro Fallgruppe etwa drei bis fuenf Taetigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
+    "        Checkliste (Buergerinnen und Buerger, Leitfaden Erfuellungsaufwand Feb 2026, Kap. 5.2.1, S. 27):\n"
     "        • Mit der Vorgabe vertraut machen \n"
     "        • Beratung in Anspruch nehmen (z. B. Beratungsstellen, Stadtverwaltung, Anwaltskanzlei) \n"
     "        • Daten und Informationen sammeln und zusammenstellen (z. B. Formularvordrucke, Nachweise, Fotos) \n"
-    "        • Informationen und Daten aufbereiten (inkl. Berechnungen durchführen) \n"
-    "        • Formulare ausfüllen \n"
-    "        • Schriftstücke aufsetzen (z. B. Brief, E-Mail) \n"
-    "        • Informationen oder Daten an die zuständigen Stellen übermitteln \n"
-    "        • Bezahlen (z. B. beim Begleichen einer Rechnung per Überweisung: Ausfüllen eines Überweisungsvordrucks oder Veranlassen einer Online-Überweisung) \n"
+    "        • Informationen und Daten aufbereiten (inkl. Berechnungen durchfuehren) \n"
+    "        • Formulare ausfuellen \n"
+    "        • Schriftstuecke aufsetzen (z. B. Brief, E-Mail) \n"
+    "        • Informationen oder Daten an die zustaendigen Stellen uebermitteln \n"
+    "        • Bezahlen (z. B. beim Begleichen einer Rechnung per Ueberweisung: Ausfuellen eines Ueberweisungsvordrucks oder Veranlassen einer Online-Ueberweisung) \n"
     "        • Unterlagen kopieren, abheften, abspeichern \n"
-    "        • Mitwirkung bei der Prüfung durch öffentliche sowie beliehene und anerkannte Stellen (z. B. Amtsärztin bzw. Amtsarzt, technische Gutachten, Hauptuntersuchungen) \n"
+    "        • Mitwirkung bei der Pruefung durch oeffentliche sowie beliehene und anerkannte Stellen (z. B. Amtsaerztin bzw. Amtsarzt, technische Gutachten, Hauptuntersuchungen) \n"
     "        • Material beschaffen \n"
     "        • Bestimmte Leistung selbst erbringen oder Dritte beauftragen \n"
-    "        • Umsetzung von Vorgaben überprüfen \n"
-    "        • Zeitaufwand für Wegezeiten (z. B. zu einer Behörde) \n\n"
-    "        In der Praxis sind selten alle oben aufgeführten Tätigkeiten relevant. Wählen Sie nur die für den Vorher-Nachher-Vergleich \n"
-    "        wirklich erforderlichen Hauptschritte: lieber eine kleine Zahl klar abgegrenzter und gut begründbarer Hauptschritte als eine\n"
-    "        lange Liste kleinteiliger Einzeltätigkeiten."
+    "        • Umsetzung von Vorgaben ueberpruefen \n"
+    "        • Zeitaufwand fuer Wegezeiten (z. B. zu einer Behoerde) \n\n"
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Waehlen Sie nur die fuer den Vorher-Nachher-Vergleich \n"
+    "        wirklich erforderlichen Hauptschritte: lieber eine kleine Zahl klar abgegrenzter und gut begruendbarer Hauptschritte als eine\n"
+    "        lange Liste kleinteiliger Einzeltaetigkeiten."
 )
 
 
