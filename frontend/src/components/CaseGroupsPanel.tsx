@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { runPerAddressee } from "@/lib/runPerAddressee";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function CaseGroupsPanel() {
@@ -35,20 +35,26 @@ export default function CaseGroupsPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await apiClient.developCaseGroups({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
+      const outcome = await runPerAddressee({
+        logScope: "CaseGroupsPanel.developCaseGroups",
+        logContext: { appSessionId: state.appSessionId },
+        operationLabel: "Fallgruppen entwickeln",
+        run: (normAddressee) =>
+          apiClient.developCaseGroups({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          }),
       });
       window.dispatchEvent(new Event("tiles-updated"));
-      setCaseGroupsReady(true);
-      setCurrentTab(4);
-    } catch (error) {
-      logClientError("CaseGroupsPanel.developCaseGroups", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatus(formatActionErrorMessage("Fallgruppen konnten nicht entwickelt werden", error));
+      if (outcome.allSucceeded) {
+        setCaseGroupsReady(true);
+        setCurrentTab(4);
+      } else {
+        setStatus(outcome.statusMessage);
+      }
     } finally {
       setIsRunning(false);
     }
@@ -59,14 +65,13 @@ export default function CaseGroupsPanel() {
       <div className="mx-auto max-w-6xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
-            <span className="block">
-              Wenn Prozesse auf unterschiedlichen Wegen erfüllt werden, werden
-              Fallgruppen gebildet.
-            </span>
-            <span className="block">
-              Jede Fallgruppe beschreibt eine typische Ausprägung der Ausführung,
-              damit der Erfüllungsaufwand getrennt ermittelt werden kann.
-            </span>
+            Wenn Prozesse auf unterschiedlichen Wegen erfüllt werden, werden
+            Fallgruppen gebildet. Jede Fallgruppe beschreibt eine typische
+            Ausprägung der Ausführung, damit der Erfüllungsaufwand getrennt
+            ermittelt werden kann. Der Lauf entwickelt Fallgruppen in einem
+            Durchgang für Verwaltung, Wirtschaft und Bürger, erzeugt dabei aber
+            je Normadressat eine eigene fachliche Sicht. Der Umschalter zeigt
+            die Sicht des ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleDevelop}

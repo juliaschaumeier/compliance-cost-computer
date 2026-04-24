@@ -13,11 +13,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
-from backend.core import db, llm_monitor
+from backend.core import db, llm_monitor, llm_trace
 from backend.core.config import settings
+from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.session_graph import build_session_tiles_snapshot
-from backend.core.workflow import get_last_completed_step, undo_step
+from backend.core.workflow import (
+    get_last_completed_step,
+    undo_step,
+)
 from backend.routers._llm_router_utils import ensure_session_or_400
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -69,16 +75,22 @@ class SessionStatusResponse(BaseModel):
     summary_ready: bool
     regulations_ready: bool
     processes_ready: bool
+    processes_ready_by_addressee: dict[str, bool] = {}
     case_groups_ready: bool
+    case_groups_ready_by_addressee: dict[str, bool] = {}
     process_steps_ready: bool
+    process_steps_ready_by_addressee: dict[str, bool] = {}
     effort_ready: bool
+    effort_ready_by_addressee: dict[str, bool] = {}
     total_cost_ready: bool
+    total_cost_ready_by_addressee: dict[str, bool] = {}
     last_completed_step: str | None = None
     last_completed_label: str | None = None
 
 
 class SessionPayRatesUpdateRequest(BaseModel):
     app_session_id: AppSessionId
+    norm_addressee: str | None = None
     administration_level: str | None = None
     edited_a: float | None
     edited_b: float | None
@@ -88,7 +100,9 @@ class SessionPayRatesUpdateRequest(BaseModel):
 
 class SessionPayRatesResponse(BaseModel):
     app_session_id: str
-    administration_level: str
+    norm_addressee: str = ADMINISTRATION
+    editable: bool = True
+    administration_level: str | None = None
     defaults: dict[str, float]
     edited: dict[str, float | None]
     active: dict[str, float]
@@ -151,6 +165,10 @@ class SessionRunStatusResponse(BaseModel):
     ok: bool | None = None
     steps: list[SessionRunStepResult]
     final_status: SessionStatusResponse | None = None
+    current_step: str | None = None
+    current_label: str | None = None
+    current_norm_addressee: str | None = None
+    last_error: str | None = None
 
 
 class SessionRunCancelResponse(BaseModel):
@@ -195,6 +213,10 @@ class _RunRecord:
     ok: bool | None = None
     steps: list[SessionRunStepResult] = field(default_factory=list)
     final_status: SessionStatusResponse | None = None
+    current_step: str | None = None
+    current_label: str | None = None
+    current_norm_addressee: str | None = None
+    last_error: str | None = None
     events: list[tuple[str, dict]] = field(default_factory=list)
     subscribers: set[asyncio.Queue[tuple[str, dict]]] = field(default_factory=set)
     task: asyncio.Task[None] | None = None
@@ -232,6 +254,10 @@ def _run_snapshot_payload(record: _RunRecord) -> dict:
         "app_session_id": record.app_session_id,
         "status": record.status,
         "ok": record.ok,
+        "current_step": record.current_step,
+        "current_label": record.current_label,
+        "current_norm_addressee": record.current_norm_addressee,
+        "last_error": record.last_error,
         "steps": [step.model_dump() for step in record.steps],
         "final_status": (
             record.final_status.model_dump() if record.final_status is not None else None
@@ -245,6 +271,35 @@ async def _publish_run_event(run_id: str, event: str, payload: dict) -> None:
         if record is None:
             return
         record.updated_at = time.time()
+        if event == "step_started":
+            record.current_step = str(payload.get("key") or "")
+            record.current_label = str(payload.get("label") or "")
+            record.current_norm_addressee = None
+            record.last_error = None
+        elif event == "addressee_started":
+            norm_addressee = payload.get("norm_addressee")
+            record.current_norm_addressee = None if norm_addressee is None else str(norm_addressee)
+        elif event == "step_failed":
+            step = payload.get("step")
+            if isinstance(step, dict):
+                message = step.get("message")
+                record.last_error = None if message is None else str(message)
+        elif event == "run_failed":
+            message = payload.get("message")
+            if message is not None:
+                record.last_error = str(message)
+        elif event in {
+            "step_completed",
+            "step_skipped",
+            "run_completed",
+            "run_cancelled",
+        }:
+            if event.startswith("run_"):
+                record.current_step = None
+                record.current_label = None
+                if event in {"run_completed", "run_cancelled"}:
+                    record.last_error = None
+            record.current_norm_addressee = None
         record.events.append((event, payload))
         subscribers = list(record.subscribers)
     for queue in subscribers:
@@ -301,16 +356,26 @@ def _as_session_status_response(app_session_id: str) -> SessionStatusResponse:
     )
 
 
-def _as_session_pay_rates_response(app_session_id: str) -> SessionPayRatesResponse:
+def _as_session_pay_rates_response(
+    app_session_id: str,
+    norm_addressee: str | None = None,
+) -> SessionPayRatesResponse:
     session_id = db.get_session_id_by_app_id(app_session_id)
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    pay_rates = db.get_session_pay_rates(session_id)
+    resolved = normalize_norm_addressee_or_422(norm_addressee)
+    pay_rates = db.get_session_pay_rates_for_addressee(session_id, resolved)
     if pay_rates is None:
         raise HTTPException(status_code=404, detail="Session pay rates not found")
     return SessionPayRatesResponse(
         app_session_id=app_session_id,
-        administration_level=str(pay_rates["administration_level"]),
+        norm_addressee=str(pay_rates["norm_addressee"]),
+        editable=bool(pay_rates["editable"]),
+        administration_level=(
+            None
+            if pay_rates["administration_level"] is None
+            else str(pay_rates["administration_level"])
+        ),
         defaults={key: float(value) for key, value in pay_rates["defaults"].items()},
         edited={
             key: (None if value is None else float(value))
@@ -321,6 +386,17 @@ def _as_session_pay_rates_response(app_session_id: str) -> SessionPayRatesRespon
 
 
 def _validate_pay_rates_update_payload(payload: SessionPayRatesUpdateRequest) -> None:
+    resolved = normalize_norm_addressee_or_422(payload.norm_addressee)
+    if resolved == CITIZENS:
+        raise HTTPException(
+            status_code=422,
+            detail="Citizens pay rates are not editable",
+        )
+    if payload.administration_level is not None and resolved != ADMINISTRATION:
+        raise HTTPException(
+            status_code=422,
+            detail="administration_level is only supported for administration",
+        )
     if payload.administration_level is not None:
         requested_level = payload.administration_level.strip().lower()
         allowed_levels = {
@@ -389,7 +465,68 @@ async def _run_single_step(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> None:
+    addressee_labels = {
+        ADMINISTRATION: "administration",
+        BUSINESS: "business",
+        CITIZENS: "citizens",
+    }
+
+    async def _run_for_supported_addressees(
+        runner: Callable[[str], Awaitable[None]],
+    ) -> None:
+        for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+            await _emit_event(
+                event_hook,
+                "addressee_started",
+                {
+                    "key": step_key,
+                    "norm_addressee": norm_addressee,
+                },
+            )
+            try:
+                await runner(norm_addressee)
+                await _emit_event(
+                    event_hook,
+                    "addressee_completed",
+                    {
+                        "key": step_key,
+                        "norm_addressee": norm_addressee,
+                    },
+                )
+            except HTTPException as exc:
+                detail = _step_error_message(exc)
+                await _emit_event(
+                    event_hook,
+                    "addressee_failed",
+                    {
+                        "key": step_key,
+                        "norm_addressee": norm_addressee,
+                        "message": detail,
+                    },
+                )
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail=(
+                        f"{addressee_labels.get(norm_addressee, norm_addressee)}: {detail}"
+                    ),
+                ) from exc
+            except Exception as exc:
+                detail = _step_error_message(exc)
+                await _emit_event(
+                    event_hook,
+                    "addressee_failed",
+                    {
+                        "key": step_key,
+                        "norm_addressee": norm_addressee,
+                        "message": detail,
+                    },
+                )
+                raise RuntimeError(
+                    f"{addressee_labels.get(norm_addressee, norm_addressee)}: {detail}"
+                ) from exc
+
     if step_key == "summary":
         current_filename, proposed_filename = _resolve_filenames(
             payload.app_session_id,
@@ -421,46 +558,66 @@ async def _run_single_step(
         return
 
     if step_key == "processes":
-        processes_payload = processes_router.ProcessCompilationRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await processes_router.compile_processes(processes_payload, api_keys)
+        async def _run_processes(norm_addressee: str) -> None:
+            processes_payload = processes_router.ProcessCompilationRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await processes_router.compile_processes(processes_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_processes)
         return
 
     if step_key == "case_groups":
-        case_groups_payload = case_groups_router.CaseGroupDevelopmentRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await case_groups_router.develop_case_groups(case_groups_payload, api_keys)
+        async def _run_case_groups(norm_addressee: str) -> None:
+            case_groups_payload = case_groups_router.CaseGroupDevelopmentRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await case_groups_router.develop_case_groups(case_groups_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_case_groups)
         return
 
     if step_key == "process_steps":
-        steps_payload = process_steps_router.ProcessStepAnalysisRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await process_steps_router.analyze_process_steps(steps_payload, api_keys)
+        async def _run_steps(norm_addressee: str) -> None:
+            steps_payload = process_steps_router.ProcessStepAnalysisRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await process_steps_router.analyze_process_steps(steps_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_steps)
         return
 
     if step_key == "effort":
-        effort_payload = effort_router.EffortCalculationRequest(
-            app_session_id=payload.app_session_id,
-            model=model,
-            provider=payload.provider,
-        )
-        await effort_router.calculate_effort(effort_payload, api_keys)
+        async def _run_effort(norm_addressee: str) -> None:
+            effort_payload = effort_router.EffortCalculationRequest(
+                app_session_id=payload.app_session_id,
+                model=model,
+                provider=payload.provider,
+                norm_addressee=norm_addressee,
+            )
+            await effort_router.calculate_effort(effort_payload, api_keys)
+
+        await _run_for_supported_addressees(_run_effort)
         return
 
     if step_key == "total_cost":
-        costs_payload = costs_router.CostComputationRequest(
-            app_session_id=payload.app_session_id
-        )
-        await costs_router.compute_costs(costs_payload)
+        async def _run_costs(norm_addressee: str) -> None:
+            costs_payload = costs_router.CostComputationRequest(
+                app_session_id=payload.app_session_id,
+                norm_addressee=norm_addressee,
+            )
+            await costs_router.compute_costs(costs_payload)
+
+        await _run_for_supported_addressees(_run_costs)
         return
 
     raise HTTPException(status_code=400, detail=f"Unknown step: {step_key}")
@@ -508,7 +665,13 @@ async def _execute_run_all_steps(
         )
 
         try:
-            await _run_single_step(step_key, payload, api_keys, model)
+            await _run_single_step(
+                step_key,
+                payload,
+                api_keys,
+                model,
+                event_hook=event_hook,
+            )
         except Exception as exc:
             step_result = SessionRunStepResult(
                 key=step_key,
@@ -620,8 +783,9 @@ async def session_status(
 @router.get("/pay-rates", response_model=SessionPayRatesResponse)
 async def session_pay_rates(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    norm_addressee: str | None = None,
 ) -> SessionPayRatesResponse:
-    return _as_session_pay_rates_response(app_session_id)
+    return _as_session_pay_rates_response(app_session_id, norm_addressee=norm_addressee)
 
 
 @router.post("/pay-rates", response_model=SessionPayRatesResponse)
@@ -633,8 +797,9 @@ async def session_pay_rates_update(
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
     try:
-        changed = db.update_session_pay_rate_edits(
+        changed = db.update_session_pay_rate_edits_for_addressee(
             session_id=session_id,
+            norm_addressee=normalize_norm_addressee_or_422(payload.norm_addressee),
             administration_level=payload.administration_level,
             edited={
                 "a": payload.edited_a,
@@ -647,7 +812,10 @@ async def session_pay_rates_update(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not changed:
         raise HTTPException(status_code=422, detail="No changes in payload")
-    return _as_session_pay_rates_response(payload.app_session_id)
+    return _as_session_pay_rates_response(
+        payload.app_session_id,
+        norm_addressee=payload.norm_addressee,
+    )
 
 
 @router.get("/edit-audit", response_model=SessionEditAuditResponse)
@@ -773,6 +941,14 @@ async def _run_all_background(
     api_keys: ApiKeys,
     model: str,
 ) -> None:
+    trace_token = None
+    if llm_trace.trace_enabled_by_env():
+        trace_token = llm_trace.start_run(
+            request_id=run_id,
+            route_method="BACKGROUND",
+            route_path=f"/sessions/{payload.app_session_id}/run-all",
+            app_session_id=payload.app_session_id,
+        )
     lock = _get_run_all_lock(payload.app_session_id)
     try:
         start_record = await _get_run_record(run_id)
@@ -824,6 +1000,11 @@ async def _run_all_background(
             },
         )
         await _trim_finished_runs()
+        if trace_token is not None:
+            try:
+                llm_trace.flush_run(trace_token, status_code=499)
+            except Exception:
+                pass
         return
     except Exception as exc:
         final_status: SessionStatusResponse | None = None
@@ -854,6 +1035,11 @@ async def _run_all_background(
             },
         )
         await _trim_finished_runs()
+        if trace_token is not None:
+            try:
+                llm_trace.flush_run(trace_token, status_code=500)
+            except Exception:
+                pass
         return
 
     async with _RUN_REGISTRY_LOCK:
@@ -874,6 +1060,11 @@ async def _run_all_background(
         _run_snapshot_payload(record_after),
     )
     await _trim_finished_runs()
+    if trace_token is not None:
+        try:
+            llm_trace.flush_run(trace_token, status_code=200 if ok else 500)
+        except Exception:
+            pass
 
 
 @router.post("/run-all/start", response_model=SessionRunAllStartResponse)
@@ -964,6 +1155,10 @@ async def get_run_all_status(run_id: str) -> SessionRunStatusResponse:
         ok=record.ok,
         steps=record.steps,
         final_status=record.final_status,
+        current_step=record.current_step,
+        current_label=record.current_label,
+        current_norm_addressee=record.current_norm_addressee,
+        last_error=record.last_error,
     )
 
 

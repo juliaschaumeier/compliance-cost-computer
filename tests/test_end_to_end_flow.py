@@ -10,6 +10,10 @@ from backend.routers import (
 )
 
 
+def _is_effort_prompt(prompt: str) -> bool:
+    return "prozessschritte differenziert werden" in prompt.lower()
+
+
 def test_end_to_end_flow_and_undo(test_client, monkeypatch):
     """Runs steps 1-7 with mocked LLMs, then undoes steps in reverse order."""
     app_id = "E2E-UNDO"
@@ -261,9 +265,9 @@ def test_end_to_end_flow_and_undo(test_client, monkeypatch):
     }
 
     async def fake_effort_llm(prompt, *_args, **_kwargs):
-        if "Fallzahlen" in prompt or "Fallzahl" in prompt:
-            return json.dumps(cases_response)
-        return json.dumps(effort_response)
+        if _is_effort_prompt(prompt):
+            return json.dumps(effort_response)
+        return json.dumps(cases_response)
 
     monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
 

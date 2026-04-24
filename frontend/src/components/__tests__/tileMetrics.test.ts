@@ -57,6 +57,27 @@ describe("tileMetrics", () => {
     ]);
   });
 
+  it("uses business labels for step metrics when norm addressee is business", () => {
+    const tile = buildTile({
+      id: "step_44",
+      meta_information: {
+        time_required_current: { a: 5, b: 10, c: 15, d: 10 },
+        time_required_proposed: { a: 6, b: 12, c: 18, d: 12 },
+        cost_current: 100,
+        cost_proposed: 120,
+      },
+    });
+
+    const table = buildTileMetricTable(tile, "business");
+    expect(table?.rows.map((row) => row.label)).toEqual([
+      "Niedrig",
+      "Mittel",
+      "Hoch",
+      "Ø",
+      "Kosten/Jahr",
+    ]);
+  });
+
   it("falls back to legacy step text rows when structured meta rows are missing", () => {
     const tile = buildTile({
       id: "step_33",

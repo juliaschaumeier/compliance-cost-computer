@@ -218,6 +218,60 @@ def test_compile_processes_returns_existing(test_client, monkeypatch):
     ]
 
 
+def test_compile_processes_allows_missing_regulation_tiles(test_client, monkeypatch):
+    """Creates processes even when regulations were preseeded without graph tiles."""
+    session_id, _ = db.upsert_session("PROC-NO-REG-TILE", "test-model")
+    reg_one = db.insert_regulation(
+        session_id,
+        "§ B",
+        "Beschreibung Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+
+    response_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_bezeichnung": "Prozess Wirtschaft",
+          "prozess_beschreibung": "Beschreibung Prozess Wirtschaft",
+          "vorgaben": [
+            {{"vorgaben_id": "{reg_one}", "normzitat": "§ B", "beschreibung": "Beschreibung Wirtschaft"}}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return response_text
+
+    monkeypatch.setattr(processes_router, "query_llm", fake_query_llm)
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-NO-REG-TILE",
+            "model": "test-model",
+            "provider": "deepinfra",
+            "norm_addressee": "business",
+        },
+    )
+    assert resp.status_code == 200
+
+    processes = db.list_processes_for_session_and_addressee(session_id, "business")
+    assert len(processes) == 1
+
+    process_tiles = [
+        tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="business")
+        if tile.id.startswith("process_")
+    ]
+    assert len(process_tiles) == 1
+    assert process_tiles[0].link_from_tile == []
+
+
 def test_compile_processes_normalizes_change_status_variants(test_client, monkeypatch):
     session_id, _ = db.upsert_session("PROC-STATUS-VARIANTS", "test-model")
     reg_one = db.insert_regulation(session_id, "Section 1", "Beschreibung A")
@@ -301,6 +355,32 @@ def test_compile_processes_requires_regulations(test_client):
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "No regulations for session"
+
+
+def test_compile_processes_skips_administration_when_only_other_addressee_has_regulations(
+    test_client,
+):
+    session_id, _ = db.upsert_session("PROC-ADMIN-SKIP", "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Nur Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+    )
+
+    resp = test_client.post(
+        "/processes/compile",
+        json={
+            "app_session_id": "PROC-ADMIN-SKIP",
+            "model": "test-model",
+            "provider": "deepinfra",
+            "norm_addressee": "administration",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "skipped"
+    assert resp.json()["norm_addressee"] == "administration"
 
 
 def test_compile_processes_stores_query_failed_attempt(test_client, monkeypatch):

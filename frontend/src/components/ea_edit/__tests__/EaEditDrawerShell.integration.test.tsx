@@ -31,6 +31,7 @@ describe("EaEditDrawerShell integration", () => {
     mockUseApp.mockReturnValue({
       state: {
         appSessionId: "EA-INTEGRATION",
+        selectedNormAddressee: "administration",
       },
     });
     mockGetSessionPayRates.mockResolvedValue({

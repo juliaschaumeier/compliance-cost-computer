@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { runPerAddressee } from "@/lib/runPerAddressee";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function ProcessStepsPanel() {
@@ -35,22 +35,26 @@ export default function ProcessStepsPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await apiClient.analyzeProcessSteps({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
+      const outcome = await runPerAddressee({
+        logScope: "ProcessStepsPanel.analyzeProcessSteps",
+        logContext: { appSessionId: state.appSessionId },
+        operationLabel: "Prozessschritte bestimmen",
+        run: (normAddressee) =>
+          apiClient.analyzeProcessSteps({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          }),
       });
       window.dispatchEvent(new Event("tiles-updated"));
-      setProcessStepsReady(true);
-      setCurrentTab(5);
-    } catch (error) {
-      logClientError("ProcessStepsPanel.analyzeProcessSteps", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatus(
-        formatActionErrorMessage("Prozessschritte konnten nicht bestimmt werden", error)
-      );
+      if (outcome.allSucceeded) {
+        setProcessStepsReady(true);
+        setCurrentTab(5);
+      } else {
+        setStatus(outcome.statusMessage);
+      }
     } finally {
       setIsRunning(false);
     }
@@ -62,7 +66,10 @@ export default function ProcessStepsPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Für jede Fallgruppe werden die notwendigen Tätigkeiten identifiziert
-            und als Prozessschritte erfasst.
+            und als Prozessschritte erfasst. Der Lauf bestimmt die Prozessschritte
+            in einem Durchgang für Verwaltung, Wirtschaft und Bürger, erzeugt dabei
+            aber je Normadressat eigene Ergebnisse. Der Umschalter zeigt die Sicht
+            des ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleAnalyze}

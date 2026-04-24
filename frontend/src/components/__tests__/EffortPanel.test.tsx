@@ -43,6 +43,7 @@ const mockCalculateEffort = apiClient.calculateEffort as jest.Mock;
 const baseState = {
   currentTab: 5,
   appSessionId: "ABC123",
+  selectedNormAddressee: "business",
   selectedModel: "gpt-5",
   availableModels: [
     { id: "gpt-5", name: "GPT-5", provider: "OpenAI" },
@@ -95,16 +96,40 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     await waitFor(() => {
-      expect(mockCalculateEffort).toHaveBeenCalledWith({
-        appSessionId: "ABC123",
-        model: "gpt-5",
-        provider: "openai",
-        keys: {
-          openaiApiKey: "sk-test",
-          deepinfraApiKey: undefined,
-          geminiApiKey: undefined,
-        },
-      });
+      expect(mockCalculateEffort).toHaveBeenCalledTimes(3);
+    });
+    expect(mockCalculateEffort).toHaveBeenNthCalledWith(1, {
+      appSessionId: "ABC123",
+      normAddressee: "administration",
+      model: "gpt-5",
+      provider: "openai",
+      keys: {
+        openaiApiKey: "sk-test",
+        deepinfraApiKey: undefined,
+        geminiApiKey: undefined,
+      },
+    });
+    expect(mockCalculateEffort).toHaveBeenNthCalledWith(2, {
+      appSessionId: "ABC123",
+      normAddressee: "business",
+      model: "gpt-5",
+      provider: "openai",
+      keys: {
+        openaiApiKey: "sk-test",
+        deepinfraApiKey: undefined,
+        geminiApiKey: undefined,
+      },
+    });
+    expect(mockCalculateEffort).toHaveBeenNthCalledWith(3, {
+      appSessionId: "ABC123",
+      normAddressee: "citizens",
+      model: "gpt-5",
+      provider: "openai",
+      keys: {
+        openaiApiKey: "sk-test",
+        deepinfraApiKey: undefined,
+        geminiApiKey: undefined,
+      },
     });
     expect(setCurrentTab).toHaveBeenCalledWith(6);
     expect(setEffortReady).toHaveBeenCalledWith(true);
@@ -126,7 +151,9 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     expect(
-      await screen.findByText("Aufwand konnte nicht berechnet werden: boom")
+      await screen.findByText(
+        /Aufwand berechnen fehlgeschlagen fuer alle Normadressaten.*Verwaltung.*Wirtschaft.*Buerger/
+      )
     ).toBeInTheDocument();
     expect(setCurrentTab).not.toHaveBeenCalled();
   });
@@ -151,8 +178,11 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     expect(
-      await screen.findByText("Aufwand wurde bereits berechnet.")
+      await screen.findByText(
+        "Aufwand fuer Verwaltung, Wirtschaft und Buerger wurde bereits berechnet."
+      )
     ).toBeInTheDocument();
+    expect(mockCalculateEffort).toHaveBeenCalledTimes(3);
     expect(setEffortReady).toHaveBeenCalledWith(true);
     expect(setCurrentTab).toHaveBeenCalledWith(6);
   });

@@ -14,7 +14,12 @@ jest.mock("@/lib/api", () => ({
 function ContextProbe() {
   const { state } = useApp();
   return (
-    <div data-testid="state" data-tab={state.currentTab} data-effort={state.effortReady} />
+    <div
+      data-testid="state"
+      data-tab={state.currentTab}
+      data-effort={state.effortReady}
+      data-addressee={state.selectedNormAddressee}
+    />
   );
 }
 
@@ -45,7 +50,73 @@ describe("AppContext session status sync", () => {
     await waitFor(() => {
       const node = getByTestId("state");
       expect(node.getAttribute("data-effort")).toBe("false");
+      expect(node.getAttribute("data-tab")).toBe("2");
+    });
+  });
+
+  it("keeps the effort tab once all addressees report ready process steps", async () => {
+    (apiClient.getSessionStatus as jest.Mock).mockResolvedValue({
+      summary_ready: true,
+      regulations_ready: true,
+      processes_ready: true,
+      processes_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+      case_groups_ready: true,
+      case_groups_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+      process_steps_ready: true,
+      process_steps_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+      effort_ready: false,
+      effort_ready_by_addressee: {
+        administration: false,
+        business: false,
+        citizens: false,
+      },
+      total_cost_ready: false,
+      total_cost_ready_by_addressee: {
+        administration: false,
+        business: false,
+        citizens: false,
+      },
+    });
+    sessionStorage.setItem("app_session_id", "ABC123");
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      const node = getByTestId("state");
+      expect(node.getAttribute("data-effort")).toBe("false");
       expect(node.getAttribute("data-tab")).toBe("5");
+    });
+  });
+
+  it("restores the selected norm addressee from session storage", async () => {
+    sessionStorage.setItem("app_session_id", "ABC123");
+    sessionStorage.setItem("selected_norm_addressee", "citizens");
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      const node = getByTestId("state");
+      expect(node.getAttribute("data-addressee")).toBe("citizens");
     });
   });
 });

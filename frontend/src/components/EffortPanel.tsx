@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { runPerAddressee } from "@/lib/runPerAddressee";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function EffortPanel() {
@@ -35,26 +35,38 @@ export default function EffortPanel() {
       availableModels: state.availableModels,
     });
     try {
-      const result = await apiClient.calculateEffort({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
+      const outcome = await runPerAddressee({
+        logScope: "EffortPanel.calculateEffort",
+        logContext: { appSessionId: state.appSessionId },
+        operationLabel: "Aufwand berechnen",
+        run: (normAddressee) =>
+          apiClient.calculateEffort({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          }),
       });
-      if (result.status === "existing") {
-        setStatus("Aufwand wurde bereits berechnet.");
+      if (!outcome.allSucceeded) {
+        setStatus(outcome.statusMessage);
+        return;
+      }
+      const allExisting = outcome.successes.every(
+        ({ result }) => result.status === "existing"
+      );
+      if (allExisting) {
+        setStatus(
+          "Aufwand fuer Verwaltung, Wirtschaft und Buerger wurde bereits berechnet."
+        );
         setEffortReady(true);
         setCurrentTab(6);
         return;
       }
       window.dispatchEvent(new Event("tiles-updated"));
       setEffortReady(true);
+      setStatus("Aufwand fuer Verwaltung, Wirtschaft und Buerger berechnet.");
       setCurrentTab(6);
-    } catch (error) {
-      logClientError("EffortPanel.calculateEffort", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatus(formatActionErrorMessage("Aufwand konnte nicht berechnet werden", error));
     } finally {
       setIsRunning(false);
     }
@@ -66,7 +78,10 @@ export default function EffortPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Beim Klick auf „Aufwand berechnen“ werden Fallzahlen je Fallgruppe sowie
-            Lohnsatz-, Zeit- und Sachaufwände je Prozessschritt ermittelt.
+            Lohnsatz-, Zeit- und Sachaufwände je Prozessschritt ermittelt. Der Lauf
+            berechnet die Werte in einem Durchgang für Verwaltung, Wirtschaft und
+            Bürger, erzeugt dabei aber je Normadressat eigene Aufwandssichten. Der
+            Umschalter zeigt die Sicht des ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleCalculate}

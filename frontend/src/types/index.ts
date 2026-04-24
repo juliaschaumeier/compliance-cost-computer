@@ -1,4 +1,10 @@
 export type Provider = "OpenAI" | "DeepInfra" | "Gemini";
+export type NormAddressee = "administration" | "business" | "citizens";
+export const AUTOMATED_NORM_ADDRESSEES: NormAddressee[] = [
+  "administration",
+  "business",
+  "citizens",
+];
 
 export interface Model {
   id: string;
@@ -52,10 +58,15 @@ export interface SessionStatus {
   summary_ready: boolean;
   regulations_ready: boolean;
   processes_ready: boolean;
+  processes_ready_by_addressee?: Record<NormAddressee, boolean>;
   case_groups_ready: boolean;
+  case_groups_ready_by_addressee?: Record<NormAddressee, boolean>;
   process_steps_ready: boolean;
+  process_steps_ready_by_addressee?: Record<NormAddressee, boolean>;
   effort_ready: boolean;
+  effort_ready_by_addressee?: Record<NormAddressee, boolean>;
   total_cost_ready: boolean;
+  total_cost_ready_by_addressee?: Record<NormAddressee, boolean>;
   last_completed_step?: string | null;
   last_completed_label?: string | null;
 }
@@ -279,7 +290,13 @@ export interface EffortCalculationResponse {
 }
 
 export interface TotalCostResponse {
-  total_cost: number;
+  norm_addressee?: NormAddressee;
+  total_cost: number | null;
+  bureaucracy_cost?: number | null;
+  other_cost?: number | null;
+  total_time_minutes?: number | null;
+  total_time_hours?: number | null;
+  total_expenses?: number | null;
 }
 
 export interface SessionPayRatesResponse {
@@ -309,6 +326,7 @@ export interface SessionEditAuditResponse {
 export interface EditableCaseGroupRow {
   case_group_id: number;
   process_id: number;
+  norm_addressee: NormAddressee;
   case_group: string;
   description: string;
   change_status: string;
@@ -339,6 +357,7 @@ export interface EditableCaseGroupsResponse {
 export interface EditableProcessStepRow {
   step_id: number;
   case_group_id: number;
+  norm_addressee: NormAddressee;
   step: string;
   description: string;
   change_status: string;

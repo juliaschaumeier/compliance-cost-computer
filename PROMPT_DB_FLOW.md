@@ -1,0 +1,213 @@
+# Prompt- und DB-Flow
+
+## Zweck
+
+Diese Datei beschreibt knapp, welcher Prompt welche Daten erzeugt, wo sie gespeichert werden und welche Folgeschritte darauf zugreifen.
+
+## Parse-Regel
+
+Fuer die strukturierte LLM-Ausgabe gilt ab `regulations_identification`,
+`process_step_analysis`, `cases_calculation` und `effort_calculation`:
+
+- wenn kein JSON-Objekt geparst werden kann, bricht die Route mit `422` ab
+- wenn erwartete Top-Level-Struktur fehlt, wird nichts still als leeres Ergebnis behandelt
+- Citizens-Payloads fuer `effort_calculation` duerfen keine `rollen_*`-Arrays enthalten
+
+Damit werden stille Null-Ergebnisse vermieden; Parse-Fehler sind absichtlich
+fail-closed und muessen neu ausgefuehrt oder korrigiert werden.
+
+## Grobe Reihenfolge
+
+1. `law_summary`
+2. `regulations_identification`
+3. `process_compilation`
+4. `case_group_development`
+5. `process_step_analysis`
+6. `cases_calculation`
+7. `effort_calculation`
+8. `total_cost` (kein LLM-Prompt)
+
+Ab `process_compilation` laufen die Schritte getrennt pro Normadressat:
+
+- `administration`
+- `business`
+- `citizens`
+
+## 1. `law_summary`
+
+Prompt-Quelle:
+[backend/core/prompts.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/core/prompts.py)
+
+Route:
+[backend/routers/regulations.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/regulations.py)
+
+Speichert:
+
+- `sessions.law_diff_title`
+- `sessions.law_diff_blurb`
+- `sessions.law_diff_summary`
+- `sessions.current_law_id`
+- `sessions.proposed_law_id`
+- `law_tile`
+
+Wird spaeter gelesen von:
+
+- allen Folgeprompts ueber `{law_summary}`
+
+## 2. `regulations_identification`
+
+Route:
+[backend/routers/regulations.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/regulations.py)
+
+Speichert:
+
+- `regulations`
+  - `legal_citation`
+  - `description`
+  - `change_status`
+  - Normadressaten-Flags
+  - Informationspflicht-Flag
+- Regulation-Tiles
+
+Wird spaeter gelesen von:
+
+- `process_compilation`
+
+## 3. `process_compilation`
+
+Route:
+[backend/routers/processes.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/processes.py)
+
+Input:
+
+- Regulations der jeweiligen Normadressaten
+
+Speichert:
+
+- `processes`
+- Verknuepfung Regulation -> Prozess
+  - fuer Verwaltung direkt in `regulations.process_id`
+  - fuer andere Normadressaten ueber addressee-spezifische Links
+- Process-Tiles
+
+Wird spaeter gelesen von:
+
+- `case_group_development`
+
+## 4. `case_group_development`
+
+Route:
+[backend/routers/case_groups.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/case_groups.py)
+
+Input:
+
+- Prozesse des jeweiligen Normadressaten
+- zugeordnete Regulations
+
+Speichert:
+
+- `case_groups`
+- Case-Group-Tiles
+
+Wird spaeter gelesen von:
+
+- `process_step_analysis`
+- `cases_calculation`
+
+## 5. `process_step_analysis`
+
+Route:
+[backend/routers/process_steps.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/process_steps.py)
+
+Input:
+
+- Prozesse
+- Fallgruppen
+- Regulations
+
+Speichert:
+
+- `process_steps`
+- Step-Tiles
+
+Wird spaeter gelesen von:
+
+- `effort_calculation`
+
+## 6. `cases_calculation`
+
+Route:
+[backend/routers/effort.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/effort.py)
+
+Input:
+
+- Prozesse
+- Fallgruppen
+- Regulations
+
+Speichert in `case_groups`:
+
+- `addressees_current`
+- `annual_frequency_current`
+- `cases_current`
+- `addressees_proposed`
+- `annual_frequency_proposed`
+- `cases_proposed`
+
+## 7. `effort_calculation`
+
+Route:
+[backend/routers/effort.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/effort.py)
+
+Input:
+
+- Prozesse
+- Fallgruppen
+- Prozessschritte
+
+Speichert in `process_steps`:
+
+- Lohn-/Zeit-/Sachaufwand aktuell
+- Lohn-/Zeit-/Sachaufwand vorgeschlagen
+- `execution_per_case`
+
+Wird spaeter gelesen von:
+
+- `total_cost`
+- Tile-Refresh
+
+## 8. `total_cost`
+
+Route:
+[backend/routers/costs.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/routers/costs.py)
+
+Input:
+
+- Fallzahlen aus `case_groups`
+- Aufwand pro Fall aus `process_steps`
+
+Speichert:
+
+- Kosten auf Step-/Prozess-/Session-Ebene
+- `sessions.cc_cost` als Summe der `total_cost` ueber alle Normadressaten (via SQL-Trigger auf `session_total_costs_by_addressee` automatisch gepflegt)
+- `session_total_costs_by_addressee` fuer addressee-spezifische Gesamtsummen
+  - `total_cost`
+  - `bureaucracy_cost`
+  - `total_time_minutes`
+  - `total_expenses`
+- aktualisierte Tiles
+
+## Wo die Prompt-Kontexte zusammengesetzt werden
+
+Datei:
+[backend/core/prompts.py](/Users/hochstrasser/Documents/vscode/compliance-cost-computer/backend/core/prompts.py)
+
+Wichtige Mechanik:
+
+- `render_prompt(...)`
+- zieht `law_summary` aus `sessions`
+- haengt Normadressaten-spezifische Zusatztexte an
+
+## Kurzform zum Erklaeren
+
+Jeder Prompt schreibt einen klaren Zwischenschritt in die DB, und der naechste Prompt liest genau diese strukturierte Vorstufe wieder ein. Die Pipeline ist also nicht nur eine Folge loser LLM-Antworten, sondern ein stufenweiser Datenaufbau: Zusammenfassung -> Vorgaben -> Prozesse -> Fallgruppen -> Schritte -> Fallzahlen -> Aufwand -> Kosten.

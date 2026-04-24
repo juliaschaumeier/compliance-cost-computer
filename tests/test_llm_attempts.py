@@ -1,8 +1,10 @@
 import asyncio
 import json
+from pathlib import Path
 
 from backend.core import db
 from backend.core.auth import ApiKeys
+from backend.core import config
 from backend.core.llm_attempts import (
     llm_query_error_to_status_detail,
     mark_llm_answer_applied,
@@ -141,3 +143,37 @@ def test_query_failure_persists_extended_error_metadata(test_client):
     assert metadata.get("provider") == "openai"
     assert metadata.get("prompt_sha256")
     assert isinstance(metadata.get("elapsed_ms"), int)
+
+
+def test_query_and_stage_writes_prompt_audit_markdown_when_enabled(test_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(config.settings, "prompt_audit_enabled", True)
+    monkeypatch.setattr(config.settings, "prompt_audit_output_dir", tmp_path / "prompt_audits")
+    monkeypatch.setattr(config.settings, "prompt_audit_session_ids", "LLM-AUDIT")
+
+    session_id, _ = db.upsert_session("LLM-AUDIT", "test-model")
+
+    async def fake_query_fn(prompt, api_keys, model, provider):
+        assert prompt == "Hallo Audit"
+        return "Antworttext"
+
+    answer_id, _llm_result = asyncio.run(
+        query_and_stage_llm_answer(
+            session_id=session_id,
+            prompt_id="test_prompt_audit",
+            prompt="Hallo Audit",
+            api_keys=ApiKeys(openai_api_key="sk-test"),
+            model="test-model",
+            provider="openai",
+            query_fn=fake_query_fn,
+        )
+    )
+
+    assert answer_id > 0
+    audit_path = Path(tmp_path / "prompt_audits" / "LLM-AUDIT_prompt_audit.md")
+    assert audit_path.exists()
+    content = audit_path.read_text(encoding="utf-8")
+    assert "# Prompt-Audit fuer Session `LLM-AUDIT`" in content
+    assert "## test_prompt_audit" in content
+    assert "Hallo Audit" in content
+    assert "test-model" in content
+    assert "openai" in content

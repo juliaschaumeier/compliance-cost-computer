@@ -56,11 +56,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setAppSessionId,
     setSummaryReady,
     setRegulationsReady,
-    setProcessesReady,
-    setCaseGroupsReady,
-    setProcessStepsReady,
-    setEffortReady,
-    setTotalCostReady,
     setLastCompletedStep,
     setLastCompletedLabel,
   } = useApp();
@@ -208,7 +203,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const handleRebuildCurrent = async () => {
     try {
       resetStatus();
-      await apiClient.rebuildTiles(state.appSessionId);
+      await apiClient.rebuildTiles(
+        state.appSessionId,
+        state.selectedNormAddressee
+      );
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus("Tiles der Session wurden neu geladen.");
     } catch (error) {
@@ -234,8 +232,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       const sessionStatus = await apiClient.getSessionStatus(selectedSession);
       setAppSessionId(selectedSession);
       applySessionStatus(sessionStatus);
-      await apiClient.rebuildTiles(selectedSession);
-      window.dispatchEvent(new Event("tiles-updated"));
+      await apiClient.rebuildTiles(
+        selectedSession,
+        state.selectedNormAddressee
+      );
       setIsOpen(false);
     } catch (error) {
       logClientError("SessionMenu.loadSession", error, {
@@ -257,7 +257,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setStatus("Kein Schritt zum Zurücksetzen vorhanden.");
         return;
       }
-      await apiClient.rebuildTiles(state.appSessionId);
+      await apiClient.rebuildTiles(
+        state.appSessionId,
+        state.selectedNormAddressee
+      );
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus(`Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`);
     } catch (error) {
@@ -296,14 +299,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const applySessionStatus = (sessionStatus: SessionStatus) => {
     setSummaryReady(sessionStatus.summary_ready);
     setRegulationsReady(sessionStatus.regulations_ready);
-    setProcessesReady(sessionStatus.processes_ready);
-    setCaseGroupsReady(sessionStatus.case_groups_ready);
-    setProcessStepsReady(sessionStatus.process_steps_ready);
-    setEffortReady(sessionStatus.effort_ready);
-    setTotalCostReady(sessionStatus.total_cost_ready);
     setLastCompletedStep(sessionStatus.last_completed_step ?? null);
     setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
     setCurrentTab(deriveTabFromStatus(sessionStatus));
+    window.dispatchEvent(new Event("tiles-updated"));
   };
 
   const stopRunMonitoring = () => {
@@ -333,7 +332,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     try {
       const sessionStatus = await apiClient.getSessionStatus(state.appSessionId);
       applySessionStatus(sessionStatus);
-      window.dispatchEvent(new Event("tiles-updated"));
     } catch (statusError) {
       logClientError("SessionMenu.refreshStatusAfterMissingRun", statusError, {
         runId,
@@ -353,7 +351,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         const progress = await apiClient.getRunAllStatus(runId);
         if (progress.final_status) {
           applySessionStatus(progress.final_status);
-          window.dispatchEvent(new Event("tiles-updated"));
         }
         if (progress.status === "running") {
           pollRunStatus(runId);
@@ -412,7 +409,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           if (inferredStep) {
             emitRunAllStepStarted(inferredStep);
           }
-          window.dispatchEvent(new Event("tiles-updated"));
         }
       } catch (error) {
         logClientError("SessionMenu.stepStatusEvent", error, { runId });
@@ -432,7 +428,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         const payload = JSON.parse((event as MessageEvent).data) as RunCompletedEvent;
         if (payload.final_status) {
           applySessionStatus(payload.final_status);
-          window.dispatchEvent(new Event("tiles-updated"));
         }
         setStatus(payload.ok ? "Alle Schritte wurden ausgeführt." : "Lauf beendet.");
       } catch (error) {
@@ -452,7 +447,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         const payload = JSON.parse((event as MessageEvent).data) as RunFailedEvent;
         if (payload.final_status) {
           applySessionStatus(payload.final_status);
-          window.dispatchEvent(new Event("tiles-updated"));
         }
         const failedStep = payload.steps?.find((step) => step.status === "failed");
         setStatus(
@@ -476,7 +470,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         const payload = JSON.parse((event as MessageEvent).data) as RunCancelledEvent;
         if (payload.final_status) {
           applySessionStatus(payload.final_status);
-          window.dispatchEvent(new Event("tiles-updated"));
         }
         setStatus(
           payload.message ||

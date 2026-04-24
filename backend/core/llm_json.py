@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
+
+from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
 _THINK_FENCE_RE = re.compile(r"```(?:think|thinking)[\s\S]*?```", re.IGNORECASE)
@@ -32,8 +37,10 @@ def extract_last_json_object(payload: str) -> dict[str, Any] | None:
     return last
 
 
-def parse_json_object(payload: str) -> dict[str, Any] | None:
+def parse_json_object(payload: str) -> dict[str, Any]:
     data, _parse_mode = parse_json_object_with_mode(payload)
+    if not isinstance(data, dict):
+        raise ValueError("no JSON object found in payload")
     return data
 
 
@@ -48,7 +55,41 @@ def parse_json_object_with_mode(payload: str) -> tuple[dict[str, Any] | None, st
     data = extract_last_json_object(cleaned)
     if not isinstance(data, dict):
         return None, "no_json_object"
+    # Fallback-Pfad: LLM-Output konnte nicht direkt als JSON geladen
+    # werden. Das kommt bei LLMs mit Vor-/Nachtext oder bei abgeschnittenen
+    # Ausgaben vor. Wir loggen das systemweit als WARN, damit Ops
+    # systematische Qualitaetsprobleme eines Modells / Providers erkennen
+    # koennen - auch in Routern, die die fallback_kinds nicht ueber
+    # mark_llm_parse_fallback tracken.
+    logger.warning(
+        "llm_json: fallback extract_last_json_object verwendet "
+        "(payload_len=%d, direct_json_loads fehlgeschlagen)",
+        len(cleaned),
+    )
     return data, "extract_last_json_object"
+
+
+def require_json_object(
+    payload: str,
+    *,
+    error_context: str,
+    required_top_level_key: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    data, parse_mode = parse_json_object_with_mode(payload)
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{error_context}: no JSON object found in LLM response",
+        )
+    if required_top_level_key is not None and required_top_level_key not in data:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{error_context}: expected top-level key "
+                f"'{required_top_level_key}' in LLM response"
+            ),
+        )
+    return data, parse_mode
 
 
 def extract_fallgruppen(data: dict[str, Any]) -> list[dict[str, Any]]:

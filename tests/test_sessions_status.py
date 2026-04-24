@@ -65,7 +65,7 @@ def test_session_status_progression(test_client):
     assert payload["last_completed_label"] == "Aufwand berechnen"
     assert reg_id is not None
 
-    db.update_session_cost(session_id, 123.0)
+    db.update_process_cost(session_id, process_id, 123.0)
     resp = test_client.get("/sessions/status", params={"app_session_id": "STATUS-OK"})
     payload = resp.json()
     assert payload["total_cost_ready"] is True

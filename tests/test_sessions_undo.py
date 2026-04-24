@@ -1,17 +1,52 @@
 import pytest
 
 from backend.core import db
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
 from backend.core.prompts import PromptId
 
 
 def _seed_flow(app_session_id: str) -> dict:
     session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    db.insert_regulation(session_id, "§ 1", "Beschreibung")
     process_id = db.insert_process(session_id, "Prozess A", "Beschreibung Prozess")
     case_group_id = db.insert_case_group(
         session_id, process_id, "Fallgruppe A", "Beschreibung Fallgruppe"
     )
     step_id = db.insert_process_step(
         session_id, case_group_id, "Schritt 1", "Beschreibung Schritt 1"
+    )
+    return {
+        "session_id": session_id,
+        "process_id": process_id,
+        "case_group_id": case_group_id,
+        "step_id": step_id,
+    }
+
+
+def _seed_flow_for_addressee(app_session_id: str, norm_addressee: str) -> dict:
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    db.insert_regulation(session_id, "§ 1", "Beschreibung")
+    process_id = db.insert_process(
+        session_id,
+        f"Prozess {norm_addressee}",
+        "Beschreibung Prozess",
+        norm_addressee=norm_addressee,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        f"Fallgruppe {norm_addressee}",
+        "Beschreibung Fallgruppe",
+        norm_addressee=norm_addressee,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        f"Schritt {norm_addressee}",
+        "Beschreibung Schritt 1",
+        norm_addressee=norm_addressee,
     )
     return {
         "session_id": session_id,
@@ -45,7 +80,14 @@ def test_undo_total_cost_clears_costs_only(test_client):
     db.update_process_step_cost(session_id, seeded["step_id"], None, 25)
     db.update_case_group_cost(session_id, seeded["case_group_id"], 50)
     db.update_process_cost(session_id, seeded["process_id"], 50)
-    db.update_session_cost(session_id, 50)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        total_cost=50,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
 
     resp = test_client.post("/sessions/undo", json={"app_session_id": "UNDO-COST"})
     assert resp.status_code == 200
@@ -59,6 +101,7 @@ def test_undo_total_cost_clears_costs_only(test_client):
         (session_id,),
     )
     assert cur.fetchone()["cc_cost"] is None
+    assert db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION) is None
     cur.execute(
         "SELECT cost FROM processes WHERE process_id = ?",
         (seeded["process_id"],),
@@ -298,3 +341,134 @@ def test_undo_effort_invalidates_llm_answers_instead_of_deleting(test_client):
     ]
     assert all(row["answer_state"] == "invalid" for row in rows)
     assert all(row["state_reason"] == "session_reverted" for row in rows)
+
+
+def test_undo_effort_clears_all_norm_addressees(test_client):
+    admin = _seed_flow_for_addressee("UNDO-EFFORT-SCOPED", ADMINISTRATION)
+    business = _seed_flow_for_addressee("UNDO-EFFORT-SCOPED", BUSINESS)
+    session_id = admin["session_id"]
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=admin["case_group_id"],
+        norm_addressee=ADMINISTRATION,
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
+    )
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=business["case_group_id"],
+        norm_addressee=BUSINESS,
+        addressees_proposed=20,
+        annual_frequency_proposed=3,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=admin["step_id"],
+        norm_addressee=ADMINISTRATION,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=5,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=business["step_id"],
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 50, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 45, "b": None, "c": None, "d": None},
+        expenses_proposed=7,
+    )
+
+    resp = test_client.post(
+        "/sessions/undo",
+        json={"app_session_id": "UNDO-EFFORT-SCOPED"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["undone_step"] == "effort"
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    for seed in (admin, business):
+        cur.execute(
+            """
+            SELECT addressees_proposed, annual_frequency_proposed
+            FROM case_groups
+            WHERE case_group_id = ?
+            """,
+            (seed["case_group_id"],),
+        )
+        row = cur.fetchone()
+        assert row["addressees_proposed"] is None
+        assert row["annual_frequency_proposed"] is None
+
+        cur.execute(
+            """
+            SELECT hourly_rate_a_proposed, time_required_in_min_a_proposed, expenses_proposed
+            FROM process_steps
+            WHERE step_id = ?
+            """,
+            (seed["step_id"],),
+        )
+        step = cur.fetchone()
+        assert step["hourly_rate_a_proposed"] is None
+        assert step["time_required_in_min_a_proposed"] is None
+        assert step["expenses_proposed"] is None
+    conn.close()
+
+
+def test_undo_total_cost_clears_all_norm_addressees(test_client):
+    admin = _seed_flow_for_addressee("UNDO-COST-SCOPED", ADMINISTRATION)
+    business = _seed_flow_for_addressee("UNDO-COST-SCOPED", BUSINESS)
+    session_id = admin["session_id"]
+
+    db.update_process_step_cost(session_id, admin["step_id"], None, 25)
+    db.update_case_group_cost(session_id, admin["case_group_id"], 50)
+    db.update_process_cost(session_id, admin["process_id"], 50)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        total_cost=50,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    db.update_process_step_cost(session_id, business["step_id"], None, 75)
+    db.update_case_group_cost(session_id, business["case_group_id"], 120)
+    db.update_process_cost(session_id, business["process_id"], 120)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+        total_cost=120,
+        bureaucracy_cost=80,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    resp = test_client.post(
+        "/sessions/undo",
+        json={"app_session_id": "UNDO-COST-SCOPED"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["undone_step"] == "total_cost"
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT cc_cost FROM sessions WHERE session_id = ?", (session_id,))
+    assert cur.fetchone()["cc_cost"] is None
+    assert db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION) is None
+    assert db.get_session_total_costs_by_addressee(session_id, BUSINESS) is None
+
+    for seed in (admin, business):
+        cur.execute(
+            "SELECT cost FROM processes WHERE process_id = ?",
+            (seed["process_id"],),
+        )
+        assert cur.fetchone()["cost"] is None
+    conn.close()

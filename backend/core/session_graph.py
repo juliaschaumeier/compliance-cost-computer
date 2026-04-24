@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from backend.core import db
+from backend.core.db_formatting import (
+    build_case_group_tile_text,
+    build_process_step_tile_text,
+)
 from backend.core.models import Tile
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    ALL_NORM_ADDRESSEES,
+    DISPLAY_LABELS,
+    EFFORT_GROUP_LABELS,
+    normalize_norm_addressee,
+)
 
 
 def _ordered_step_ids(step_map: dict[int, dict]) -> list[int]:
@@ -23,8 +34,12 @@ def _ordered_step_ids(step_map: dict[int, dict]) -> list[int]:
     return ordered
 
 
-def build_session_tiles_snapshot(session: dict) -> list[Tile]:
+def build_session_tiles_snapshot(
+    session: dict,
+    norm_addressee: str = ADMINISTRATION,
+) -> list[Tile]:
     session_id = int(session["session_id"])
+    resolved = normalize_norm_addressee(norm_addressee)
 
     current_law = None
     proposed_law = None
@@ -60,7 +75,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         )
     ]
 
-    regulations = db.list_regulations_for_session(session_id)
+    regulations = db.list_regulations_for_session_and_addressee(session_id, resolved)
     for idx, regulation in enumerate(regulations):
         regulation_id = int(regulation["regulation_id"])
         tiles.append(
@@ -71,6 +86,15 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 meta_information={
                     "regulation_id": regulation_id,
                     "change_status": regulation.get("change_status"),
+                    "normadressaten": [
+                        name
+                        for name, enabled in (
+                            ("administration", regulation.get("applies_to_administration")),
+                            ("business", regulation.get("applies_to_business")),
+                            ("citizens", regulation.get("applies_to_citizens")),
+                        )
+                        if enabled
+                    ],
                 },
                 column=1,
                 row=idx,
@@ -79,7 +103,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
             )
         )
 
-    processes = db.list_processes_for_session(session_id)
+    processes = db.list_processes_for_session_and_addressee(session_id, resolved)
     regs_by_process: dict[int, list[str]] = {}
     for regulation in regulations:
         process_id = regulation.get("process_id")
@@ -114,7 +138,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         process_tiles[process_id] = tile
         tiles.append(tile)
 
-    case_groups = db.list_case_groups_for_session(session_id)
+    case_groups = db.list_case_groups_for_session_and_addressee(session_id, resolved)
     groups_by_process: dict[int, list[dict]] = {}
     for group in case_groups:
         groups_by_process.setdefault(int(group["process_id"]), []).append(group)
@@ -125,32 +149,40 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         process_id = int(process["process_id"])
         base_row = process_tiles.get(process_id).row if process_id in process_tiles else 0
         for idx, group in enumerate(groups_by_process.get(process_id, [])):
-            case_group_id = int(group["case_group_id"])
             effective_group = db.resolve_effective_case_group_metrics(group)
-            case_group_text = (effective_group.get("description") or "").strip()
+            case_group_id = int(group["case_group_id"])
             tile = Tile(
                 id=f"case_group_{case_group_id}",
                 title=group["case_group"],
-                text=case_group_text,
+                text=build_case_group_tile_text(
+                    description=effective_group.get("description") or "",
+                    addressees_current=effective_group.get("addressees_current_effective"),
+                    annual_frequency_current=effective_group.get(
+                        "annual_frequency_current_effective"
+                    ),
+                    addressees_proposed=effective_group.get("addressees_proposed_effective"),
+                    annual_frequency_proposed=effective_group.get(
+                        "annual_frequency_proposed_effective"
+                    ),
+                    cases_current=effective_group.get("cases_current_effective"),
+                    cases_proposed=effective_group.get("cases_proposed_effective"),
+                ),
                 meta_information={
                     "case_group_id": case_group_id,
                     "process_id": process_id,
                     "description": effective_group.get("description"),
                     "change_status": group.get("change_status"),
-                    "addressees_current": effective_group.get(
-                        "addressees_current_effective"
-                    ),
+                    "addressees_current": effective_group.get("addressees_current_effective"),
                     "annual_frequency_current": effective_group.get(
                         "annual_frequency_current_effective"
                     ),
                     "cases_current": effective_group.get("cases_current_effective"),
-                    "addressees_proposed": effective_group.get(
-                        "addressees_proposed_effective"
-                    ),
+                    "addressees_proposed": effective_group.get("addressees_proposed_effective"),
                     "annual_frequency_proposed": effective_group.get(
                         "annual_frequency_proposed_effective"
                     ),
                     "cases_proposed": effective_group.get("cases_proposed_effective"),
+                    "cost": group.get("cost"),
                 },
                 column=case_group_col,
                 row=base_row + idx,
@@ -162,7 +194,7 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
             case_group_tiles[case_group_id] = tile
             tiles.append(tile)
 
-    steps = db.list_process_steps_for_session(session_id)
+    steps = db.list_process_steps_for_session_and_addressee(session_id, resolved)
     steps_by_group: dict[int, dict[int, dict]] = {}
     for step in steps:
         steps_by_group.setdefault(int(step["case_group_id"]), {})[
@@ -177,23 +209,11 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         for idx, step_id in enumerate(ordered):
             step = step_map[step_id]
             effective_step = db.resolve_effective_process_step_metrics(step)
-            hourly_rates_current = {
-                "a": effective_step.get("hourly_rate_a_current"),
-                "b": effective_step.get("hourly_rate_b_current"),
-                "c": effective_step.get("hourly_rate_c_current"),
-                "d": effective_step.get("hourly_rate_d_current"),
-            }
             time_required_current = {
                 "a": effective_step.get("time_required_in_min_a_current_effective"),
                 "b": effective_step.get("time_required_in_min_b_current_effective"),
                 "c": effective_step.get("time_required_in_min_c_current_effective"),
                 "d": effective_step.get("time_required_in_min_d_current_effective"),
-            }
-            hourly_rates_proposed = {
-                "a": effective_step.get("hourly_rate_a_proposed"),
-                "b": effective_step.get("hourly_rate_b_proposed"),
-                "c": effective_step.get("hourly_rate_c_proposed"),
-                "d": effective_step.get("hourly_rate_d_proposed"),
             }
             time_required_proposed = {
                 "a": effective_step.get("time_required_in_min_a_proposed_effective"),
@@ -201,26 +221,46 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 "c": effective_step.get("time_required_in_min_c_proposed_effective"),
                 "d": effective_step.get("time_required_in_min_d_proposed_effective"),
             }
-            step_text = (step.get("description") or "").strip()
             tiles.append(
                 Tile(
                     id=f"step_{step_id}",
                     title=step["step"],
-                    text=step_text,
+                    text=build_process_step_tile_text(
+                        description=effective_step.get("description") or "",
+                        hourly_rates_current={
+                            "a": effective_step.get("hourly_rate_a_current"),
+                            "b": effective_step.get("hourly_rate_b_current"),
+                            "c": effective_step.get("hourly_rate_c_current"),
+                            "d": effective_step.get("hourly_rate_d_current"),
+                        },
+                        time_required_current=time_required_current,
+                        expenses_current=effective_step.get("expenses_current_effective"),
+                        cost_current=step.get("cost_current"),
+                        hourly_rates_proposed={
+                            "a": effective_step.get("hourly_rate_a_proposed"),
+                            "b": effective_step.get("hourly_rate_b_proposed"),
+                            "c": effective_step.get("hourly_rate_c_proposed"),
+                            "d": effective_step.get("hourly_rate_d_proposed"),
+                        },
+                        time_required_proposed=time_required_proposed,
+                        expenses_proposed=effective_step.get("expenses_proposed_effective"),
+                        cost_proposed=step.get("cost_proposed"),
+                        execution_per_case=step.get("execution_per_case"),
+                        group_labels=EFFORT_GROUP_LABELS.get(resolved),
+                    ),
                     meta_information={
                         "step_id": step_id,
                         "case_group_id": case_group_id,
                         "process_id": case_group_tile.meta_information.get("process_id"),
-                        "description": step.get("description"),
+                        "description": effective_step.get("description"),
                         "change_status": step.get("change_status"),
                         "time_required_current": time_required_current,
                         "time_required_proposed": time_required_proposed,
                         "expenses_current": effective_step.get("expenses_current_effective"),
-                        "expenses_proposed": effective_step.get(
-                            "expenses_proposed_effective"
-                        ),
+                        "expenses_proposed": effective_step.get("expenses_proposed_effective"),
                         "cost_current": step.get("cost_current"),
                         "cost_proposed": step.get("cost_proposed"),
+                        "execution_per_case": step.get("execution_per_case"),
                     },
                     column=case_group_tile.column + 1 + idx,
                     row=case_group_tile.row,
@@ -231,7 +271,36 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
                 )
             )
 
-    if session.get("cc_cost") is not None:
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if (
+        session_has_any_regulations
+        and not regulations
+        and not processes
+        and not case_groups
+        and not steps
+    ):
+        label = DISPLAY_LABELS.get(resolved, resolved)
+        tiles.append(
+            Tile(
+                id="empty_addressee",
+                title=f"Kein Aufwand fuer {label}",
+                text=(
+                    f"Fuer {label} wurden in diesem Regelungsvorhaben keine "
+                    "relevanten Vorgaben und keine kostenrelevanten Folgeprozesse "
+                    "identifiziert."
+                ),
+                meta_information={
+                    "norm_addressee": resolved,
+                    "empty_state": True,
+                },
+                column=1,
+                row=0,
+                deletable=False,
+                link_from_tile=["law_tile"],
+            )
+        )
+
+    if processes and all(process.get("cost") is not None for process in processes):
         step_tiles = [tile for tile in tiles if tile.id.startswith("step_")]
         max_step_col = max((tile.column for tile in step_tiles), default=None)
         max_col = max((tile.column for tile in tiles), default=case_group_col)
@@ -249,11 +318,12 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
             elif step_map:
                 last_steps.append(max(step_map.keys()))
 
+        total_cost = sum(float(process.get("cost") or 0.0) for process in processes)
         tiles.append(
             Tile(
                 id="total_cost",
                 title="Jährliche Kosten",
-                text=db.format_currency(float(session["cc_cost"])),
+                text=db.format_currency(total_cost),
                 meta_information=(
                     {"app_session_id": session["app_session_id"]}
                     if session.get("app_session_id")
@@ -267,3 +337,22 @@ def build_session_tiles_snapshot(session: dict) -> list[Tile]:
         )
 
     return tiles
+
+
+def persist_session_tiles_snapshot(
+    session: dict,
+    norm_addressee: str = ADMINISTRATION,
+) -> list[Tile]:
+    session_id = int(session["session_id"])
+    resolved = normalize_norm_addressee(norm_addressee)
+    tiles = build_session_tiles_snapshot(session, resolved)
+    with db.transaction():
+        db.clear_tiles(session_id=session_id, norm_addressee=resolved)
+        for tile in tiles:
+            db.upsert_tile(tile, session_id=session_id, norm_addressee=resolved)
+    return tiles
+
+
+def sync_all_norm_addressee_tile_snapshots(session: dict) -> None:
+    for norm_addressee in ALL_NORM_ADDRESSEES:
+        persist_session_tiles_snapshot(session, norm_addressee)

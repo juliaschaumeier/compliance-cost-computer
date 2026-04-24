@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { runPerAddressee } from "@/lib/runPerAddressee";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 export default function ProcessesPanel() {
@@ -35,20 +35,26 @@ export default function ProcessesPanel() {
       availableModels: state.availableModels,
     });
     try {
-      await apiClient.compileProcesses({
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
+      const outcome = await runPerAddressee({
+        logScope: "ProcessesPanel.compileProcesses",
+        logContext: { appSessionId: state.appSessionId },
+        operationLabel: "Prozesse buendeln",
+        run: (normAddressee) =>
+          apiClient.compileProcesses({
+            appSessionId: state.appSessionId,
+            normAddressee,
+            model: llm.model,
+            provider: llm.provider,
+            keys: llm.keys,
+          }),
       });
       window.dispatchEvent(new Event("tiles-updated"));
-      setProcessesReady(true);
-      setCurrentTab(3);
-    } catch (error) {
-      logClientError("ProcessesPanel.compileProcesses", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatus(formatActionErrorMessage("Prozesse konnten nicht gebündelt werden", error));
+      if (outcome.allSucceeded) {
+        setProcessesReady(true);
+        setCurrentTab(3);
+      } else {
+        setStatus(outcome.statusMessage);
+      }
     } finally {
       setIsRunning(false);
     }
@@ -60,7 +66,10 @@ export default function ProcessesPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Vorgaben, die in der Praxis in einem Zusammenhang erfüllt werden, werden
-            zu gemeinsamen Prozessen gebündelt.
+            zu gemeinsamen Prozessen gebündelt. Der Lauf bündelt die Vorgaben in einem
+            Durchgang für Verwaltung, Wirtschaft und Bürger, erzeugt dabei aber je
+            Normadressat eine eigene Prozesssicht. Der Umschalter zeigt die Sicht des
+            ausgewählten Normadressaten.
           </p>
           <button
             onClick={handleCompile}

@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+
 
 class _PromptPayloadModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -15,6 +17,8 @@ class VorgabePayload(_PromptPayloadModel):
     normzitat: str
     beschreibung: str
     aenderungsstatus: str | None = None
+    normadressaten: list[str] = Field(default_factory=list)
+    ist_informationspflicht_wirtschaft: bool = False
 
 
 class FallgruppePayload(_PromptPayloadModel):
@@ -29,6 +33,7 @@ class TaetigkeitPayload(_PromptPayloadModel):
     taetigkeit: str
     beschreibung: str
     aenderungsstatus: str | None = None
+    vorgaben_ids: list[int] = Field(default_factory=list)
 
 
 class ProzessWithVorgabenPayload(_PromptPayloadModel):
@@ -68,7 +73,40 @@ def _build_regulations_by_process(
     return regs_by_process
 
 
-def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
+def _project_normadressaten(
+    row: dict,
+    norm_addressee: str | None,
+) -> list[str]:
+    """Listet die Normadressaten, auf die eine Vorgabe zutrifft.
+
+    Ist `norm_addressee` gesetzt (Run-Kontext), wird das Ergebnis auf genau
+    diesen Adressaten projiziert - das LLM sieht dann nur die fuer den
+    aktuellen Run relevante Angabe, keine Fremdadressaten aus anderen Laeufen.
+    """
+    all_addressees = [
+        name
+        for name, enabled in (
+            (ADMINISTRATION, row.get("applies_to_administration")),
+            (BUSINESS, row.get("applies_to_business")),
+            (CITIZENS, row.get("applies_to_citizens")),
+        )
+        if enabled
+    ]
+    if norm_addressee is None:
+        return all_addressees
+    projected = [name for name in all_addressees if name == norm_addressee]
+    # Falls upstream die Filterung bereits alle passenden Vorgaben geladen
+    # hat, ist der Run-NA immer enthalten. Defensiv: wenn die Vorgabe doch
+    # keinen Overlap hat (z.B. Daten-Inkonsistenz), behalten wir die
+    # Originalliste, damit nicht stumm ein leeres Array ans LLM geht.
+    return projected or all_addressees
+
+
+def build_vorgaben_payload(
+    regulations: list[dict],
+    *,
+    norm_addressee: str | None = None,
+) -> list[dict]:
     payload: list[dict] = []
     for row in regulations:
         payload.append(
@@ -77,6 +115,10 @@ def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
                 normzitat=str(row.get("legal_citation") or ""),
                 beschreibung=str(row.get("description") or ""),
                 aenderungsstatus=row.get("change_status"),
+                normadressaten=_project_normadressaten(row, norm_addressee),
+                ist_informationspflicht_wirtschaft=bool(
+                    row.get("is_business_information_obligation")
+                ),
             ).model_dump()
         )
     return payload
@@ -85,6 +127,7 @@ def build_vorgaben_payload(regulations: list[dict]) -> list[dict]:
 def _serialize_process_regulations(
     regs_by_process: dict[int, list[dict]],
     process_id: int,
+    norm_addressee: str | None = None,
 ) -> list[VorgabePayload]:
     return [
         VorgabePayload(
@@ -92,6 +135,10 @@ def _serialize_process_regulations(
             normzitat=str(row.get("legal_citation") or ""),
             beschreibung=str(row.get("description") or ""),
             aenderungsstatus=row.get("change_status"),
+            normadressaten=_project_normadressaten(row, norm_addressee),
+            ist_informationspflicht_wirtschaft=bool(
+                row.get("is_business_information_obligation")
+            ),
         )
         for row in regs_by_process.get(process_id, [])
     ]
@@ -101,6 +148,8 @@ def build_case_groups_payload(
     processes: list[dict],
     case_groups: list[dict],
     regulations: list[dict] | None = None,
+    *,
+    norm_addressee: str | None = None,
 ) -> list[dict]:
     groups_by_process: dict[int, list[FallgruppePayload]] = {}
     regs_by_process = _build_regulations_by_process(regulations)
@@ -122,7 +171,9 @@ def build_case_groups_payload(
             prozess_bezeichnung=str(process.get("process") or ""),
             prozess_beschreibung=str(process.get("description") or ""),
             aenderungsstatus=process.get("change_status"),
-            vorgaben=_serialize_process_regulations(regs_by_process, process_id),
+            vorgaben=_serialize_process_regulations(
+                regs_by_process, process_id, norm_addressee
+            ),
             fallgruppen=groups_by_process.get(process_id, []),
         )
         payload.append(process_payload.model_dump())
@@ -132,6 +183,8 @@ def build_case_groups_payload(
 def build_processes_payload_with_regulations(
     processes: list[dict],
     regulations: list[dict],
+    *,
+    norm_addressee: str | None = None,
 ) -> list[dict]:
     regs_by_process = _build_regulations_by_process(regulations)
 
@@ -143,7 +196,9 @@ def build_processes_payload_with_regulations(
             prozess_bezeichnung=str(process.get("process") or ""),
             prozess_beschreibung=str(process.get("description") or ""),
             aenderungsstatus=process.get("change_status"),
-            vorgaben=_serialize_process_regulations(regs_by_process, process_id),
+            vorgaben=_serialize_process_regulations(
+                regs_by_process, process_id, norm_addressee
+            ),
         )
         payload.append(process_payload.model_dump())
     return payload
@@ -175,6 +230,8 @@ def build_step_analysis_payload(
     case_groups: list[dict],
     steps: list[dict],
     regulations: list[dict] | None = None,
+    *,
+    norm_addressee: str | None = None,
 ) -> list[dict]:
     groups_by_process: dict[int, list[dict]] = {}
     regs_by_process = _build_regulations_by_process(regulations)
@@ -199,6 +256,10 @@ def build_step_analysis_payload(
                     taetigkeit=str(step.get("step") or ""),
                     beschreibung=str(step.get("description") or ""),
                     aenderungsstatus=step.get("change_status"),
+                    vorgaben_ids=[
+                        int(regulation_id)
+                        for regulation_id in (step.get("regulation_ids") or [])
+                    ],
                 )
                 for step in ordered_steps
             ]
@@ -216,7 +277,9 @@ def build_step_analysis_payload(
             prozess_bezeichnung=str(process.get("process") or ""),
             prozess_beschreibung=str(process.get("description") or ""),
             aenderungsstatus=process.get("change_status"),
-            vorgaben=_serialize_process_regulations(regs_by_process, process_id),
+            vorgaben=_serialize_process_regulations(
+                regs_by_process, process_id, norm_addressee
+            ),
             fallgruppen=fallgruppen_payload,
         )
         payload.append(process_payload.model_dump())

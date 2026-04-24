@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" role="img" aria-labelledby="title desc">
+  <title id="title">Prompt DB Flow Diagram</title>
+  <desc id="desc">Flow of prompts, database tables, and prompt rendering context.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #18212b; }
+      .title { font-size: 28px; font-weight: 700; }
+      .subtitle { font-size: 16px; fill: #4d5c6b; }
+      .box { rx: 8; ry: 8; stroke-width: 2; }
+      .prompt { fill: #dff3ea; stroke: #3d8b6d; }
+      .db { fill: #e7eefc; stroke: #4a6fb3; }
+      .tile { fill: #f6eadb; stroke: #b57a28; }
+      .ctx { fill: #f3e4f7; stroke: #8b4ea3; }
+      .label { font-size: 15px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .group { fill: #fbfcfe; stroke: #b8c4d2; stroke-width: 2; stroke-dasharray: 8 6; rx: 8; ry: 8; }
+      .group-title { font-size: 18px; font-weight: 700; fill: #334155; }
+      .arrow { stroke: #5f6f82; stroke-width: 2.5; fill: none; marker-end: url(#arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5f6f82" />
+    </marker>
+  </defs>
+
+  <text x="48" y="50" class="title">Prompt- und DB-Flow</text>
+  <text x="48" y="78" class="subtitle">Von der Gesetzeszusammenfassung bis zur Kostenberechnung, mit Prompt-Kontext.</text>
+
+  <rect x="36" y="110" width="980" height="900" class="group" />
+  <text x="58" y="140" class="group-title">Workflow und Persistenz</text>
+
+  <!-- 1. law_summary -->
+  <rect x="70" y="180" width="250" height="64" class="box prompt" />
+  <text x="195" y="208" text-anchor="middle" class="label">law_summary</text>
+  <text x="195" y="229" text-anchor="middle" class="small">erstellt Titel, Blurb, Summary</text>
+
+  <rect x="410" y="172" width="260" height="78" class="box db" />
+  <text x="540" y="202" text-anchor="middle" class="label">sessions</text>
+  <text x="540" y="223" text-anchor="middle" class="small">law_diff_title / blurb / summary</text>
+
+  <rect x="760" y="180" width="190" height="64" class="box tile" />
+  <text x="855" y="208" text-anchor="middle" class="label">law_tile</text>
+  <text x="855" y="229" text-anchor="middle" class="small">Anzeige der Kurzfassung</text>
+
+  <!-- 2. regulations_identification -->
+  <rect x="70" y="292" width="250" height="64" class="box prompt" />
+  <text x="195" y="320" text-anchor="middle" class="label">regulations_identification</text>
+  <text x="195" y="341" text-anchor="middle" class="small">inkl. Normadressaten-Flags</text>
+
+  <rect x="410" y="280" width="260" height="78" class="box db" />
+  <text x="540" y="309" text-anchor="middle" class="label">regulations</text>
+  <text x="540" y="330" text-anchor="middle" class="small">citation, description, change_status</text>
+  <text x="540" y="349" text-anchor="middle" class="small">Normadressaten, Informationspflicht</text>
+
+  <rect x="760" y="292" width="190" height="64" class="box tile" />
+  <text x="855" y="320" text-anchor="middle" class="label">regulation_tiles</text>
+  <text x="855" y="341" text-anchor="middle" class="small">je Vorgabe ein Tile</text>
+
+  <!-- 3. process_compilation -->
+  <rect x="70" y="420" width="250" height="64" class="box prompt" />
+  <text x="195" y="447" text-anchor="middle" class="label">process_compilation</text>
+  <text x="195" y="468" text-anchor="middle" class="small">pro Normadressat</text>
+
+  <rect x="410" y="420" width="260" height="74" class="box db" />
+  <text x="540" y="447" text-anchor="middle" class="label">processes</text>
+  <text x="540" y="468" text-anchor="middle" class="small">Prozesse je Normadressat</text>
+  <text x="540" y="486" text-anchor="middle" class="small">inkl. Regulation-&gt;Prozess-Zuordnung</text>
+
+  <rect x="760" y="430" width="190" height="64" class="box tile" />
+  <text x="855" y="458" text-anchor="middle" class="label">process_tiles</text>
+  <text x="855" y="479" text-anchor="middle" class="small">Anzeige der Prozesse</text>
+
+  <!-- 4. case_group_development -->
+  <rect x="70" y="544" width="250" height="64" class="box prompt" />
+  <text x="195" y="571" text-anchor="middle" class="label">case_group_development</text>
+  <text x="195" y="592" text-anchor="middle" class="small">pro Normadressat</text>
+
+  <rect x="410" y="544" width="260" height="74" class="box db" />
+  <text x="540" y="571" text-anchor="middle" class="label">case_groups</text>
+  <text x="540" y="592" text-anchor="middle" class="small">Fallgruppen je Prozess</text>
+  <text x="540" y="610" text-anchor="middle" class="small">spaeter auch Fallzahlen</text>
+
+  <rect x="760" y="554" width="190" height="64" class="box tile" />
+  <text x="855" y="582" text-anchor="middle" class="label">case_group_tiles</text>
+  <text x="855" y="603" text-anchor="middle" class="small">Anzeige der Fallgruppen</text>
+
+  <!-- 5. process_step_analysis -->
+  <rect x="70" y="668" width="250" height="64" class="box prompt" />
+  <text x="195" y="695" text-anchor="middle" class="label">process_step_analysis</text>
+  <text x="195" y="716" text-anchor="middle" class="small">pro Normadressat</text>
+
+  <rect x="410" y="668" width="260" height="74" class="box db" />
+  <text x="540" y="695" text-anchor="middle" class="label">process_steps</text>
+  <text x="540" y="716" text-anchor="middle" class="small">Taetigkeiten / Schritte</text>
+  <text x="540" y="734" text-anchor="middle" class="small">spaeter auch Aufwand pro Fall</text>
+
+  <rect x="760" y="678" width="190" height="64" class="box tile" />
+  <text x="855" y="706" text-anchor="middle" class="label">step_tiles</text>
+  <text x="855" y="727" text-anchor="middle" class="small">Anzeige der Schritte</text>
+
+  <!-- 6. cases_calculation + effort_calculation -->
+  <rect x="70" y="800" width="250" height="74" class="box prompt" />
+  <text x="195" y="827" text-anchor="middle" class="label">cases_calculation</text>
+  <text x="195" y="848" text-anchor="middle" class="small">pro Normadressat</text>
+  <text x="195" y="866" text-anchor="middle" class="small">liest Fallgruppen + Regulations</text>
+
+  <rect x="410" y="800" width="260" height="74" class="box prompt" />
+  <text x="540" y="827" text-anchor="middle" class="label">effort_calculation</text>
+  <text x="540" y="848" text-anchor="middle" class="small">pro Normadressat</text>
+  <text x="540" y="866" text-anchor="middle" class="small">liest Prozessschritte + Fallgruppen</text>
+
+  <rect x="760" y="800" width="190" height="82" class="box db" />
+  <text x="855" y="829" text-anchor="middle" class="label">Kostenbasis</text>
+  <text x="855" y="850" text-anchor="middle" class="small">case_groups: Fallzahlen</text>
+  <text x="855" y="869" text-anchor="middle" class="small">process_steps: Aufwand</text>
+
+  <!-- 7. total_cost -->
+  <rect x="760" y="924" width="190" height="64" class="box prompt" />
+  <text x="855" y="952" text-anchor="middle" class="label">total_cost</text>
+  <text x="855" y="973" text-anchor="middle" class="small">deterministische Berechnung</text>
+
+  <!-- Prompt Rendering context -->
+  <rect x="1110" y="110" width="450" height="360" class="group" />
+  <text x="1132" y="140" class="group-title">Prompt Rendering / Zusatzkontext</text>
+
+  <rect x="1150" y="190" width="360" height="74" class="box ctx" />
+  <text x="1330" y="217" text-anchor="middle" class="label">sessions summary</text>
+  <text x="1330" y="238" text-anchor="middle" class="small">`law_summary` wird in Folgeprompts eingespeist</text>
+
+  <rect x="1150" y="322" width="360" height="88" class="box ctx" />
+  <text x="1330" y="349" text-anchor="middle" class="label">norm addressee rules</text>
+  <text x="1330" y="370" text-anchor="middle" class="small">Verwaltung / Wirtschaft / Buerger</text>
+  <text x="1330" y="389" text-anchor="middle" class="small">werden beim Rendern automatisch angehaengt</text>
+
+  <!-- Kernaussage -->
+  <rect x="1110" y="524" width="450" height="280" class="group" />
+  <text x="1132" y="554" class="group-title">Kernaussage</text>
+  <text x="1148" y="606" class="small">1. Jeder Prompt schreibt einen fachlichen Zwischenschritt in die DB.</text>
+  <text x="1148" y="644" class="small">2. Der naechste Prompt liest genau diese Vorstufe wieder ein.</text>
+  <text x="1148" y="682" class="small">3. Ab process_compilation laufen die Schritte getrennt</text>
+  <text x="1148" y="704" class="small">   pro Normadressat (Verwaltung, Wirtschaft, Buerger).</text>
+  <text x="1148" y="742" class="small">4. total_cost ist rein deterministisch und nutzt</text>
+  <text x="1148" y="764" class="small">   die bereits gespeicherten Werte.</text>
+
+  <!-- Arrows: workflow -->
+  <path d="M320 212 L410 211" class="arrow" />
+  <path d="M670 211 L760 212" class="arrow" />
+
+  <path d="M195 244 L195 292" class="arrow" />
+  <path d="M320 324 L410 325" class="arrow" />
+  <path d="M670 324 L760 324" class="arrow" />
+
+  <path d="M195 356 L195 420" class="arrow" />
+  <path d="M320 452 L410 452" class="arrow" />
+  <path d="M670 457 L760 462" class="arrow" />
+
+  <path d="M195 484 L195 544" class="arrow" />
+  <path d="M320 576 L410 576" class="arrow" />
+  <path d="M670 581 L760 586" class="arrow" />
+
+  <path d="M195 608 L195 668" class="arrow" />
+  <path d="M320 700 L410 700" class="arrow" />
+  <path d="M670 705 L760 710" class="arrow" />
+
+  <path d="M195 732 L195 800" class="arrow" />
+  <path d="M540 742 L540 800" class="arrow" />
+  <path d="M670 837 L760 837" class="arrow" />
+  <path d="M855 882 L855 924" class="arrow" />
+
+  <!-- Arrows: prompt rendering context -->
+  <path d="M670 325 C 900 325, 1000 227, 1150 227" class="arrow" />
+  <path d="M1510 227 C 1540 227, 1540 452, 950 452" class="arrow" />
+  <path d="M1510 366 C 1540 366, 1540 576, 950 576" class="arrow" />
+</svg>

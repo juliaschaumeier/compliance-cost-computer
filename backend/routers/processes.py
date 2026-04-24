@@ -8,10 +8,15 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_attempts import (
     mark_llm_answer_applied,
+    mark_llm_parse_fallback,
 )
-from backend.core.llm_json import parse_json_object
+from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    check_norm_addressee_echo,
+)
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import build_vorgaben_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
@@ -20,6 +25,7 @@ from backend.routers._llm_router_utils import (
     query_and_stage_or_http,
     run_with_answer_apply_guard,
 )
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -28,15 +34,21 @@ class ProcessCompilationRequest(BaseModel):
     app_session_id: str
     model: str | None = None
     provider: str | None = None
+    norm_addressee: str | None = None
 
 
-def _parse_processes(payload: str) -> list[dict]:
-    data = parse_json_object(payload)
-    if not isinstance(data, dict):
-        return []
+def _parse_processes(
+    payload: str,
+    norm_addressee: str | None = None,
+) -> tuple[list[dict], set[str]]:
+    data, _parse_mode = require_json_object(
+        payload,
+        error_context="process compilation",
+    )
+    fallback_kinds = check_norm_addressee_echo(data, norm_addressee)
     processes = data.get("prozesse")
     if not isinstance(processes, list):
-        return []
+        return [], fallback_kinds
     parsed = []
     for entry in processes:
         if not isinstance(entry, dict):
@@ -74,17 +86,18 @@ def _parse_processes(payload: str) -> list[dict]:
                 "vorgaben": parsed_vorgaben,
             }
         )
-    return parsed
+    return parsed, fallback_kinds
 
 
 def _add_process_tiles(
     session_id: int,
     processes: list[dict],
     regulation_lookup: dict[int, dict],
+    norm_addressee: str = ADMINISTRATION,
 ) -> list[dict]:
     base_col = 2
     base_row = 0
-    tiles = db.fetch_tiles(session_id=session_id)
+    tiles = db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
     regulation_tiles = [tile for tile in tiles if tile.id.startswith("regulation_")]
     if regulation_tiles:
         base_col = max(tile.column for tile in regulation_tiles) + 1
@@ -94,6 +107,7 @@ def _add_process_tiles(
         if law_tile:
             base_col = law_tile.column + 2
             base_row = law_tile.row
+    available_tile_ids = {tile.id for tile in tiles}
     row_spacing = 1
     created = []
     for idx, process in enumerate(processes):
@@ -105,6 +119,7 @@ def _add_process_tiles(
             name,
             description,
             change_status=process_status,
+            norm_addressee=norm_addressee,
         )
         link_from_tile = []
         for vorgabe in process.get("vorgaben", []):
@@ -117,6 +132,7 @@ def _add_process_tiles(
             updated = db.update_regulation_process(
                 regulation_id=regulation_id,
                 process_id=process_id,
+                norm_addressee=norm_addressee,
             )
             if not updated:
                 latest = db.get_regulation_by_id(regulation_id)
@@ -135,7 +151,9 @@ def _add_process_tiles(
                         f"{regulation_id}"
                     ),
                 )
-            link_from_tile.append(f"regulation_{regulation_id}")
+            regulation_tile_id = f"regulation_{regulation_id}"
+            if regulation_tile_id in available_tile_ids:
+                link_from_tile.append(regulation_tile_id)
         tile = Tile(
             id=f"process_{process_id}",
             title=name,
@@ -150,7 +168,7 @@ def _add_process_tiles(
             deletable=True,
             link_from_tile=link_from_tile,
         )
-        db.upsert_tile(tile, session_id=session_id)
+        db.upsert_tile(tile, session_id=session_id, norm_addressee=norm_addressee)
         created.append(
             {
                 "process_id": process_id,
@@ -215,7 +233,8 @@ async def compile_processes(
         payload.app_session_id,
         payload.model,
     )
-    existing = db.list_processes_for_session(session_id)
+    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
+    existing = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
     if existing:
         return {
             "prozesse": [
@@ -228,17 +247,25 @@ async def compile_processes(
                 for row in existing
             ],
             "status": "existing",
+            "norm_addressee": norm_addressee,
         }
 
-    regulations = db.list_regulations_for_session(session_id)
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not regulations and session_has_any_regulations:
+        return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not regulations:
         raise HTTPException(status_code=400, detail="No regulations for session")
-    vorgaben_payload = build_vorgaben_payload(regulations)
+    vorgaben_payload = build_vorgaben_payload(regulations, norm_addressee=norm_addressee)
 
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
         session_id=session_id,
         vorgaben_json=dump_prompt_json(vorgaben_payload),
+        norm_addressee=norm_addressee,
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
@@ -248,17 +275,30 @@ async def compile_processes(
         model=model,
         provider=payload.provider,
         query_fn=query_llm,
+        norm_addressee=norm_addressee,
     )
     response_text = llm_result.text
 
     def _apply() -> list[dict]:
-        processes = _parse_processes(response_text)
+        processes, fallback_kinds = _parse_processes(response_text, norm_addressee)
+        for fallback_kind in sorted(fallback_kinds):
+            mark_llm_parse_fallback(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.PROCESS_COMPILATION,
+                fallback_kind=fallback_kind,
+            )
         if not processes:
             raise HTTPException(status_code=422, detail="No processes parsed")
         regulation_lookup = {row["regulation_id"]: row for row in regulations}
         _validate_vorgaben(processes, regulation_lookup)
         with db.transaction():
-            created_local = _add_process_tiles(session_id, processes, regulation_lookup)
+            created_local = _add_process_tiles(
+                session_id,
+                processes,
+                regulation_lookup,
+                norm_addressee=norm_addressee,
+            )
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,
@@ -267,4 +307,4 @@ async def compile_processes(
         return created_local
 
     created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
-    return {"prozesse": created}
+    return {"prozesse": created, "norm_addressee": norm_addressee}

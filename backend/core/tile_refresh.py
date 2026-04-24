@@ -1,16 +1,62 @@
 from __future__ import annotations
 
 from backend.core import db
+from backend.core.db_formatting import (
+    build_case_group_tile_text,
+    build_process_step_tile_text,
+)
 from backend.core.models import Tile
+from backend.core.norm_addressees import ADMINISTRATION, EFFORT_GROUP_LABELS
 
 
-def _case_group_description(group: dict) -> str:
+def _case_group_text(group: dict) -> str:
     effective = db.resolve_effective_case_group_metrics(group)
-    return (effective.get("description") or "").strip()
+    return build_case_group_tile_text(
+        description=effective.get("description") or "",
+        addressees_current=effective.get("addressees_current_effective"),
+        annual_frequency_current=effective.get("annual_frequency_current_effective"),
+        addressees_proposed=effective.get("addressees_proposed_effective"),
+        annual_frequency_proposed=effective.get("annual_frequency_proposed_effective"),
+        cases_current=effective.get("cases_current_effective"),
+        cases_proposed=effective.get("cases_proposed_effective"),
+    )
 
 
-def _step_description(step: dict) -> str:
-    return (step.get("description") or "").strip()
+def _step_text(step: dict, norm_addressee: str) -> str:
+    effective = db.resolve_effective_process_step_metrics(step)
+    return build_process_step_tile_text(
+        description=effective.get("description") or "",
+        hourly_rates_current={
+            "a": effective.get("hourly_rate_a_current"),
+            "b": effective.get("hourly_rate_b_current"),
+            "c": effective.get("hourly_rate_c_current"),
+            "d": effective.get("hourly_rate_d_current"),
+        },
+        time_required_current={
+            "a": effective.get("time_required_in_min_a_current_effective"),
+            "b": effective.get("time_required_in_min_b_current_effective"),
+            "c": effective.get("time_required_in_min_c_current_effective"),
+            "d": effective.get("time_required_in_min_d_current_effective"),
+        },
+        expenses_current=effective.get("expenses_current_effective"),
+        cost_current=step.get("cost_current"),
+        hourly_rates_proposed={
+            "a": effective.get("hourly_rate_a_proposed"),
+            "b": effective.get("hourly_rate_b_proposed"),
+            "c": effective.get("hourly_rate_c_proposed"),
+            "d": effective.get("hourly_rate_d_proposed"),
+        },
+        time_required_proposed={
+            "a": effective.get("time_required_in_min_a_proposed_effective"),
+            "b": effective.get("time_required_in_min_b_proposed_effective"),
+            "c": effective.get("time_required_in_min_c_proposed_effective"),
+            "d": effective.get("time_required_in_min_d_proposed_effective"),
+        },
+        expenses_proposed=effective.get("expenses_proposed_effective"),
+        cost_proposed=step.get("cost_proposed"),
+        execution_per_case=step.get("execution_per_case"),
+        group_labels=EFFORT_GROUP_LABELS.get(norm_addressee),
+    )
 
 
 def _apply_change_status(tile: Tile, change_status: object) -> dict:
@@ -56,47 +102,74 @@ def _with_step_metrics(meta_information: dict, step: dict) -> dict:
     return updated
 
 
-def refresh_case_group_tiles(session_id: int, case_groups: list[dict]) -> None:
-    tiles = {tile.id: tile for tile in db.fetch_tiles(session_id=session_id)}
-    for group in case_groups:
-        tile_id = f"case_group_{group['case_group_id']}"
-        tile = tiles.get(tile_id)
-        if not tile:
-            continue
-        updated = Tile(
-            id=tile.id,
-            title=tile.title,
-            text=_case_group_description(group),
-            meta_information=_with_case_group_metrics(
-                _apply_change_status(tile, group.get("change_status")),
-                group,
-            ),
-            column=tile.column,
-            row=tile.row,
-            deletable=tile.deletable,
-            link_from_tile=tile.link_from_tile,
-        )
-        db.upsert_tile(updated, session_id=session_id)
+def _group_by_addressee(
+    rows: list[dict],
+    default_addressee: str,
+) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        addressee = str(row.get("norm_addressee") or default_addressee)
+        grouped.setdefault(addressee, []).append(row)
+    return grouped
 
 
-def refresh_step_tiles(session_id: int, steps: list[dict]) -> None:
-    tiles = {tile.id: tile for tile in db.fetch_tiles(session_id=session_id)}
-    for step in steps:
-        tile_id = f"step_{step['step_id']}"
-        tile = tiles.get(tile_id)
-        if not tile:
-            continue
-        updated = Tile(
-            id=tile.id,
-            title=tile.title,
-            text=_step_description(step),
-            meta_information=_with_step_metrics(
-                _apply_change_status(tile, step.get("change_status")),
-                step,
-            ),
-            column=tile.column,
-            row=tile.row,
-            deletable=tile.deletable,
-            link_from_tile=tile.link_from_tile,
-        )
-        db.upsert_tile(updated, session_id=session_id)
+def refresh_case_group_tiles(
+    session_id: int,
+    case_groups: list[dict],
+    norm_addressee: str = ADMINISTRATION,
+) -> None:
+    for addressee, groups in _group_by_addressee(case_groups, norm_addressee).items():
+        tiles = {
+            tile.id: tile
+            for tile in db.fetch_tiles(session_id=session_id, norm_addressee=addressee)
+        }
+        for group in groups:
+            tile_id = f"case_group_{group['case_group_id']}"
+            tile = tiles.get(tile_id)
+            if not tile:
+                continue
+            updated = Tile(
+                id=tile.id,
+                title=tile.title,
+                text=_case_group_text(group),
+                meta_information=_with_case_group_metrics(
+                    _apply_change_status(tile, group.get("change_status")),
+                    group,
+                ),
+                column=tile.column,
+                row=tile.row,
+                deletable=tile.deletable,
+                link_from_tile=tile.link_from_tile,
+            )
+            db.upsert_tile(updated, session_id=session_id, norm_addressee=addressee)
+
+
+def refresh_step_tiles(
+    session_id: int,
+    steps: list[dict],
+    norm_addressee: str = ADMINISTRATION,
+) -> None:
+    for addressee, addressee_steps in _group_by_addressee(steps, norm_addressee).items():
+        tiles = {
+            tile.id: tile
+            for tile in db.fetch_tiles(session_id=session_id, norm_addressee=addressee)
+        }
+        for step in addressee_steps:
+            tile_id = f"step_{step['step_id']}"
+            tile = tiles.get(tile_id)
+            if not tile:
+                continue
+            updated = Tile(
+                id=tile.id,
+                title=tile.title,
+                text=_step_text(step, addressee),
+                meta_information=_with_step_metrics(
+                    _apply_change_status(tile, step.get("change_status")),
+                    step,
+                ),
+                column=tile.column,
+                row=tile.row,
+                deletable=tile.deletable,
+                link_from_tile=tile.link_from_tile,
+            )
+            db.upsert_tile(updated, session_id=session_id, norm_addressee=addressee)

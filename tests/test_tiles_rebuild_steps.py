@@ -1,5 +1,6 @@
 from backend.core import db
 from backend.core.models import Tile
+from backend.core.norm_addressees import BUSINESS, CITIZENS
 
 
 def test_rebuild_tiles_keeps_step_order(test_client):
@@ -105,7 +106,9 @@ def test_rebuild_tiles_populates_structured_metrics_meta(test_client):
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tile = next(tile for tile in tiles if tile.id == f"step_{step_id}")
 
-    assert case_tile.text == "Fallgruppenbeschreibung"
+    assert case_tile.text.startswith("Fallgruppenbeschreibung")
+    assert "Gueltig: Betroffene: 10 | Haeufigkeit/Jahr: 2 | Faelle: 20" in case_tile.text
+    assert "Vorschlag: Betroffene: 12 | Haeufigkeit/Jahr: 3 | Faelle: 36" in case_tile.text
     assert case_tile.meta_information["description"] == "Fallgruppenbeschreibung"
     assert case_tile.meta_information["addressees_current"] == 10
     assert case_tile.meta_information["annual_frequency_current"] == 2
@@ -114,7 +117,9 @@ def test_rebuild_tiles_populates_structured_metrics_meta(test_client):
     assert case_tile.meta_information["annual_frequency_proposed"] == 3
     assert case_tile.meta_information["cases_proposed"] == 36
 
-    assert step_tile.text == "Schrittbeschreibung"
+    assert step_tile.text.startswith("Schrittbeschreibung")
+    assert "Gueltig:" in step_tile.text
+    assert "Vorschlag:" in step_tile.text
     assert step_tile.meta_information["description"] == "Schrittbeschreibung"
     assert step_tile.meta_information["time_required_current"]["a"] == 5
     assert step_tile.meta_information["time_required_proposed"]["a"] == 7
@@ -262,4 +267,103 @@ def test_list_tiles_auto_rebuilds_when_text_does_not_match_description(test_clie
     assert listed.status_code == 200
     listed_tiles = listed.json()["tiles"]
     listed_step = next(tile for tile in listed_tiles if tile["id"] == f"step_{step_id}")
-    assert listed_step["text"] == "Schrittbeschreibung"
+    assert listed_step["text"].startswith("Schrittbeschreibung")
+    assert "eD/mD: 1 min | 2 min" in listed_step["text"]
+
+
+def test_list_tiles_auto_rebuilds_missing_business_tiles(test_client):
+    app_session_id = "TILES-MISSING-BUSINESS"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(
+        app_session_id,
+        "Titel",
+        "Zusammenfassung",
+        law_diff_blurb="Blurb",
+    )
+    regulation_id = db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Beschreibung Regelung",
+        applies_to_administration=False,
+        applies_to_business=True,
+    )
+    process_id = db.insert_process(
+        session_id,
+        "Business Prozess",
+        "Beschreibung Prozess",
+        norm_addressee=BUSINESS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=regulation_id,
+        process_id=process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    rebuild = test_client.post(
+        "/tiles/rebuild",
+        json={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert rebuild.status_code == 200
+
+    db.delete_tile(
+        f"process_{process_id}",
+        session_id=session_id,
+        norm_addressee=BUSINESS,
+    )
+
+    listed = test_client.get(
+        "/tiles",
+        params={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert listed.status_code == 200
+    listed_tiles = listed.json()["tiles"]
+    assert any(tile["id"] == f"process_{process_id}" for tile in listed_tiles)
+
+
+def test_list_tiles_auto_rebuilds_missing_citizens_tiles(test_client):
+    app_session_id = "TILES-MISSING-CITIZENS"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(
+        app_session_id,
+        "Titel",
+        "Zusammenfassung",
+        law_diff_blurb="Blurb",
+    )
+    regulation_id = db.insert_regulation(
+        session_id,
+        "§ 2",
+        "Beschreibung Regelung",
+        applies_to_administration=False,
+        applies_to_citizens=True,
+    )
+    process_id = db.insert_process(
+        session_id,
+        "Buergerprozess",
+        "Beschreibung Prozess",
+        norm_addressee=CITIZENS,
+    )
+    assert db.update_regulation_process(
+        regulation_id=regulation_id,
+        process_id=process_id,
+        norm_addressee=CITIZENS,
+    )
+
+    rebuild = test_client.post(
+        "/tiles/rebuild",
+        json={"app_session_id": app_session_id, "norm_addressee": CITIZENS},
+    )
+    assert rebuild.status_code == 200
+
+    db.delete_tile(
+        f"process_{process_id}",
+        session_id=session_id,
+        norm_addressee=CITIZENS,
+    )
+
+    listed = test_client.get(
+        "/tiles",
+        params={"app_session_id": app_session_id, "norm_addressee": CITIZENS},
+    )
+    assert listed.status_code == 200
+    listed_tiles = listed.json()["tiles"]
+    assert any(tile["id"] == f"process_{process_id}" for tile in listed_tiles)

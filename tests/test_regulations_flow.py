@@ -1,4 +1,5 @@
 from backend.core import db
+from backend.core.norm_addressees import ADMINISTRATION
 from backend.core.prompts import PromptId, render_prompt
 from backend.routers import regulations as regulations_router
 
@@ -179,6 +180,48 @@ def test_identify_requires_session_law_selection(test_client, monkeypatch):
     assert resp.json()["detail"] == "Law files not selected for session. Run summary first."
 
 
+def test_identify_regulations_rejects_invalid_json_payload(test_client, monkeypatch):
+    db.insert_law("invalid-current.txt", "aktuelles gesetz")
+    db.insert_law("invalid-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            "kein json vorhanden",
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "invalid-proposed.txt",
+            "current_filename": "invalid-current.txt",
+            "app_session_id": "REG-INVALID-JSON",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "REG-INVALID-JSON",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == (
+        "Invalid regulations_identification payload: no JSON object found in LLM response"
+    )
+
+
 def test_summary_supersedes_previous_active_answer(test_client, monkeypatch):
     db.insert_law("summary-current.txt", "aktuelles gesetz")
     db.insert_law("summary-proposed.txt", "neuer entwurf")
@@ -280,6 +323,7 @@ def test_summary_separates_blurb_and_summary_storage_and_display(test_client, mo
         PromptId.PROCESS_COMPILATION,
         session_id=session_id,
         vorgaben_json="[]",
+        norm_addressee=ADMINISTRATION,
     )
     assert "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext." in prompt
     assert "Kurzer Satz." not in prompt
@@ -339,6 +383,168 @@ def test_identify_prompt_contains_session_summary_and_law_texts(test_client, mon
     assert proposed_text in identify_prompt
 
 
+def test_identify_regulations_parses_norm_addressees_and_business_information_flag(
+    test_client, monkeypatch
+):
+    db.insert_law("addr-current.txt", "aktuelles gesetz")
+    db.insert_law("addr-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            """
+            {
+              "vorgaben": [
+                {
+                  "normzitat": "§ 20",
+                  "beschreibung": "Mischfall",
+                  "normadressaten": ["administration", "business"],
+                  "ist_informationspflicht_wirtschaft": true
+                },
+                {
+                  "normzitat": "§ 21",
+                  "beschreibung": "Einzelwert",
+                  "normadressat": "citizens"
+                },
+                {
+                  "normzitat": "§ 22",
+                  "beschreibung": "Default Verwaltung"
+                }
+              ]
+            }
+            """,
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "addr-proposed.txt",
+            "current_filename": "addr-current.txt",
+            "app_session_id": "REG-ADDRESSEES",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "REG-ADDRESSEES",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+
+    session_id = db.get_session_id_by_app_id("REG-ADDRESSEES")
+    assert session_id is not None
+    rows = db.list_regulations_for_session(session_id)
+    assert [
+        (
+            row["legal_citation"],
+            row["applies_to_administration"],
+            row["applies_to_business"],
+            row["applies_to_citizens"],
+            row["is_business_information_obligation"],
+        )
+        for row in rows
+        ] == [
+            ("§ 20", 1, 1, 0, 1),
+            ("§ 21", 0, 0, 1, 0),
+            ("§ 22", 1, 0, 0, 0),
+        ]
+
+    admin_tiles = {
+        tile.meta_information["regulation_id"]: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="administration")
+        if tile.id.startswith("regulation_")
+    }
+    business_tiles = {
+        tile.meta_information["regulation_id"]: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="business")
+        if tile.id.startswith("regulation_")
+    }
+    citizens_tiles = {
+        tile.meta_information["regulation_id"]: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee="citizens")
+        if tile.id.startswith("regulation_")
+    }
+
+    assert set(admin_tiles) == {rows[0]["regulation_id"], rows[2]["regulation_id"]}
+    assert set(business_tiles) == {rows[0]["regulation_id"]}
+    assert set(citizens_tiles) == {rows[1]["regulation_id"]}
+
+    first_tile = admin_tiles[rows[0]["regulation_id"]]
+    assert first_tile.meta_information["normadressaten"] == ["administration", "business"]
+
+
+def test_identify_regulations_business_information_flag_adds_business_addressee(
+    test_client, monkeypatch
+):
+    db.insert_law("business-current.txt", "aktuelles gesetz")
+    db.insert_law("business-proposed.txt", "neuer entwurf")
+
+    responses = iter(
+        [
+            '{"title": "Kurz", "blurb": "Ein Satz."}',
+            """
+            {
+              "vorgaben": [
+                {
+                  "normzitat": "§ 30",
+                  "beschreibung": "Informationspflicht",
+                  "normadressat": "administration",
+                  "informationspflicht_wirtschaft": "ja"
+                }
+              ]
+            }
+            """,
+        ]
+    )
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "business-proposed.txt",
+            "current_filename": "business-current.txt",
+            "app_session_id": "REG-BUSINESS-FLAG",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "REG-BUSINESS-FLAG",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert resp.status_code == 200
+
+    session_id = db.get_session_id_by_app_id("REG-BUSINESS-FLAG")
+    assert session_id is not None
+    row = db.list_regulations_for_session(session_id)[0]
+    assert row["applies_to_administration"] == 1
+    assert row["applies_to_business"] == 1
+    assert row["applies_to_citizens"] == 0
+    assert row["is_business_information_obligation"] == 1
+
+
 def test_prompt_opening_falls_back_to_blurb_when_summary_empty(test_client):
     session_id, _ = db.upsert_session("PROMPT-BLURB-FALLBACK", "test-model")
     db.update_session_summary(
@@ -352,5 +558,6 @@ def test_prompt_opening_falls_back_to_blurb_when_summary_empty(test_client):
         PromptId.PROCESS_COMPILATION,
         session_id=session_id,
         vorgaben_json="[]",
+        norm_addressee=ADMINISTRATION,
     )
     assert "Fallback Blurb Text" in prompt

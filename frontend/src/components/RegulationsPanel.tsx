@@ -61,7 +61,9 @@ export default function RegulationsPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <p className="text-xs text-slate-600">
             Beim Klick auf &quot;Vorgaben bestimmen&quot; werden die zwei gewählten
-            Gesetzestexte analysiert und die relevanten Vorgaben ermittelt.
+            Gesetzestexte analysiert und die relevanten Vorgaben ermittelt. Die
+            angezeigten Daten beziehen sich jeweils auf den ausgewählten
+            Normadressaten.
           </p>
           <button
             onClick={handleIdentify}

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from backend.core import db
+from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.prompts import PromptId
 
 
@@ -33,11 +34,13 @@ def get_last_completed_step(status: dict) -> WorkflowStep | None:
 
 
 def _undo_total_cost(session_id: int) -> None:
-    db.clear_costs(session_id)
+    for addressee in SUPPORTED_NORM_ADDRESSEES:
+        db.clear_costs(session_id, norm_addressee=addressee)
 
 
 def _undo_effort(session_id: int) -> None:
-    db.clear_effort_metrics(session_id)
+    for addressee in SUPPORTED_NORM_ADDRESSEES:
+        db.clear_effort_metrics(session_id, norm_addressee=addressee)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],

@@ -8,10 +8,15 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.llm_attempts import (
     mark_llm_answer_applied,
+    mark_llm_parse_fallback,
 )
-from backend.core.llm_json import parse_json_object
+from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    check_norm_addressee_echo,
+)
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import (
     build_processes_payload_with_regulations,
@@ -32,6 +37,7 @@ from backend.routers._llm_router_utils import (
     query_and_stage_or_http,
     run_with_answer_apply_guard,
 )
+from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -44,6 +50,7 @@ class CaseGroupDevelopmentRequest(BaseModel):
     app_session_id: AppSessionId
     model: str | None = None
     provider: str | None = None
+    norm_addressee: str | None = None
 
 
 class CaseGroupEditRow(BaseModel):
@@ -95,6 +102,9 @@ async def bulk_update_case_groups(payload: CaseGroupBulkUpdateRequest) -> BulkUp
             entity_label="case_group_id",
         )
         updates.append(row.model_dump())
+    edited_case_group_ids = {
+        int(row.case_group_id) for row in payload.rows if row.case_group_id is not None
+    }
     with db.transaction():
         updated, missing_ids = db.bulk_update_case_group_edits(session_id, updates)
         if missing_ids:
@@ -110,13 +120,18 @@ async def bulk_update_case_groups(payload: CaseGroupBulkUpdateRequest) -> BulkUp
     return BulkUpdateResponse(updated=updated)
 
 
-def _parse_case_groups(payload: str) -> list[dict]:
-    data = parse_json_object(payload)
-    if not isinstance(data, dict):
-        return []
+def _parse_case_groups(
+    payload: str,
+    norm_addressee: str | None = None,
+) -> tuple[list[dict], set[str]]:
+    data, _parse_mode = require_json_object(
+        payload,
+        error_context="case group development",
+    )
+    fallback_kinds = check_norm_addressee_echo(data, norm_addressee)
     processes = data.get("prozesse")
     if not isinstance(processes, list):
-        return []
+        return [], fallback_kinds
     parsed = []
     for entry in processes:
         if not isinstance(entry, dict):
@@ -163,14 +178,15 @@ def _parse_case_groups(payload: str) -> list[dict]:
                 "fallgruppen": parsed_fallgruppen,
             }
         )
-    return parsed
+    return parsed, fallback_kinds
 
 
 def _add_case_group_tiles(
     session_id: int,
     processes: list[dict],
+    norm_addressee: str = ADMINISTRATION,
 ) -> list[dict]:
-    tiles = db.fetch_tiles(session_id=session_id)
+    tiles = db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
     process_tiles = {tile.id: tile for tile in tiles if tile.id.startswith("process_")}
     created = []
     row_spacing = 1
@@ -198,6 +214,7 @@ def _add_case_group_tiles(
                 case_group=title,
                 description=text,
                 change_status=case_group_status,
+                norm_addressee=norm_addressee,
             )
             tile = Tile(
                 id=f"case_group_{case_group_id}",
@@ -220,7 +237,7 @@ def _add_case_group_tiles(
                 deletable=True,
                 link_from_tile=[process_tile_id],
             )
-            db.upsert_tile(tile, session_id=session_id)
+            db.upsert_tile(tile, session_id=session_id, norm_addressee=norm_addressee)
             created.append(
                 {
                     "case_group_id": case_group_id,
@@ -242,9 +259,10 @@ async def develop_case_groups(
         payload.app_session_id,
         payload.model,
     )
-    existing = db.list_case_groups_for_session(session_id)
+    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
+    existing = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
     if existing:
-        processes = db.list_processes_for_session(session_id)
+        processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
         grouped: dict[int, list[dict]] = {}
         for row in existing:
             grouped.setdefault(row["process_id"], []).append(
@@ -268,18 +286,30 @@ async def develop_case_groups(
                 if process["process_id"] in grouped
             ],
             "status": "existing",
+            "norm_addressee": norm_addressee,
         }
 
-    processes = db.list_processes_for_session(session_id)
+    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not processes and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
+        session_id, norm_addressee
+    ):
+        return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
     if not processes:
         raise HTTPException(status_code=400, detail="No processes for session")
-    regulations = db.list_regulations_for_session(session_id)
-    prozesse_payload = build_processes_payload_with_regulations(processes, regulations)
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    prozesse_payload = build_processes_payload_with_regulations(
+        processes, regulations, norm_addressee=norm_addressee
+    )
 
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
         session_id=session_id,
         prozesse_json=dump_prompt_json(prozesse_payload),
+        norm_addressee=norm_addressee,
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
@@ -289,11 +319,19 @@ async def develop_case_groups(
         model=model,
         provider=payload.provider,
         query_fn=query_llm,
+        norm_addressee=norm_addressee,
     )
     response_text = llm_result.text
 
     def _apply() -> list[dict]:
-        parsed = _parse_case_groups(response_text)
+        parsed, fallback_kinds = _parse_case_groups(response_text, norm_addressee)
+        for fallback_kind in sorted(fallback_kinds):
+            mark_llm_parse_fallback(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
+                fallback_kind=fallback_kind,
+            )
         if not parsed:
             raise HTTPException(status_code=422, detail="No case groups parsed")
 
@@ -310,7 +348,11 @@ async def develop_case_groups(
             )
 
         with db.transaction():
-            created_local = _add_case_group_tiles(session_id, parsed)
+            created_local = _add_case_group_tiles(
+                session_id,
+                parsed,
+                norm_addressee=norm_addressee,
+            )
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,
@@ -340,5 +382,6 @@ async def develop_case_groups(
             }
             for process in processes
             if process["process_id"] in grouped
-        ]
+        ],
+        "norm_addressee": norm_addressee,
     }

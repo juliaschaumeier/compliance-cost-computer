@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { SessionPayRatesResponse } from "@/types";
+import { NormAddressee, SessionPayRatesResponse } from "@/types";
 
 import { useEaReviewSave } from "./useEaReviewSave";
 import {
@@ -17,18 +17,42 @@ type EaPayRatesTabProps = {
   open: boolean;
   active: boolean;
   appSessionId: string;
+  normAddressee: NormAddressee;
   runAutoRecompute: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
+const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
+  administration: "Verwaltung",
+  business: "Wirtschaft",
+  citizens: "Bürgerinnen und Bürger",
+};
+
 type PayGradeKey = "a" | "b" | "c" | "d";
 
-const PAY_GRADE_ROWS: Array<{ key: PayGradeKey; label: string }> = [
-  { key: "a", label: "Einfacher/Mittlerer Dienst (eD/mD)" },
-  { key: "b", label: "Gehobener Dienst (gD)" },
-  { key: "c", label: "Höherer Dienst (hD)" },
-  { key: "d", label: "Durchschnitt über Laufbahnen (Ø)" },
-];
+const PAY_GRADE_ROWS_BY_ADDRESSEE: Record<
+  NormAddressee,
+  Array<{ key: PayGradeKey; label: string }>
+> = {
+  administration: [
+    { key: "a", label: "Einfacher/Mittlerer Dienst (eD/mD)" },
+    { key: "b", label: "Gehobener Dienst (gD)" },
+    { key: "c", label: "Höherer Dienst (hD)" },
+    { key: "d", label: "Durchschnitt über Laufbahnen (Ø)" },
+  ],
+  business: [
+    { key: "a", label: "Niedrig" },
+    { key: "b", label: "Mittel" },
+    { key: "c", label: "Hoch" },
+    { key: "d", label: "Durchschnitt (Ø)" },
+  ],
+  citizens: [
+    { key: "a", label: "Zeit" },
+    { key: "b", label: "Reserve B" },
+    { key: "c", label: "Reserve C" },
+    { key: "d", label: "Reserve D" },
+  ],
+};
 
 const EMPTY_EDITED_INPUTS: Record<PayGradeKey, string> = {
   a: "",
@@ -41,6 +65,7 @@ export default function EaPayRatesTab({
   open,
   active,
   appSessionId,
+  normAddressee,
   runAutoRecompute,
   onDirtyChange,
 }: EaPayRatesTabProps) {
@@ -111,38 +136,48 @@ export default function EaPayRatesTab({
     onDirtyChange?.(hasDirtyEdited);
   }, [hasDirtyEdited, onDirtyChange]);
 
+  const loadKey = `${appSessionId}::${normAddressee}`;
+
   const loadPayRates = useCallback(async () => {
     setIsLoading(true);
     setStatus(null);
     try {
-      const payload = await apiClient.getSessionPayRates({ appSessionId });
+      const payload = await apiClient.getSessionPayRates({
+        appSessionId,
+        normAddressee,
+      });
       setPayRates(payload);
-      setLoadedSessionKey(appSessionId);
+      setLoadedSessionKey(loadKey);
       setPayEditedInputs(EMPTY_EDITED_INPUTS);
     } catch (error) {
-      logClientError("EaPayRatesTab.load", error, { appSessionId });
+      logClientError("EaPayRatesTab.load", error, { appSessionId, normAddressee });
       setStatus("Lohnsätze konnten nicht geladen werden.");
     } finally {
       setIsLoading(false);
     }
-  }, [appSessionId, setStatus]);
+  }, [appSessionId, normAddressee, loadKey, setStatus]);
 
   useEffect(() => {
     setPayRates(null);
     setPayEditedInputs(EMPTY_EDITED_INPUTS);
     setLoadedSessionKey(null);
     setStatus(null);
-  }, [appSessionId, setStatus]);
+  }, [appSessionId, normAddressee, setStatus]);
 
   useEffect(() => {
     if (!open || !active) {
       return;
     }
-    if (loadedSessionKey === appSessionId && payRates) {
+    // Citizens haben keine Lohnsaetze - API-Call und ggf. 422 wegen
+    // fehlendem Support vermeiden.
+    if (normAddressee === "citizens") {
+      return;
+    }
+    if (loadedSessionKey === loadKey && payRates) {
       return;
     }
     loadPayRates();
-  }, [open, active, loadPayRates, loadedSessionKey, appSessionId, payRates]);
+  }, [open, active, normAddressee, loadPayRates, loadedSessionKey, loadKey, payRates]);
 
   const handleSave = async () => {
     if (!payRates || !hasDirtyEdited || hasInvalidInput) {
@@ -153,6 +188,7 @@ export default function EaPayRatesTab({
         async () => {
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
+            normAddressee,
             administrationLevel: payRates.administration_level || "bund",
             editedA: nextEdited.a,
             editedB: nextEdited.b,
@@ -182,6 +218,7 @@ export default function EaPayRatesTab({
         async () => {
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
+            normAddressee,
             administrationLevel: payRates.administration_level || "bund",
             editedA: null,
             editedB: null,
@@ -207,6 +244,25 @@ export default function EaPayRatesTab({
     return null;
   }
 
+  if (normAddressee === "citizens") {
+    // Bürgerinnen und Bürger haben methodisch keine Lohnsätze (nur Zeit-
+    // und Sachaufwand). Der Tab zeigt deshalb einen klaren Hinweis
+    // statt Pseudo-Eingabefelder ("Zeit", "Reserve B/C/D"), die vom
+    // Backend ohnehin ignoriert werden.
+    return (
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
+        <p className="font-semibold text-slate-800">
+          Lohnsätze sind für Bürgerinnen und Bürger nicht anwendbar.
+        </p>
+        <p className="mt-2">
+          Für diesen Normadressaten werden nur Zeitaufwand (in Minuten) und
+          Sachaufwand (in Euro) berücksichtigt. Eine Monetarisierung der Zeit
+          erfolgt nicht.
+        </p>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -225,10 +281,18 @@ export default function EaPayRatesTab({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-        Verwaltungsebene:{" "}
-        <span className="font-semibold uppercase">
-          {payRates?.administration_level || "bund"}
+        Normadressat:{" "}
+        <span className="font-semibold">
+          {NORM_ADDRESSEE_LABELS[normAddressee]}
         </span>
+        {normAddressee === "administration" && (
+          <>
+            {" · Verwaltungsebene: "}
+            <span className="font-semibold uppercase">
+              {payRates?.administration_level || "bund"}
+            </span>
+          </>
+        )}
       </div>
       <div className="text-[11px] text-slate-500">
         Zahlenformat: z. B. 1.234,56 (de-DE).
@@ -244,7 +308,7 @@ export default function EaPayRatesTab({
             </tr>
           </thead>
           <tbody>
-            {PAY_GRADE_ROWS.map((row) => (
+            {PAY_GRADE_ROWS_BY_ADDRESSEE[normAddressee].map((row) => (
               <tr key={row.key} className="border-b border-slate-100">
                 <td className="px-2 py-2 font-semibold text-slate-800">{row.label}</td>
                 <td className="px-2 py-2">

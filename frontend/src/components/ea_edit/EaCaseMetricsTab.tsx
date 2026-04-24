@@ -6,7 +6,7 @@ import EditorMetricsTable from "@/components/ea_edit/components/EditorMetricsTab
 import ReviewDiffTable, { ReviewDiffRow } from "@/components/ea_edit/components/ReviewDiffTable";
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { EditableCaseGroupRow } from "@/types";
+import { EditableCaseGroupRow, NormAddressee } from "@/types";
 
 import {
   formatNumber,
@@ -23,6 +23,7 @@ type EaCaseMetricsTabProps = {
   open: boolean;
   active: boolean;
   appSessionId: string;
+  normAddressee: NormAddressee;
   runAutoRecompute: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -81,6 +82,7 @@ export default function EaCaseMetricsTab({
   open,
   active,
   appSessionId,
+  normAddressee,
   runAutoRecompute,
   onDirtyChange,
 }: EaCaseMetricsTabProps) {
@@ -103,20 +105,22 @@ export default function EaCaseMetricsTab({
     []
   );
 
+  const loadKey = `${appSessionId}::${normAddressee}`;
+
   const loadRows = useCallback(async () => {
     setIsLoading(true);
     setStatus(null);
     try {
       const payload = await apiClient.getEditableCaseGroups({ appSessionId });
-      setRows(payload.rows);
-      setLoadedSessionKey(appSessionId);
+      setRows(payload.rows.filter((row) => row.norm_addressee === normAddressee));
+      setLoadedSessionKey(loadKey);
     } catch (error) {
-      logClientError("EaCaseMetricsTab.load", error, { appSessionId });
+      logClientError("EaCaseMetricsTab.load", error, { appSessionId, normAddressee });
       setStatus("Fallzahlen konnten nicht geladen werden.");
     } finally {
       setIsLoading(false);
     }
-  }, [appSessionId, setStatus]);
+  }, [appSessionId, normAddressee, loadKey, setStatus]);
 
   useEffect(() => {
     setRows([]);
@@ -125,17 +129,17 @@ export default function EaCaseMetricsTab({
     setReviewMode(false);
     setStatus(null);
     setIsLoading(false);
-  }, [appSessionId, setStatus, setReviewMode]);
+  }, [appSessionId, normAddressee, setStatus, setReviewMode]);
 
   useEffect(() => {
     if (!open || !active) {
       return;
     }
-    if (loadedSessionKey === appSessionId) {
+    if (loadedSessionKey === loadKey) {
       return;
     }
     loadRows();
-  }, [open, active, loadRows, loadedSessionKey, appSessionId]);
+  }, [open, active, loadRows, loadedSessionKey, loadKey]);
 
   const changes = useMemo(() => {
     const changedRows: Array<{

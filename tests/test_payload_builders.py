@@ -25,6 +25,8 @@ def test_build_vorgaben_payload_contract_keys():
             "normzitat": "§ 1",
             "beschreibung": "Vorgabe A",
             "aenderungsstatus": "geaendert",
+            "normadressaten": [],
+            "ist_informationspflicht_wirtschaft": False,
         }
     ]
     assert set(payload[0].keys()) == {
@@ -32,6 +34,8 @@ def test_build_vorgaben_payload_contract_keys():
         "normzitat",
         "beschreibung",
         "aenderungsstatus",
+        "normadressaten",
+        "ist_informationspflicht_wirtschaft",
     }
 
 
@@ -69,6 +73,8 @@ def test_build_processes_payload_with_regulations_contract_keys():
         "normzitat",
         "beschreibung",
         "aenderungsstatus",
+        "normadressaten",
+        "ist_informationspflicht_wirtschaft",
     }
 
 
@@ -118,6 +124,8 @@ def test_build_case_groups_payload_includes_vorgaben():
             "normzitat": "§ 1",
             "beschreibung": "Vorgabe A",
             "aenderungsstatus": "geaendert",
+            "normadressaten": [],
+            "ist_informationspflicht_wirtschaft": False,
         }
     ]
     assert set(process.keys()) == {
@@ -190,6 +198,8 @@ def test_build_step_analysis_payload_includes_vorgaben():
             "normzitat": "§ 1",
             "beschreibung": "Vorgabe A",
             "aenderungsstatus": "geaendert",
+            "normadressaten": [],
+            "ist_informationspflicht_wirtschaft": False,
         }
     ]
     assert set(process.keys()) == {
@@ -207,7 +217,9 @@ def test_build_step_analysis_payload_includes_vorgaben():
         "taetigkeit",
         "beschreibung",
         "aenderungsstatus",
+        "vorgaben_ids",
     }
+    assert taetigkeit["vorgaben_ids"] == []
 
 
 def test_build_case_groups_payload_omits_null_metrics():
@@ -282,6 +294,184 @@ def test_build_case_groups_payload_omits_metrics_even_when_present():
     assert "haeufigkeit_pro_jahr_vorschlag" not in fallgruppe
 
 
+def test_build_vorgaben_payload_includes_norm_addressees_and_business_flag():
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 1,
+            "applies_to_business": 1,
+            "applies_to_citizens": 0,
+            "is_business_information_obligation": 1,
+        }
+    ]
+
+    payload = build_vorgaben_payload(regulations)
+
+    assert payload == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["administration", "business"],
+            "ist_informationspflicht_wirtschaft": True,
+        }
+    ]
+
+
+def test_build_processes_payload_with_regulations_includes_norm_addressees_and_business_flag():
+    processes = [
+        {
+            "process_id": 10,
+            "process": "Prozess A",
+            "description": "Beschreibung A",
+            "change_status": "geaendert",
+        }
+    ]
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 1,
+            "applies_to_business": 1,
+            "applies_to_citizens": 0,
+            "is_business_information_obligation": 1,
+        }
+    ]
+
+    payload = build_processes_payload_with_regulations(processes, regulations)
+
+    assert payload[0]["vorgaben"] == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["administration", "business"],
+            "ist_informationspflicht_wirtschaft": True,
+        }
+    ]
+
+
+def test_build_case_groups_payload_preserves_norm_addressees_and_business_flag():
+    processes = [
+        {
+            "process_id": 10,
+            "process": "Prozess A",
+            "description": "Beschreibung A",
+            "change_status": "geaendert",
+        }
+    ]
+    case_groups = [
+        {
+            "case_group_id": 20,
+            "process_id": 10,
+            "case_group": "Fallgruppe A",
+            "description": "Beschreibung Fallgruppe A",
+            "change_status": "geaendert",
+        }
+    ]
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 1,
+            "applies_to_business": 0,
+            "applies_to_citizens": 1,
+            "is_business_information_obligation": 0,
+        }
+    ]
+
+    payload = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        regulations=regulations,
+    )
+
+    assert payload[0]["vorgaben"] == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["administration", "citizens"],
+            "ist_informationspflicht_wirtschaft": False,
+        }
+    ]
+
+
+def test_build_step_analysis_payload_preserves_norm_addressees_and_business_flag():
+    processes = [
+        {
+            "process_id": 10,
+            "process": "Prozess A",
+            "description": "Beschreibung A",
+            "change_status": "geaendert",
+        }
+    ]
+    case_groups = [
+        {
+            "case_group_id": 20,
+            "process_id": 10,
+            "case_group": "Fallgruppe A",
+            "description": "Beschreibung Fallgruppe A",
+            "change_status": "geaendert",
+        }
+    ]
+    steps = [
+        {
+            "step_id": 40,
+            "case_group_id": 20,
+            "step": "Schritt 1",
+            "description": "Beschreibung Schritt 1",
+            "change_status": "geaendert",
+            "previous_id": None,
+            "next_id": None,
+        }
+    ]
+    regulations = [
+        {
+            "regulation_id": 31,
+            "process_id": 10,
+            "legal_citation": "§ 2",
+            "description": "Vorgabe B",
+            "change_status": "neu",
+            "applies_to_administration": 0,
+            "applies_to_business": 1,
+            "applies_to_citizens": 1,
+            "is_business_information_obligation": 1,
+        }
+    ]
+
+    payload = build_step_analysis_payload(
+        processes=processes,
+        case_groups=case_groups,
+        steps=steps,
+        regulations=regulations,
+    )
+
+    assert payload[0]["vorgaben"] == [
+        {
+            "vorgaben_id": 31,
+            "normzitat": "§ 2",
+            "beschreibung": "Vorgabe B",
+            "aenderungsstatus": "neu",
+            "normadressaten": ["business", "citizens"],
+            "ist_informationspflicht_wirtschaft": True,
+        }
+    ]
+
+
 def test_build_step_analysis_payload_omits_null_effort_fields():
     processes = [
         {
@@ -340,6 +530,7 @@ def test_build_step_analysis_payload_omits_null_effort_fields():
     taetigkeit = payload[0]["fallgruppen"][0]["taetigkeiten"][0]
     assert taetigkeit["taetigkeiten_id"] == 40
     assert taetigkeit["taetigkeit"] == "Schritt 1"
+    assert taetigkeit["vorgaben_ids"] == []
     assert "stundenlohn_satz_a_gueltig" not in taetigkeit
     assert "stundenlohn_satz_b_gueltig" not in taetigkeit
     assert "stundenlohn_satz_c_gueltig" not in taetigkeit
@@ -419,6 +610,7 @@ def test_build_step_analysis_payload_omits_effort_fields_even_when_present():
     taetigkeit = payload[0]["fallgruppen"][0]["taetigkeiten"][0]
     assert taetigkeit["taetigkeiten_id"] == 40
     assert taetigkeit["taetigkeit"] == "Schritt 1"
+    assert taetigkeit["vorgaben_ids"] == []
     assert "stundenlohn_satz_a_gueltig" not in taetigkeit
     assert "stundenlohn_satz_b_gueltig" not in taetigkeit
     assert "stundenlohn_satz_c_gueltig" not in taetigkeit

@@ -18,6 +18,7 @@ jest.mock("@/lib/api", () => ({
 
 jest.mock("@xyflow/react", () => {
   const React = jest.requireActual<typeof import("react")>("react");
+  const updateNodeInternals = jest.fn();
 
   return {
     __esModule: true,
@@ -36,11 +37,13 @@ jest.mock("@xyflow/react", () => {
       React.useEffect(() => {
         onInit?.({
           getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+          fitView: () => undefined,
         });
         onViewportChange?.({ x: 120, y: -40, zoom: 1.5 });
       }, [onInit, onViewportChange]);
       return <div>{children}</div>;
     },
+    useUpdateNodeInternals: () => updateNodeInternals,
     Background: () => null,
     Controls: () => null,
     Handle: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
