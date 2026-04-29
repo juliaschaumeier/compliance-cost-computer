@@ -4,6 +4,7 @@
 # Env
 .env
 .env.*
+CLAUDE.local.md
 
 # IDE
 .idea/
@@ -45,3 +46,15 @@ open_issues.md
 # Local legacy code (kept on disk, not tracked)
 backend/legacy/
 coding_assistant/
+
+# Local review artifacts (kept on disk, not tracked)
+review/
+
+# Local prompt helpers (kept on disk, not tracked)
+fixer/
+
+# Local feature workplans (kept on disk, not tracked)
+workplans/
+
+# Claude Code local settings (kept on disk, not tracked)
+.claude/settings.local.json
