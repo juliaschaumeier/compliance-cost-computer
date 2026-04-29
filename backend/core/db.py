@@ -1015,6 +1015,7 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     _ensure_column(cur, "llm_answers", "hidden_thinking_tokens", "INTEGER")
     _ensure_column(cur, "llm_answers", "estimated_cost_usd", "REAL")
     _ensure_column(cur, "llm_answers", "provider_response_json", "JSON")
+    _ensure_column(cur, "llm_answers", "prompt_text", "TEXT")
     _ensure_column(
         cur,
         "llm_answers",
@@ -1239,6 +1240,7 @@ def init_db() -> None:
             prompt_id       TEXT NOT NULL,
             model           TEXT NOT NULL,
             answer_text     TEXT NOT NULL,
+            prompt_text     TEXT,
             metadata        JSON,
             input_tokens    INTEGER,
             output_tokens   INTEGER,
@@ -2105,6 +2107,7 @@ def insert_llm_answer(
     answer_state: str = LLM_ANSWER_STATE_ACTIVE,
     state_reason: str | None = None,
     norm_addressee: str | None = None,
+    prompt_text: str | None = None,
 ) -> int:
     if answer_state not in {
         LLM_ANSWER_STATE_PENDING,
@@ -2121,6 +2124,7 @@ def insert_llm_answer(
             prompt_id,
             model,
             answer_text,
+            prompt_text,
             metadata,
             input_tokens,
             output_tokens,
@@ -2131,13 +2135,14 @@ def insert_llm_answer(
             state_reason,
             norm_addressee
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
             prompt_id,
             model,
             answer_text,
+            prompt_text,
             json.dumps(metadata, ensure_ascii=False) if metadata else None,
             input_tokens,
             output_tokens,
@@ -2171,6 +2176,7 @@ def create_pending_llm_answer(
     estimated_cost_usd: float | None = None,
     provider_response_json: dict | list | None = None,
     norm_addressee: str | None = None,
+    prompt_text: str | None = None,
 ) -> int:
     invalidate_llm_answers(
         session_id=session_id,
@@ -2194,6 +2200,7 @@ def create_pending_llm_answer(
         answer_state=LLM_ANSWER_STATE_PENDING,
         state_reason="waiting_for_session_update",
         norm_addressee=norm_addressee,
+        prompt_text=prompt_text,
     )
 
 
@@ -2409,6 +2416,7 @@ def get_llm_answer_by_id(answer_id: int) -> dict | None:
             hidden_thinking_tokens,
             estimated_cost_usd,
             norm_addressee,
+            prompt_text,
             created_at
         FROM llm_answers
         WHERE answer_id = ?

@@ -41,7 +41,7 @@ def test_query_and_stage_uses_injected_query_fn_and_stages_pending(test_client):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT answer_state, state_reason, answer_text
+        SELECT answer_state, state_reason, answer_text, prompt_text
         FROM llm_answers
         WHERE answer_id = ?
         """,
@@ -52,7 +52,9 @@ def test_query_and_stage_uses_injected_query_fn_and_stages_pending(test_client):
         "answer_state": "pending",
         "state_reason": "waiting_for_session_update",
         "answer_text": "Antworttext",
+        "prompt_text": "Hallo Welt",
     }
+    assert db.get_llm_answer_by_id(answer_id)["prompt_text"] == "Hallo Welt"
 
     mark_llm_answer_applied(
         answer_id=answer_id,
@@ -126,7 +128,7 @@ def test_query_failure_persists_extended_error_metadata(test_client):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT answer_state, state_reason, metadata
+        SELECT answer_state, state_reason, metadata, prompt_text
         FROM llm_answers
         WHERE session_id = ? AND prompt_id = 'test_prompt_error'
         ORDER BY answer_id DESC
@@ -138,6 +140,7 @@ def test_query_failure_persists_extended_error_metadata(test_client):
     conn.close()
     assert row["answer_state"] == "invalid"
     assert row["state_reason"] == "query_failed"
+    assert row["prompt_text"] == "Bitte berechnen"
     metadata = json.loads(row["metadata"])
     assert metadata.get("error_type") == "RuntimeError"
     assert metadata.get("provider") == "openai"
