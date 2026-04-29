@@ -12,6 +12,19 @@ def _render_effort_prompt(norm_addressee: str) -> str:
     )
 
 
+def _render_step_analysis_prompt(norm_addressee: str) -> str:
+    return render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+        norm_addressee=norm_addressee,
+    )
+
+
+def _compact(text: str) -> str:
+    return " ".join(text.split())
+
+
 def test_effort_prompt_for_business_uses_only_business_tables_and_guidance():
     prompt = _render_effort_prompt(BUSINESS)
 
@@ -126,3 +139,56 @@ def test_render_prompt_requires_explicit_norm_addressee():
             law_summary="Kurzfassung",
             vorgaben_json="[]",
         )
+
+
+def test_process_step_analysis_prompt_sets_known_norm_addressee_early():
+    prompt = _render_step_analysis_prompt(BUSINESS)
+    first_lines = "\n".join(prompt.splitlines()[:15])
+
+    assert "Dieser Lauf analysiert ausschliesslich den Normadressaten `business`." in first_lines
+    assert '"normadressat": "business"' in prompt
+    assert '"normadressat": "administration | business | citizens"' not in prompt
+
+
+def test_process_step_analysis_prompt_uses_step_specific_opening():
+    prompt = _render_step_analysis_prompt(BUSINESS)
+
+    assert "In diesem Schritt geht es ausschliesslich um die fachlich relevanten" in prompt
+    assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in prompt
+
+
+def test_process_step_analysis_prompt_keeps_vorgaben_ids_as_technical_link():
+    prompt = _render_step_analysis_prompt(BUSINESS)
+    compact_prompt = _compact(prompt)
+
+    assert "`vorgaben_ids`" in prompt
+    assert "technische Rueckbindung" in prompt
+    assert "nur `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses" in compact_prompt
+    assert "Wenn im Prozess nur genau eine Vorgabe enthalten ist" in prompt
+
+
+def test_administration_step_analysis_prompt_does_not_request_effort_values():
+    prompt = _render_step_analysis_prompt(ADMINISTRATION)
+
+    assert "Schaetzen Sie in der Schrittanalyse keine Lohngruppen" in prompt
+    assert "Weisen Sie pro Taetigkeit mindestens eine Lohngruppe" not in prompt
+    assert "realistischem Zeitaufwand in Minuten" not in prompt
+    assert "Null-Zeitaufwaende" not in prompt
+
+
+def test_business_step_analysis_prompt_does_not_request_it_or_effort_values():
+    prompt = _render_step_analysis_prompt(BUSINESS)
+
+    assert "Schaetzen Sie in der Schrittanalyse keine Zeitaufwaende" in prompt
+    assert "loesen keinen Zeitaufwand aus" not in prompt
+    assert "IT-bezogenen Sach- oder Personalaufwand separat" not in prompt
+    assert "Null-Zeitaufwaende" not in prompt
+
+
+def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
+    prompt = _render_step_analysis_prompt(CITIZENS)
+
+    assert "Jede Taetigkeit muss eine Handlung der Buergerinnen und Buerger selbst sein" in prompt
+    assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" in prompt
+    assert "Gesamtzeitaufwand" not in prompt
+    assert "Zeitaufwand fuer Wegezeiten" not in prompt

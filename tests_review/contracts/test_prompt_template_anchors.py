@@ -18,8 +18,13 @@ from backend.core.prompts import (
     EFFORT_METHOD_GUIDANCE,
     PROMPT_TEMPLATES,
     PromptId,
+    render_prompt,
 )
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+
+
+def _compact(text: str) -> str:
+    return " ".join(text.split())
 
 
 # ---------------------------------------------------------------------------
@@ -145,3 +150,71 @@ class TestCasesCalculationSowiesoMention:
     def test_citizens_cases_rule_mentions_sowieso(self):
         text = CITIZENS_PROMPT_RULES[PromptId.CASES_CALCULATION]
         assert "Sowieso" in text
+
+
+class TestProcessStepAnalysisContract:
+    """Issue #26: Schrittanalyse bleibt Taetigkeitsanalyse.
+
+    Der Prompt darf die spaetere Aufwandsermittlung vorbereiten, aber nicht
+    selbst Minuten, Lohngruppen, Stundenloehne, Sachaufwand oder Kosten
+    anfordern. `vorgaben_ids` bleiben als technische Rueckbindung erhalten.
+    """
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_renders_known_norm_addressee(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+
+        assert f"Dieser Lauf analysiert ausschliesslich den Normadressaten `{norm_addressee}`." in text
+        assert f'"normadressat": "{norm_addressee}"' in text
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_keeps_vorgaben_ids_with_process_scope(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+        compact_text = _compact(text)
+
+        assert "`vorgaben_ids`" in text
+        assert "technische Rueckbindung" in text
+        assert "nur `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses" in compact_text
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_excludes_effort_calculation_instructions(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+
+        forbidden = [
+            "Weisen Sie pro Taetigkeit mindestens eine Lohngruppe",
+            "realistischem Zeitaufwand in Minuten",
+            "IT-bezogenen Sach- oder Personalaufwand separat",
+            "Null-Zeitaufwaende",
+            "Gesamtzeitaufwand",
+            "Zeitaufwand fuer Wegezeiten",
+            "Zeit-, Personal- sowie Sachaufwands ermittelt",
+        ]
+        assert all(phrase not in text for phrase in forbidden)
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_uses_flexible_activity_count(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+
+        assert "wenige, fachlich klare Haupttaetigkeiten" in text
+        assert "drei bis fuenf" not in text
+        assert "vier bis sechs" not in text

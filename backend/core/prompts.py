@@ -50,6 +50,23 @@ LEGIST_PROMPT_OPENING = (
 )
 
 
+PROCESS_STEP_ANALYSIS_OPENING = (
+    """
+    Sie sind Legist im deutschen Bundestag und damit betraut, die wesentlichen
+    Taetigkeiten zu einer geplanten Gesetzesaenderung zu identifizieren.
+
+    In diesem Schritt geht es ausschliesslich um die fachlich relevanten
+    Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines Prozesses im
+    Einzelfall zu erwarten sind. Diese Taetigkeiten koennen neu hinzukommen,
+    sich aendern, wegfallen oder unveraendert bleiben.
+
+    Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
+    zusammengefasst: {law_summary}
+
+    """
+)
+
+
 NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
     ADMINISTRATION: (
         """
@@ -184,13 +201,14 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "Zusatz fuer die Verwaltung bei der Schrittanalyse: "
         "Jede Taetigkeit beschreibt eine Bearbeitungshandlung der Verwaltung "
         "pro einzelnem Vorgang (z.B. Unterlagen sichten, Zweckzuordnung "
-        "pruefen, Bescheid erstellen). Weisen Sie pro Taetigkeit mindestens "
-        "eine Lohngruppe (A=einfacher/mittlerer Dienst, B=gehobener Dienst, "
-        "C=hoeherer Dienst, D=Durchschnitt) mit realistischem Zeitaufwand in "
-        "Minuten aus. Null-Zeitaufwaende sind nur zulaessig, wenn die "
-        "Taetigkeit tatsaechlich entfaellt (aenderungsstatus=abgeschafft) "
-        "oder durch IT-Automatisierung ersetzt ist; in diesem Fall ist dies "
-        "in der Beschreibung zu begruenden."
+        "pruefen, Bescheid erstellen). Geben Sie nur fachlich relevante "
+        "Haupttaetigkeiten aus, die fuer den Vorher-Nachher-Vergleich der "
+        "Fallgruppe benoetigt werden. Uebernehmen Sie keine Handlungen der "
+        "Wirtschaft und keine privaten Handlungen von Buergerinnen und "
+        "Buergern als Verwaltungstaetigkeit. Schaetzen Sie in der "
+        "Schrittanalyse keine Lohngruppen, Stundenloehne, Zeitaufwaende, "
+        "Sachaufwaende oder Kosten; diese Aufwandsermittlung erfolgt erst in "
+        "der spaeteren Aufwandsermittlung (`EFFORT_CALCULATION`)."
     ),
 }
 
@@ -261,17 +279,15 @@ BUSINESS_PROMPT_RULES: Dict[str, str] = {
         "Erfuellung der Vorgabe (z.B. Daten beschaffen, Meldung erstellen, "
         "Betriebspruefung begleiten, interne Prozesse anpassen). Orientieren Sie "
         "sich bei Informationspflichten an Teil A der Checkliste, bei anderen "
-        "Vorgaben zusaetzlich an Teil B. Taetigkeiten, die durch eingesetzte "
-        "Informationstechnologie vollstaendig automatisch ablaufen, loesen keinen "
-        "Zeitaufwand aus; dokumentieren Sie den moeglicherweise entstehenden "
-        "IT-bezogenen Sach- oder Personalaufwand separat an der jeweils "
-        "ausloesenden Taetigkeit. Uebernehmen Sie keine Verwaltungshandlungen "
-        "(z.B. Bescheiderstellung, behoerdliche Pruefung) und keine rein "
-        "privaten Handlungen von Buergerinnen und Buergern als "
-        "Unternehmenstaetigkeit. Null-Zeitaufwaende sind nur zulaessig, wenn die "
-        "Taetigkeit tatsaechlich entfaellt (aenderungsstatus=abgeschafft) oder "
-        "vollstaendig automatisiert ist; in diesem Fall ist dies in der "
-        "Beschreibung zu begruenden."
+        "Vorgaben zusaetzlich an Teil B. IT- oder Automatisierungsbezug darf "
+        "in der Beschreibung genannt werden, wenn er den Handlungskern praegt. "
+        "Uebernehmen Sie keine Verwaltungshandlungen (z.B. Bescheiderstellung, "
+        "behoerdliche Pruefung) und keine rein privaten Handlungen von "
+        "Buergerinnen und Buergern als Unternehmenstaetigkeit. Schaetzen Sie "
+        "in der Schrittanalyse keine Zeitaufwaende, Stundenloehne, "
+        "Sachaufwaende, IT-/Personalaufwaende oder Kosten; diese "
+        "Aufwandsermittlung erfolgt erst in der spaeteren Aufwandsermittlung "
+        "(`EFFORT_CALCULATION`)."
     ),
 }
 
@@ -305,14 +321,15 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
     ),
     PromptId.PROCESS_STEP_ANALYSIS: (
         "Zusatz fuer Buergerinnen und Buerger bei der Schrittanalyse: "
-        "Jede ausgegebene Taetigkeit muss eine Handlung der Buergerinnen und "
-        "Buerger selbst sein. Unzulaessig sind insbesondere verwaltungsinterne "
-        "Pruefungen, Bescheiderstellung, interne Ruecksprachen oder "
-        "Unternehmensablaeufe. Wenn der Gesamtzeitaufwand fuer eine einfache "
-        "Pflichterfuellung belastbar direkt schaetzbar ist, darf die Fallgruppe "
-        "auch nur eine einzige zusammenfassende Taetigkeit enthalten. Geben Sie "
-        "nur die minimale, aber vollstaendige Menge an buergerseitigen "
-        "Hauptschritten aus."
+        "Jede Taetigkeit muss eine Handlung der Buergerinnen und Buerger "
+        "selbst sein. Unzulaessig sind insbesondere verwaltungsinterne "
+        "Pruefungen, Bescheiderstellung, interne Ruecksprachen, "
+        "Unternehmensablaeufe oder fachliche Schritte Dritter. Geben Sie nur "
+        "die minimale, aber vollstaendige Menge buergerseitiger "
+        "Haupttaetigkeiten aus. Schaetzen Sie in der Schrittanalyse keine "
+        "Zeit- oder Sachaufwaende und keine Kosten; diese Aufwandsermittlung "
+        "erfolgt erst in der spaeteren Aufwandsermittlung "
+        "(`EFFORT_CALCULATION`)."
     ),
     PromptId.CASES_CALCULATION: (
         "Zusatz fuer Buergerinnen und Buerger bei der Fallzahlermittlung: "
@@ -807,35 +824,39 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - gesetz_vorschlag: str
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
     PromptId.PROCESS_STEP_ANALYSIS: (
-        LEGIST_PROMPT_OPENING
+        """
+        Dieser Lauf analysiert ausschliesslich den Normadressaten `{norm_addressee}`.
+        """
+        + PROCESS_STEP_ANALYSIS_OPENING
         + """
         Die Gesetzesaenderung fuehrt zu folgenden, positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende 
         Fallgruppen differenziert werden: {case_groups_json}
 
         Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
-        zu identifizieren. Auf dieser Grundlage werden spaeter der anfallende Personal- und ggf. Sachaufwand bestimmt. Die einzelnen Taetigkeiten koennen vor und nach
-        der Gesetzesaenderung unterschiedlich sein, hinzukommen oder wegfallen, einige Taetigkeiten des Prozess koennen beibehalten bleiben. Geben Sie diesen
-        Aenderungsstatus an, orientieren Sie sich dabei wenn noetig an den vorhandenen Statusangaben in den Fallgruppen und Prozessen.
+        zu identifizieren. Die Aufwandsermittlung fuer Personal, Zeit, Sachaufwand und Kosten erfolgt erst in der spaeteren Aufwandsermittlung (`EFFORT_CALCULATION`).
+        Die einzelnen Taetigkeiten koennen vor und nach der Gesetzesaenderung unterschiedlich sein, hinzukommen oder wegfallen, einige Taetigkeiten des
+        Prozesses koennen beibehalten bleiben. Geben Sie diesen Aenderungsstatus an, orientieren Sie sich dabei wenn noetig an den vorhandenen
+        Statusangaben in den Fallgruppen und Prozessen.
 
         Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche
         Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte
         Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu,
         wenn sich tatsaechlich nur einzelne Schritte aendern.
 
-        Ordnen Sie jede Taetigkeit denjenigen Vorgaben des Prozesses zu, die diese Taetigkeit fachlich ausloesen. Geben Sie dazu je Taetigkeit das Feld
-        `vorgaben_ids` als Liste der passenden `vorgaben_id`-Werte an. Wenn im Prozess nur genau eine Vorgabe enthalten ist, soll diese eine `vorgaben_id`
-        auch bei allen zugehoerigen Taetigkeiten angegeben werden.
+        Geben Sie je Taetigkeit `vorgaben_ids` als technische Rueckbindung an die ausloesenden Vorgaben dieses Prozesses an. Verwenden Sie nur
+        `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses. Wenn im Prozess nur genau eine Vorgabe enthalten ist, verwenden Sie diese ID bei allen
+        zugehoerigen Taetigkeiten. Wenn mehrere Vorgaben eine Taetigkeit gemeinsam ausloesen oder nicht trennscharf unterschieden werden koennen,
+        geben Sie mehrere passende IDs an.
 
         {step_analysis_checklist}
         
-        Bei Daueraufgaben oder wenn gesicherte Erfahrungswerte (z. B. aus Organisationsuntersuchungen, Vergleichsringen etc.) vorliegen, kann es zweckmaessig 
-        sein, den Zeitaufwand ohne vorherige Zerlegung in Einzeltaetigkeiten zu ermitteln, entsprechend wird lediglich eine Taetigkeit in dieser Fallgruppe 
-        befuellt.
+        Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen darf eine zusammenfassende Haupttaetigkeit ausgegeben werden, wenn eine weitere
+        Zerlegung fuer die spaetere Aufwandsermittlung keinen fachlichen Mehrwert hat.
         
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
-        "normadressat": "administration | business | citizens",
+        "normadressat": "{norm_addressee}",
         "prozesse": [
             {{
             "prozess_id": "",
@@ -932,7 +953,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         ]
         }}
 
-        Das Feld `normadressat` ist der Normadressat, fuer den diese Prozessschritte analysiert werden. Uebernehmen Sie genau einen der drei zulaessigen Werte (administration, business oder citizens) aus den `normadressaten`-Angaben der eingespielten Prozesse.
+        Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
 
@@ -1220,8 +1241,8 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION = (
     "Als Hilfsmittel fuer die Identifizierung der zu erwartenden Taetigkeiten kann die nachfolgende Checkliste mit moeglichen Taetigkeiten zur Erfuellung \n"
     "        von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Faellen anbieten, die Checkliste um spezielle Taetigkeiten zu erweitern.\n\n"
     "        Orientieren Sie die Bildung der Taetigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
-    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
-    "        pro Fallgruppe etwa drei bis fuenf Taetigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, fachlich klare Haupttaetigkeiten. Weichen Sie\n"
+    "        von einer knappen Darstellung nur ab, wenn der Sachverhalt es fachlich erfordert.\n"
     "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
     "        Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand Feb 2026, Kap. 7.2.1, S. 49):\n"
     "        • Mit der Vorgabe vertraut machen \n"
@@ -1243,9 +1264,8 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION = (
     "        • Anpassen von internen Prozessablaeufen \n"
     "        • Teilnahme an Fortbildungen und Schulungen \n"
     "        • Wege zu anderen Behoerden, Organisationen oder Unternehmen \n\n"
-    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. In der Bestandsmessung der Buerokratiekosten der Wirtschaft hatte sich z. B. \n"
-    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Taetigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
-    "        abgegrenzter und gut begruendbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltaetigkeiten."
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Auch hier gilt: lieber eine kleine Zahl klar abgegrenzter und gut\n"
+    "        begruendbarer Haupttaetigkeiten als eine lange Liste kleinteiliger Einzeltaetigkeiten."
 )
 
 
@@ -1258,8 +1278,8 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
     "Als Hilfsmittel fuer die Identifizierung der zu erwartenden Taetigkeiten koennen die nachfolgenden Checklisten mit moeglichen Taetigkeiten \n"
     "        zur Erfuellung von Vorgaben oder Prozessen herangezogen werden. Es kann sich in einzelnen Faellen anbieten, die Checkliste um spezielle Taetigkeiten zu erweitern.\n\n"
     "        Orientieren Sie die Bildung der Taetigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
-    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
-    "        pro Fallgruppe etwa drei bis fuenf Taetigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, fachlich klare Haupttaetigkeiten. Weichen Sie\n"
+    "        von einer knappen Darstellung nur ab, wenn der Sachverhalt es fachlich erfordert.\n"
     "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
     "        Checkliste Teil A – Taetigkeiten zur Erfuellung von Informationspflichten der Wirtschaft\n"
     "        (Leitfaden Erfuellungsaufwand Feb 2026, Kap. 6.2.1, S. 37):\n"
@@ -1287,9 +1307,8 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
     "        • Anpassen von internen Prozessablaeufen \n"
     "        • Ueberwachungsmassnahmen (z. B. Kontrolle, ob umgesetzte Vorgabe korrekt durchgefuehrt oder Grenzwerte eingehalten wurden) \n"
     "        • Lagerhaltung, Warenwirtschaft, Produktion \n\n"
-    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. In der Bestandsmessung der Buerokratiekosten der Wirtschaft hatte sich z. B. \n"
-    "        gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Taetigkeiten anfallen. Auch hier gilt: lieber eine kleine Zahl klar\n"
-    "        abgegrenzter und gut begruendbarer Hauptschritte als eine lange Liste kleinteiliger Einzeltaetigkeiten."
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Auch hier gilt: lieber eine kleine Zahl klar abgegrenzter und gut\n"
+    "        begruendbarer Haupttaetigkeiten als eine lange Liste kleinteiliger Einzeltaetigkeiten."
 )
 
 
@@ -1303,8 +1322,8 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS = (
     "        von Buergerinnen und Buergern zur Erfuellung einer Vorgabe oder eines Prozesses herangezogen werden. Es kann sich in einzelnen\n"
     "        Faellen anbieten, die Checkliste um spezielle Taetigkeiten zu erweitern.\n\n"
     "        Orientieren Sie die Bildung der Taetigkeiten eng an dieser Checkliste, damit die Prozessschritte zwischen verschiedenen Regelungsvorhaben nachvollziehbar\n"
-    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, in sich sinnvolle Hauptschritte. Im Regelfall sollten\n"
-    "        pro Fallgruppe etwa drei bis fuenf Taetigkeiten ausreichen; nur wenn der Sachverhalt es fachlich wirklich erfordert, sollten es ausnahmsweise sechs sein.\n"
+    "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, fachlich klare Haupttaetigkeiten. Weichen Sie\n"
+    "        von einer knappen Darstellung nur ab, wenn der Sachverhalt es fachlich erfordert.\n"
     "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
     "        Checkliste (Buergerinnen und Buerger, Leitfaden Erfuellungsaufwand Feb 2026, Kap. 5.2.1, S. 27):\n"
     "        • Mit der Vorgabe vertraut machen \n"
@@ -1320,9 +1339,9 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS = (
     "        • Material beschaffen \n"
     "        • Bestimmte Leistung selbst erbringen oder Dritte beauftragen \n"
     "        • Umsetzung von Vorgaben ueberpruefen \n"
-    "        • Zeitaufwand fuer Wegezeiten (z. B. zu einer Behoerde) \n\n"
+    "        • Wege zu zustaendigen Stellen (z. B. zu einer Behoerde) \n\n"
     "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Waehlen Sie nur die fuer den Vorher-Nachher-Vergleich \n"
-    "        wirklich erforderlichen Hauptschritte: lieber eine kleine Zahl klar abgegrenzter und gut begruendbarer Hauptschritte als eine\n"
+    "        wirklich erforderlichen Haupttaetigkeiten: lieber eine kleine Zahl klar abgegrenzter und gut begruendbarer Haupttaetigkeiten als eine\n"
     "        lange Liste kleinteiliger Einzeltaetigkeiten."
 )
 
