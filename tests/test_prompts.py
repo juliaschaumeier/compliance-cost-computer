@@ -1,3 +1,5 @@
+import re
+
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.prompts import PromptId, render_prompt
 import pytest
@@ -150,10 +152,29 @@ def test_process_step_analysis_prompt_sets_known_norm_addressee_early():
     assert '"normadressat": "administration | business | citizens"' not in prompt
 
 
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_prefills_each_known_norm_addressee(norm_addressee):
+    prompt = _render_step_analysis_prompt(norm_addressee)
+    first_lines = "\n".join(prompt.splitlines()[:15])
+
+    assert f"Dieser Lauf analysiert ausschliesslich den Normadressaten `{norm_addressee}`." in first_lines
+    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert '"normadressat": "administration | business | citizens"' not in prompt
+
+
 def test_process_step_analysis_prompt_uses_step_specific_opening():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
     assert "In diesem Schritt geht es ausschliesslich um die fachlich relevanten" in prompt
+    assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_does_not_use_general_effort_opening(norm_addressee):
+    prompt = _render_step_analysis_prompt(norm_addressee)
+
+    assert "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen" not in prompt
+    assert "Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen des" not in prompt
     assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in prompt
 
 
@@ -165,6 +186,109 @@ def test_process_step_analysis_prompt_keeps_vorgaben_ids_as_technical_link():
     assert "technische Rueckbindung" in prompt
     assert "nur `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses" in compact_prompt
     assert "Wenn im Prozess nur genau eine Vorgabe enthalten ist" in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_vorgaben_ids_contract_is_list_scoped_to_process(
+    norm_addressee,
+):
+    prompt = _render_step_analysis_prompt(norm_addressee)
+    compact_prompt = _compact(prompt)
+
+    assert '"vorgaben_ids": [""]' in prompt
+    assert '"vorgaben_id": [""]' not in prompt
+    assert "Wenn im Prozess nur genau eine Vorgabe enthalten ist" in prompt
+    assert "geben Sie mehrere passende IDs an" in compact_prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_excludes_effort_schema_fields(norm_addressee):
+    prompt = _render_step_analysis_prompt(norm_addressee)
+
+    forbidden_schema_fields = [
+        '"rollen_gueltig"',
+        '"rollen_vorschlag"',
+        '"lohngruppe"',
+        '"stundenlohn"',
+        '"zeitaufwand_in_min"',
+        '"zeitaufwand_in_min_gueltig"',
+        '"zeitaufwand_in_min_vorschlag"',
+        '"sachaufwand_gueltig"',
+        '"sachaufwand_vorschlag"',
+        '"ausfuehrung_pro_einzelfall"',
+    ]
+    assert all(field not in prompt for field in forbidden_schema_fields)
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_does_not_set_numeric_activity_limits(norm_addressee):
+    prompt = _compact(_render_step_analysis_prompt(norm_addressee)).lower()
+
+    forbidden_patterns = [
+        r"\b3\s*(?:bis|-)\s*5\b",
+        r"\b4\s*(?:bis|-)\s*6\b",
+        r"\bdrei\s+bis\s+fuenf\b",
+        r"\bvier\s+bis\s+sechs\b",
+        r"\bmaximal\s+\w+\s+taetigkeiten\b",
+        r"\bhoechstens\s+\w+\s+taetigkeiten\b",
+        r"\bmindestens\s+\w+\s+taetigkeiten\b",
+    ]
+    assert not any(re.search(pattern, prompt) for pattern in forbidden_patterns)
+
+
+@pytest.mark.parametrize(
+    ("norm_addressee", "expected", "forbidden"),
+    [
+        (
+            ADMINISTRATION,
+            [
+                "Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand",
+                "Bescheid erstellen",
+                "Zahlungen anweisen",
+            ],
+            [
+                "Checkliste Teil A",
+                "Checkliste (Buergerinnen und Buerger",
+            ],
+        ),
+        (
+            BUSINESS,
+            [
+                "Checkliste Teil A",
+                "Checkliste Teil B",
+                "Taetigkeiten zur Erfuellung von Informationspflichten der Wirtschaft",
+            ],
+            [
+                "Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand",
+                "Checkliste (Buergerinnen und Buerger",
+            ],
+        ),
+        (
+            CITIZENS,
+            [
+                "Checkliste (Buergerinnen und Buerger, Leitfaden Erfuellungsaufwand",
+                "Formulare ausfuellen",
+                "Wege zu zustaendigen Stellen",
+            ],
+            [
+                "Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand",
+                "Checkliste Teil A",
+                "Checkliste Teil B",
+            ],
+        ),
+    ],
+)
+def test_process_step_analysis_prompt_uses_only_addressee_specific_checklist(
+    norm_addressee,
+    expected,
+    forbidden,
+):
+    prompt = _render_step_analysis_prompt(norm_addressee)
+
+    for phrase in expected:
+        assert phrase in prompt
+    for phrase in forbidden:
+        assert phrase not in prompt
 
 
 def test_administration_step_analysis_prompt_does_not_request_effort_values():

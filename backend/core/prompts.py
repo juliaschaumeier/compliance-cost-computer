@@ -30,7 +30,6 @@ PROMPTS_REQUIRING_NORM_ADDRESSEE = {
     PromptId.EFFORT_CALCULATION,
 }
 
-
 LEGIST_PROMPT_OPENING = (
     """
     Sie sind Legist im deutschen Bundestag und damit betraut, die 
@@ -550,8 +549,20 @@ Das Feld `normadressat` ist immer `citizens` fuer dieses Schema.
 }
 
 
+# Die eigentlichen vollstaendigen Prompt-Templates stehen hier in der
+# fachlichen Abruf-Reihenfolge der Pipeline:
+# 1. LAW_SUMMARY
+# 2. REGULATIONS_IDENTIFICATION
+# 3. PROCESS_COMPILATION
+# 4. CASE_GROUP_DEVELOPMENT
+# 5. PROCESS_STEP_ANALYSIS
+# 6. CASES_CALCULATION
+# 7. EFFORT_CALCULATION
+#
+# Technisch wird per PromptId-Key zugegriffen; diese Reihenfolge ist fuer
+# Menschen, damit man die Prompt-Pipeline direkt von oben nach unten lesen kann.
 PROMPT_TEMPLATES: Dict[str, str] = {
-    # Input contract:
+    # Render contract:
     # - gesetz_gueltig: str
     # - gesetz_vorschlag: str
     PromptId.LAW_SUMMARY: (
@@ -573,9 +584,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Gesetzesvorschlag: {gesetz_vorschlag}
         """
     ),
-    # Input contract:
+    # Render contract:
     # - gesetz_gueltig: str
     # - gesetz_vorschlag: str
+    # - law_summary: str, optional if session_id/app_session_id is provided
     PromptId.REGULATIONS_IDENTIFICATION: (
         LEGIST_PROMPT_OPENING
         + """ 
@@ -664,10 +676,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
-    # Input contract:
-    # - gesetz_gueltig: str
-    # - gesetz_vorschlag: str
+    # Render contract:
     # - vorgaben_json: JSON string of list[VorgabePayload]
+    # - norm_addressee: "administration" | "business" | "citizens"
+    # - law_summary: str, optional if session_id/app_session_id is provided
+    # Auto-filled by render_prompt:
+    # - handbook_process_example
     PromptId.PROCESS_COMPILATION: (
         LEGIST_PROMPT_OPENING
         + """
@@ -731,10 +745,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
-    # Input contract:
-    # - gesetz_gueltig: str
-    # - gesetz_vorschlag: str
+    # Render contract:
     # - prozesse_json: JSON string of list[ProzessWithVorgabenPayload]
+    # - norm_addressee: "administration" | "business" | "citizens"
+    # - law_summary: str, optional if session_id/app_session_id is provided
+    # Auto-filled by render_prompt:
+    # - handbook_case_group_example
     PromptId.CASE_GROUP_DEVELOPMENT: (
         LEGIST_PROMPT_OPENING
         + """
@@ -818,11 +834,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
-    # TODO: ausfuehrung_pro_einzelfall bereits hier abfragen und nicht erst in effort_calculation??
-    # Input contract:
-    # - gesetz_gueltig: str
-    # - gesetz_vorschlag: str
+    # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
+    # - norm_addressee: "administration" | "business" | "citizens"
+    # - law_summary: str, optional if session_id/app_session_id is provided
+    # Auto-filled by render_prompt:
+    # - step_analysis_checklist
     PromptId.PROCESS_STEP_ANALYSIS: (
         """
         Dieser Lauf analysiert ausschliesslich den Normadressaten `{norm_addressee}`.
@@ -959,10 +976,13 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         """
     ),
-    # Input contract:
-    # - gesetz_gueltig: str
-    # - gesetz_vorschlag: str
+    # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
+    # - norm_addressee: "administration" | "business" | "citizens"
+    # - law_summary: str, optional if session_id/app_session_id is provided
+    # Auto-filled by render_prompt:
+    # - handbook_cases_frequency_example
+    # - handbook_cases_case_example
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
@@ -1087,10 +1107,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     ),
     # TODO: How to add this? Die Bereitstellung und Wartung von Informationstechnologie aufgrund der Aenderung von 
     #                        Vorgaben kann jedoch zusaetzlichen Sach- und Personalaufwand erzeugen.
-    # Input contract:
-    # - gesetz_gueltig: str
-    # - gesetz_vorschlag: str
+    # Render contract:
     # - step_analysis_json: JSON string of list[ProzessStepAnalysisPayload]
+    # - norm_addressee: "administration" | "business" | "citizens"
+    # - law_summary: str, optional if session_id/app_session_id is provided
+    # Auto-filled by render_prompt:
+    # - effort_method_guidance
+    # - effort_appendix
+    # - effort_json_schema
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
