@@ -1,9 +1,10 @@
 @AGENTS.md
-@AGENT_ONE_PAGER.md
+@AGENT_USER_GUIDE.md
 
 # Claude Code
 
 - Use the imported repo guidance above as the default workflow and engineering contract.
+- In this repo, `.codex/agents/*.toml` are role specifications for Codex behavior; the active Claude-native subagents are defined under `.claude/agents/`.
 - For new features or exploratory implementation, use the `feature-developer` subagent.
 - `feature-developer` must inspect the code, ask clarifying questions when needed, write/update `workplans/feature-<slug>.md`, propose a plan, and wait for explicit approval before editing code.
 - For formal branch or working-tree review, use the `reviewer` subagent.

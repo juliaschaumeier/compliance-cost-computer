@@ -1,13 +1,22 @@
 # Codex Agents (Project Local)
 
-This project defines custom agents in `.codex/agents/` and shared skills in `.agents/skills/`.
+This project defines Codex role specifications in `.codex/agents/` and shared skills in `.agents/skills/`.
 
 ## Portability Model
 
-- `.codex/` is Codex-native configuration and agent wiring.
+- `.codex/` contains Codex-oriented role specifications and configuration.
+- Today, these role specs may be used either by future/native CLI agent support or by explicitly asking Codex to mimic the selected role in the current session.
 - `.agents/skills/` contains portable workflow guidance in Markdown where practical.
-- `AGENTS.md` and `AGENT_ONE_PAGER.md` are the cross-tool, human-readable entry points for repo rules and agent usage.
+- `AGENTS.md` and `AGENT_USER_GUIDE.md` are the cross-tool, human-readable entry points for repo rules and agent usage.
 - Repo-specific engineering expectations should live in `CODING_ASSISTANT.md` first, then be summarized here as needed.
+
+## Current Runtime Model
+
+- `AGENTS.md` and `.agents/skills/*` are the repo-local guidance layers that should be assumed to work today.
+- `.codex/agents/*.toml` should be treated as role definitions and controlling instruction sets.
+- When a user refers to a role by name, Codex should decide whether to use native role/subagent support or to follow the corresponding `.codex/agents/<role>.toml` role spec in the current session, depending on runtime capabilities.
+- Referring to a role by name should imply its full behavior contract. For example, asking for `feature_developer` should trigger code inspection, clarifying questions, workplan creation/update, and an approval checkpoint before edits without the user needing to restate those steps.
+- `.claude/agents/*` are Claude Code-native subagent definitions.
 
 ## Canonical Project Rules
 
@@ -97,6 +106,7 @@ Notes:
 - Reviewers and docs agents do not edit code.
 - Reviewer may write review artifacts under `review/` only.
 - Reviewer is the only review-artifact authority; do not use `bug-triage` for branch reviews or artifact generation.
+- If a Codex role in `.codex/agents/*.toml` is not natively available in the current CLI/runtime, use it as the controlling behavior spec automatically when that role is requested.
 - Feature work that needs clarification or planning should use `feature_developer`, not `fixer`.
 - `feature_developer` must ask clarifying questions when needed, write/update a workplan, and wait for explicit approval before editing code.
 - Fixer should use reviewer Fixer Input Pack as primary scope and report explicit done/partial/blocked per item.
