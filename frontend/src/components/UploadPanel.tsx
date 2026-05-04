@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
-import { ApiClientError, apiClient, buildLlmRequestOptions } from "@/lib/api";
-import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
+import { apiClient } from "@/lib/api";
+import { logClientError } from "@/lib/errorFeedback";
+import {
+  formatSessionStartError,
+  logSessionStartError,
+  prepareSessionDocumentsAndStartSummary,
+} from "@/lib/sessionStart";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
 
 type UploadTarget = "current" | "proposed";
@@ -16,14 +21,14 @@ export default function UploadPanel() {
     setCurrentTab,
     setSelectedCurrentLaw,
     setSelectedRegulation,
+    setPendingCurrentUpload,
+    setPendingProposedUpload,
+    setPendingCurrentUploadName,
+    setPendingProposedUploadName,
     setProcessesReady,
     setRegulationsReady,
     setSummaryReady,
   } = useApp();
-  const [uploadFiles, setUploadFiles] = useState<{
-    current: File | null;
-    proposed: File | null;
-  }>({ current: null, proposed: null });
   const [status, setStatus] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState({
     current: false,
@@ -36,41 +41,72 @@ export default function UploadPanel() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const isRunAllBusy = useRunAllStepBusy("summary");
   const isBusy = isSummarizing || isRunAllBusy;
-  const [conflicts, setConflicts] = useState<{
-    current: string | null;
-    proposed: string | null;
-  }>({ current: null, proposed: null });
-  const [renameValues, setRenameValues] = useState({
-    current: "",
-    proposed: "",
-  });
+
+  const pendingUploads = useMemo(
+    () => ({
+      current: {
+        file: state.pendingCurrentUpload,
+        desiredName: state.pendingCurrentUploadName,
+      },
+      proposed: {
+        file: state.pendingProposedUpload,
+        desiredName: state.pendingProposedUploadName,
+      },
+    }),
+    [
+      state.pendingCurrentUpload,
+      state.pendingCurrentUploadName,
+      state.pendingProposedUpload,
+      state.pendingProposedUploadName,
+    ]
+  );
+
+  const conflicts = useMemo(
+    () => ({
+      current:
+        pendingUploads.current.file &&
+        pendingUploads.current.desiredName &&
+        state.availableRegulations.includes(pendingUploads.current.desiredName)
+          ? pendingUploads.current.desiredName
+          : null,
+      proposed:
+        pendingUploads.proposed.file &&
+        pendingUploads.proposed.desiredName &&
+        state.availableRegulations.includes(pendingUploads.proposed.desiredName)
+          ? pendingUploads.proposed.desiredName
+          : null,
+    }),
+    [pendingUploads, state.availableRegulations]
+  );
 
   const clearSelection = (target: UploadTarget) => {
-    setUploadFiles((prev) => ({ ...prev, [target]: null }));
-    setConflicts((prev) => ({ ...prev, [target]: null }));
-    setRenameValues((prev) => ({ ...prev, [target]: "" }));
+    if (target === "current") {
+      setPendingCurrentUpload(null);
+      setPendingCurrentUploadName("");
+      setSelectedCurrentLaw("");
+    } else {
+      setPendingProposedUpload(null);
+      setPendingProposedUploadName("");
+      setSelectedRegulation("");
+    }
     setStatus(null);
     setSummaryReady(false);
     setRegulationsReady(false);
     setProcessesReady(false);
     setShowLists((prev) => ({ ...prev, [target]: false }));
-    if (target === "current") {
-      setSelectedCurrentLaw("");
-    } else {
-      setSelectedRegulation("");
-    }
   };
 
   const selectFromList = (target: UploadTarget, file: string) => {
     if (target === "current") {
       setSelectedCurrentLaw(file);
+      setPendingCurrentUpload(null);
+      setPendingCurrentUploadName("");
     } else {
       setSelectedRegulation(file);
+      setPendingProposedUpload(null);
+      setPendingProposedUploadName("");
     }
-    setUploadFiles((prev) => ({ ...prev, [target]: null }));
-    setRenameValues((prev) => ({ ...prev, [target]: "" }));
     setStatus(null);
-    setConflicts((prev) => ({ ...prev, [target]: null }));
     setSummaryReady(false);
     setRegulationsReady(false);
     setProcessesReady(false);
@@ -91,106 +127,25 @@ export default function UploadPanel() {
     loadRegulations();
   }, [loadRegulations]);
 
-  const summarizeRegulation = async (filename: string, currentLaw: string) => {
-    setSummaryReady(false);
-    setIsSummarizing(true);
-    const llm = buildLlmRequestOptions({
-      selectedModel: state.selectedModel,
-      availableModels: state.availableModels,
-    });
-    try {
-      await apiClient.summarizeRegulation(filename, {
-        currentFilename: currentLaw,
-        appSessionId: state.appSessionId,
-        model: llm.model,
-        provider: llm.provider,
-        keys: llm.keys,
-      });
-      window.dispatchEvent(new Event("tiles-updated"));
-      setSummaryReady(true);
-      setCurrentTab(1);
-    } catch (error) {
-      logClientError("UploadPanel.summarizeRegulation", error, {
-        appSessionId: state.appSessionId,
-        filename,
-        currentLaw,
-      });
-      setStatus(formatActionErrorMessage("Zusammenfassung fehlgeschlagen", error));
-      setSummaryReady(false);
-    } finally {
-      setIsSummarizing(false);
-    }
-  };
-
   const handleFileSelection = (target: UploadTarget, file: File | null) => {
-    setUploadFiles((prev) => ({ ...prev, [target]: file }));
     setStatus(null);
-    setConflicts((prev) => ({ ...prev, [target]: null }));
     setSummaryReady(false);
     setShowLists((prev) => ({ ...prev, [target]: false }));
-    if (!file) {
-      return;
-    }
-    setRenameValues((prev) => ({ ...prev, [target]: file.name }));
     if (target === "current") {
+      setPendingCurrentUpload(file);
+      if (file) {
+        setPendingCurrentUploadName(file.name);
+      }
       setSelectedCurrentLaw("");
     } else {
+      setPendingProposedUpload(file);
+      if (file) {
+        setPendingProposedUploadName(file.name);
+      }
       setSelectedRegulation("");
     }
-    if (state.availableRegulations.includes(file.name)) {
-      setConflicts((prev) => ({ ...prev, [target]: file.name }));
+    if (file && state.availableRegulations.includes(file.name)) {
       setStatus(`Datei existiert bereits: ${file.name}`);
-    }
-  };
-
-  const handleUpload = async (
-    target: UploadTarget,
-    nameOverride?: string
-  ): Promise<string | null> => {
-    const uploadFile = uploadFiles[target];
-    if (!uploadFile) {
-      setStatus("Bitte eine Datei auswählen.");
-      return null;
-    }
-    try {
-      const response = await apiClient.uploadRegulation(uploadFile, nameOverride);
-      setStatus(null);
-      setUploadFiles((prev) => ({ ...prev, [target]: null }));
-      setConflicts((prev) => ({ ...prev, [target]: null }));
-      setRenameValues((prev) => ({ ...prev, [target]: "" }));
-      await loadRegulations();
-      if (target === "current") {
-        setSelectedCurrentLaw(response.filename);
-      } else {
-        setSelectedRegulation(response.filename);
-      }
-      setSummaryReady(false);
-      return response.filename;
-    } catch (error) {
-      logClientError("UploadPanel.handleUpload", error, {
-        target,
-        fileName: uploadFile.name,
-        nameOverride,
-      });
-      const err = error as ApiClientError;
-      const details =
-        err.details && typeof err.details === "object"
-          ? (err.details as { error?: unknown; filename?: unknown })
-          : null;
-      if (
-        err.status === 409 &&
-        details?.error === "exists" &&
-        typeof details.filename === "string"
-      ) {
-        setConflicts((prev) => ({
-          ...prev,
-          [target]: details.filename,
-        }));
-        setStatus(`Datei existiert bereits: ${details.filename}`);
-        return null;
-      }
-      setStatus("Upload fehlgeschlagen.");
-      return null;
     }
   };
 
@@ -198,24 +153,17 @@ export default function UploadPanel() {
     handleFileSelection(target, file);
   };
 
-  const hasCurrent = Boolean(
-    uploadFiles.current || state.selectedCurrentLaw
-  );
   const hasProposed = Boolean(
-    uploadFiles.proposed || state.selectedRegulation
+    pendingUploads.proposed.file || state.selectedRegulation
   );
   const hasConflicts = Boolean(conflicts.current || conflicts.proposed);
   const canStart =
-    hasCurrent &&
-    hasProposed &&
-    !isBusy &&
-    !hasConflicts &&
-    Boolean(state.selectedModel);
+    hasProposed && !isBusy && !hasConflicts && Boolean(state.selectedModel);
 
   const getSelectedName = (target: UploadTarget) => {
-    const uploadName = uploadFiles[target]?.name;
-    if (uploadName) {
-      return uploadName;
+    const upload = target === "current" ? pendingUploads.current : pendingUploads.proposed;
+    if (upload.file) {
+      return upload.desiredName || upload.file.name;
     }
     return target === "current"
       ? state.selectedCurrentLaw
@@ -233,21 +181,37 @@ export default function UploadPanel() {
     setStatus(null);
     setSummaryReady(false);
     setIsSummarizing(true);
-    const currentName = uploadFiles.current
-      ? await handleUpload("current")
-      : state.selectedCurrentLaw;
-    if (!currentName) {
+    try {
+      await prepareSessionDocumentsAndStartSummary({
+        appSessionId: state.appSessionId,
+        selectedModel: state.selectedModel,
+        availableModels: state.availableModels,
+        availableRegulations: state.availableRegulations,
+        selectedCurrentLaw: state.selectedCurrentLaw,
+        selectedRegulation: state.selectedRegulation,
+        pendingCurrent: pendingUploads.current,
+        pendingProposed: pendingUploads.proposed,
+        setSelectedCurrentLaw,
+        setSelectedRegulation,
+        setPendingCurrentUpload,
+        setPendingProposedUpload,
+        setPendingCurrentUploadName,
+        setPendingProposedUploadName,
+        setAvailableRegulations,
+        setSummaryReady,
+        setRegulationsReady,
+        setProcessesReady,
+        setCurrentTab,
+      });
+    } catch (error) {
+      logSessionStartError("UploadPanel.handleStart", error, {
+        appSessionId: state.appSessionId,
+      });
+      setStatus(formatSessionStartError(error));
+      setSummaryReady(false);
+    } finally {
       setIsSummarizing(false);
-      return;
     }
-    const proposedName = uploadFiles.proposed
-      ? await handleUpload("proposed")
-      : state.selectedRegulation;
-    if (!proposedName) {
-      setIsSummarizing(false);
-      return;
-    }
-    await summarizeRegulation(proposedName, currentName);
   };
 
   return (
@@ -310,7 +274,7 @@ export default function UploadPanel() {
                   <>
                     <span>Datei hierher ziehen oder klicken</span>
                     <span className="text-xs font-normal text-slate-500">
-                      um aus hochgeladenen Dateien auszuwählen
+                      optional: aus hochgeladenen Dateien auswählen
                     </span>
                   </>
                 )}
@@ -335,7 +299,7 @@ export default function UploadPanel() {
                 </div>
               )}
             </div>
-            {conflicts.current && uploadFiles.current && (
+            {conflicts.current && pendingUploads.current.file && (
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
                 <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
                   Datei existiert bereits
@@ -347,22 +311,13 @@ export default function UploadPanel() {
                   Vorhandene Datei verwenden
                 </button>
                 <input
-                  value={renameValues.current}
+                  value={state.pendingCurrentUploadName}
                   onChange={(event) =>
-                    setRenameValues((prev) => ({
-                      ...prev,
-                      current: event.target.value,
-                    }))
+                    setPendingCurrentUploadName(event.target.value)
                   }
                   className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
                   placeholder="Neuer Dateiname"
                 />
-                <button
-                  onClick={() => handleUpload("current", renameValues.current)}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
-                >
-                  Umbenannt hochladen
-                </button>
               </div>
             )}
           </div>
@@ -444,7 +399,7 @@ export default function UploadPanel() {
                 </div>
               )}
             </div>
-            {conflicts.proposed && uploadFiles.proposed && (
+            {conflicts.proposed && pendingUploads.proposed.file && (
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
                 <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
                   Datei existiert bereits
@@ -456,22 +411,13 @@ export default function UploadPanel() {
                   Vorhandene Datei verwenden
                 </button>
                 <input
-                  value={renameValues.proposed}
+                  value={state.pendingProposedUploadName}
                   onChange={(event) =>
-                    setRenameValues((prev) => ({
-                      ...prev,
-                      proposed: event.target.value,
-                    }))
+                    setPendingProposedUploadName(event.target.value)
                   }
                   className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
                   placeholder="Neuer Dateiname"
                 />
-                <button
-                  onClick={() => handleUpload("proposed", renameValues.proposed)}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
-                >
-                  Umbenannt hochladen
-                </button>
               </div>
             )}
           </div>

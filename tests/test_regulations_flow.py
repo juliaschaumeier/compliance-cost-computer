@@ -98,6 +98,71 @@ def test_identify_regulations_flow(test_client, monkeypatch):
     assert repeat_payload["status"] == "existing"
 
 
+def test_identify_regulations_flow_without_current_law_uses_new_law_mode(
+    test_client, monkeypatch
+):
+    db.insert_law("new-law-proposed.txt", "neuer entwurf ohne gegenstueck")
+
+    prompts: list[str] = []
+    responses = iter(
+        [
+            '{"title": "Neue Regelung", "blurb": "Ein Satz."}',
+            """
+            {
+              "vorgaben": [
+                {"normzitat": "§ 1", "beschreibung": "Vorgabe A", "change_status": "new"}
+              ]
+            }
+            """,
+        ]
+    )
+
+    async def fake_query_llm(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        return next(responses)
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    summary_resp = test_client.post(
+        "/regulations/summary",
+        json={
+            "filename": "new-law-proposed.txt",
+            "app_session_id": "NEW-LAW-FLOW",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert summary_resp.status_code == 200
+
+    identify_resp = test_client.post(
+        "/regulations/identify",
+        json={
+            "app_session_id": "NEW-LAW-FLOW",
+            "model": "test-model",
+            "provider": "deepinfra",
+        },
+    )
+    assert identify_resp.status_code == 200
+    payload = identify_resp.json()
+    assert [row["aenderungsstatus"] for row in payload["vorgaben"]] == ["eingefuehrt"]
+
+    session = db.get_session_by_app_id("NEW-LAW-FLOW")
+    assert session is not None
+    assert session["current_law_id"] is None
+    assert session["proposed_law_id"] is not None
+
+    assert len(prompts) == 2
+    assert "Arbeitsmodus: Neuregelung." in prompts[0]
+    assert "Arbeitsmodus: Neuregelung." in prompts[1]
+    assert "Geltendes Gesetz: neuer entwurf ohne gegenstueck" not in prompts[0]
+    assert (
+        "Folgendes ist das konsolidierte, geltende Gesetz: neuer entwurf ohne gegenstueck"
+        not in prompts[1]
+    )
+    assert "kein aktuell geltendes Gegenstueck" in prompts[0]
+    assert "kein aktuell geltendes Gegenstueck" in prompts[1]
+
+
 def test_identify_regulations_normalizes_change_status_variants(test_client, monkeypatch):
     db.insert_law("status-current.txt", "aktuelles gesetz")
     db.insert_law("status-proposed.txt", "neuer entwurf")
@@ -160,7 +225,7 @@ def test_identify_regulations_normalizes_change_status_variants(test_client, mon
     ]
 
 
-def test_identify_requires_session_law_selection(test_client, monkeypatch):
+def test_identify_requires_proposed_law_selection(test_client, monkeypatch):
     db.upsert_session("NO-LAW-IDS", "test-model")
 
     async def fail_query_llm(*_args, **_kwargs):
@@ -177,7 +242,10 @@ def test_identify_requires_session_law_selection(test_client, monkeypatch):
         },
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Law files not selected for session. Run summary first."
+    assert resp.json()["detail"] == (
+        "Proposed law not selected for session. "
+        "Select a proposed law and run summary first."
+    )
 
 
 def test_identify_regulations_rejects_invalid_json_payload(test_client, monkeypatch):

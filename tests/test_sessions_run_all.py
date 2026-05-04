@@ -600,6 +600,34 @@ def test_run_all_executes_workflow_end_to_end(test_client, monkeypatch):
     assert payload["final_status"]["last_completed_step"] == "total_cost"
 
 
+def test_run_all_executes_workflow_end_to_end_for_new_law_session(
+    test_client, monkeypatch
+):
+    app_session_id = "RUNALL-NEW-LAW"
+    db.insert_law("proposed_new_law.txt", "neuer entwurf")
+    _patch_run_all_llms(monkeypatch, app_session_id)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "proposed_filename": "proposed_new_law.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["final_status"]["total_cost_ready"] is True
+
+    session = db.get_session_by_app_id(app_session_id)
+    assert session is not None
+    assert session["current_law_id"] is None
+    assert session["proposed_law_id"] is not None
+
+
 def test_run_all_executes_all_addressees_end_to_end(test_client, monkeypatch):
     app_session_id = "RUNALL-ALL-ADDRESSEES"
     db.insert_law("current_all_addr.txt", "aktuelles gesetz")

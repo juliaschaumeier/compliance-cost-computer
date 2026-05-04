@@ -63,6 +63,10 @@ interface AppState {
   selectedCurrentLaw: string;
   selectedRegulation: string;
   availableRegulations: string[];
+  pendingCurrentUpload: File | null;
+  pendingProposedUpload: File | null;
+  pendingCurrentUploadName: string;
+  pendingProposedUploadName: string;
   summaryReady: boolean;
   regulationsReady: boolean;
   processesReady: boolean;
@@ -84,6 +88,10 @@ interface AppContextValue {
   setSelectedCurrentLaw: (law: string) => void;
   setSelectedRegulation: (regulation: string) => void;
   setAvailableRegulations: (regulations: string[]) => void;
+  setPendingCurrentUpload: (file: File | null) => void;
+  setPendingProposedUpload: (file: File | null) => void;
+  setPendingCurrentUploadName: (name: string) => void;
+  setPendingProposedUploadName: (name: string) => void;
   setSummaryReady: (ready: boolean) => void;
   setRegulationsReady: (ready: boolean) => void;
   setProcessesReady: (ready: boolean) => void;
@@ -148,6 +156,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [selectedCurrentLaw, setSelectedCurrentLaw] = useState("");
   const [selectedRegulation, setSelectedRegulation] = useState("");
   const [availableRegulations, setAvailableRegulations] = useState<string[]>([]);
+  const [pendingCurrentUpload, setPendingCurrentUpload] = useState<File | null>(null);
+  const [pendingProposedUpload, setPendingProposedUpload] = useState<File | null>(null);
+  const [pendingCurrentUploadName, setPendingCurrentUploadName] = useState("");
+  const [pendingProposedUploadName, setPendingProposedUploadName] = useState("");
   const [summaryReady, setSummaryReady] = useState(false);
   const [regulationsReady, setRegulationsReady] = useState(false);
   const [processesReady, setProcessesReady] = useState(false);
@@ -547,6 +559,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           selectedCurrentLaw,
           selectedRegulation,
           availableRegulations,
+          pendingCurrentUpload,
+          pendingProposedUpload,
+          pendingCurrentUploadName,
+          pendingProposedUploadName,
           summaryReady,
           regulationsReady,
           processesReady,
@@ -565,6 +581,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setSelectedCurrentLaw,
         setSelectedRegulation,
         setAvailableRegulations,
+        setPendingCurrentUpload: (file: File | null) => {
+          setPendingCurrentUpload(file);
+          if (!file) {
+            setPendingCurrentUploadName("");
+          } else {
+            setPendingCurrentUploadName(file.name);
+          }
+        },
+        setPendingProposedUpload: (file: File | null) => {
+          setPendingProposedUpload(file);
+          if (!file) {
+            setPendingProposedUploadName("");
+          } else {
+            setPendingProposedUploadName(file.name);
+          }
+        },
+        setPendingCurrentUploadName,
+        setPendingProposedUploadName,
         setSummaryReady: (ready: boolean) => {
           setSummaryReady(ready);
           if (!ready) {
