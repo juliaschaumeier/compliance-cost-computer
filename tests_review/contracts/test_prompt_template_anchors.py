@@ -16,6 +16,8 @@ import pytest
 from backend.core.prompts import (
     CITIZENS_PROMPT_RULES,
     EFFORT_METHOD_GUIDANCE,
+    PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS,
+    PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES,
     PROMPT_TEMPLATES,
     PromptId,
     render_prompt,
@@ -129,7 +131,6 @@ class TestCitizensPromptRulesExist:
         [
             PromptId.PROCESS_COMPILATION,
             PromptId.CASE_GROUP_DEVELOPMENT,
-            PromptId.PROCESS_STEP_ANALYSIS,
             PromptId.CASES_CALCULATION,
         ],
     )
@@ -137,6 +138,12 @@ class TestCitizensPromptRulesExist:
         assert prompt_id in CITIZENS_PROMPT_RULES
         assert CITIZENS_PROMPT_RULES[prompt_id].strip()
         assert "Buerger" in CITIZENS_PROMPT_RULES[prompt_id]
+
+    def test_citizens_step_analysis_rule_exists_in_integrated_rules(self):
+        text = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[CITIZENS]
+
+        assert text.strip()
+        assert "Buerger" in text
 
 
 class TestCasesCalculationSowiesoMention:
@@ -169,8 +176,37 @@ class TestProcessStepAnalysisContract:
             norm_addressee=norm_addressee,
         )
 
-        assert f"Dieser Lauf analysiert ausschliesslich den Normadressaten `{norm_addressee}`." in text
+        assert f"Dieser Lauf betrifft nur den Normadressaten `{norm_addressee}`" in text
         assert f'"normadressat": "{norm_addressee}"' in text
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_final_json_instruction_is_last(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+        final_instruction = "Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen."
+
+        assert text.rstrip().endswith(final_instruction)
+        assert "Zusatz fuer" not in text
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_renders_integrated_addressee_context_and_rule(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+        context = PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS[norm_addressee]
+        rule = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[norm_addressee]
+
+        assert context.strip()
+        assert rule.strip()
+        assert context in text
+        assert rule in text
 
     @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
     def test_step_analysis_keeps_vorgaben_ids_with_process_scope(self, norm_addressee):

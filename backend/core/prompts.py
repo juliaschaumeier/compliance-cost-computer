@@ -49,23 +49,6 @@ LEGIST_PROMPT_OPENING = (
 )
 
 
-PROCESS_STEP_ANALYSIS_OPENING = (
-    """
-    Sie sind Legist im deutschen Bundestag und damit betraut, die wesentlichen
-    Taetigkeiten zu einer geplanten Gesetzesaenderung zu identifizieren.
-
-    In diesem Schritt geht es ausschliesslich um die fachlich relevanten
-    Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines Prozesses im
-    Einzelfall zu erwarten sind. Diese Taetigkeiten koennen neu hinzukommen,
-    sich aendern, wegfallen oder unveraendert bleiben.
-
-    Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
-    zusammengefasst: {law_summary}
-
-    """
-)
-
-
 NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
     ADMINISTRATION: (
         """
@@ -129,9 +112,69 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
 PROMPT_IDS_WITH_NORM_ADDRESSEE_CLAUSE = {
     PromptId.PROCESS_COMPILATION,
     PromptId.CASE_GROUP_DEVELOPMENT,
-    PromptId.PROCESS_STEP_ANALYSIS,
     PromptId.CASES_CALCULATION,
     PromptId.EFFORT_CALCULATION,
+}
+
+
+PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS: Dict[str, str] = {
+    ADMINISTRATION: (
+        "Dieser Lauf betrifft nur den Normadressaten `administration` "
+        "(Verwaltung). Verwaltungstaetigkeiten sind Bearbeitungs- oder "
+        "Vollzugshandlungen der zustaendigen Behoerde, z.B. Pruefung, "
+        "Bescheidung, Aufsicht, Register- oder Aktenfuehrung."
+    ),
+    BUSINESS: (
+        "Dieser Lauf betrifft nur den Normadressaten `business` "
+        "(Wirtschaft). Unternehmenstaetigkeiten sind Handlungen von Unternehmen "
+        "zur Erfuellung der Vorgabe, z.B. Melden, Nachweisen, Dokumentieren, "
+        "interne Ablaeufe anpassen oder bei behoerdlichen Pruefungen mitwirken."
+    ),
+    CITIZENS: (
+        "Dieser Lauf betrifft nur den Normadressaten `citizens` "
+        "(Buergerinnen und Buerger). Buergerseitige Taetigkeiten sind "
+        "Handlungen der privaten Pflichterfuellung, z.B. informieren, "
+        "Unterlagen beschaffen, Formulare ausfuellen, erscheinen, bezahlen "
+        "oder Dritte beauftragen."
+    ),
+}
+
+
+PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
+    ADMINISTRATION: (
+        "Jede Taetigkeit beschreibt eine Bearbeitungshandlung der Verwaltung "
+        "pro einzelnem Vorgang (z.B. Unterlagen sichten, Zweckzuordnung "
+        "pruefen, Bescheid erstellen). Geben Sie nur fachlich relevante "
+        "Haupttaetigkeiten aus, die fuer den Vorher-Nachher-Vergleich der "
+        "Fallgruppe benoetigt werden. Uebernehmen Sie keine Handlungen der "
+        "Wirtschaft und keine privaten Handlungen von Buergerinnen und "
+        "Buergern als Verwaltungstaetigkeit. Schaetzen Sie in der "
+        "Schrittanalyse keine Lohngruppen, Stundenloehne, Zeitaufwaende, "
+        "Sachaufwaende oder Kosten."
+    ),
+    BUSINESS: (
+        "Jede Taetigkeit beschreibt eine Handlung des Unternehmens zur "
+        "Erfuellung der Vorgabe (z.B. Daten beschaffen, Meldung erstellen, "
+        "Betriebspruefung begleiten, interne Prozesse anpassen). Orientieren "
+        "Sie sich bei Informationspflichten an Teil A der Checkliste, bei "
+        "anderen Vorgaben zusaetzlich an Teil B. IT- oder "
+        "Automatisierungsbezug darf in der Beschreibung genannt werden, wenn "
+        "er den Handlungskern praegt. Uebernehmen Sie keine "
+        "Verwaltungshandlungen (z.B. Bescheiderstellung, behoerdliche "
+        "Pruefung) und keine rein privaten Handlungen von Buergerinnen und "
+        "Buergern als Unternehmenstaetigkeit. Schaetzen Sie in der "
+        "Schrittanalyse keine Zeitaufwaende, Stundenloehne, Sachaufwaende, "
+        "IT-/Personalaufwaende oder Kosten."
+    ),
+    CITIZENS: (
+        "Jede Taetigkeit muss eine Handlung der Buergerinnen und Buerger "
+        "selbst sein. Unzulaessig sind insbesondere verwaltungsinterne "
+        "Pruefungen, Bescheiderstellung, interne Ruecksprachen, "
+        "Unternehmensablaeufe oder fachliche Schritte Dritter. Geben Sie nur "
+        "die minimale, aber vollstaendige Menge buergerseitiger "
+        "Haupttaetigkeiten aus. Schaetzen Sie in der Schrittanalyse keine "
+        "Zeit- oder Sachaufwaende und keine Kosten."
+    ),
 }
 
 
@@ -196,19 +239,6 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "Normzitat/Regelungsgegenstand und typischen Vollzugsmengen der "
         "zustaendigen Behoerde; geben Sie niemals Platzhalter-Nullen aus."
     ),
-    PromptId.PROCESS_STEP_ANALYSIS: (
-        "Zusatz fuer die Verwaltung bei der Schrittanalyse: "
-        "Jede Taetigkeit beschreibt eine Bearbeitungshandlung der Verwaltung "
-        "pro einzelnem Vorgang (z.B. Unterlagen sichten, Zweckzuordnung "
-        "pruefen, Bescheid erstellen). Geben Sie nur fachlich relevante "
-        "Haupttaetigkeiten aus, die fuer den Vorher-Nachher-Vergleich der "
-        "Fallgruppe benoetigt werden. Uebernehmen Sie keine Handlungen der "
-        "Wirtschaft und keine privaten Handlungen von Buergerinnen und "
-        "Buergern als Verwaltungstaetigkeit. Schaetzen Sie in der "
-        "Schrittanalyse keine Lohngruppen, Stundenloehne, Zeitaufwaende, "
-        "Sachaufwaende oder Kosten; diese Aufwandsermittlung erfolgt erst in "
-        "der spaeteren Aufwandsermittlung (`EFFORT_CALCULATION`)."
-    ),
 }
 
 
@@ -272,22 +302,6 @@ BUSINESS_PROMPT_RULES: Dict[str, str] = {
         "Unternehmensmengen. Weisen Sie, wenn fachlich relevant, den KMU-Anteil "
         "an der Fallzahl gesondert aus."
     ),
-    PromptId.PROCESS_STEP_ANALYSIS: (
-        "Zusatz fuer die Wirtschaft bei der Schrittanalyse: "
-        "Jede Taetigkeit beschreibt eine Handlung des Unternehmens zur "
-        "Erfuellung der Vorgabe (z.B. Daten beschaffen, Meldung erstellen, "
-        "Betriebspruefung begleiten, interne Prozesse anpassen). Orientieren Sie "
-        "sich bei Informationspflichten an Teil A der Checkliste, bei anderen "
-        "Vorgaben zusaetzlich an Teil B. IT- oder Automatisierungsbezug darf "
-        "in der Beschreibung genannt werden, wenn er den Handlungskern praegt. "
-        "Uebernehmen Sie keine Verwaltungshandlungen (z.B. Bescheiderstellung, "
-        "behoerdliche Pruefung) und keine rein privaten Handlungen von "
-        "Buergerinnen und Buergern als Unternehmenstaetigkeit. Schaetzen Sie "
-        "in der Schrittanalyse keine Zeitaufwaende, Stundenloehne, "
-        "Sachaufwaende, IT-/Personalaufwaende oder Kosten; diese "
-        "Aufwandsermittlung erfolgt erst in der spaeteren Aufwandsermittlung "
-        "(`EFFORT_CALCULATION`)."
-    ),
 }
 
 
@@ -317,18 +331,6 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
         "Fallgruppen nur deshalb, weil unterschiedliche Behoerden oder Drittstellen "
         "beteiligt sind, sofern sich der buergerseitige Aufwand dadurch nicht merklich "
         "aendert. Verwenden Sie moeglichst wenige, fachlich trennscharfe Fallgruppen."
-    ),
-    PromptId.PROCESS_STEP_ANALYSIS: (
-        "Zusatz fuer Buergerinnen und Buerger bei der Schrittanalyse: "
-        "Jede Taetigkeit muss eine Handlung der Buergerinnen und Buerger "
-        "selbst sein. Unzulaessig sind insbesondere verwaltungsinterne "
-        "Pruefungen, Bescheiderstellung, interne Ruecksprachen, "
-        "Unternehmensablaeufe oder fachliche Schritte Dritter. Geben Sie nur "
-        "die minimale, aber vollstaendige Menge buergerseitiger "
-        "Haupttaetigkeiten aus. Schaetzen Sie in der Schrittanalyse keine "
-        "Zeit- oder Sachaufwaende und keine Kosten; diese Aufwandsermittlung "
-        "erfolgt erst in der spaeteren Aufwandsermittlung "
-        "(`EFFORT_CALCULATION`)."
     ),
     PromptId.CASES_CALCULATION: (
         "Zusatz fuer Buergerinnen und Buerger bei der Fallzahlermittlung: "
@@ -840,30 +842,47 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - step_analysis_checklist
+    # - step_analysis_addressee_context
+    # - step_analysis_addressee_rule
     PromptId.PROCESS_STEP_ANALYSIS: (
         """
-        Dieser Lauf analysiert ausschliesslich den Normadressaten `{norm_addressee}`.
-        """
-        + PROCESS_STEP_ANALYSIS_OPENING
-        + """
-        Die Gesetzesaenderung fuehrt zu folgenden, positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende 
-        Fallgruppen differenziert werden: {case_groups_json}
+        Sie analysieren eine geplante Gesetzesaenderung im Rahmen der Ermittlung
+        des Erfuellungsaufwands.
+
+        In diesem Schritt identifizieren Sie ausschliesslich die fachlich
+        relevanten Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines
+        Prozesses im Einzelfall zu erwarten sind. Diese Taetigkeiten koennen neu
+        hinzukommen, sich aendern, wegfallen oder unveraendert bleiben.
+
+        Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen,
+        Stundenloehne, Sachaufwaende oder Kosten.
+
+        Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
+        zusammengefasst: {law_summary}
+
+        {step_analysis_addressee_context}
+
+        Die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
+        positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
+        Fallgruppen: {case_groups_json}
 
         Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
-        zu identifizieren. Die Aufwandsermittlung fuer Personal, Zeit, Sachaufwand und Kosten erfolgt erst in der spaeteren Aufwandsermittlung (`EFFORT_CALCULATION`).
-        Die einzelnen Taetigkeiten koennen vor und nach der Gesetzesaenderung unterschiedlich sein, hinzukommen oder wegfallen, einige Taetigkeiten des
+        zu identifizieren. Die einzelnen Taetigkeiten koennen vor und nach der Gesetzesaenderung unterschiedlich sein, hinzukommen oder wegfallen, einige Taetigkeiten des
         Prozesses koennen beibehalten bleiben. Geben Sie diesen Aenderungsstatus an, orientieren Sie sich dabei wenn noetig an den vorhandenen
         Statusangaben in den Fallgruppen und Prozessen.
+
+        {step_analysis_addressee_rule}
 
         Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche
         Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte
         Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu,
         wenn sich tatsaechlich nur einzelne Schritte aendern.
 
-        Geben Sie je Taetigkeit `vorgaben_ids` als technische Rueckbindung an die ausloesenden Vorgaben dieses Prozesses an. Verwenden Sie nur
+        Geben Sie je Taetigkeit `vorgaben_ids` als technische Rueckbindung an
+        die ausloesenden Vorgaben dieses Prozesses an. Verwenden Sie nur
         `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses. Wenn im Prozess nur genau eine Vorgabe enthalten ist, verwenden Sie diese ID bei allen
-        zugehoerigen Taetigkeiten. Wenn mehrere Vorgaben eine Taetigkeit gemeinsam ausloesen oder nicht trennscharf unterschieden werden koennen,
-        geben Sie mehrere passende IDs an.
+        zugehoerigen Taetigkeiten; wenn mehrere Vorgaben eine Taetigkeit
+        gemeinsam ausloesen, geben Sie mehrere passende IDs an.
 
         {step_analysis_checklist}
         
@@ -1205,6 +1224,14 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
             "step_analysis_checklist",
             _render_step_analysis_checklist(norm_addressee),
         )
+        render_values.setdefault(
+            "step_analysis_addressee_context",
+            _render_step_analysis_addressee_context(norm_addressee),
+        )
+        render_values.setdefault(
+            "step_analysis_addressee_rule",
+            _render_step_analysis_addressee_rule(norm_addressee),
+        )
 
     if prompt_id == PromptId.EFFORT_CALCULATION:
         render_values.setdefault(
@@ -1384,12 +1411,26 @@ def _render_step_analysis_checklist(norm_addressee: str | None) -> str:
     return ""
 
 
+def _render_step_analysis_addressee_context(norm_addressee: str | None) -> str:
+    if not norm_addressee:
+        return ""
+    return PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS.get(norm_addressee, "")
+
+
+def _render_step_analysis_addressee_rule(norm_addressee: str | None) -> str:
+    if not norm_addressee:
+        return ""
+    return PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES.get(norm_addressee, "")
+
+
 def _apply_norm_addressee_prompt_rules(
     prompt_id: str,
     prompt: str,
     norm_addressee: str | None,
 ) -> str:
     if not norm_addressee:
+        return prompt
+    if prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
         return prompt
 
     if prompt_id in PROMPT_IDS_WITH_NORM_ADDRESSEE_CLAUSE:

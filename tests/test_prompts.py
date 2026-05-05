@@ -1,6 +1,7 @@
 import re
 
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.core import prompts
 from backend.core.prompts import PromptId, render_prompt
 import pytest
 
@@ -143,11 +144,15 @@ def test_render_prompt_requires_explicit_norm_addressee():
         )
 
 
-def test_process_step_analysis_prompt_sets_known_norm_addressee_early():
+def test_process_step_analysis_prompt_sets_known_norm_addressee_after_context():
     prompt = _render_step_analysis_prompt(BUSINESS)
     first_lines = "\n".join(prompt.splitlines()[:15])
 
-    assert "Dieser Lauf analysiert ausschliesslich den Normadressaten `business`." in first_lines
+    assert first_lines.index("Sie analysieren eine geplante Gesetzesaenderung") < first_lines.index(
+        "Die wesentlichen Unterschiede"
+    )
+    assert "Dieser Lauf betrifft nur den Normadressaten `business`" in prompt
+    assert "Dieser Lauf betrifft nur den Normadressaten `business`" not in first_lines
     assert '"normadressat": "business"' in prompt
     assert '"normadressat": "administration | business | citizens"' not in prompt
 
@@ -155,18 +160,30 @@ def test_process_step_analysis_prompt_sets_known_norm_addressee_early():
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
 def test_process_step_analysis_prompt_prefills_each_known_norm_addressee(norm_addressee):
     prompt = _render_step_analysis_prompt(norm_addressee)
-    first_lines = "\n".join(prompt.splitlines()[:15])
 
-    assert f"Dieser Lauf analysiert ausschliesslich den Normadressaten `{norm_addressee}`." in first_lines
+    assert f"Dieser Lauf betrifft nur den Normadressaten `{norm_addressee}`" in prompt
     assert f'"normadressat": "{norm_addressee}"' in prompt
     assert '"normadressat": "administration | business | citizens"' not in prompt
 
 
-def test_process_step_analysis_prompt_uses_step_specific_opening():
+def test_process_step_analysis_prompt_uses_integrated_step_specific_intro():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
-    assert "In diesem Schritt geht es ausschliesslich um die fachlich relevanten" in prompt
+    assert "In diesem Schritt identifizieren Sie ausschliesslich die fachlich" in prompt
+    assert not hasattr(prompts, "PROCESS_STEP_ANALYSIS_OPENING")
     assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_has_final_json_instruction_last(norm_addressee):
+    prompt = _render_step_analysis_prompt(norm_addressee)
+    final_instruction = "Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen."
+
+    assert final_instruction in prompt
+    assert prompt.rstrip().endswith(final_instruction)
+    trailing_text = prompt.split(final_instruction, 1)[1]
+    assert trailing_text.strip() == ""
+    assert "Zusatz fuer" not in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
