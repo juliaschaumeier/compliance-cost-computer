@@ -735,6 +735,27 @@ def test_run_all_reports_step_failure(test_client):
     assert payload["final_status"]["summary_ready"] is False
 
 
+def test_run_all_reports_step_failure_when_only_current_law_is_selected(test_client):
+    db.insert_law("current_only.txt", "aktuelles gesetz")
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": "RUNALL-CURRENT-ONLY",
+            "current_filename": "current_only.txt",
+            "model": "test-model",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "failed"
+    assert payload["ok"] is False
+    assert payload["steps"][0]["key"] == "summary"
+    assert payload["steps"][0]["status"] == "failed"
+    assert payload["steps"][0]["message"] == "Missing proposed_filename for summary step"
+    assert payload["final_status"]["summary_ready"] is False
+
+
 def test_run_all_reports_failing_addressee_in_step_message(test_client, monkeypatch):
     app_session_id = "RUNALL-ADDRESSEE-FAIL"
     db.upsert_session(app_session_id, "test-model")
