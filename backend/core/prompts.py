@@ -886,8 +886,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {step_analysis_checklist}
         
-        Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen darf eine zusammenfassende Haupttaetigkeit ausgegeben werden, wenn eine weitere
-        Zerlegung fuer die spaetere Aufwandsermittlung keinen fachlichen Mehrwert hat.
+        Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
+        Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
         
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 

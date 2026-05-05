@@ -253,6 +253,15 @@ def test_process_step_analysis_prompt_does_not_set_numeric_activity_limits(norm_
     assert not any(re.search(pattern, prompt) for pattern in forbidden_patterns)
 
 
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_uses_clear_bundling_rule(norm_addressee):
+    prompt = _compact(_render_step_analysis_prompt(norm_addressee))
+
+    assert "Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus" in prompt
+    assert "Untergliederung fuer den Vorher-Nachher-Vergleich" in prompt
+    assert "Zerlegung fuer die spaetere Aufwandsermittlung" not in prompt
+
+
 @pytest.mark.parametrize(
     ("norm_addressee", "expected", "forbidden"),
     [
