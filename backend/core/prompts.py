@@ -9,7 +9,12 @@ from backend.core.handbook_examples import (
     PROCESS_COMPILATION_EXAMPLE,
 )
 from backend.core.handbook_tables import Appendix
-from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    BUSINESS,
+    CITIZENS,
+    SUPPORTED_NORM_ADDRESSEES,
+)
 
 
 class PromptId:
@@ -109,14 +114,6 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
 }
 
 
-PROMPT_IDS_WITH_NORM_ADDRESSEE_CLAUSE = {
-    PromptId.PROCESS_COMPILATION,
-    PromptId.CASE_GROUP_DEVELOPMENT,
-    PromptId.CASES_CALCULATION,
-    PromptId.EFFORT_CALCULATION,
-}
-
-
 PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS: Dict[str, str] = {
     ADMINISTRATION: (
         "Dieser Lauf betrifft nur den Normadressaten `administration` "
@@ -180,7 +177,6 @@ PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
 
 ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
     PromptId.PROCESS_COMPILATION: (
-        "Zusatz fuer die Verwaltung bei der Prozessbildung: "
         "Buendeln Sie Vorgaben zu Prozessen entlang der Bearbeitungslogik der "
         "zustaendigen Behoerde, nicht entlang einzelner Paragraphen. Typische "
         "Prozessbildende Raster sind: (i) Antrags-/Anerkennungsverfahren mit "
@@ -201,7 +197,6 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "Erfuellungsaufwands der Verwaltung."
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Zusatz fuer die Verwaltung bei der Fallgruppenbildung: "
         "Typische verwaltungsseitige Differenzierungsachsen sind: (i) "
         "Ersterfuellung/Erstanerkennung versus turnusmaessige oder wiederholte "
         "Bearbeitung, (ii) Standardfall mit glatter Bescheidung versus "
@@ -225,7 +220,6 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
         "auszuweisen."
     ),
     PromptId.CASES_CALCULATION: (
-        "Zusatz fuer die Verwaltung bei der Fallzahlermittlung: "
         "Fuer die Verwaltung ist die `Anzahl Betroffene` NICHT die Zahl extern "
         "betroffener Buerger oder Unternehmen, sondern die Zahl der jaehrlich "
         "tatsaechlich von der Verwaltung zu bearbeitenden Vorgaenge, Faelle oder "
@@ -244,7 +238,6 @@ ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
 
 BUSINESS_PROMPT_RULES: Dict[str, str] = {
     PromptId.PROCESS_COMPILATION: (
-        "Zusatz fuer die Wirtschaft bei der Prozessbildung: "
         "Buendeln Sie Vorgaben zu Prozessen entlang des operativen Ablaufs im "
         "Unternehmen, nicht entlang einzelner Paragraphen. Typische prozessbildende "
         "Raster sind: (i) Anzeige-, Melde- oder Nachweispflicht gegenueber Behoerden, "
@@ -263,7 +256,6 @@ BUSINESS_PROMPT_RULES: Dict[str, str] = {
         "und keine privaten Buergerhandlungen."
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Zusatz fuer die Wirtschaft bei der Fallgruppenbildung: "
         "Typische wirtschaftsseitige Differenzierungsachsen sind: (i) "
         "Informationspflicht versus sonstige Vorgabe (BKI-Relevanz), (ii) "
         "Ersterfuellung mit Einarbeitung versus Routineerfuellung (Einarbeitung "
@@ -283,7 +275,6 @@ BUSINESS_PROMPT_RULES: Dict[str, str] = {
         "durch die Regelung tatsaechlich aendert."
     ),
     PromptId.CASES_CALCULATION: (
-        "Zusatz fuer die Wirtschaft bei der Fallzahlermittlung: "
         "Bei periodisch zu erfuellenden Vorgaben ergibt sich die Fallzahl aus der "
         "Multiplikation der betroffenen Unternehmen mit der Periodizitaet pro Jahr. "
         "Bei anlassbezogenen Vorgaben ist die jaehrlich zu erwartende Zahl der "
@@ -307,7 +298,6 @@ BUSINESS_PROMPT_RULES: Dict[str, str] = {
 
 CITIZENS_PROMPT_RULES: Dict[str, str] = {
     PromptId.PROCESS_COMPILATION: (
-        "Zusatz fuer Buergerinnen und Buerger bei der Prozessbildung: "
         "Bilden Sie Prozesse aus Sicht der privaten Lebensfuehrung. Ein Buergerprozess "
         "ist die praktisch wahrnehmbare Erfuellung einer gesetzlichen Pflicht, etwa "
         "Beantragen, Nachweisen, Melden, Bezahlen, Beschaffen, Vorlegen, Mitwirken "
@@ -320,8 +310,7 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
         "Alltagshandlungen kuenstlich zusammenziehen."
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Zusatz fuer Buergerinnen und Buerger bei der Fallgruppenbildung: "
-        "Typische buergerbezogene Fallgruppen koennen sich insbesondere unterscheiden "
+        "Fuer Buergerinnen und Buerger koennen sich typische Fallgruppen insbesondere unterscheiden "
         "nach erstmaliger Erfuellung versus wiederkehrender Erfuellung, digitalem "
         "Verfahren versus Postweg oder persoenlichem Erscheinen, einfacher Standardlage "
         "versus zusaetzlichem Nachweis- oder Beratungsbedarf, eigener Vornahme versus "
@@ -333,8 +322,7 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
         "aendert. Verwenden Sie moeglichst wenige, fachlich trennscharfe Fallgruppen."
     ),
     PromptId.CASES_CALCULATION: (
-        "Zusatz fuer Buergerinnen und Buerger bei der Fallzahlermittlung: "
-        "Bei periodisch zu erfuellenden privaten Pflichten ergibt sich die Fallzahl "
+        "Bei periodisch zu erfuellenden privaten Pflichten von Buergerinnen und Buergern ergibt sich die Fallzahl "
         "grundsaetzlich aus der Multiplikation von Betroffenen und Haeufigkeit pro Jahr. "
         "Bei anlassbezogenen Pflichten ist die jaehrlich zu erwartende Zahl der Faelle "
         "zugrunde zu legen. Einmaliger Erfuellungsaufwand im privaten Bereich ist "
@@ -442,93 +430,93 @@ EFFORT_APPENDICES: Dict[str, str] = {
 
 
 EFFORT_JSON_SCHEMA_DEFAULT = """
-{{
-"normadressat": "administration | business",
+{
+"normadressat": "{norm_addressee}",
 "prozesse": [
-    {{
+    {
     "prozess_id": "",
     "prozess_bezeichnung": "",
     "prozess_beschreibung": "",
     "aenderungsstatus": "",
     "vorgaben": [
-        {{
+        {
             "vorgaben_id": "",
             "normzitat": "",
             "beschreibung": "",
             "aenderungsstatus": ""
-        }}
+        }
     ],
     "fallgruppen": [
-        {{
+        {
             "fallgruppen_id": "",
             "fallgruppe_bezeichnung": "",
             "fallgruppe_beschreibung": "",
             "aenderungsstatus": "",
             "taetigkeiten": [
-                {{
+                {
                     "taetigkeiten_id": "",
                     "taetigkeit": "",
                     "beschreibung": "",
                     "aenderungsstatus": "",
                     "rollen_gueltig": [
-                        {{
+                        {
                             "rolle": "",
                             "lohngruppe": "A | B | C | D",
                             "schwierigkeitsgrad": "",
                             "stundenlohn": "",
                             "zeitaufwand_in_min": ""
-                        }}
+                        }
                     ],
                     "sachaufwand_gueltig": "",
                     "rollen_vorschlag": [
-                        {{
+                        {
                             "rolle": "",
                             "lohngruppe": "A | B | C | D",
                             "schwierigkeitsgrad": "",
                             "stundenlohn": "",
                             "zeitaufwand_in_min": ""
-                        }}
+                        }
                     ],
                     "sachaufwand_vorschlag": "",
                     "ausfuehrung_pro_einzelfall": "0 | 1"
-                }}
+                }
             ]
-        }}
+        }
     ]
-    }}
+    }
 ]
-}}
+}
 
-Das Feld `normadressat` ist der Normadressat, fuer den dieser Aufwand berechnet wird. Uebernehmen Sie genau einen der beiden zulaessigen Werte (administration oder business) aus den `normadressaten`-Angaben der eingespielten Prozesse.
+Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 """
 
 
 EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
     CITIZENS: """
-{{
+{
 "normadressat": "citizens",
 "prozesse": [
-    {{
+    {
     "prozess_id": "",
     "prozess_bezeichnung": "",
     "prozess_beschreibung": "",
     "aenderungsstatus": "",
     "vorgaben": [
-        {{
+        {
             "vorgaben_id": "",
             "normzitat": "",
             "beschreibung": "",
             "aenderungsstatus": ""
-        }}
+        }
     ],
     "fallgruppen": [
-        {{
+        {
             "fallgruppen_id": "",
             "fallgruppe_bezeichnung": "",
             "fallgruppe_beschreibung": "",
             "aenderungsstatus": "",
             "taetigkeiten": [
-                {{
+                {
                     "taetigkeiten_id": "",
                     "taetigkeit": "",
                     "beschreibung": "",
@@ -538,13 +526,13 @@ EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
                     "zeitaufwand_in_min_vorschlag": "",
                     "sachaufwand_vorschlag": "",
                     "ausfuehrung_pro_einzelfall": "0 | 1"
-                }}
+                }
             ]
-        }}
+        }
     ]
-    }}
+    }
 ]
-}}
+}
 
 Das Feld `normadressat` ist immer `citizens` fuer dieses Schema.
 """
@@ -684,10 +672,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - handbook_process_example
+    # - norm_addressee_context
+    # - norm_addressee_rule
     PromptId.PROCESS_COMPILATION: (
         LEGIST_PROMPT_OPENING
         + """
         Die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
+
+        {norm_addressee_context}
 
         Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfuellt werden, zu gemeinsamen
         Prozessen zu buendeln. Soweit eine Buendelung von Vorgaben in Prozesse nicht moeglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
@@ -699,13 +691,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         unterschiedlich ist, muessen getrennte Prozesse ausgewiesen werden, auch wenn die praktische Bearbeitung aehnlich erscheint. Die spaetere
         gesonderte Ausweisung EU-bedingten Erfuellungsaufwands muss anhand Ihrer Prozessstruktur weiterhin moeglich bleiben.
 
+        {norm_addressee_rule}
+
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_process_example}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
-        "normadressat": "administration | business | citizens",
+        "normadressat": "{norm_addressee}",
         "prozesse": [
             {{
             "prozess_bezeichnung": "",
@@ -742,7 +736,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         ]
         }}
 
-        Das Feld `normadressat` ist der Normadressat, fuer den diese Analyse laeuft. Uebernehmen Sie dort genau einen der drei zulaessigen Werte (administration, business oder citizens), basierend auf den Angaben `normadressaten` der Einzelvorgaben. Bearbeiten Sie ausschliesslich Vorgaben fuer diesen Normadressaten.
+        Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten. Bearbeiten Sie ausschliesslich Vorgaben fuer diesen Normadressaten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
@@ -753,10 +747,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - handbook_case_group_example
+    # - norm_addressee_context
+    # - norm_addressee_rule
     PromptId.CASE_GROUP_DEVELOPMENT: (
         LEGIST_PROMPT_OPENING
         + """
         Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
+
+        {norm_addressee_context}
 
         Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfuellt, sind dafuer sogenannte Fallgruppen zu bilden.
         Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Fuer jede Fallgruppe ist der Erfuellungsaufwand separat zu
@@ -767,13 +765,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht moeglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
+        {norm_addressee_rule}
+
         Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
         {handbook_case_group_example}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
-        "normadressat": "administration | business | citizens",
+        "normadressat": "{norm_addressee}",
         "prozesse": [
             {{
             "prozess_id": "",
@@ -831,7 +831,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         ]
         }}
 
-        Das Feld `normadressat` ist der Normadressat, fuer den diese Fallgruppen entwickelt werden. Uebernehmen Sie genau einen der drei zulaessigen Werte (administration, business oder citizens) aus den `normadressaten`-Angaben der eingespielten Prozesse.
+        Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
@@ -1002,11 +1002,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # Auto-filled by render_prompt:
     # - handbook_cases_frequency_example
     # - handbook_cases_case_example
+    # - norm_addressee_context
+    # - norm_addressee_rule
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
         Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen 
         differenziert werden: {case_groups_json}
+
+        {norm_addressee_context}
 
         Ihre Aufgabe ist es, die Aenderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Haeufigkeit und die Anzahl der Betroffenen 
         vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung einer Fallgruppe werden typischerweise nur die 
@@ -1039,6 +1043,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfaellt, wird als 
         einmaliger Erfuellungsaufwand bzw. Umstellungsaufwannd bezeichnet und ist gesondert auszuweisen.
 
+        {norm_addressee_rule}
+
         Soweit bestehende Regelungen geaendert werden, koennen Fallzahlen unter Umstaenden auch aus bereits vorliegenden Aufwandsschaetzungen und 
         Gesetzesbegruendungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) uebernommen werden. Bevor solche Angaben verwendet werden, sollten 
         sie ggf. aktualisiert werden.
@@ -1046,7 +1052,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
-        "normadressat": "administration | business | citizens",
+        "normadressat": "{norm_addressee}",
         "prozesse": [
             {{
             "prozess_id": "",
@@ -1119,7 +1125,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         ]
         }}
 
-        Das Feld `normadressat` ist der Normadressat, fuer den diese Fallzahlen geschaetzt werden. Uebernehmen Sie genau einen der drei zulaessigen Werte (administration, business oder citizens) aus den `normadressaten`-Angaben der eingespielten Prozesse.
+        Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
@@ -1134,11 +1140,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - effort_method_guidance
     # - effort_appendix
     # - effort_json_schema
+    # - norm_addressee_context
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
         Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und 
         Prozessschritte differenziert werden: {step_analysis_json}
+
+        {norm_addressee_context}
 
         Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Taetigkeiten pro Einzelfall zu identifizieren. 
         Hierzu werden die Stundenloehne, Zeit- und Sachaufwaende vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung
@@ -1203,6 +1212,13 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and raw_norm_addressee in (None, ""):
         raise KeyError("render_prompt requires explicit norm_addressee")
     norm_addressee = str(raw_norm_addressee or ADMINISTRATION)
+    if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and norm_addressee not in SUPPORTED_NORM_ADDRESSEES:
+        raise ValueError(f"Unsupported norm_addressee: {norm_addressee}")
+    render_values["norm_addressee_context"] = _render_norm_addressee_context(norm_addressee)
+    render_values["norm_addressee_rule"] = _render_prompt_specific_addressee_rule(
+        prompt_id,
+        norm_addressee,
+    )
     render_values.setdefault(
         "handbook_process_example",
         _render_handbook_process_example(norm_addressee),
@@ -1220,32 +1236,18 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         _render_handbook_cases_case_example(norm_addressee),
     )
     if prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
-        render_values.setdefault(
-            "step_analysis_checklist",
-            _render_step_analysis_checklist(norm_addressee),
+        render_values["step_analysis_checklist"] = _render_step_analysis_checklist(norm_addressee)
+        render_values["step_analysis_addressee_context"] = _render_step_analysis_addressee_context(
+            norm_addressee,
         )
-        render_values.setdefault(
-            "step_analysis_addressee_context",
-            _render_step_analysis_addressee_context(norm_addressee),
-        )
-        render_values.setdefault(
-            "step_analysis_addressee_rule",
-            _render_step_analysis_addressee_rule(norm_addressee),
+        render_values["step_analysis_addressee_rule"] = _render_step_analysis_addressee_rule(
+            norm_addressee,
         )
 
     if prompt_id == PromptId.EFFORT_CALCULATION:
-        render_values.setdefault(
-            "effort_method_guidance",
-            _render_effort_method_guidance(norm_addressee),
-        )
-        render_values.setdefault(
-            "effort_appendix",
-            _render_effort_appendix(norm_addressee),
-        )
-        render_values.setdefault(
-            "effort_json_schema",
-            _render_effort_json_schema(norm_addressee),
-        )
+        render_values["effort_method_guidance"] = _render_effort_method_guidance(norm_addressee)
+        render_values["effort_appendix"] = _render_effort_appendix(norm_addressee)
+        render_values["effort_json_schema"] = _render_effort_json_schema(norm_addressee)
 
     needs_law_summary = "{law_summary}" in template and not render_values.get("law_summary")
     needs_regulation_laws = (
@@ -1278,8 +1280,7 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         session_id = _resolve_session_id(render_values)
 
     prompt = template.format(**appendix_values, **render_values)
-    norm_addressee = render_values.get("norm_addressee")
-    return _apply_norm_addressee_prompt_rules(prompt_id, prompt, norm_addressee)
+    return prompt
 
 
 # Verwaltungs-Checkliste aus Leitfaden Erfuellungsaufwand (Feb 2026),
@@ -1423,43 +1424,20 @@ def _render_step_analysis_addressee_rule(norm_addressee: str | None) -> str:
     return PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES.get(norm_addressee, "")
 
 
-def _apply_norm_addressee_prompt_rules(
-    prompt_id: str,
-    prompt: str,
-    norm_addressee: str | None,
-) -> str:
+def _render_norm_addressee_context(norm_addressee: str | None) -> str:
     if not norm_addressee:
-        return prompt
-    if prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
-        return prompt
-
-    if prompt_id in PROMPT_IDS_WITH_NORM_ADDRESSEE_CLAUSE:
-        prompt = _append_prompt_section(prompt, NORM_ADDRESSEE_PROMPT_OPENINGS.get(norm_addressee))
-
-    citizens_rule = CITIZENS_PROMPT_RULES.get(prompt_id) if norm_addressee == CITIZENS else None
-    prompt = _append_prompt_section(prompt, citizens_rule)
-
-    admin_rule = (
-        ADMINISTRATION_PROMPT_RULES.get(prompt_id)
-        if norm_addressee == ADMINISTRATION
-        else None
-    )
-    prompt = _append_prompt_section(prompt, admin_rule)
-
-    business_rule = (
-        BUSINESS_PROMPT_RULES.get(prompt_id)
-        if norm_addressee == BUSINESS
-        else None
-    )
-    prompt = _append_prompt_section(prompt, business_rule)
-
-    return prompt
+        return ""
+    return NORM_ADDRESSEE_PROMPT_OPENINGS.get(norm_addressee, "").strip()
 
 
-def _append_prompt_section(prompt: str, section: str | None) -> str:
-    if not section:
-        return prompt
-    return prompt + "\n\n" + section.strip()
+def _render_prompt_specific_addressee_rule(prompt_id: str, norm_addressee: str | None) -> str:
+    if norm_addressee == ADMINISTRATION:
+        return ADMINISTRATION_PROMPT_RULES.get(prompt_id, "").strip()
+    if norm_addressee == BUSINESS:
+        return BUSINESS_PROMPT_RULES.get(prompt_id, "").strip()
+    if norm_addressee == CITIZENS:
+        return CITIZENS_PROMPT_RULES.get(prompt_id, "").strip()
+    return ""
 
 
 def _render_handbook_process_example(norm_addressee: str | None) -> str:
@@ -1505,4 +1483,7 @@ def _render_effort_method_guidance(norm_addressee: str | None) -> str:
 def _render_effort_json_schema(norm_addressee: str | None) -> str:
     if not norm_addressee:
         norm_addressee = ADMINISTRATION
-    return EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee, EFFORT_JSON_SCHEMA_DEFAULT).strip()
+    schema = EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee)
+    if schema is not None:
+        return schema.strip()
+    return EFFORT_JSON_SCHEMA_DEFAULT.replace("{norm_addressee}", norm_addressee).strip()

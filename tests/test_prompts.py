@@ -24,6 +24,24 @@ def _render_step_analysis_prompt(norm_addressee: str) -> str:
     )
 
 
+def _render_prompt_for_contract(prompt_id: str, norm_addressee: str) -> str:
+    kwargs = {
+        "law_summary": "Kurzfassung",
+        "norm_addressee": norm_addressee,
+    }
+    if prompt_id == PromptId.PROCESS_COMPILATION:
+        kwargs["vorgaben_json"] = "[]"
+    elif prompt_id == PromptId.CASE_GROUP_DEVELOPMENT:
+        kwargs["prozesse_json"] = "[]"
+    elif prompt_id in {PromptId.PROCESS_STEP_ANALYSIS, PromptId.CASES_CALCULATION}:
+        kwargs["case_groups_json"] = "[]"
+    elif prompt_id == PromptId.EFFORT_CALCULATION:
+        kwargs["step_analysis_json"] = "[]"
+    else:
+        raise ValueError(f"Unsupported prompt_id: {prompt_id}")
+    return render_prompt(prompt_id, **kwargs)
+
+
 def _compact(text: str) -> str:
     return " ".join(text.split())
 
@@ -70,6 +88,29 @@ def test_effort_prompt_for_administration_keeps_administration_specific_tables()
     assert "Lohnkostentabelle Verwaltung" in prompt
     assert "Zeitwerttabelle Wirtschaft" not in prompt
     assert "Lohnkostentabelle Wirtschaft" not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_effort_prompt_schema_uses_single_json_braces(norm_addressee):
+    prompt = _render_effort_prompt(norm_addressee)
+
+    assert "{{" not in prompt
+    assert "}}" not in prompt
+
+
+def test_render_prompt_ignores_contract_field_overrides():
+    prompt = render_prompt(
+        PromptId.EFFORT_CALCULATION,
+        law_summary="Kurzfassung",
+        step_analysis_json="[]",
+        norm_addressee=BUSINESS,
+        norm_addressee_context="BROKEN CONTEXT",
+        effort_json_schema='{"normadressat": "citizens"}',
+    )
+
+    assert "BROKEN CONTEXT" not in prompt
+    assert '"normadressat": "business"' in prompt
+    assert '"normadressat": "citizens"' not in prompt
 
 
 def test_process_compilation_prompt_includes_verbatim_handbook_example():
@@ -142,6 +183,58 @@ def test_render_prompt_requires_explicit_norm_addressee():
             law_summary="Kurzfassung",
             vorgaben_json="[]",
         )
+
+
+def test_render_prompt_rejects_unknown_norm_addressee():
+    with pytest.raises(ValueError, match="Unsupported norm_addressee"):
+        render_prompt(
+            PromptId.PROCESS_COMPILATION,
+            law_summary="Kurzfassung",
+            vorgaben_json="[]",
+            norm_addressee="verwaltung",
+        )
+
+
+@pytest.mark.parametrize(
+    "prompt_id",
+    [
+        PromptId.PROCESS_COMPILATION,
+        PromptId.CASE_GROUP_DEVELOPMENT,
+        PromptId.PROCESS_STEP_ANALYSIS,
+        PromptId.CASES_CALCULATION,
+        PromptId.EFFORT_CALCULATION,
+    ],
+)
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_norm_addressee_prompts_end_with_final_json_instruction(prompt_id, norm_addressee):
+    prompt = _render_prompt_for_contract(prompt_id, norm_addressee)
+    final_instruction = "Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen."
+
+    assert prompt.rstrip().endswith(final_instruction)
+    assert prompt.split(final_instruction, 1)[1].strip() == ""
+    assert "Zusatz fuer" not in prompt
+
+
+@pytest.mark.parametrize(
+    "prompt_id",
+    [
+        PromptId.PROCESS_COMPILATION,
+        PromptId.CASE_GROUP_DEVELOPMENT,
+        PromptId.CASES_CALCULATION,
+        PromptId.EFFORT_CALCULATION,
+    ],
+)
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_norm_addressee_prompts_integrate_guidance_before_schema(prompt_id, norm_addressee):
+    prompt = _render_prompt_for_contract(prompt_id, norm_addressee)
+    context_marker = "Dieser Lauf betrifft den Normadressaten"
+    schema_marker = "Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:"
+
+    assert context_marker in prompt
+    assert prompt.index(context_marker) < prompt.index(schema_marker)
+    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert '"normadressat": "administration | business | citizens"' not in prompt
+    assert '"normadressat": "administration | business"' not in prompt
 
 
 def test_process_step_analysis_prompt_sets_known_norm_addressee_after_context():
