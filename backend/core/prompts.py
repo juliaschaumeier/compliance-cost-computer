@@ -41,9 +41,9 @@ LEGIST_CONTEXT_OPENING = (
     Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung
     fachlich einzuordnen und vorzubereiten.
 
-    Der Erfuellungsaufwand umfasst je nach Normadressat Zeit-, Personal-
-    und/oder Sachaufwand, der durch die Befolgung gesetzlicher Vorgaben bei den
-    betroffenen Normadressaten entsteht. Die Analyse erfolgt schrittweise:
+    Der Erfuellungsaufwand bezeichnet den Aufwand, der durch die Befolgung
+    gesetzlicher Vorgaben beim betroffenen Normadressaten entsteht. Die Analyse
+    erfolgt schrittweise:
     Vorgaben werden identifiziert, zu Prozessen und Fallgruppen strukturiert,
     in Taetigkeiten zerlegt und erst in spaeteren Schritten mit Fallzahlen,
     Aufwand und, soweit vorgesehen, Kosten hinterlegt.
