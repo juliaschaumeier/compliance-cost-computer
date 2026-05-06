@@ -98,6 +98,23 @@ def test_effort_prompt_schema_uses_single_json_braces(norm_addressee):
     assert "}}" not in prompt
 
 
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_effort_prompt_distinguishes_per_actor_once_from_central_once(
+    norm_addressee,
+):
+    prompt = _compact(_render_effort_prompt(norm_addressee))
+
+    assert "pro betroffenem Akteur (=1)" in prompt
+    assert (
+        "einmaliger Umstellungs-, Einfuehrungs-, Abstimmungs- oder "
+        "Einarbeitungsaufwand je betroffenem Akteur"
+    ) in prompt
+    assert "nur einmal entsteht, aber mit der Zahl der Betroffenen skaliert" in prompt
+    assert "nur einmal zentral fuer die gesamte Fallgruppe anfaellt" in prompt
+    assert "Hinweis zu `ausfuehrung_pro_einzelfall`" in prompt
+    assert "nicht mit der Zahl der Betroffenen oder Faelle skaliert" in prompt
+
+
 def test_render_prompt_ignores_contract_field_overrides():
     prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,

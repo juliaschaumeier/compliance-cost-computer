@@ -488,6 +488,8 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
 }
 
 Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
+
+Hinweis zu `ausfuehrung_pro_einzelfall`: Setzen Sie `1`, wenn der Aufwand je betroffenem Fall oder je betroffenem Akteur anfaellt, auch wenn dieser Aufwand fuer diesen Fall oder Akteur nur einmalig entsteht. Setzen Sie `0` nur, wenn der Aufwand wirklich nur einmal zentral fuer die gesamte Fallgruppe entsteht und nicht mit der Zahl der Betroffenen oder Faelle skaliert.
 """
 
 
@@ -535,6 +537,8 @@ EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
 }
 
 Das Feld `normadressat` ist immer `citizens` fuer dieses Schema.
+
+Hinweis zu `ausfuehrung_pro_einzelfall`: Setzen Sie `1`, wenn der Aufwand je betroffenem Fall oder je betroffenem Akteur anfaellt, auch wenn dieser Aufwand fuer diesen Fall oder Akteur nur einmalig entsteht. Setzen Sie `0` nur, wenn der Aufwand wirklich nur einmal zentral fuer die gesamte Fallgruppe entsteht und nicht mit der Zahl der Betroffenen oder Faelle skaliert.
 """
 }
 
@@ -1168,9 +1172,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         • Aufwand fuer die Nachruestung von Anlagen, 
         • Sachaufwand fuer Wege zu anderen Behoerden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
 
-        Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgefuehrt wird (=0).
-        Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
-        einzelnen Fall erneut anfaellt.
+        Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall bzw. pro betroffenem Akteur (=1) oder lediglich einmal zentral fuer die gesamte Fallgruppe (=0)
+        ausgefuehrt wird. Waehlen Sie =1 auch dann, wenn ein einmaliger Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand je betroffenem Akteur
+        nur einmal entsteht, aber mit der Zahl der Betroffenen skaliert. Waehlen Sie =0 nur dann, wenn der Aufwand unabhaengig von der Zahl der Betroffenen oder
+        Faelle wirklich nur einmal zentral fuer die gesamte Fallgruppe anfaellt.
 
         {effort_appendix}
 
