@@ -697,7 +697,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {norm_addressee_rule}
 
-        Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
+        Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_process_example}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
@@ -771,7 +771,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {norm_addressee_rule}
 
-        Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
+        Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_case_group_example}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
@@ -1033,10 +1033,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         beruehrt werden und auch kein indirekter Verhaltens- oder Nachfrageeffekt zu erwarten ist. Umgekehrt duerfen Sie Fallzahlen nicht ohne sachlichen
         Grund kuenstlich angleichen, nur weil sich primaer der Aufwand pro Fall aendert.
 
-        Offizielles Methodenbeispiel aus dem Leitfaden (woertlich uebernommen):
+        Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_cases_frequency_example}
 
-        Offizielles Fallzahlbeispiel aus dem Leitfaden (woertlich uebernommen):
+        Fallzahlbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_cases_case_example}
 
         Allgemein gilt: Bei periodisch zu erfuellenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Haeufigkeit mit der Anzahl 

@@ -138,7 +138,10 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
         norm_addressee=BUSINESS,
     )
 
-    assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
+    assert (
+        "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) in prompt
     assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" in prompt
     assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
     assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
@@ -152,7 +155,10 @@ def test_case_group_development_prompt_includes_verbatim_handbook_example():
         norm_addressee=BUSINESS,
     )
 
-    assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
+    assert (
+        "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) in prompt
     assert "Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)" in prompt
     assert "Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)" in prompt
 
@@ -165,7 +171,14 @@ def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
         norm_addressee=CITIZENS,
     )
 
-    assert "Offizielles Methodenbeispiel aus dem Leitfaden" in prompt
+    assert (
+        "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) in prompt
+    assert (
+        "Fallzahlbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) in prompt
     assert "- einmal jährlich: Häufigkeit = 1" in prompt
     assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" in prompt
 
