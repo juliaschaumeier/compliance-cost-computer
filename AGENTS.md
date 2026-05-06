@@ -15,6 +15,7 @@ This project defines Codex role specifications in `.codex/agents/` and shared sk
 - `AGENTS.md` and `.agents/skills/*` are the repo-local guidance layers that should be assumed to work today.
 - `.codex/agents/*.toml` should be treated as role definitions and controlling instruction sets.
 - When a user refers to a role by name, Codex should decide whether to use native role/subagent support or to follow the corresponding `.codex/agents/<role>.toml` role spec in the current session, depending on runtime capabilities.
+- If native role/subagent launch fails because the configured/native model is unavailable, do not retry the same failing native role path. Fall back to the corresponding `.codex/agents/<role>.toml` behavior spec using an available default subagent or by mimicking the role locally.
 - Referring to a role by name should imply its full behavior contract. For example, asking for `feature_developer` should trigger code inspection, clarifying questions, workplan creation/update, and an approval checkpoint before edits without the user needing to restate those steps.
 - `.claude/agents/*` are Claude Code-native subagent definitions.
 

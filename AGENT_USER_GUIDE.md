@@ -20,6 +20,7 @@ Use it to answer these questions:
 - `CODING_ASSISTANT.md` is the canonical engineering guide for repo rules and layering expectations.
 - `.codex/agents/*.toml` define Codex role behavior.
 - When you name a Codex role, Codex should decide whether to use native role/subagent support or to follow the corresponding `.codex/agents/*.toml` role spec in the current session.
+- If a native Codex role cannot start because its model is unavailable in the current runtime, Codex should fall back to the matching `.codex/agents/*.toml` behavior spec with an available default subagent or mimic the role locally.
 - Naming a role should imply its full behavior contract. For example, `feature_developer` should inspect the code, ask clarifying questions, create or update a workplan, and wait for approval before editing.
 - `.claude/agents/*` are Claude Code-native subagent definitions.
 - `CLAUDE.md` is the Claude Code entrypoint for this repo.
