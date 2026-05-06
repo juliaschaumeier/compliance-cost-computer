@@ -849,10 +849,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - step_analysis_addressee_context
     # - step_analysis_addressee_rule
     PromptId.PROCESS_STEP_ANALYSIS: (
-        """
-        Sie analysieren eine geplante Gesetzesaenderung im Rahmen der Ermittlung
-        des Erfuellungsaufwands.
-
+        LEGIST_PROMPT_OPENING
+        + """
         In diesem Schritt identifizieren Sie ausschliesslich die fachlich
         relevanten Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines
         Prozesses im Einzelfall zu erwarten sind. Diese Taetigkeiten koennen neu
@@ -860,9 +858,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen,
         Stundenloehne, Sachaufwaende oder Kosten.
-
-        Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
-        zusammengefasst: {law_summary}
 
         {step_analysis_addressee_context}
 

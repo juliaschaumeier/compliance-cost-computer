@@ -269,9 +269,9 @@ def test_norm_addressee_prompts_integrate_guidance_before_schema(prompt_id, norm
 
 def test_process_step_analysis_prompt_sets_known_norm_addressee_after_context():
     prompt = _render_step_analysis_prompt(BUSINESS)
-    first_lines = "\n".join(prompt.splitlines()[:15])
+    first_lines = "\n".join(prompt.splitlines()[:20])
 
-    assert first_lines.index("Sie analysieren eine geplante Gesetzesaenderung") < first_lines.index(
+    assert first_lines.index("Sie sind Legist im deutschen Bundestag") < first_lines.index(
         "Die wesentlichen Unterschiede"
     )
     assert "Dieser Lauf betrifft nur den Normadressaten `business`" in prompt
@@ -294,7 +294,9 @@ def test_process_step_analysis_prompt_uses_integrated_step_specific_intro():
 
     assert "In diesem Schritt identifizieren Sie ausschliesslich die fachlich" in prompt
     assert not hasattr(prompts, "PROCESS_STEP_ANALYSIS_OPENING")
-    assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in prompt
+    assert prompt.index("Sie sind Legist im deutschen Bundestag") < prompt.index(
+        "In diesem Schritt identifizieren Sie ausschliesslich"
+    )
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -310,12 +312,14 @@ def test_process_step_analysis_prompt_has_final_json_instruction_last(norm_addre
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_does_not_use_general_effort_opening(norm_addressee):
+def test_process_step_analysis_prompt_keeps_general_context_before_step_scope(norm_addressee):
     prompt = _render_step_analysis_prompt(norm_addressee)
 
-    assert "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen" not in prompt
-    assert "Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen des" not in prompt
-    assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in prompt
+    assert "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen" in prompt
+    assert "Schaetzen Sie in diesem Schritt keine Minuten" in prompt
+    assert prompt.index(
+        "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen"
+    ) < prompt.index("Schaetzen Sie in diesem Schritt keine Minuten")
 
 
 def test_process_step_analysis_prompt_keeps_vorgaben_ids_as_technical_link():

@@ -238,9 +238,12 @@ class TestProcessStepAnalysisContract:
             "Null-Zeitaufwaende",
             "Gesamtzeitaufwand",
             "Zeitaufwand fuer Wegezeiten",
-            "Zeit-, Personal- sowie Sachaufwands ermittelt",
         ]
         assert all(phrase not in text for phrase in forbidden)
+        assert "Zeit-, Personal- sowie Sachaufwands ermittelt" in text
+        assert text.index("Zeit-, Personal- sowie Sachaufwands ermittelt") < text.index(
+            "Schaetzen Sie in diesem Schritt keine Minuten"
+        )
 
     @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
     def test_step_analysis_uses_flexible_activity_count(self, norm_addressee):
