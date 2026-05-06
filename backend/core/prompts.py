@@ -35,10 +35,26 @@ PROMPTS_REQUIRING_NORM_ADDRESSEE = {
     PromptId.EFFORT_CALCULATION,
 }
 
-LEGIST_PROMPT_OPENING = (
+LEGIST_CONTEXT_OPENING = (
     """
     Sie sind Legist im deutschen Bundestag und damit betraut, die 
-    Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen.
+    Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung
+    fachlich einzuordnen und vorzubereiten.
+
+    Der Erfuellungsaufwand umfasst den Zeit-, Personal- und Sachaufwand,
+    der durch die Befolgung gesetzlicher Vorgaben bei den betroffenen
+    Normadressaten entsteht. Die Analyse erfolgt schrittweise:
+    Vorgaben werden identifiziert, zu Prozessen und Fallgruppen strukturiert,
+    in Taetigkeiten zerlegt und erst in spaeteren Schritten mit Fallzahlen,
+    Aufwand und Kosten hinterlegt.
+
+    """
+)
+
+
+LEGIST_PROMPT_OPENING = (
+    LEGIST_CONTEXT_OPENING
+    + """
 
     Insbesondere werden zur Ermittlung der zu erwartenden Aenderung des Aufwands 
     pro Fall die wesentlichen Taetigkeiten identifiziert, die zur Erfuellung 
@@ -849,7 +865,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - step_analysis_addressee_context
     # - step_analysis_addressee_rule
     PromptId.PROCESS_STEP_ANALYSIS: (
-        LEGIST_PROMPT_OPENING
+        LEGIST_CONTEXT_OPENING
         + """
         In diesem Schritt identifizieren Sie ausschliesslich die fachlich
         relevanten Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines
@@ -858,6 +874,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen,
         Stundenloehne, Sachaufwaende oder Kosten.
+
+        Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
+        zusammengefasst: {law_summary}
 
         {step_analysis_addressee_context}
 

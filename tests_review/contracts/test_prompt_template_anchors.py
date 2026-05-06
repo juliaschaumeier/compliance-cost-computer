@@ -240,8 +240,9 @@ class TestProcessStepAnalysisContract:
             "Zeitaufwand fuer Wegezeiten",
         ]
         assert all(phrase not in text for phrase in forbidden)
-        assert "Zeit-, Personal- sowie Sachaufwands ermittelt" in text
-        assert text.index("Zeit-, Personal- sowie Sachaufwands ermittelt") < text.index(
+        assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in text
+        assert "fachlich einzuordnen und vorzubereiten" in text
+        assert text.index("fachlich einzuordnen und vorzubereiten") < text.index(
             "Schaetzen Sie in diesem Schritt keine Minuten"
         )
 
