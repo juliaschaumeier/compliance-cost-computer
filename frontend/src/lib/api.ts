@@ -274,10 +274,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: appSessionId,
-        norm_addressee:
-          normAddressee && normAddressee !== "administration"
-            ? normAddressee
-            : undefined,
+        norm_addressee: normAddressee,
       }),
     });
     if (!response.ok) {

@@ -108,24 +108,6 @@ const APP_SESSION_STORAGE_KEY = "app_session_id";
 const LEGACY_SESSION_STORAGE_KEY = "session_id";
 const SELECTED_NORM_ADDRESSEE_STORAGE_KEY = "selected_norm_addressee";
 
-// Lazy-Initializer fuer selectedNormAddressee: liest den zuletzt gewaehlten
-// Adressaten aus SessionStorage, damit nach Reload keine Verwaltung-Flash
-// entsteht und die Anzeige konsistent mit dem vorherigen User-Zustand ist.
-function readStoredNormAddressee(): NormAddressee {
-  if (typeof window === "undefined") {
-    return "administration";
-  }
-  try {
-    const stored = sessionStorage.getItem(SELECTED_NORM_ADDRESSEE_STORAGE_KEY);
-    if (stored === "administration" || stored === "business" || stored === "citizens") {
-      return stored;
-    }
-  } catch {
-    // SessionStorage kann in privaten Browsing-Modi oder SSR unzugaenglich
-    // sein - dann faellt das Feature auf den Default zurueck.
-  }
-  return "administration";
-}
 const NORM_ADDRESSEE_READINESS_STORAGE_KEY = "norm_addressee_readiness";
 const READINESS_STORAGE_KEYS = [
   "summary_ready",
@@ -149,7 +131,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [appSessionId, setAppSessionIdState] = useState("");
   const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
   const [selectedNormAddressee, setSelectedNormAddresseeState] =
-    useState<NormAddressee>(readStoredNormAddressee);
+    useState<NormAddressee>("administration");
+  const [selectedNormAddresseeHydrated, setSelectedNormAddresseeHydrated] =
+    useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedModelHydrated, setSelectedModelHydrated] = useState(false);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
@@ -251,6 +235,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (stored === "administration" || stored === "business" || stored === "citizens") {
       setSelectedNormAddresseeState(stored);
     }
+    setSelectedNormAddresseeHydrated(true);
     const storedReadiness = sessionStorage.getItem(NORM_ADDRESSEE_READINESS_STORAGE_KEY);
     if (!storedReadiness) {
       return;
@@ -287,11 +272,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [appSessionId, readinessSetters, logDebug]);
 
   useEffect(() => {
+    if (!selectedNormAddresseeHydrated) {
+      return;
+    }
     sessionStorage.setItem(
       SELECTED_NORM_ADDRESSEE_STORAGE_KEY,
       selectedNormAddressee
     );
-  }, [selectedNormAddressee]);
+  }, [selectedNormAddressee, selectedNormAddresseeHydrated]);
 
   useEffect(() => {
     sessionStorage.setItem(

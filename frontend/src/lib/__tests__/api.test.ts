@@ -42,7 +42,7 @@ describe("apiClient.rebuildTiles", () => {
     );
   });
 
-  it("omits administration because the backend default is administration", async () => {
+  it("also sends administration explicitly", async () => {
     await apiClient.rebuildTiles("ABC123", "administration");
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -50,7 +50,7 @@ describe("apiClient.rebuildTiles", () => {
       expect.objectContaining({
         body: JSON.stringify({
           app_session_id: "ABC123",
-          norm_addressee: undefined,
+          norm_addressee: "administration",
         }),
       })
     );

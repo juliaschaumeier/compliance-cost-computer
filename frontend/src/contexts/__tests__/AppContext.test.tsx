@@ -1,5 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import React from "react";
+import { renderToString } from "react-dom/server.node";
 
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
@@ -118,5 +119,38 @@ describe("AppContext session status sync", () => {
       const node = getByTestId("state");
       expect(node.getAttribute("data-addressee")).toBe("citizens");
     });
+  });
+
+  it("does not overwrite the stored addressee before hydration completes", async () => {
+    sessionStorage.setItem("app_session_id", "ABC123");
+    sessionStorage.setItem("selected_norm_addressee", "business");
+    const setItemSpy = jest.spyOn(Storage.prototype, "setItem");
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      expect(getByTestId("state").getAttribute("data-addressee")).toBe("business");
+    });
+    expect(setItemSpy).not.toHaveBeenCalledWith(
+      "selected_norm_addressee",
+      "administration"
+    );
+    setItemSpy.mockRestore();
+  });
+
+  it("uses the default addressee for server render even when storage has another value", () => {
+    sessionStorage.setItem("selected_norm_addressee", "business");
+
+    const html = renderToString(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    expect(html).toContain('data-addressee="administration"');
   });
 });

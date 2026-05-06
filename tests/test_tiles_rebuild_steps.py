@@ -1,6 +1,6 @@
 from backend.core import db
 from backend.core.models import Tile
-from backend.core.norm_addressees import BUSINESS, CITIZENS
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
 
 def test_rebuild_tiles_keeps_step_order(test_client):
@@ -45,6 +45,77 @@ def test_rebuild_tiles_keeps_step_order(test_client):
     by_id = {tile.id: tile for tile in step_tiles}
     assert by_id[f"step_{step_one}"].column < by_id[f"step_{step_two}"].column
     assert by_id[f"step_{step_two}"].column < by_id[f"step_{step_three}"].column
+
+
+def test_rebuild_tiles_restores_deleted_business_tiles_for_selected_addressee(test_client):
+    """Regression for #19: rebuild must restore the active addressee snapshot."""
+    app_session_id = "TILES-REBUILD-BUSINESS"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(
+        app_session_id,
+        "Titel",
+        "Zusammenfassung",
+        law_diff_blurb="Kurzfassung",
+    )
+
+    admin_process_id = db.insert_process(
+        session_id,
+        "Admin Prozess",
+        "Admin Beschreibung",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_process_id = db.insert_process(
+        session_id,
+        "Business Prozess",
+        "Business Beschreibung",
+        norm_addressee=BUSINESS,
+    )
+    business_regulation_id = db.insert_regulation(
+        session_id,
+        "§ B",
+        "Business Vorgabe",
+        applies_to_administration=False,
+        applies_to_business=True,
+    )
+    assert db.update_regulation_process(
+        regulation_id=business_regulation_id,
+        process_id=business_process_id,
+        norm_addressee=BUSINESS,
+    )
+
+    resp = test_client.post(
+        "/tiles/rebuild",
+        json={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+    assert {
+        tile.id for tile in db.fetch_tiles(session_id=session_id, norm_addressee=BUSINESS)
+    } >= {f"regulation_{business_regulation_id}", f"process_{business_process_id}"}
+
+    delete_resp = test_client.delete(
+        f"/tiles/process_{business_process_id}",
+        params={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert delete_resp.status_code == 200
+    assert f"process_{business_process_id}" not in {
+        tile.id for tile in db.fetch_tiles(session_id=session_id, norm_addressee=BUSINESS)
+    }
+
+    resp = test_client.post(
+        "/tiles/rebuild",
+        json={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+
+    business_tile_ids = {
+        tile.id for tile in db.fetch_tiles(session_id=session_id, norm_addressee=BUSINESS)
+    }
+    admin_tile_ids = {
+        tile.id for tile in db.fetch_tiles(session_id=session_id, norm_addressee=ADMINISTRATION)
+    }
+    assert f"process_{business_process_id}" in business_tile_ids
+    assert f"process_{admin_process_id}" not in business_tile_ids
+    assert f"process_{business_process_id}" not in admin_tile_ids
 
 
 def test_rebuild_uses_blurb_for_law_tile_text(test_client):
