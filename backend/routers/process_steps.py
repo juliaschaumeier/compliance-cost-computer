@@ -151,7 +151,6 @@ def _parse_process_steps(
         if not isinstance(process, dict):
             continue
         process_status = extract_change_status(process)
-        process_regulation_ids = _parse_regulation_ids(process.get("vorgaben"))
         fallgruppen = process.get("fallgruppen")
         if not isinstance(fallgruppen, list):
             continue
@@ -203,7 +202,6 @@ def _parse_process_steps(
                     {
                         "case_group_id": case_group_id,
                         "aenderungsstatus": case_group_status or process_status,
-                        "process_regulation_ids": process_regulation_ids,
                         "taetigkeiten": steps,
                     }
                 )
@@ -258,7 +256,6 @@ def _parse_process_steps(
                 {
                     "case_group_id": case_group_id,
                     "aenderungsstatus": case_group_status,
-                    "process_regulation_ids": [],
                     "taetigkeiten": steps,
                 }
             )

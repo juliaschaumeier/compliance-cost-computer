@@ -393,11 +393,11 @@ def test_summary_separates_blurb_and_summary_storage_and_display(test_client, mo
         vorgaben_json="[]",
         norm_addressee=ADMINISTRATION,
     )
-    assert "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext." in prompt
-    assert "Kurzer Satz." not in prompt
+    assert "aktuelles gesetz" in prompt
+    assert "neuer entwurf" in prompt
 
 
-def test_identify_prompt_contains_session_summary_and_law_texts(test_client, monkeypatch):
+def test_identify_prompt_contains_law_texts(test_client, monkeypatch):
     current_text = "CURRENT_TEXT_UNIQUE_4711"
     proposed_text = "PROPOSED_TEXT_UNIQUE_815"
     summary_text = "SUMMARY_CONTEXT_UNIQUE_996"
@@ -446,7 +446,6 @@ def test_identify_prompt_contains_session_summary_and_law_texts(test_client, mon
     assert len(prompts) == 2
 
     identify_prompt = prompts[1]
-    assert summary_text in identify_prompt
     assert current_text in identify_prompt
     assert proposed_text in identify_prompt
 
@@ -613,19 +612,3 @@ def test_identify_regulations_business_information_flag_adds_business_addressee(
     assert row["is_business_information_obligation"] == 1
 
 
-def test_prompt_opening_falls_back_to_blurb_when_summary_empty(test_client):
-    session_id, _ = db.upsert_session("PROMPT-BLURB-FALLBACK", "test-model")
-    db.update_session_summary(
-        "PROMPT-BLURB-FALLBACK",
-        "Titel",
-        "",
-        law_diff_blurb="Fallback Blurb Text",
-    )
-
-    prompt = render_prompt(
-        PromptId.PROCESS_COMPILATION,
-        session_id=session_id,
-        vorgaben_json="[]",
-        norm_addressee=ADMINISTRATION,
-    )
-    assert "Fallback Blurb Text" in prompt

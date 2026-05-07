@@ -171,7 +171,8 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_renders_known_norm_addressee(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            law_summary="Kurzfassung",
+            gesetz_gueltig="Geltend",
+            gesetz_vorschlag="Vorschlag",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -183,7 +184,8 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_final_json_instruction_is_last(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            law_summary="Kurzfassung",
+            gesetz_gueltig="Geltend",
+            gesetz_vorschlag="Vorschlag",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -196,7 +198,8 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_renders_integrated_addressee_context_and_rule(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            law_summary="Kurzfassung",
+            gesetz_gueltig="Geltend",
+            gesetz_vorschlag="Vorschlag",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -212,7 +215,8 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_excludes_effort_calculation_instructions(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            law_summary="Kurzfassung",
+            gesetz_gueltig="Geltend",
+            gesetz_vorschlag="Vorschlag",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -226,17 +230,14 @@ class TestProcessStepAnalysisContract:
             "Zeitaufwand fuer Wegezeiten",
         ]
         assert all(phrase not in text for phrase in forbidden)
-        assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in text
-        assert "der konkrete Arbeitsauftrag ergibt sich aus dem" in text
-        assert text.index("der konkrete Arbeitsauftrag ergibt sich aus dem") < text.index(
-            "Schaetzen Sie in diesem Schritt keine Minuten"
-        )
+        assert "Schaetzen Sie in diesem Schritt keine Minuten" in text
 
     @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
     def test_step_analysis_uses_flexible_activity_count(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            law_summary="Kurzfassung",
+            gesetz_gueltig="Geltend",
+            gesetz_vorschlag="Vorschlag",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )

@@ -29,7 +29,8 @@ def _render(norm_addressee: str) -> str:
     return render_prompt(
         PromptId.PROCESS_STEP_ANALYSIS,
         case_groups_json="[]",
-        law_summary="dummy",
+        gesetz_gueltig="dummy",
+        gesetz_vorschlag="dummy",
         norm_addressee=norm_addressee,
     )
 
