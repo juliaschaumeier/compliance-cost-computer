@@ -35,33 +35,15 @@ PROMPTS_REQUIRING_NORM_ADDRESSEE = {
     PromptId.EFFORT_CALCULATION,
 }
 
-LEGIST_CONTEXT_OPENING = (
+LEGIST_PROMPT_OPENING = (
     """
-    Sie sind Legist im deutschen Bundestag und damit betraut, die 
-    Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung
-    fachlich einzuordnen und vorzubereiten.
+    Sie sind Legist im deutschen Bundestag und damit betraut, die
+    Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu ermitteln.
 
     Der Erfuellungsaufwand bezeichnet den Aufwand, der durch die Befolgung
     gesetzlicher Vorgaben beim betroffenen Normadressaten entsteht. Die Analyse
-    erfolgt schrittweise:
-    Vorgaben werden identifiziert, zu Prozessen und Fallgruppen strukturiert,
-    in Taetigkeiten zerlegt und erst in spaeteren Schritten mit Fallzahlen,
-    Aufwand und, soweit vorgesehen, Kosten hinterlegt.
-
-    """
-)
-
-
-LEGIST_PROMPT_OPENING = (
-    LEGIST_CONTEXT_OPENING
-    + """
-
-    Insbesondere werden zur Ermittlung der zu erwartenden Aenderung des Aufwands 
-    pro Fall die wesentlichen Taetigkeiten identifiziert, die zur Erfuellung 
-    einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese 
-    schliessen Taetigkeiten ein, welche neu hinzukommen, welche sich aendern und 
-    welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen des 
-    Zeit-, Personal- sowie Sachaufwands ermittelt.
+    erfolgt schrittweise; der konkrete Arbeitsauftrag ergibt sich aus dem
+    jeweiligen Prompt.
 
     Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt 
     zusammengefasst: {law_summary}
@@ -161,9 +143,7 @@ PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
         "Haupttaetigkeiten aus, die fuer den Vorher-Nachher-Vergleich der "
         "Fallgruppe benoetigt werden. Uebernehmen Sie keine Handlungen der "
         "Wirtschaft und keine privaten Handlungen von Buergerinnen und "
-        "Buergern als Verwaltungstaetigkeit. Schaetzen Sie in der "
-        "Schrittanalyse keine Lohngruppen, Stundenloehne, Zeitaufwaende, "
-        "Sachaufwaende oder Kosten."
+        "Buergern als Verwaltungstaetigkeit."
     ),
     BUSINESS: (
         "Jede Taetigkeit beschreibt eine Handlung des Unternehmens zur "
@@ -175,9 +155,7 @@ PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
         "er den Handlungskern praegt. Uebernehmen Sie keine "
         "Verwaltungshandlungen (z.B. Bescheiderstellung, behoerdliche "
         "Pruefung) und keine rein privaten Handlungen von Buergerinnen und "
-        "Buergern als Unternehmenstaetigkeit. Schaetzen Sie in der "
-        "Schrittanalyse keine Zeitaufwaende, Stundenloehne, Sachaufwaende, "
-        "IT-/Personalaufwaende oder Kosten."
+        "Buergern als Unternehmenstaetigkeit."
     ),
     CITIZENS: (
         "Jede Taetigkeit muss eine Handlung der Buergerinnen und Buerger "
@@ -185,8 +163,7 @@ PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
         "Pruefungen, Bescheiderstellung, interne Ruecksprachen, "
         "Unternehmensablaeufe oder fachliche Schritte Dritter. Geben Sie nur "
         "die minimale, aber vollstaendige Menge buergerseitiger "
-        "Haupttaetigkeiten aus. Schaetzen Sie in der Schrittanalyse keine "
-        "Zeit- oder Sachaufwaende und keine Kosten."
+        "Haupttaetigkeiten aus."
     ),
 }
 
@@ -504,8 +481,6 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
 }
 
 Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
-
-Hinweis zu `ausfuehrung_pro_einzelfall`: Setzen Sie `1`, wenn der Aufwand je betroffenem Fall oder je betroffenem Akteur anfaellt, auch wenn dieser Aufwand fuer diesen Fall oder Akteur nur einmalig entsteht. Setzen Sie `0` nur, wenn der Aufwand wirklich nur einmal zentral fuer die gesamte Fallgruppe entsteht und nicht mit der Zahl der Betroffenen oder Faelle skaliert.
 """
 
 
@@ -553,8 +528,6 @@ EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
 }
 
 Das Feld `normadressat` ist immer `citizens` fuer dieses Schema.
-
-Hinweis zu `ausfuehrung_pro_einzelfall`: Setzen Sie `1`, wenn der Aufwand je betroffenem Fall oder je betroffenem Akteur anfaellt, auch wenn dieser Aufwand fuer diesen Fall oder Akteur nur einmalig entsteht. Setzen Sie `0` nur, wenn der Aufwand wirklich nur einmal zentral fuer die gesamte Fallgruppe entsteht und nicht mit der Zahl der Betroffenen oder Faelle skaliert.
 """
 }
 
@@ -713,7 +686,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {norm_addressee_rule}
 
-        Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_process_example}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
@@ -756,7 +728,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         ]
         }}
 
-        Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten. Bearbeiten Sie ausschliesslich Vorgaben fuer diesen Normadressaten.
+        Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
@@ -787,7 +759,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {norm_addressee_rule}
 
-        Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_case_group_example}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
@@ -865,7 +836,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - step_analysis_addressee_context
     # - step_analysis_addressee_rule
     PromptId.PROCESS_STEP_ANALYSIS: (
-        LEGIST_CONTEXT_OPENING
+        LEGIST_PROMPT_OPENING
         + """
         In diesem Schritt identifizieren Sie ausschliesslich die fachlich
         relevanten Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines
@@ -874,9 +845,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen,
         Stundenloehne, Sachaufwaende oder Kosten.
-
-        Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
-        zusammengefasst: {law_summary}
 
         {step_analysis_addressee_context}
 
@@ -895,12 +863,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte
         Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu,
         wenn sich tatsaechlich nur einzelne Schritte aendern.
-
-        Geben Sie je Taetigkeit `vorgaben_ids` als technische Rueckbindung an
-        die ausloesenden Vorgaben dieses Prozesses an. Verwenden Sie nur
-        `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses. Wenn im Prozess nur genau eine Vorgabe enthalten ist, verwenden Sie diese ID bei allen
-        zugehoerigen Taetigkeiten; wenn mehrere Vorgaben eine Taetigkeit
-        gemeinsam ausloesen, geben Sie mehrere passende IDs an.
 
         {step_analysis_checklist}
         
@@ -935,14 +897,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
-                            "vorgaben_ids": [""]
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }},
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
-                            "vorgaben_ids": [""]
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }}
                     ]
                 }},
@@ -951,12 +911,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "fallgruppe_bezeichnung": "",
                     "fallgruppe_beschreibung": "",
                     "aenderungsstatus": "",
-                    "taetigkeiten": [ 
+                    "taetigkeiten": [
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
-                            "vorgaben_ids": [""]
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }}
                     ]
                 }}
@@ -991,14 +950,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
-                            "vorgaben_ids": [""]
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }},
                         {{
                             "taetigkeit": "",
                             "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert",
-                            "vorgaben_ids": [""]
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
                         }}
                     ]
                 }}
@@ -1047,10 +1004,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         beruehrt werden und auch kein indirekter Verhaltens- oder Nachfrageeffekt zu erwarten ist. Umgekehrt duerfen Sie Fallzahlen nicht ohne sachlichen
         Grund kuenstlich angleichen, nur weil sich primaer der Aufwand pro Fall aendert.
 
-        Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_cases_frequency_example}
 
-        Fallzahlbeispiel aus dem Leitfaden zur Orientierung; nicht als Sachverhalt dieses Regelungsvorhabens verwenden:
         {handbook_cases_case_example}
 
         Allgemein gilt: Bei periodisch zu erfuellenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Haeufigkeit mit der Anzahl 
@@ -1186,10 +1141,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         • Aufwand fuer die Nachruestung von Anlagen, 
         • Sachaufwand fuer Wege zu anderen Behoerden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
 
-        Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall bzw. pro betroffenem Akteur (=1) oder lediglich einmal zentral fuer die gesamte Fallgruppe (=0)
-        ausgefuehrt wird. Waehlen Sie =1 auch dann, wenn ein einmaliger Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand je betroffenem Akteur
-        nur einmal entsteht, aber mit der Zahl der Betroffenen skaliert. Waehlen Sie =0 nur dann, wenn der Aufwand unabhaengig von der Zahl der Betroffenen oder
-        Faelle wirklich nur einmal zentral fuer die gesamte Fallgruppe anfaellt.
+        Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgefuehrt wird (=0).
+        Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
+        einzelnen Fall erneut anfaellt.
 
         {effort_appendix}
 
@@ -1248,7 +1202,7 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     )
     render_values.setdefault(
         "handbook_cases_frequency_example",
-        CASES_CALCULATION_FREQUENCY_EXAMPLE,
+        _render_handbook_cases_frequency_example(),
     )
     render_values.setdefault(
         "handbook_cases_case_example",
@@ -1461,20 +1415,44 @@ def _render_prompt_specific_addressee_rule(prompt_id: str, norm_addressee: str |
 
 def _render_handbook_process_example(norm_addressee: str | None) -> str:
     if norm_addressee == BUSINESS:
-        return PROCESS_COMPILATION_EXAMPLE
+        return _render_handbook_example_block(PROCESS_COMPILATION_EXAMPLE)
     return ""
 
 
 def _render_handbook_case_group_example(norm_addressee: str | None) -> str:
     if norm_addressee == BUSINESS:
-        return CASE_GROUP_DEVELOPMENT_EXAMPLE
+        return _render_handbook_example_block(CASE_GROUP_DEVELOPMENT_EXAMPLE)
     return ""
+
+
+def _render_handbook_cases_frequency_example() -> str:
+    return _render_handbook_example_block(CASES_CALCULATION_FREQUENCY_EXAMPLE)
 
 
 def _render_handbook_cases_case_example(norm_addressee: str | None) -> str:
     if norm_addressee == CITIZENS:
-        return CASES_CALCULATION_CASE_EXAMPLE
+        return _render_handbook_example_block(
+            CASES_CALCULATION_CASE_EXAMPLE,
+            heading=(
+                "Fallzahlbeispiel aus dem Leitfaden zur Orientierung; "
+                "nicht als Sachverhalt dieses Regelungsvorhabens verwenden:"
+            ),
+        )
     return ""
+
+
+def _render_handbook_example_block(
+    example: str,
+    *,
+    heading: str = (
+        "Methodenbeispiel aus dem Leitfaden zur Orientierung; "
+        "nicht als Sachverhalt dieses Regelungsvorhabens verwenden:"
+    ),
+) -> str:
+    text = str(example or "").strip()
+    if not text:
+        return ""
+    return f"{heading}\n{text}"
 
 
 def _render_effort_appendix(norm_addressee: str | None) -> str:
@@ -1493,15 +1471,11 @@ def _render_effort_appendix(norm_addressee: str | None) -> str:
     )
 
 
-def _render_effort_method_guidance(norm_addressee: str | None) -> str:
-    if not norm_addressee:
-        norm_addressee = ADMINISTRATION
+def _render_effort_method_guidance(norm_addressee: str) -> str:
     return EFFORT_METHOD_GUIDANCE.get(norm_addressee, EFFORT_METHOD_GUIDANCE[ADMINISTRATION])
 
 
-def _render_effort_json_schema(norm_addressee: str | None) -> str:
-    if not norm_addressee:
-        norm_addressee = ADMINISTRATION
+def _render_effort_json_schema(norm_addressee: str) -> str:
     schema = EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee)
     if schema is not None:
         return schema.strip()

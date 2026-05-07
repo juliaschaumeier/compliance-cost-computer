@@ -98,23 +98,6 @@ def test_effort_prompt_schema_uses_single_json_braces(norm_addressee):
     assert "}}" not in prompt
 
 
-@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_effort_prompt_distinguishes_per_actor_once_from_central_once(
-    norm_addressee,
-):
-    prompt = _compact(_render_effort_prompt(norm_addressee))
-
-    assert "pro betroffenem Akteur (=1)" in prompt
-    assert (
-        "einmaliger Umstellungs-, Einfuehrungs-, Abstimmungs- oder "
-        "Einarbeitungsaufwand je betroffenem Akteur"
-    ) in prompt
-    assert "nur einmal entsteht, aber mit der Zahl der Betroffenen skaliert" in prompt
-    assert "nur einmal zentral fuer die gesamte Fallgruppe anfaellt" in prompt
-    assert "Hinweis zu `ausfuehrung_pro_einzelfall`" in prompt
-    assert "nicht mit der Zahl der Betroffenen oder Faelle skaliert" in prompt
-
-
 def test_render_prompt_ignores_contract_field_overrides():
     prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,
@@ -192,18 +175,48 @@ def test_process_compilation_prompt_skips_business_example_for_administration():
     )
 
     assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" not in prompt
+    assert (
+        "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) not in prompt
 
 
-def test_cases_calculation_prompt_skips_citizens_case_example_for_administration():
+def test_case_group_development_prompt_skips_business_example_for_administration():
+    prompt = render_prompt(
+        PromptId.CASE_GROUP_DEVELOPMENT,
+        law_summary="Kurzfassung",
+        prozesse_json="[]",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    assert "Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)" not in prompt
+    assert (
+        "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS])
+def test_cases_calculation_prompt_skips_citizens_case_example_when_unavailable(
+    norm_addressee,
+):
     prompt = render_prompt(
         PromptId.CASES_CALCULATION,
         law_summary="Kurzfassung",
         case_groups_json="[]",
-        norm_addressee=ADMINISTRATION,
+        norm_addressee=norm_addressee,
     )
 
-    assert "- einmal jährlich: Häufigkeit = 1" in prompt
     assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" not in prompt
+    assert (
+        "Fallzahlbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) not in prompt
+    assert (
+        "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
+        "Sachverhalt dieses Regelungsvorhabens verwenden"
+    ) in prompt
+    assert "- einmal jährlich: Häufigkeit = 1" in prompt
 
 
 def test_render_prompt_requires_explicit_norm_addressee():
@@ -317,35 +330,13 @@ def test_process_step_analysis_prompt_keeps_general_context_before_step_scope(no
     prompt = _render_step_analysis_prompt(norm_addressee)
 
     assert "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung" in prompt
-    assert "fachlich einzuordnen und vorzubereiten" in prompt
+    assert "der konkrete Arbeitsauftrag ergibt sich aus dem" in prompt
+    assert not hasattr(prompts, "LEGIST_CONTEXT_OPENING")
     assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in prompt
     assert "Schaetzen Sie in diesem Schritt keine Minuten" in prompt
     assert prompt.index(
-        "fachlich einzuordnen und vorzubereiten"
+        "der konkrete Arbeitsauftrag ergibt sich aus dem"
     ) < prompt.index("Schaetzen Sie in diesem Schritt keine Minuten")
-
-
-def test_process_step_analysis_prompt_keeps_vorgaben_ids_as_technical_link():
-    prompt = _render_step_analysis_prompt(BUSINESS)
-    compact_prompt = _compact(prompt)
-
-    assert "`vorgaben_ids`" in prompt
-    assert "technische Rueckbindung" in prompt
-    assert "nur `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses" in compact_prompt
-    assert "Wenn im Prozess nur genau eine Vorgabe enthalten ist" in prompt
-
-
-@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_vorgaben_ids_contract_is_list_scoped_to_process(
-    norm_addressee,
-):
-    prompt = _render_step_analysis_prompt(norm_addressee)
-    compact_prompt = _compact(prompt)
-
-    assert '"vorgaben_ids": [""]' in prompt
-    assert '"vorgaben_id": [""]' not in prompt
-    assert "Wenn im Prozess nur genau eine Vorgabe enthalten ist" in prompt
-    assert "geben Sie mehrere passende IDs an" in compact_prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -450,7 +441,8 @@ def test_process_step_analysis_prompt_uses_only_addressee_specific_checklist(
 def test_administration_step_analysis_prompt_does_not_request_effort_values():
     prompt = _render_step_analysis_prompt(ADMINISTRATION)
 
-    assert "Schaetzen Sie in der Schrittanalyse keine Lohngruppen" in prompt
+    assert "Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen" in prompt
+    assert "Schaetzen Sie in der Schrittanalyse keine Lohngruppen" not in prompt
     assert "Weisen Sie pro Taetigkeit mindestens eine Lohngruppe" not in prompt
     assert "realistischem Zeitaufwand in Minuten" not in prompt
     assert "Null-Zeitaufwaende" not in prompt
@@ -459,7 +451,8 @@ def test_administration_step_analysis_prompt_does_not_request_effort_values():
 def test_business_step_analysis_prompt_does_not_request_it_or_effort_values():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
-    assert "Schaetzen Sie in der Schrittanalyse keine Zeitaufwaende" in prompt
+    assert "Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen" in prompt
+    assert "Schaetzen Sie in der Schrittanalyse keine Zeitaufwaende" not in prompt
     assert "loesen keinen Zeitaufwand aus" not in prompt
     assert "IT-bezogenen Sach- oder Personalaufwand separat" not in prompt
     assert "Null-Zeitaufwaende" not in prompt
@@ -469,6 +462,7 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
     prompt = _render_step_analysis_prompt(CITIZENS)
 
     assert "Jede Taetigkeit muss eine Handlung der Buergerinnen und Buerger selbst sein" in prompt
-    assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" in prompt
+    assert "Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen" in prompt
+    assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" not in prompt
     assert "Gesamtzeitaufwand" not in prompt
     assert "Zeitaufwand fuer Wegezeiten" not in prompt

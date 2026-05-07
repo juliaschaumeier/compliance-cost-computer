@@ -164,7 +164,7 @@ class TestProcessStepAnalysisContract:
 
     Der Prompt darf die spaetere Aufwandsermittlung vorbereiten, aber nicht
     selbst Minuten, Lohngruppen, Stundenloehne, Sachaufwand oder Kosten
-    anfordern. `vorgaben_ids` bleiben als technische Rueckbindung erhalten.
+    anfordern.
     """
 
     @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -209,20 +209,6 @@ class TestProcessStepAnalysisContract:
         assert rule in text
 
     @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-    def test_step_analysis_keeps_vorgaben_ids_with_process_scope(self, norm_addressee):
-        text = render_prompt(
-            PromptId.PROCESS_STEP_ANALYSIS,
-            law_summary="Kurzfassung",
-            case_groups_json="[]",
-            norm_addressee=norm_addressee,
-        )
-        compact_text = _compact(text)
-
-        assert "`vorgaben_ids`" in text
-        assert "technische Rueckbindung" in text
-        assert "nur `vorgaben_id`-Werte aus den Vorgaben dieses Prozesses" in compact_text
-
-    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
     def test_step_analysis_excludes_effort_calculation_instructions(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
@@ -241,8 +227,8 @@ class TestProcessStepAnalysisContract:
         ]
         assert all(phrase not in text for phrase in forbidden)
         assert "Zeit-, Personal- sowie Sachaufwands ermittelt" not in text
-        assert "fachlich einzuordnen und vorzubereiten" in text
-        assert text.index("fachlich einzuordnen und vorzubereiten") < text.index(
+        assert "der konkrete Arbeitsauftrag ergibt sich aus dem" in text
+        assert text.index("der konkrete Arbeitsauftrag ergibt sich aus dem") < text.index(
             "Schaetzen Sie in diesem Schritt keine Minuten"
         )
 
