@@ -350,7 +350,19 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "in Personentagen oder Personenmonaten genutzt und anschliessend umgerechnet "
         "werden. Fuer die Beschaeftigten im oeffentlichen Dienst gelten bei einer "
         "40-Stunden-Woche als Richtwerte 1 Personentag = 8 Stunden, 1 Personenmonat = "
-        "134 Stunden und 1 Personenjahr = 200 Arbeitstage."
+        "134 Stunden und 1 Personenjahr = 200 Arbeitstage.\n\n"
+        "Unter Sachaufwand faellt der Betriebs-, Unterhaltungs- und Investitionsaufwand, "
+        "der zur Erfuellung einer Vorgabe oder eines Prozesses zu erwarten ist. "
+        "Gemeinkosten zaehlen hingegen nicht zum Erfuellungsaufwand. Darueber hinaus "
+        "notwendige Investitionsaufwendungen des betroffenen Normadressaten sollten bei "
+        "der Aufwandsermittlung ebenfalls konkret aufgeschluesselt werden. Hierzu zaehlen "
+        "beispielsweise:\n"
+        "• Aufwand fuer die Inanspruchnahme Dritter (z. B. Handwerkerleistungen),\n"
+        "• Aufwand fuer die Beschaffung von spezieller Informations- und "
+        "Kommunikationstechnik,\n"
+        "• Aufwand fuer die Nachruestung von Anlagen,\n"
+        "• Sachaufwand fuer Wege zu anderen Behoerden oder Stellen "
+        "(siehe Anhang 5: Wegezeiten und -sachkosten)."
     ),
     BUSINESS: (
         "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
@@ -370,7 +382,19 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "Freigabe. Vermeiden Sie schematische Mehrfachbefuellung. Buerokratiekosten der "
         "Wirtschaft sind spaeter getrennt auszuweisen. Ersatzinvestitionen sind nur zur "
         "Haelfte als Erfuellungsaufwand anzusetzen, soweit kein anderer Anteil fachlich "
-        "begruendet ist."
+        "begruendet ist.\n\n"
+        "Unter Sachaufwand faellt der Betriebs-, Unterhaltungs- und Investitionsaufwand, "
+        "der zur Erfuellung einer Vorgabe oder eines Prozesses zu erwarten ist. "
+        "Gemeinkosten zaehlen hingegen nicht zum Erfuellungsaufwand. Darueber hinaus "
+        "notwendige Investitionsaufwendungen des betroffenen Normadressaten sollten bei "
+        "der Aufwandsermittlung ebenfalls konkret aufgeschluesselt werden. Hierzu zaehlen "
+        "beispielsweise:\n"
+        "• Aufwand fuer die Inanspruchnahme Dritter (z. B. Handwerkerleistungen),\n"
+        "• Aufwand fuer die Beschaffung von spezieller Informations- und "
+        "Kommunikationstechnik,\n"
+        "• Aufwand fuer die Nachruestung von Anlagen,\n"
+        "• Sachaufwand fuer Wege zu anderen Behoerden oder Stellen "
+        "(siehe Anhang 5: Wegezeiten und -sachkosten)."
     ),
     CITIZENS: (
         "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
@@ -1112,14 +1136,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         _vorschlag gleich bleiben; nur geaenderte Mehr- oder Minderaufwaende sind abweichend auszuweisen.
 
         {effort_method_guidance}
-
-        Unter Sachaufwand faellt der Betriebs-, Unterhaltungs- und Investitionsaufwand, der zur Erfuellung einer Vorgabe oder eines Prozesses zu erwarten ist. 
-        Gemeinkosten zaehlen hingegen nicht zum Erfuellungsaufwand. Darueber hinaus notwendige Investitionsaufwendungen des betroffenen Normadressaten sollten bei der 
-        Aufwandsermittlung ebenfalls konkret aufgeschluesselt werden. Hierzu zaehlen beispielsweise: 
-        • Aufwand fuer die Inanspruchnahme Dritter (z. B. Handwerkerleistungen), 
-        • Aufwand fuer die Beschaffung von spezieller Informations- und Kommunikationstechnik, 
-        • Aufwand fuer die Nachruestung von Anlagen, 
-        • Sachaufwand fuer Wege zu anderen Behoerden oder Stellen (siehe Anhang 5: Wegezeiten und -sachkosten).
 
         Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgefuehrt wird (=0).
         Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
