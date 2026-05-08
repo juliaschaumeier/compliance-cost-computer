@@ -303,7 +303,7 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
         "Alltagshandlungen kuenstlich zusammenziehen."
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Fuer Buergerinnen und Buerger koennen sich typische Fallgruppen insbesondere unterscheiden "
+        "Typische buergerbezogene Fallgruppen koennen sich insbesondere unterscheiden "
         "nach erstmaliger Erfuellung versus wiederkehrender Erfuellung, digitalem "
         "Verfahren versus Postweg oder persoenlichem Erscheinen, einfacher Standardlage "
         "versus zusaetzlichem Nachweis- oder Beratungsbedarf, eigener Vornahme versus "
@@ -609,8 +609,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
 
         Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
-        """
-        + """
+
         {law_mode_context}
 
         Ihre Aufgabe ist, ausgehend von den konsolidierten Versionen die Gesetzesaenderungen herauszuarbeiten und alle darin enthaltenen Vorgaben
@@ -873,35 +872,34 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         In diesem Schritt identifizieren Sie ausschliesslich die fachlich
         relevanten Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines
-        Prozesses im Einzelfall zu erwarten sind. Diese Taetigkeiten koennen neu
-        hinzukommen, sich aendern, wegfallen oder unveraendert bleiben.
+        Prozesses im Einzelfall zu erwarten sind.
 
         Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen,
         Stundenloehne, Sachaufwaende oder Kosten.
-
-        {step_analysis_addressee_context}
-
-        Die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
-        positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
-        Fallgruppen: {case_groups_json}
-
-        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
-        zu identifizieren. Die einzelnen Taetigkeiten koennen vor und nach der Gesetzesaenderung unterschiedlich sein, hinzukommen oder wegfallen, einige Taetigkeiten des
-        Prozesses koennen beibehalten bleiben. Geben Sie diesen Aenderungsstatus an, orientieren Sie sich dabei wenn noetig an den vorhandenen
-        Statusangaben in den Fallgruppen und Prozessen.
-
-        {step_analysis_addressee_rule}
 
         Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche
         Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte
         Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu,
         wenn sich tatsaechlich nur einzelne Schritte aendern.
 
-        {step_analysis_checklist}
-        
+        {step_analysis_addressee_context}
+
+        {step_analysis_addressee_rule}
+
+        Die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
+        positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
+        Fallgruppen: {case_groups_json}
+
+        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
+        zu identifizieren und je Taetigkeit den Aenderungsstatus anzugeben
+        (`eingefuehrt | geaendert | abgeschafft | unveraendert`). Orientieren Sie sich dabei wenn noetig an den vorhandenen
+        Statusangaben in den Fallgruppen und Prozessen.
+
         Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
         Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
-        
+
+        {step_analysis_checklist}
+
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
