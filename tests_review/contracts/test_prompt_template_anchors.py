@@ -171,8 +171,7 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_renders_known_norm_addressee(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            gesetz_gueltig="Geltend",
-            gesetz_vorschlag="Vorschlag",
+            law_summary="Kurzfassung",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -184,8 +183,7 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_final_json_instruction_is_last(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            gesetz_gueltig="Geltend",
-            gesetz_vorschlag="Vorschlag",
+            law_summary="Kurzfassung",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -198,8 +196,7 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_renders_integrated_addressee_context_and_rule(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            gesetz_gueltig="Geltend",
-            gesetz_vorschlag="Vorschlag",
+            law_summary="Kurzfassung",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -215,8 +212,7 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_excludes_effort_calculation_instructions(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            gesetz_gueltig="Geltend",
-            gesetz_vorschlag="Vorschlag",
+            law_summary="Kurzfassung",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
@@ -236,8 +232,7 @@ class TestProcessStepAnalysisContract:
     def test_step_analysis_uses_flexible_activity_count(self, norm_addressee):
         text = render_prompt(
             PromptId.PROCESS_STEP_ANALYSIS,
-            gesetz_gueltig="Geltend",
-            gesetz_vorschlag="Vorschlag",
+            law_summary="Kurzfassung",
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
