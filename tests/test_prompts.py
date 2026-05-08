@@ -2,7 +2,14 @@ import re
 
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core import prompts
-from backend.core.prompts import NORM_ADDRESSEE_PROMPT_OPENINGS, PromptId, render_prompt
+from backend.core.prompts import (
+    NORM_ADDRESSEE_PROMPT_OPENINGS,
+    PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS,
+    PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES,
+    PROMPT_TEMPLATES,
+    PromptId,
+    render_prompt,
+)
 import pytest
 
 
@@ -477,3 +484,111 @@ def test_process_step_analysis_prompt_does_not_use_generic_addressee_context(nor
     prompt = _render_step_analysis_prompt(norm_addressee)
     generic_context = NORM_ADDRESSEE_PROMPT_OPENINGS[norm_addressee].strip()
     assert generic_context not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Union/National bundling rule anchors in PROCESS_COMPILATION prompt
+# ---------------------------------------------------------------------------
+
+
+class TestProcessCompilationUnionNationalRule:
+    """LF-K10-001: Vorgaben aus Unionsrecht und nationalem Recht duerfen nie in
+    denselben Prozess gebuendelt werden. The rule must be explicitly present in
+    the PROCESS_COMPILATION prompt.
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.PROCESS_COMPILATION]
+
+    def test_template_mentions_unionsrecht(self, template: str):
+        assert "Unionsrecht" in template
+
+    def test_template_mentions_nationales_recht(self, template: str):
+        assert "nationalem Recht" in template
+
+    def test_template_forbids_bundling_explicitly(self, template: str):
+        assert "niemals" in template.lower()
+        assert "denselben Prozess" in template
+
+    def test_template_demands_separate_processes(self, template: str):
+        assert "getrennte Prozesse" in template
+
+    def test_template_explains_eu_attribution_motivation(self, template: str):
+        assert "EU-bedingten" in template or "EU-bedingt" in template
+
+
+# ---------------------------------------------------------------------------
+# PROCESS_STEP_ANALYSIS: stays activity analysis, no effort calculation
+# ---------------------------------------------------------------------------
+
+
+class TestProcessStepAnalysisContract:
+    """The step-analysis prompt may prepare for effort estimation but must not
+    request minutes, wage groups, hourly rates, expenses, or costs itself.
+    """
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_renders_integrated_addressee_context_and_rule(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+        context = PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS[norm_addressee]
+        rule = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[norm_addressee]
+
+        assert context.strip()
+        assert rule.strip()
+        assert context in text
+        assert rule in text
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_excludes_effort_calculation_instructions(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+
+        forbidden = [
+            "Weisen Sie pro Taetigkeit mindestens eine Lohngruppe",
+            "realistischem Zeitaufwand in Minuten",
+            "IT-bezogenen Sach- oder Personalaufwand separat",
+            "Null-Zeitaufwaende",
+            "Gesamtzeitaufwand",
+        ]
+        assert all(phrase not in text for phrase in forbidden)
+        assert "Schaetzen Sie in diesem Schritt keine Minuten" in text
+
+    @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+    def test_step_analysis_does_not_use_invented_activity_count(self, norm_addressee):
+        text = render_prompt(
+            PromptId.PROCESS_STEP_ANALYSIS,
+            law_summary="Kurzfassung",
+            case_groups_json="[]",
+            norm_addressee=norm_addressee,
+        )
+
+        assert "wenige, fachlich klare Haupttaetigkeiten" in text
+        assert "drei bis fuenf" not in text
+
+
+# ---------------------------------------------------------------------------
+# Citizens rule isolation: admin run must not receive citizens checklist rule
+# ---------------------------------------------------------------------------
+
+
+_CITIZENS_RULE_MARKER = "Jede Taetigkeit muss eine Handlung der Buergerinnen und Buerger selbst sein"
+
+
+def test_admin_run_does_not_get_citizens_rule():
+    prompt = render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        case_groups_json="[]",
+        law_summary="dummy",
+        norm_addressee=ADMINISTRATION,
+    )
+    assert _CITIZENS_RULE_MARKER not in prompt

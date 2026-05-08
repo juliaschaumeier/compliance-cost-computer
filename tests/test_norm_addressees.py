@@ -52,3 +52,19 @@ def test_parse_addressee_list_rejects_non_canonical_values():
         BUSINESS,
         CITIZENS,
     ]
+
+
+def test_case_and_whitespace_normalised():
+    assert normalize_norm_addressee("  Administration  ") == ADMINISTRATION
+    assert normalize_norm_addressee("BUSINESS") == BUSINESS
+    assert normalize_norm_addressee("Citizens") == CITIZENS
+
+
+def test_empty_string_is_rejected_not_silently_defaulted():
+    """
+    Regression guard: an empty string '' was previously coerced silently to
+    'administration' via `value or ADMINISTRATION`. That silent-failure path
+    has been fixed. This test locks in the correct behaviour.
+    """
+    with pytest.raises(ValueError):
+        normalize_norm_addressee("")
