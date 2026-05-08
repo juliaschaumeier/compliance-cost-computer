@@ -13,7 +13,6 @@ from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
     CITIZENS,
-    SUPPORTED_NORM_ADDRESSEES,
 )
 
 
@@ -1181,8 +1180,6 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and raw_norm_addressee in (None, ""):
         raise KeyError("render_prompt requires explicit norm_addressee")
     norm_addressee = str(raw_norm_addressee or ADMINISTRATION)
-    if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and norm_addressee not in SUPPORTED_NORM_ADDRESSEES:
-        raise ValueError(f"Unsupported norm_addressee: {norm_addressee}")
     render_values["norm_addressee_context"] = _render_norm_addressee_context(norm_addressee)
     render_values["norm_addressee_rule"] = _render_prompt_specific_addressee_rule(
         prompt_id,
