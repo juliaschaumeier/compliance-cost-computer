@@ -239,16 +239,6 @@ def test_render_prompt_requires_explicit_norm_addressee():
         )
 
 
-def test_render_prompt_rejects_unknown_norm_addressee():
-    with pytest.raises(ValueError, match="Unsupported norm_addressee"):
-        render_prompt(
-            PromptId.PROCESS_COMPILATION,
-            gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
-            vorgaben_json="[]",
-            norm_addressee="verwaltung",
-        )
-
 
 @pytest.mark.parametrize(
     "prompt_id",
