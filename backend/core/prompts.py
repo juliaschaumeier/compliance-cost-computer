@@ -1265,7 +1265,7 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION = (
     "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, fachlich klare Haupttaetigkeiten. Weichen Sie\n"
     "        von einer knappen Darstellung nur ab, wenn der Sachverhalt es fachlich erfordert.\n"
     "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
-    "        Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand Feb 2026, Kap. 7.2.1, S. 49):\n"
+    "        Checkliste (Verwaltung):\n"
     "        • Mit der Vorgabe vertraut machen \n"
     "        • Beratung, Fuehren von Vorgespraechen mit Antragstellerinnen und Antragstellern \n"
     "        • Formelle Pruefung, Daten und Informationen sichten und zusammenstellen, Vollstaendigkeitspruefung \n"
@@ -1285,8 +1285,8 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_ADMINISTRATION = (
     "        • Anpassen von internen Prozessablaeufen \n"
     "        • Teilnahme an Fortbildungen und Schulungen \n"
     "        • Wege zu anderen Behoerden, Organisationen oder Unternehmen \n\n"
-    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Auch hier gilt: lieber eine kleine Zahl klar abgegrenzter und gut\n"
-    "        begruendbarer Haupttaetigkeiten als eine lange Liste kleinteiliger Einzeltaetigkeiten."
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. In der Bestandsmessung der Buerokratiekosten der Wirtschaft hatte\n"
+    "        sich z. B. gezeigt, dass bei den meisten Informationspflichten lediglich vier bis sechs Taetigkeiten anfallen."
 )
 
 
@@ -1302,8 +1302,7 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
     "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, fachlich klare Haupttaetigkeiten. Weichen Sie\n"
     "        von einer knappen Darstellung nur ab, wenn der Sachverhalt es fachlich erfordert.\n"
     "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
-    "        Checkliste Teil A – Taetigkeiten zur Erfuellung von Informationspflichten der Wirtschaft\n"
-    "        (Leitfaden Erfuellungsaufwand Feb 2026, Kap. 6.2.1, S. 37):\n"
+    "        Checkliste Teil A – Taetigkeiten zur Erfuellung von Informationspflichten der Wirtschaft:\n"
     "        • Einarbeitung in die Informationspflicht \n"
     "        • Beschaffung von Daten \n"
     "        • Formulare ausfuellen, Beschriftung, Kennzeichnung \n"
@@ -1320,16 +1319,17 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_BUSINESS = (
     "        • Korrekturen, die aufgrund von Pruefungen durchgefuehrt werden muessen \n"
     "        • Weitere Informationsbeschaffung \n"
     "        • Fortbildungs- und Schulungsteilnahmen \n\n"
-    "        Checkliste Teil B – Moegliche weitere Taetigkeiten bei Vorgaben, die keine Informationspflichten sind\n"
-    "        (Leitfaden Erfuellungsaufwand Feb 2026, Kap. 6.2.1, S. 38):\n"
+    "        Checkliste Teil B – Moegliche weitere Taetigkeiten bei Vorgaben, die keine Informationspflichten sind:\n"
     "        • Beschaffen von Waren- und Sachleistungen \n"
     "        • Beschaffen von Dienstleistungen und/oder zusaetzlichem Personal \n"
     "        • Erbringen von eigenen Leistungen (z. B. Installation von Maschinen) \n"
     "        • Anpassen von internen Prozessablaeufen \n"
     "        • Ueberwachungsmassnahmen (z. B. Kontrolle, ob umgesetzte Vorgabe korrekt durchgefuehrt oder Grenzwerte eingehalten wurden) \n"
     "        • Lagerhaltung, Warenwirtschaft, Produktion \n\n"
-    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Auch hier gilt: lieber eine kleine Zahl klar abgegrenzter und gut\n"
-    "        begruendbarer Haupttaetigkeiten als eine lange Liste kleinteiliger Einzeltaetigkeiten."
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Erfolgt z. B. eine monatliche Meldung an die\n"
+    "        Sozialversicherungstraeger, so faellt kein Einarbeitungsaufwand an, da im Unternehmen eine gewisse Routine unterstellt werden kann.\n"
+    "        In der Bestandsmessung der Buerokratiekosten der Wirtschaft hatte sich z. B. gezeigt, dass bei den meisten Informationspflichten\n"
+    "        lediglich vier bis sechs Taetigkeiten anfallen."
 )
 
 
@@ -1346,7 +1346,7 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS = (
     "        und vergleichbar bleiben. Bilden Sie keine kuenstlich kleinteiligen Einzelschritte, sondern wenige, fachlich klare Haupttaetigkeiten. Weichen Sie\n"
     "        von einer knappen Darstellung nur ab, wenn der Sachverhalt es fachlich erfordert.\n"
     "        Fassen Sie eng zusammenhaengende Unterhandlungen zu einem gemeinsamen Prozessschritt zusammen, statt sie separat auszuweisen.\n\n"
-    "        Checkliste (Buergerinnen und Buerger, Leitfaden Erfuellungsaufwand Feb 2026, Kap. 5.2.1, S. 27):\n"
+    "        Checkliste (Buergerinnen und Buerger):\n"
     "        • Mit der Vorgabe vertraut machen \n"
     "        • Beratung in Anspruch nehmen (z. B. Beratungsstellen, Stadtverwaltung, Anwaltskanzlei) \n"
     "        • Daten und Informationen sammeln und zusammenstellen (z. B. Formularvordrucke, Nachweise, Fotos) \n"
@@ -1360,10 +1360,8 @@ _PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS = (
     "        • Material beschaffen \n"
     "        • Bestimmte Leistung selbst erbringen oder Dritte beauftragen \n"
     "        • Umsetzung von Vorgaben ueberpruefen \n"
-    "        • Wege zu zustaendigen Stellen (z. B. zu einer Behoerde) \n\n"
-    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant. Waehlen Sie nur die fuer den Vorher-Nachher-Vergleich \n"
-    "        wirklich erforderlichen Haupttaetigkeiten: lieber eine kleine Zahl klar abgegrenzter und gut begruendbarer Haupttaetigkeiten als eine\n"
-    "        lange Liste kleinteiliger Einzeltaetigkeiten."
+    "        • Zeitaufwand fuer Wegezeiten (z. B. zu einer Behoerde) \n\n"
+    "        In der Praxis sind selten alle oben aufgefuehrten Taetigkeiten relevant."
 )
 
 
