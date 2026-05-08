@@ -2,15 +2,14 @@ import re
 
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core import prompts
-from backend.core.prompts import PromptId, render_prompt
+from backend.core.prompts import NORM_ADDRESSEE_PROMPT_OPENINGS, PromptId, render_prompt
 import pytest
 
 
 def _render_effort_prompt(norm_addressee: str) -> str:
     return render_prompt(
         PromptId.EFFORT_CALCULATION,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         step_analysis_json="[]",
         norm_addressee=norm_addressee,
     )
@@ -19,8 +18,7 @@ def _render_effort_prompt(norm_addressee: str) -> str:
 def _render_step_analysis_prompt(norm_addressee: str) -> str:
     return render_prompt(
         PromptId.PROCESS_STEP_ANALYSIS,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         case_groups_json="[]",
         norm_addressee=norm_addressee,
     )
@@ -28,8 +26,7 @@ def _render_step_analysis_prompt(norm_addressee: str) -> str:
 
 def _render_prompt_for_contract(prompt_id: str, norm_addressee: str) -> str:
     kwargs = {
-        "gesetz_gueltig": "Geltend",
-        "gesetz_vorschlag": "Vorschlag",
+        "law_summary": "Kurzfassung",
         "norm_addressee": norm_addressee,
     }
     if prompt_id == PromptId.PROCESS_COMPILATION:
@@ -104,8 +101,7 @@ def test_effort_prompt_schema_uses_single_json_braces(norm_addressee):
 def test_render_prompt_ignores_contract_field_overrides():
     prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         step_analysis_json="[]",
         norm_addressee=BUSINESS,
         norm_addressee_context="BROKEN CONTEXT",
@@ -120,8 +116,7 @@ def test_render_prompt_ignores_contract_field_overrides():
 def test_process_compilation_prompt_includes_verbatim_handbook_example():
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         vorgaben_json="[]",
         norm_addressee=BUSINESS,
     )
@@ -138,8 +133,7 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
 def test_case_group_development_prompt_includes_verbatim_handbook_example():
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         prozesse_json="[]",
         norm_addressee=BUSINESS,
     )
@@ -155,8 +149,7 @@ def test_case_group_development_prompt_includes_verbatim_handbook_example():
 def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
     prompt = render_prompt(
         PromptId.CASES_CALCULATION,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         case_groups_json="[]",
         norm_addressee=CITIZENS,
     )
@@ -176,8 +169,7 @@ def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
 def test_process_compilation_prompt_skips_business_example_for_administration():
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         vorgaben_json="[]",
         norm_addressee=ADMINISTRATION,
     )
@@ -192,8 +184,7 @@ def test_process_compilation_prompt_skips_business_example_for_administration():
 def test_case_group_development_prompt_skips_business_example_for_administration():
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         prozesse_json="[]",
         norm_addressee=ADMINISTRATION,
     )
@@ -211,8 +202,7 @@ def test_cases_calculation_prompt_skips_citizens_case_example_when_unavailable(
 ):
     prompt = render_prompt(
         PromptId.CASES_CALCULATION,
-        gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+        law_summary="Kurzfassung",
         case_groups_json="[]",
         norm_addressee=norm_addressee,
     )
@@ -233,8 +223,7 @@ def test_render_prompt_requires_explicit_norm_addressee():
     with pytest.raises(KeyError, match="explicit norm_addressee"):
         render_prompt(
             PromptId.PROCESS_COMPILATION,
-            gesetz_gueltig="Geltend",
-        gesetz_vorschlag="Vorschlag",
+            law_summary="Kurzfassung",
             vorgaben_json="[]",
         )
 
@@ -286,10 +275,10 @@ def test_process_step_analysis_prompt_sets_known_norm_addressee_after_context():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
     assert prompt.index("Sie sind Legist im deutschen Bundestag") < prompt.index(
-        "Folgendes ist das konsolidierte, geltende Gesetz"
+        "Die wesentlichen Unterschiede der Gesetzesaenderung"
     )
     assert "Dieser Lauf betrifft nur den Normadressaten `business`" in prompt
-    assert prompt.index("Folgendes ist das konsolidierte, geltende Gesetz") < prompt.index(
+    assert prompt.index("Die wesentlichen Unterschiede der Gesetzesaenderung") < prompt.index(
         "Dieser Lauf betrifft nur den Normadressaten `business`"
     )
     assert '"normadressat": "business"' in prompt
@@ -332,11 +321,11 @@ def test_process_step_analysis_prompt_keeps_general_context_before_step_scope(no
     prompt = _render_step_analysis_prompt(norm_addressee)
 
     assert "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung" in prompt
-    assert "Folgendes ist das konsolidierte, geltende Gesetz" in prompt
+    assert "Die wesentlichen Unterschiede der Gesetzesaenderung" in prompt
     assert not hasattr(prompts, "LEGIST_CONTEXT_OPENING")
     assert "Schaetzen Sie in diesem Schritt keine Minuten" in prompt
     assert prompt.index(
-        "Folgendes ist das konsolidierte, geltende Gesetz"
+        "Die wesentlichen Unterschiede der Gesetzesaenderung"
     ) < prompt.index("Schaetzen Sie in diesem Schritt keine Minuten")
 
 
@@ -467,3 +456,10 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
     assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" not in prompt
     assert "Gesamtzeitaufwand" not in prompt
     assert "Zeitaufwand fuer Wegezeiten" not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_does_not_use_generic_addressee_context(norm_addressee):
+    prompt = _render_step_analysis_prompt(norm_addressee)
+    generic_context = NORM_ADDRESSEE_PROMPT_OPENINGS[norm_addressee].strip()
+    assert generic_context not in prompt

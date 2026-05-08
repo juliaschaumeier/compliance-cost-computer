@@ -46,9 +46,8 @@ LEGIST_PROMPT_OPENING = (
     welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen
     des Zeit-, Personal- sowie Sachaufwands ermittelt.
 
-    Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
-
-    Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
+    Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
+    zusammengefasst: {law_summary}
     """
 )
 
@@ -596,7 +595,21 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - gesetz_gueltig: str
     # - gesetz_vorschlag: str
     PromptId.REGULATIONS_IDENTIFICATION: (
-        LEGIST_PROMPT_OPENING
+        """
+        Sie sind Legist im deutschen Bundestag und damit betraut, die
+        Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen.
+
+        Insbesondere werden zur Ermittlung der zu erwartenden Aenderung des Aufwands
+        pro Fall die wesentlichen Taetigkeiten identifiziert, die zur Erfuellung
+        einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese
+        schliessen Taetigkeiten ein, welche neu hinzukommen, welche sich aendern und
+        welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen
+        des Zeit-, Personal- sowie Sachaufwands ermittelt.
+
+        Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
+
+        Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
+        """
         + """
         {law_mode_context}
 
@@ -682,8 +695,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # Render contract:
     # - vorgaben_json: JSON string of list[VorgabePayload]
     # - norm_addressee: "administration" | "business" | "citizens"
-    # - gesetz_gueltig: str, optional if session_id/app_session_id is provided
-    # - gesetz_vorschlag: str, optional if session_id/app_session_id is provided
+    # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - handbook_process_example
     # - norm_addressee_context
@@ -757,8 +769,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # Render contract:
     # - prozesse_json: JSON string of list[ProzessWithVorgabenPayload]
     # - norm_addressee: "administration" | "business" | "citizens"
-    # - gesetz_gueltig: str, optional if session_id/app_session_id is provided
-    # - gesetz_vorschlag: str, optional if session_id/app_session_id is provided
+    # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - handbook_case_group_example
     # - norm_addressee_context
@@ -852,8 +863,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
     # - norm_addressee: "administration" | "business" | "citizens"
-    # - gesetz_gueltig: str, optional if session_id/app_session_id is provided
-    # - gesetz_vorschlag: str, optional if session_id/app_session_id is provided
+    # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - step_analysis_checklist
     # - step_analysis_addressee_context
@@ -974,8 +984,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
     # - norm_addressee: "administration" | "business" | "citizens"
-    # - gesetz_gueltig: str, optional if session_id/app_session_id is provided
-    # - gesetz_vorschlag: str, optional if session_id/app_session_id is provided
+    # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - handbook_cases_frequency_example
     # - handbook_cases_case_example
@@ -1110,8 +1119,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # Render contract:
     # - step_analysis_json: JSON string of list[ProzessStepAnalysisPayload]
     # - norm_addressee: "administration" | "business" | "citizens"
-    # - gesetz_gueltig: str, optional if session_id/app_session_id is provided
-    # - gesetz_vorschlag: str, optional if session_id/app_session_id is provided
+    # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - effort_method_guidance
     # - effort_appendix
@@ -1215,19 +1223,30 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         render_values["effort_appendix"] = _render_effort_appendix(norm_addressee)
         render_values["effort_json_schema"] = _render_effort_json_schema(norm_addressee)
 
+    needs_law_summary = "{law_summary}" in template and not render_values.get("law_summary")
     needs_regulation_laws = (
         ("{gesetz_gueltig}" in template and not render_values.get("gesetz_gueltig"))
         or ("{gesetz_vorschlag}" in template and not render_values.get("gesetz_vorschlag"))
     )
 
-    if needs_regulation_laws:
+    if needs_law_summary or needs_regulation_laws:
         session_id = _resolve_session_id(render_values)
         if session_id is not None:
             from backend.core import db
 
-            current_text, proposed_text = db.get_session_law_texts(session_id)
-            render_values.setdefault("gesetz_gueltig", current_text)
-            render_values.setdefault("gesetz_vorschlag", proposed_text)
+            if needs_law_summary:
+                session = db.get_session_by_id(session_id) or {}
+                law_summary = (
+                    str(session.get("law_diff_summary") or "").strip()
+                    or str(session.get("law_diff_blurb") or "").strip()
+                    or str(session.get("law_diff_title") or "").strip()
+                )
+                render_values.setdefault("law_summary", law_summary)
+
+            if needs_regulation_laws:
+                current_text, proposed_text = db.get_session_law_texts(session_id)
+                render_values.setdefault("gesetz_gueltig", current_text)
+                render_values.setdefault("gesetz_vorschlag", proposed_text)
     else:
         session_id = _resolve_session_id(render_values)
 

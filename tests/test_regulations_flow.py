@@ -393,8 +393,8 @@ def test_summary_separates_blurb_and_summary_storage_and_display(test_client, mo
         vorgaben_json="[]",
         norm_addressee=ADMINISTRATION,
     )
-    assert "aktuelles gesetz" in prompt
-    assert "neuer entwurf" in prompt
+    assert "Ausfuehrliche Zusammenfassung fuer Prompt-Kontext." in prompt
+    assert "Kurzer Satz." not in prompt
 
 
 def test_identify_prompt_contains_law_texts(test_client, monkeypatch):
