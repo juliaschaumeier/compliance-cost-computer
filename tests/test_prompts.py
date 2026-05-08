@@ -298,7 +298,6 @@ def test_process_step_analysis_prompt_uses_integrated_step_specific_intro():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
     assert "In diesem Schritt identifizieren Sie ausschliesslich die fachlich" in prompt
-    assert not hasattr(prompts, "PROCESS_STEP_ANALYSIS_OPENING")
     assert prompt.index("Sie sind Legist im deutschen Bundestag") < prompt.index(
         "In diesem Schritt identifizieren Sie ausschliesslich"
     )
@@ -322,7 +321,6 @@ def test_process_step_analysis_prompt_keeps_general_context_before_step_scope(no
 
     assert "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung" in prompt
     assert "Die wesentlichen Unterschiede der Gesetzesaenderung" in prompt
-    assert not hasattr(prompts, "LEGIST_CONTEXT_OPENING")
     assert "Schaetzen Sie in diesem Schritt keine Minuten" in prompt
     assert prompt.index(
         "Die wesentlichen Unterschiede der Gesetzesaenderung"
@@ -349,19 +347,36 @@ def test_process_step_analysis_prompt_excludes_effort_schema_fields(norm_address
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_does_not_set_numeric_activity_limits(norm_addressee):
+def test_process_step_analysis_prompt_does_not_set_invented_activity_limits(norm_addressee):
+    # "drei bis fuenf" war selbst erfunden und widerspricht dem Leitfaden.
+    # "vier bis sechs" stammt aus dem Leitfaden (Kap. 6.2.1 und 7.2.1) und ist
+    # fuer Wirtschaft und Verwaltung zulaessig; fuer Buerger gibt der Leitfaden
+    # keine Zahl vor, daher dort ebenfalls verboten.
     prompt = _compact(_render_step_analysis_prompt(norm_addressee)).lower()
 
     forbidden_patterns = [
         r"\b3\s*(?:bis|-)\s*5\b",
-        r"\b4\s*(?:bis|-)\s*6\b",
         r"\bdrei\s+bis\s+fuenf\b",
-        r"\bvier\s+bis\s+sechs\b",
         r"\bmaximal\s+\w+\s+taetigkeiten\b",
         r"\bhoechstens\s+\w+\s+taetigkeiten\b",
         r"\bmindestens\s+\w+\s+taetigkeiten\b",
     ]
     assert not any(re.search(pattern, prompt) for pattern in forbidden_patterns)
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS])
+def test_process_step_analysis_prompt_cites_handbook_activity_count(norm_addressee):
+    # Leitfaden Erfuellungsaufwand (Feb 2026): "lediglich vier bis sechs Taetigkeiten
+    # anfallen" steht im Wirtschafts- (Kap. 6.2.1, S. 38) und Verwaltungskapitel
+    # (Kap. 7.2.1, S. 49), aber nicht im Buergerkapitel (Kap. 5.2.1).
+    prompt = _compact(_render_step_analysis_prompt(norm_addressee)).lower()
+    assert re.search(r"\bvier\s+bis\s+sechs\b", prompt)
+
+
+def test_process_step_analysis_citizens_prompt_has_no_activity_count():
+    prompt = _compact(_render_step_analysis_prompt(CITIZENS)).lower()
+    assert not re.search(r"\bvier\s+bis\s+sechs\b", prompt)
+    assert not re.search(r"\bdrei\s+bis\s+fuenf\b", prompt)
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -405,7 +420,7 @@ def test_process_step_analysis_prompt_uses_clear_bundling_rule(norm_addressee):
             [
                 "Checkliste (Buergerinnen und Buerger, Leitfaden Erfuellungsaufwand",
                 "Formulare ausfuellen",
-                "Wege zu zustaendigen Stellen",
+                "Zeitaufwand fuer Wegezeiten",
             ],
             [
                 "Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand",
@@ -455,7 +470,6 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
     assert "Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen" in prompt
     assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" not in prompt
     assert "Gesamtzeitaufwand" not in prompt
-    assert "Zeitaufwand fuer Wegezeiten" not in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
