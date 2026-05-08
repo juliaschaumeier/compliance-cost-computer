@@ -18,3 +18,9 @@ def test_client(tmp_path, monkeypatch):
     db.init_db()
     with TestClient(app) as client:
         yield client
+
+
+@pytest.fixture
+def session_id() -> int:
+    sid, _created, _model = db.ensure_session("test-app-session", llm_model="gpt-4o-mini")
+    return sid

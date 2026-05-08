@@ -1,9 +1,18 @@
 """
-Regression guards for JSON robustness at the router layer.
+Regression-Guards fuer Befund Block 2.1 (JSON-Robustheit Router-Ebene).
 
-Both _parse_processes and _parse_cases_groups use require_json_object so that
-malformed LLM output yields a clear 422 with an error_context message rather
-than a generic "No X parsed" failure.
+Hintergrund: Die Helper-Funktionen _parse_processes und _parse_case_groups
+haben fruher parse_json_object verwendet,
+das bei Garbage-Input still None liefert. Caller fingen das mit eigenen
+Wrapper-Checks ab, die Diagnose war aber unspezifisch ("No X parsed"
+unabhaengig davon, ob das JSON kaputt war oder das erwartete Feld fehlte).
+
+Inzwischen sind beide auf require_json_object umgestellt, sodass
+kaputte JSON-Outputs einen klar identifizierbaren 422 mit
+error_context-Message liefern, waehrend wohlgeformtes JSON ohne erwartete
+Felder weiterhin den feldspezifischen Pfad durchlaeuft.
+
+Diese Tests sichern beide Pfade gegen Regression.
 """
 import pytest
 from fastapi import HTTPException
@@ -18,7 +27,7 @@ from backend.routers.processes import _parse_processes
 
 
 def test_parse_processes_returns_empty_for_wellformed_json_without_prozesse_key():
-    """Well-formed JSON without 'prozesse' -> empty list, no error."""
+    """Wohlgeformtes JSON ohne 'prozesse' -> leere Liste, kein Fehler."""
     parsed, _fallbacks = _parse_processes('{"foo": "bar"}')
     assert parsed == []
 
@@ -75,3 +84,5 @@ def test_parse_case_groups_raises_422_for_garbage(garbage):
         _parse_case_groups(garbage)
     assert excinfo.value.status_code == 422
     assert "case group development" in str(excinfo.value.detail).lower()
+
+
