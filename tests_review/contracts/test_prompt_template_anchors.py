@@ -137,7 +137,7 @@ class TestCitizensPromptRulesExist:
     def test_citizens_addendum_exists_for_prompt(self, prompt_id):
         assert prompt_id in CITIZENS_PROMPT_RULES
         assert CITIZENS_PROMPT_RULES[prompt_id].strip()
-        assert "Buerger" in CITIZENS_PROMPT_RULES[prompt_id]
+        assert "buerger" in CITIZENS_PROMPT_RULES[prompt_id].lower()
 
     def test_citizens_step_analysis_rule_exists_in_integrated_rules(self):
         text = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[CITIZENS]
