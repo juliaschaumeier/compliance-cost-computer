@@ -394,7 +394,7 @@ def test_process_step_analysis_prompt_uses_clear_bundling_rule(norm_addressee):
         (
             ADMINISTRATION,
             [
-                "Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand",
+                "Checkliste (Verwaltung):",
                 "Bescheid erstellen",
                 "Zahlungen anweisen",
             ],
@@ -411,19 +411,19 @@ def test_process_step_analysis_prompt_uses_clear_bundling_rule(norm_addressee):
                 "Taetigkeiten zur Erfuellung von Informationspflichten der Wirtschaft",
             ],
             [
-                "Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand",
+                "Checkliste (Verwaltung):",
                 "Checkliste (Buergerinnen und Buerger",
             ],
         ),
         (
             CITIZENS,
             [
-                "Checkliste (Buergerinnen und Buerger, Leitfaden Erfuellungsaufwand",
+                "Checkliste (Buergerinnen und Buerger):",
                 "Formulare ausfuellen",
                 "Zeitaufwand fuer Wegezeiten",
             ],
             [
-                "Checkliste (Verwaltung, Leitfaden Erfuellungsaufwand",
+                "Checkliste (Verwaltung):",
                 "Checkliste Teil A",
                 "Checkliste Teil B",
             ],
