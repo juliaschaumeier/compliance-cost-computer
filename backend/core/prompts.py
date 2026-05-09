@@ -330,9 +330,7 @@ CITIZENS_PROMPT_RULES: Dict[str, str] = {
 
 EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
     ADMINISTRATION: (
-        "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
-        "Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen "
-        "resultiert zunaechst kein Zeitaufwand. Sofern keine spezifischen Daten ueber "
+        "Sofern keine spezifischen Daten ueber "
         "den Zeitaufwand vorliegen, kann die Zeitwerttabelle Verwaltung herangezogen "
         "werden. Zudem kann die Tabelle zu Wegezeiten und -sachkosten genutzt werden, "
         "wenn persoenliche Termine bei anderen Stellen oder Behoerden erforderlich sind. "
@@ -363,9 +361,7 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "(siehe Anhang 5: Wegezeiten und -sachkosten)."
     ),
     BUSINESS: (
-        "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
-        "Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen "
-        "resultiert zunaechst kein Zeitaufwand. Sofern keine spezifischen Daten ueber "
+        "Sofern keine spezifischen Daten ueber "
         "den Zeitaufwand vorliegen, kann die Zeitwerttabelle Wirtschaft aus Anhang 4 "
         "herangezogen werden. Die Tabelle zu Wegezeiten und -sachkosten kann genutzt "
         "werden, wenn persoenliche Termine bei anderen Stellen oder Behoerden "
@@ -395,9 +391,7 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "(siehe Anhang 5: Wegezeiten und -sachkosten)."
     ),
     CITIZENS: (
-        "Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender "
-        "Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen "
-        "resultiert zunaechst kein Zeitaufwand. Ermitteln Sie fuer jede Taetigkeit "
+        "Ermitteln Sie fuer jede Taetigkeit "
         "ausschliesslich den Zeitaufwand in Minuten sowie den Sachaufwand in Euro. "
         "Monetarisieren Sie den Zeitaufwand nicht. Verwenden Sie keine Rollen, keine "
         "Lohngruppen und keine Stundenloehne. Orientieren Sie sich bei Zeitwerten an "
@@ -702,11 +696,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.PROCESS_COMPILATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
-
         {norm_addressee_context}
 
-        Ihre Aufgabe ist, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfuellt werden, zu gemeinsamen
+        Die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
+
+        Ihre Aufgabe ist es, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfuellt werden, zu gemeinsamen
         Prozessen zu buendeln. Soweit eine Buendelung von Vorgaben in Prozesse nicht moeglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
         einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschliesslich aus einer Vorgabe. Geben Sie ausserdem den Status an, 
         also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung des Prozesses handelt. Orientieren Sie sich dazu an den 
@@ -776,11 +770,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.CASE_GROUP_DEVELOPMENT: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
-
         {norm_addressee_context}
 
-        Wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfuellt, sind dafuer sogenannte Fallgruppen zu bilden.
+        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
+
+        Ihre Aufgabe ist es, Fallgruppen zu bilden, wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfuellt.
         Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Fuer jede Fallgruppe ist der Erfuellungsaufwand separat zu
         ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmoeglichkeiten genutzt werden
         oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie ausserdem den Status an, also ob es sich um entweder eine Einfuehrung,
@@ -870,6 +864,17 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.PROCESS_STEP_ANALYSIS: (
         LEGIST_PROMPT_OPENING
         + """
+        {step_analysis_addressee_context}
+
+        Die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
+        positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
+        Fallgruppen: {case_groups_json}
+
+        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
+        zu identifizieren und je Taetigkeit den Aenderungsstatus anzugeben
+        (`eingefuehrt | geaendert | abgeschafft | unveraendert`). Orientieren Sie sich dabei wenn noetig an den vorhandenen
+        Statusangaben in den Fallgruppen und Prozessen.
+
         In diesem Schritt identifizieren Sie ausschliesslich die fachlich
         relevanten Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines
         Prozesses im Einzelfall zu erwarten sind.
@@ -882,21 +887,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu,
         wenn sich tatsaechlich nur einzelne Schritte aendern.
 
-        {step_analysis_addressee_context}
-
-        {step_analysis_addressee_rule}
-
-        Die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
-        positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
-        Fallgruppen: {case_groups_json}
-
-        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
-        zu identifizieren und je Taetigkeit den Aenderungsstatus anzugeben
-        (`eingefuehrt | geaendert | abgeschafft | unveraendert`). Orientieren Sie sich dabei wenn noetig an den vorhandenen
-        Statusangaben in den Fallgruppen und Prozessen.
-
         Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
         Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
+
+        {step_analysis_addressee_rule}
 
         {step_analysis_checklist}
 
@@ -991,10 +985,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen 
-        differenziert werden: {case_groups_json}
-
         {norm_addressee_context}
+
+        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen
+        differenziert werden: {case_groups_json}
 
         Ihre Aufgabe ist es, die Aenderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Haeufigkeit und die Anzahl der Betroffenen 
         vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung einer Fallgruppe werden typischerweise nur die 
@@ -1013,19 +1007,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         beruehrt werden und auch kein indirekter Verhaltens- oder Nachfrageeffekt zu erwarten ist. Umgekehrt duerfen Sie Fallzahlen nicht ohne sachlichen
         Grund kuenstlich angleichen, nur weil sich primaer der Aufwand pro Fall aendert.
 
-        {handbook_cases_frequency_example}
-
-        {handbook_cases_case_example}
-
-        Allgemein gilt: Bei periodisch zu erfuellenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Haeufigkeit mit der Anzahl 
-        der Betroffenen. Die Haeufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie haeufig der damit einhergehende 
-        Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Antraegen anlassbezogen erfuellt werden, sollte die Zahl der 
-        jaehrlich zu erwartenden Antraege als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl 
+        Allgemein gilt: Bei periodisch zu erfuellenden Vorgaben oder Prozessen ergibt sich die Fallzahl aus der Multiplikation der Haeufigkeit mit der Anzahl
+        der Betroffenen. Die Haeufigkeit gibt an, wie oft pro Jahr eine Vorgabe oder ein Prozess erledigt wird bzw. wie haeufig der damit einhergehende
+        Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Antraegen anlassbezogen erfuellt werden, sollte die Zahl der
+        jaehrlich zu erwartenden Antraege als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl
         fuer Ueberwachungs- und Kontrollmassnahmen ist in der Regel wesentlich geringer.
-        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfaellt, wird als 
+        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfaellt, wird als
         einmaliger Erfuellungsaufwand bzw. Umstellungsaufwand bezeichnet und ist gesondert auszuweisen.
 
         {norm_addressee_rule}
+
+        {handbook_cases_frequency_example}
+
+        {handbook_cases_case_example}
 
         Soweit bestehende Regelungen geaendert werden, koennen Fallzahlen unter Umstaenden auch aus bereits vorliegenden Aufwandsschaetzungen und 
         Gesetzesbegruendungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) uebernommen werden. Bevor solche Angaben verwendet werden, sollten 
@@ -1126,10 +1120,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und 
-        Prozessschritte differenziert werden: {step_analysis_json}
-
         {norm_addressee_context}
+
+        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und
+        Prozessschritte differenziert werden: {step_analysis_json}
 
         Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Taetigkeiten pro Einzelfall zu identifizieren. 
         Hierzu werden die Stundenloehne, Zeit- und Sachaufwaende vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung
@@ -1140,11 +1134,13 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         aendert, darf nicht automatisch der gesamte Schritt neu und vollumfaenglich angesetzt werden. Unveraenderte Aufwaende sollten in _gueltig und
         _vorschlag gleich bleiben; nur geaenderte Mehr- oder Minderaufwaende sind abweichend auszuweisen.
 
-        {effort_method_guidance}
-
         Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgefuehrt wird (=0).
         Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
         einzelnen Fall erneut anfaellt.
+
+        Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen resultiert zunaechst kein Zeitaufwand.
+
+        {effort_method_guidance}
 
         {effort_appendix}
 
