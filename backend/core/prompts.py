@@ -606,7 +606,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {law_mode_context}
 
-        Ihre Aufgabe ist, ausgehend von den konsolidierten Versionen die Gesetzesaenderungen herauszuarbeiten und alle darin enthaltenen Vorgaben
+        Ihre Aufgabe ist es, ausgehend von den konsolidierten Versionen die Gesetzesaenderungen herauszuarbeiten und alle darin enthaltenen Vorgaben
         (Einzelregelungen) im nachfolgenden Sinne zu identifizieren. 
         Wichtig: Jede Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
         also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung handelt.
@@ -870,14 +870,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
         Fallgruppen: {case_groups_json}
 
-        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung eines Prozesses pro Fallgruppe
+        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung einer Vorgabe oder eines Prozesses pro Fallgruppe
         zu identifizieren und je Taetigkeit den Aenderungsstatus anzugeben
-        (`eingefuehrt | geaendert | abgeschafft | unveraendert`). Orientieren Sie sich dabei wenn noetig an den vorhandenen
+        (`eingefuehrt | geaendert | abgeschafft | unveraendert`). Orientieren Sie sich dabei, wenn noetig, an den vorhandenen
         Statusangaben in den Fallgruppen und Prozessen.
-
-        In diesem Schritt identifizieren Sie ausschliesslich die fachlich
-        relevanten Haupttaetigkeiten, die zur Erfuellung einer Vorgabe oder eines
-        Prozesses im Einzelfall zu erwarten sind.
 
         Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen,
         Stundenloehne, Sachaufwaende oder Kosten.
