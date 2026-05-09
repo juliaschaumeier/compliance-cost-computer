@@ -297,9 +297,9 @@ def test_process_step_analysis_prompt_prefills_each_known_norm_addressee(norm_ad
 def test_process_step_analysis_prompt_uses_integrated_step_specific_intro():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
-    assert "In diesem Schritt identifizieren Sie ausschliesslich die fachlich" in prompt
+    assert "Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten" in prompt
     assert prompt.index("Sie sind Legist im deutschen Bundestag") < prompt.index(
-        "In diesem Schritt identifizieren Sie ausschliesslich"
+        "Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten"
     )
 
 
