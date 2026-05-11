@@ -52,7 +52,7 @@ LEGIST_PROMPT_OPENING = (
 )
 
 
-NORM_ADDRESSEE_CONTEXTS: Dict[str, str] = {
+NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
     ADMINISTRATION: (
         """
         Dieser Lauf betrifft den Normadressaten Verwaltung.
@@ -689,12 +689,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - handbook_process_example
-    # - norm_addressee_context
+    # - norm_addressee_prompt_opening
     # - norm_addressee_rule
     PromptId.PROCESS_COMPILATION: (
         LEGIST_PROMPT_OPENING
         + """
-        {norm_addressee_context}
+        {norm_addressee_prompt_opening}
 
         Die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
 
@@ -763,12 +763,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - handbook_case_group_example
-    # - norm_addressee_context
+    # - norm_addressee_prompt_opening
     # - norm_addressee_rule
     PromptId.CASE_GROUP_DEVELOPMENT: (
         LEGIST_PROMPT_OPENING
         + """
-        {norm_addressee_context}
+        {norm_addressee_prompt_opening}
 
         Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
 
@@ -974,12 +974,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # Auto-filled by render_prompt:
     # - handbook_cases_frequency_example
     # - handbook_cases_case_example
-    # - norm_addressee_context
+    # - norm_addressee_prompt_opening
     # - norm_addressee_rule
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        {norm_addressee_context}
+        {norm_addressee_prompt_opening}
 
         Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen
         differenziert werden: {case_groups_json}
@@ -1110,11 +1110,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - effort_method_guidance
     # - effort_appendix
     # - effort_json_schema
-    # - norm_addressee_context
+    # - norm_addressee_prompt_opening
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
-        {norm_addressee_context}
+        {norm_addressee_prompt_opening}
 
         Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und
         Prozessschritte differenziert werden: {step_analysis_json}
@@ -1176,7 +1176,7 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and raw_norm_addressee in (None, ""):
         raise KeyError("render_prompt requires explicit norm_addressee")
     norm_addressee = str(raw_norm_addressee or ADMINISTRATION)
-    render_values["norm_addressee_context"] = _render_norm_addressee_context(norm_addressee)
+    render_values["norm_addressee_prompt_opening"] = _render_norm_addressee_prompt_opening(norm_addressee)
     render_values["norm_addressee_rule"] = _render_prompt_specific_addressee_rule(
         prompt_id,
         norm_addressee,
@@ -1381,10 +1381,10 @@ def _render_step_analysis_addressee_rule(norm_addressee: str | None) -> str:
     return PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES.get(norm_addressee, "")
 
 
-def _render_norm_addressee_context(norm_addressee: str | None) -> str:
+def _render_norm_addressee_prompt_opening(norm_addressee: str | None) -> str:
     if not norm_addressee:
         return ""
-    return NORM_ADDRESSEE_CONTEXTS.get(norm_addressee, "").strip()
+    return NORM_ADDRESSEE_PROMPT_OPENINGS.get(norm_addressee, "").strip()
 
 
 def _render_prompt_specific_addressee_rule(prompt_id: str, norm_addressee: str | None) -> str:
