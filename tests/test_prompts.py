@@ -2,7 +2,7 @@ import re
 
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core import prompts
-from backend.core.prompts import NORM_ADDRESSEE_PROMPT_OPENINGS, PromptId, render_prompt
+from backend.core.prompts import NORM_ADDRESSEE_CONTEXTS, PromptId, render_prompt
 import pytest
 
 
@@ -475,5 +475,5 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
 def test_process_step_analysis_prompt_does_not_use_generic_addressee_context(norm_addressee):
     prompt = _render_step_analysis_prompt(norm_addressee)
-    generic_context = NORM_ADDRESSEE_PROMPT_OPENINGS[norm_addressee].strip()
+    generic_context = NORM_ADDRESSEE_CONTEXTS[norm_addressee].strip()
     assert generic_context not in prompt

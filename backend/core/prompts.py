@@ -52,7 +52,7 @@ LEGIST_PROMPT_OPENING = (
 )
 
 
-NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
+NORM_ADDRESSEE_CONTEXTS: Dict[str, str] = {
     ADMINISTRATION: (
         """
         Dieser Lauf betrifft den Normadressaten Verwaltung.
@@ -168,163 +168,161 @@ PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
 }
 
 
-ADMINISTRATION_PROMPT_RULES: Dict[str, str] = {
-    PromptId.PROCESS_COMPILATION: (
-        "Buendeln Sie Vorgaben zu Prozessen entlang der Bearbeitungslogik der "
-        "zustaendigen Behoerde, nicht entlang einzelner Paragraphen. Typische "
-        "Prozessbildende Raster sind: (i) Antrags-/Anerkennungsverfahren mit "
-        "Bescheidung, (ii) turnusmaessige Pruefung bzw. laufende Aufsicht und "
-        "Kontrolle, (iii) anlassbezogene Einzelfallpruefung (z.B. Verdacht, "
-        "Stichprobe, Beschwerde), (iv) Rechtsbehelfs-/Widerspruchsverfahren, "
-        "(v) Erstattungs-, Auszahlungs- oder Foerderverfahren, (vi) Register-, "
-        "Melde- und Aktenfuehrung, (vii) einmalige interne Umstellung "
-        "(IT-Anpassung, Formular- und Merkblattpflege, Schulung). Vorgaben, "
-        "die praktisch innerhalb desselben Verfahrensganges erfuellt werden, "
-        "gehoeren in denselben Prozess; fachlich klar getrennte Verfahren "
-        "bleiben getrennt. Fuehren Sie Vollzugsaufwand auch dann aus, wenn er "
-        "durch einen Antrag der Wirtschaft oder der Buergerinnen/Buerger "
-        "ausgeloest wird. Erfinden Sie keine Verwaltungsprozesse, zu "
-        "denen die Regelung keinen konkreten Vollzugsauftrag enthaelt. "
-        "Beruecksichtigen Sie auch das fiskalische Handeln der Verwaltung als "
-        "Normadressat (z.B. als Halter von Kfz oder als Bauherr) als Teil des "
-        "Erfuellungsaufwands der Verwaltung."
-    ),
-    PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Typische verwaltungsseitige Differenzierungsachsen sind: (i) "
-        "Ersterfuellung/Erstanerkennung versus turnusmaessige oder wiederholte "
-        "Bearbeitung, (ii) Standardfall mit glatter Bescheidung versus "
-        "Sonderpruefung mit Rueckfragen, Anhoerung oder Gutachtenbedarf, "
-        "(iii) weitgehend automatisierter oder digital gestuetzter Vollzug "
-        "versus manuelle Einzelbearbeitung, (iv) Massengeschaeft mit "
-        "standardisierter Pruefung versus aufwaendige Einzelpruefung, "
-        "(v) einmaliger Umstellungsaufwand (Schulung, IT-Anpassung, "
-        "Formularpflege) versus laufender Vollzug. Bilden Sie solche "
-        "Fallgruppen nur, wenn daraus wesentliche Unterschiede im "
-        "Bearbeitungsaufwand pro Fall folgen - ausgedrueckt in Zeit pro "
-        "Vorgang, erforderlicher Lohngruppe oder benoetigter "
-        "IT-/Sachunterstuetzung. Bilden Sie keine Fallgruppen, nur weil "
-        "unterschiedliche Paragraphen beruehrt werden oder die materielle "
-        "Rechtslage leicht abweicht, solange der Bearbeitungsweg derselbe "
-        "bleibt. Setzen Sie den `aenderungsstatus` je Fallgruppe differenziert: "
-        "`eingefuehrt` nur bei durch die Regelung neu entstehenden Fallgruppen, "
-        "`abgeschafft` nur bei wegfallenden, `geaendert` nur dann, wenn sich "
-        "Bearbeitungsaufwand oder Fallzahl der Fallgruppe durch die Regelung "
-        "tatsaechlich aendert. Unveraenderte Nebenfallgruppen sind nicht "
-        "auszuweisen."
-    ),
-    PromptId.CASES_CALCULATION: (
-        "Fuer die Verwaltung ist die `Anzahl Betroffene` NICHT die Zahl extern "
-        "betroffener Buerger oder Unternehmen, sondern die Zahl der jaehrlich "
-        "tatsaechlich von der Verwaltung zu bearbeitenden Vorgaenge, Faelle oder "
-        "Antraege derselben Fallgruppe. Die `Haeufigkeit pro Jahr` ist in der "
-        "Regel 1, es sei denn ein Vorgang wiederholt sich nachweislich mehrfach "
-        "pro Jahr pro Fall (z.B. periodische Kontrollen). Setzen Sie niemals "
-        "`anzahl_betroffene = 0`, wenn es eine zugeordnete Fallgruppe mit "
-        "Bearbeitungsaufwand gibt - ohne Faelle waere die Fallgruppe nicht zu "
-        "bilden. Liegen keine konkreten "
-        "Zahlen vor, schaetzen Sie sachgerecht basierend auf dem "
-        "Normzitat/Regelungsgegenstand und typischen Vollzugsmengen der "
-        "zustaendigen Behoerde; geben Sie niemals Platzhalter-Nullen aus."
-    ),
-}
-
-
-BUSINESS_PROMPT_RULES: Dict[str, str] = {
-    PromptId.PROCESS_COMPILATION: (
-        "Buendeln Sie Vorgaben zu Prozessen entlang des operativen Ablaufs im "
-        "Unternehmen, nicht entlang einzelner Paragraphen. Typische prozessbildende "
-        "Raster sind: (i) Anzeige-, Melde- oder Nachweispflicht gegenueber Behoerden, "
-        "(ii) laufende Dokumentations- und Aufbewahrungspflicht, (iii) "
-        "Informationspflicht gegenueber Kundinnen/Kunden, Beschaeftigten oder "
-        "Geschaeftspartnern, (iv) Beschaffung oder Umruestung von Anlagen, Waren oder "
-        "Material, (v) interne Prozess- und IT-Umstellung inklusive Schulung des "
-        "Personals, (vi) Mitwirkung bei Pruefungen durch oeffentliche Stellen "
-        "(z.B. Betriebspruefung), (vii) fiskalische Pflichten wie Gebuehren oder "
-        "Abgaben. Trennen Sie Informationspflichten von anderen Vorgaben, weil "
-        "Buerokratiekosten aus Informationspflichten spaeter gesondert fuer den "
-        "Buerokratiekostenindex (BKI) auszuweisen sind. Benennen Sie wo moeglich die "
-        "betroffenen Wirtschaftszweige oder Unternehmenskreise; pruefen Sie "
-        "insbesondere, ob kleine und mittlere Unternehmen (KMU) besonders betroffen "
-        "sind. Uebernehmen Sie keine Verwaltungslogik (Bescheide, Vollzugshandeln) "
-        "und keine privaten Buergerhandlungen."
-    ),
-    PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Typische wirtschaftsseitige Differenzierungsachsen sind: (i) "
-        "Informationspflicht versus sonstige Vorgabe (BKI-Relevanz), (ii) "
-        "Ersterfuellung mit Einarbeitung versus Routineerfuellung (Einarbeitung "
-        "faellt bei Routine in der Regel weg), (iii) Neuanschaffung versus "
-        "Umruestung bestehender Anlagen, (iv) weitgehend automatisierter oder "
-        "digital gestuetzter Ablauf versus manuelle Bearbeitung, (v) KMU versus "
-        "Grossunternehmen, soweit sich der Aufwand pro Fall wesentlich "
-        "unterscheidet, (vi) einmaliger Umstellungsaufwand (IT, Schulung, "
-        "Formularpflege) versus laufender Aufwand. Bilden Sie solche Fallgruppen "
-        "nur, wenn daraus wesentliche Unterschiede im Personal- oder Sachaufwand "
-        "pro Fall folgen. Bilden Sie keine Fallgruppen nur deshalb, weil "
-        "unterschiedliche Paragraphen oder Behoerden beruehrt sind, solange der "
-        "operative Ablauf im Unternehmen derselbe bleibt. Setzen Sie den "
-        "`aenderungsstatus` je Fallgruppe differenziert: `eingefuehrt` nur bei "
-        "neu entstehenden Fallgruppen, `abgeschafft` nur bei wegfallenden, "
-        "`geaendert` nur dann, wenn sich Aufwand oder Fallzahl der Fallgruppe "
-        "durch die Regelung tatsaechlich aendert."
-    ),
-    PromptId.CASES_CALCULATION: (
-        "Bei periodisch zu erfuellenden Vorgaben ergibt sich die Fallzahl aus der "
-        "Multiplikation der betroffenen Unternehmen mit der Periodizitaet pro Jahr. "
-        "Bei anlassbezogenen Vorgaben ist die jaehrlich zu erwartende Zahl der "
-        "Faelle zugrunde zu legen; bei Ueberwachungs- und Kontrollmassnahmen ist "
-        "die Fallzahl oft deutlich geringer als die Zahl der Betroffenen "
-        "(Stichproben). Einmaliger Erfuellungsaufwand bei Einfuehrung der Regelung "
-        "(z.B. IT-Umstellung, Austausch von Anlagen, Erstschulung) ist gesondert "
-        "auszuweisen und nicht mit laufenden jaehrlichen Faellen zu vermischen. "
-        "Bei Ersatzinvestitionen, die ohnehin im Rahmen der wirtschaftlichen "
-        "Nutzungsdauer faellig geworden waeren, sind nur 50 Prozent der "
-        "Anschaffungskosten als Erfuellungsaufwand anzusetzen (Sowieso-Anteil), "
-        "sofern kein anderer Anteil fachlich begruendet ist. Setzen Sie niemals "
-        "`anzahl_betroffene = 0`, wenn es eine zugeordnete Fallgruppe mit "
-        "Aufwand gibt; liegen keine konkreten Zahlen vor, schaetzen Sie "
-        "sachgerecht basierend auf Wirtschaftszweig und typischen "
-        "Unternehmensmengen. Weisen Sie, wenn fachlich relevant, den KMU-Anteil "
-        "an der Fallzahl gesondert aus."
-    ),
-}
-
-
-CITIZENS_PROMPT_RULES: Dict[str, str] = {
-    PromptId.PROCESS_COMPILATION: (
-        "Bilden Sie Prozesse aus Sicht der privaten Lebensfuehrung. Ein Buergerprozess "
-        "ist die praktisch wahrnehmbare Erfuellung einer gesetzlichen Pflicht, etwa "
-        "Beantragen, Nachweisen, Melden, Bezahlen, Beschaffen, Vorlegen, Mitwirken "
-        "bei Pruefungen oder persoenliches Erscheinen. Bilden Sie keine internen "
-        "Behoerdenablaeufe als Buergerprozess. Wenn die Vorgabe fuer Buergerinnen und "
-        "Buerger nur dazu fuehrt, Unterlagen zu beschaffen oder Daten zu uebermitteln, "
-        "soll genau dieser Handlungskern den Prozess bestimmen. Geben Sie nur solche "
-        "Prozesse aus, die Buergerinnen und Buerger tatsaechlich selbst wahrnehmen. "
-        "Erfinden Sie keine Sammelprozesse, die mehrere voneinander unabhaengige "
-        "Alltagshandlungen kuenstlich zusammenziehen."
-    ),
-    PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Typische buergerbezogene Fallgruppen koennen sich insbesondere unterscheiden "
-        "nach erstmaliger Erfuellung versus wiederkehrender Erfuellung, digitalem "
-        "Verfahren versus Postweg oder persoenlichem Erscheinen, einfacher Standardlage "
-        "versus zusaetzlichem Nachweis- oder Beratungsbedarf, eigener Vornahme versus "
-        "Beauftragung Dritter sowie nach einmaligem Einfuehrungsaufwand versus "
-        "laufendem Aufwand. Bilden Sie solche Fallgruppen aber nur, wenn daraus "
-        "wesentlich unterschiedliche Zeit- oder Sachaufwaende folgen. Bilden Sie keine "
-        "Fallgruppen nur deshalb, weil unterschiedliche Behoerden oder Drittstellen "
-        "beteiligt sind, sofern sich der buergerseitige Aufwand dadurch nicht merklich "
-        "aendert. Verwenden Sie moeglichst wenige, fachlich trennscharfe Fallgruppen."
-    ),
-    PromptId.CASES_CALCULATION: (
-        "Bei periodisch zu erfuellenden privaten Pflichten von Buergerinnen und Buergern ergibt sich die Fallzahl "
-        "grundsaetzlich aus der Multiplikation von Betroffenen und Haeufigkeit pro Jahr. "
-        "Bei anlassbezogenen Pflichten ist die jaehrlich zu erwartende Zahl der Faelle "
-        "zugrunde zu legen. Einmaliger Erfuellungsaufwand im privaten Bereich ist "
-        "gesondert auszuweisen und nicht mit laufenden jaehrlichen Faellen zu "
-        "vermischen. Beruecksichtigen Sie plausible Sowieso-Anteile, wenn ein Teil der "
-        "Betroffenen die Handlung auch ohne die Gesetzesaenderung vorgenommen haette. "
-        "Veraendern Sie Fallzahlen nicht kuenstlich, wenn sich tatsaechlich nur der "
-        "Zeit- oder Sachaufwand pro Fall aendert."
-    ),
+NORM_ADDRESSEE_RULES: Dict[str, Dict[str, str]] = {
+    ADMINISTRATION: {
+        PromptId.PROCESS_COMPILATION: (
+            "Buendeln Sie Vorgaben zu Prozessen entlang der Bearbeitungslogik der "
+            "zustaendigen Behoerde, nicht entlang einzelner Paragraphen. Typische "
+            "Prozessbildende Raster sind: (i) Antrags-/Anerkennungsverfahren mit "
+            "Bescheidung, (ii) turnusmaessige Pruefung bzw. laufende Aufsicht und "
+            "Kontrolle, (iii) anlassbezogene Einzelfallpruefung (z.B. Verdacht, "
+            "Stichprobe, Beschwerde), (iv) Rechtsbehelfs-/Widerspruchsverfahren, "
+            "(v) Erstattungs-, Auszahlungs- oder Foerderverfahren, (vi) Register-, "
+            "Melde- und Aktenfuehrung, (vii) einmalige interne Umstellung "
+            "(IT-Anpassung, Formular- und Merkblattpflege, Schulung). Vorgaben, "
+            "die praktisch innerhalb desselben Verfahrensganges erfuellt werden, "
+            "gehoeren in denselben Prozess; fachlich klar getrennte Verfahren "
+            "bleiben getrennt. Fuehren Sie Vollzugsaufwand auch dann aus, wenn er "
+            "durch einen Antrag der Wirtschaft oder der Buergerinnen/Buerger "
+            "ausgeloest wird. Erfinden Sie keine Verwaltungsprozesse, zu "
+            "denen die Regelung keinen konkreten Vollzugsauftrag enthaelt. "
+            "Beruecksichtigen Sie auch das fiskalische Handeln der Verwaltung als "
+            "Normadressat (z.B. als Halter von Kfz oder als Bauherr) als Teil des "
+            "Erfuellungsaufwands der Verwaltung."
+        ),
+        PromptId.CASE_GROUP_DEVELOPMENT: (
+            "Typische verwaltungsseitige Differenzierungsachsen sind: (i) "
+            "Ersterfuellung/Erstanerkennung versus turnusmaessige oder wiederholte "
+            "Bearbeitung, (ii) Standardfall mit glatter Bescheidung versus "
+            "Sonderpruefung mit Rueckfragen, Anhoerung oder Gutachtenbedarf, "
+            "(iii) weitgehend automatisierter oder digital gestuetzter Vollzug "
+            "versus manuelle Einzelbearbeitung, (iv) Massengeschaeft mit "
+            "standardisierter Pruefung versus aufwaendige Einzelpruefung, "
+            "(v) einmaliger Umstellungsaufwand (Schulung, IT-Anpassung, "
+            "Formularpflege) versus laufender Vollzug. Bilden Sie solche "
+            "Fallgruppen nur, wenn daraus wesentliche Unterschiede im "
+            "Bearbeitungsaufwand pro Fall folgen - ausgedrueckt in Zeit pro "
+            "Vorgang, erforderlicher Lohngruppe oder benoetigter "
+            "IT-/Sachunterstuetzung. Bilden Sie keine Fallgruppen, nur weil "
+            "unterschiedliche Paragraphen beruehrt werden oder die materielle "
+            "Rechtslage leicht abweicht, solange der Bearbeitungsweg derselbe "
+            "bleibt. Setzen Sie den `aenderungsstatus` je Fallgruppe differenziert: "
+            "`eingefuehrt` nur bei durch die Regelung neu entstehenden Fallgruppen, "
+            "`abgeschafft` nur bei wegfallenden, `geaendert` nur dann, wenn sich "
+            "Bearbeitungsaufwand oder Fallzahl der Fallgruppe durch die Regelung "
+            "tatsaechlich aendert. Unveraenderte Nebenfallgruppen sind nicht "
+            "auszuweisen."
+        ),
+        PromptId.CASES_CALCULATION: (
+            "Fuer die Verwaltung ist die `Anzahl Betroffene` NICHT die Zahl extern "
+            "betroffener Buerger oder Unternehmen, sondern die Zahl der jaehrlich "
+            "tatsaechlich von der Verwaltung zu bearbeitenden Vorgaenge, Faelle oder "
+            "Antraege derselben Fallgruppe. Die `Haeufigkeit pro Jahr` ist in der "
+            "Regel 1, es sei denn ein Vorgang wiederholt sich nachweislich mehrfach "
+            "pro Jahr pro Fall (z.B. periodische Kontrollen). Setzen Sie niemals "
+            "`anzahl_betroffene = 0`, wenn es eine zugeordnete Fallgruppe mit "
+            "Bearbeitungsaufwand gibt - ohne Faelle waere die Fallgruppe nicht zu "
+            "bilden. Liegen keine konkreten "
+            "Zahlen vor, schaetzen Sie sachgerecht basierend auf dem "
+            "Normzitat/Regelungsgegenstand und typischen Vollzugsmengen der "
+            "zustaendigen Behoerde; geben Sie niemals Platzhalter-Nullen aus."
+        ),
+    },
+    BUSINESS: {
+        PromptId.PROCESS_COMPILATION: (
+            "Buendeln Sie Vorgaben zu Prozessen entlang des operativen Ablaufs im "
+            "Unternehmen, nicht entlang einzelner Paragraphen. Typische prozessbildende "
+            "Raster sind: (i) Anzeige-, Melde- oder Nachweispflicht gegenueber Behoerden, "
+            "(ii) laufende Dokumentations- und Aufbewahrungspflicht, (iii) "
+            "Informationspflicht gegenueber Kundinnen/Kunden, Beschaeftigten oder "
+            "Geschaeftspartnern, (iv) Beschaffung oder Umruestung von Anlagen, Waren oder "
+            "Material, (v) interne Prozess- und IT-Umstellung inklusive Schulung des "
+            "Personals, (vi) Mitwirkung bei Pruefungen durch oeffentliche Stellen "
+            "(z.B. Betriebspruefung), (vii) fiskalische Pflichten wie Gebuehren oder "
+            "Abgaben. Trennen Sie Informationspflichten von anderen Vorgaben, weil "
+            "Buerokratiekosten aus Informationspflichten spaeter gesondert fuer den "
+            "Buerokratiekostenindex (BKI) auszuweisen sind. Benennen Sie wo moeglich die "
+            "betroffenen Wirtschaftszweige oder Unternehmenskreise; pruefen Sie "
+            "insbesondere, ob kleine und mittlere Unternehmen (KMU) besonders betroffen "
+            "sind. Uebernehmen Sie keine Verwaltungslogik (Bescheide, Vollzugshandeln) "
+            "und keine privaten Buergerhandlungen."
+        ),
+        PromptId.CASE_GROUP_DEVELOPMENT: (
+            "Typische wirtschaftsseitige Differenzierungsachsen sind: (i) "
+            "Informationspflicht versus sonstige Vorgabe (BKI-Relevanz), (ii) "
+            "Ersterfuellung mit Einarbeitung versus Routineerfuellung (Einarbeitung "
+            "faellt bei Routine in der Regel weg), (iii) Neuanschaffung versus "
+            "Umruestung bestehender Anlagen, (iv) weitgehend automatisierter oder "
+            "digital gestuetzter Ablauf versus manuelle Bearbeitung, (v) KMU versus "
+            "Grossunternehmen, soweit sich der Aufwand pro Fall wesentlich "
+            "unterscheidet, (vi) einmaliger Umstellungsaufwand (IT, Schulung, "
+            "Formularpflege) versus laufender Aufwand. Bilden Sie solche Fallgruppen "
+            "nur, wenn daraus wesentliche Unterschiede im Personal- oder Sachaufwand "
+            "pro Fall folgen. Bilden Sie keine Fallgruppen nur deshalb, weil "
+            "unterschiedliche Paragraphen oder Behoerden beruehrt sind, solange der "
+            "operative Ablauf im Unternehmen derselbe bleibt. Setzen Sie den "
+            "`aenderungsstatus` je Fallgruppe differenziert: `eingefuehrt` nur bei "
+            "neu entstehenden Fallgruppen, `abgeschafft` nur bei wegfallenden, "
+            "`geaendert` nur dann, wenn sich Aufwand oder Fallzahl der Fallgruppe "
+            "durch die Regelung tatsaechlich aendert."
+        ),
+        PromptId.CASES_CALCULATION: (
+            "Bei periodisch zu erfuellenden Vorgaben ergibt sich die Fallzahl aus der "
+            "Multiplikation der betroffenen Unternehmen mit der Periodizitaet pro Jahr. "
+            "Bei anlassbezogenen Vorgaben ist die jaehrlich zu erwartende Zahl der "
+            "Faelle zugrunde zu legen; bei Ueberwachungs- und Kontrollmassnahmen ist "
+            "die Fallzahl oft deutlich geringer als die Zahl der Betroffenen "
+            "(Stichproben). Einmaliger Erfuellungsaufwand bei Einfuehrung der Regelung "
+            "(z.B. IT-Umstellung, Austausch von Anlagen, Erstschulung) ist gesondert "
+            "auszuweisen und nicht mit laufenden jaehrlichen Faellen zu vermischen. "
+            "Bei Ersatzinvestitionen, die ohnehin im Rahmen der wirtschaftlichen "
+            "Nutzungsdauer faellig geworden waeren, sind nur 50 Prozent der "
+            "Anschaffungskosten als Erfuellungsaufwand anzusetzen (Sowieso-Anteil), "
+            "sofern kein anderer Anteil fachlich begruendet ist. Setzen Sie niemals "
+            "`anzahl_betroffene = 0`, wenn es eine zugeordnete Fallgruppe mit "
+            "Aufwand gibt; liegen keine konkreten Zahlen vor, schaetzen Sie "
+            "sachgerecht basierend auf Wirtschaftszweig und typischen "
+            "Unternehmensmengen. Weisen Sie, wenn fachlich relevant, den KMU-Anteil "
+            "an der Fallzahl gesondert aus."
+        ),
+    },
+    CITIZENS: {
+        PromptId.PROCESS_COMPILATION: (
+            "Bilden Sie Prozesse aus Sicht der privaten Lebensfuehrung. Ein Buergerprozess "
+            "ist die praktisch wahrnehmbare Erfuellung einer gesetzlichen Pflicht, etwa "
+            "Beantragen, Nachweisen, Melden, Bezahlen, Beschaffen, Vorlegen, Mitwirken "
+            "bei Pruefungen oder persoenliches Erscheinen. Bilden Sie keine internen "
+            "Behoerdenablaeufe als Buergerprozess. Wenn die Vorgabe fuer Buergerinnen und "
+            "Buerger nur dazu fuehrt, Unterlagen zu beschaffen oder Daten zu uebermitteln, "
+            "soll genau dieser Handlungskern den Prozess bestimmen. Geben Sie nur solche "
+            "Prozesse aus, die Buergerinnen und Buerger tatsaechlich selbst wahrnehmen. "
+            "Erfinden Sie keine Sammelprozesse, die mehrere voneinander unabhaengige "
+            "Alltagshandlungen kuenstlich zusammenziehen."
+        ),
+        PromptId.CASE_GROUP_DEVELOPMENT: (
+            "Typische buergerbezogene Fallgruppen koennen sich insbesondere unterscheiden "
+            "nach erstmaliger Erfuellung versus wiederkehrender Erfuellung, digitalem "
+            "Verfahren versus Postweg oder persoenlichem Erscheinen, einfacher Standardlage "
+            "versus zusaetzlichem Nachweis- oder Beratungsbedarf, eigener Vornahme versus "
+            "Beauftragung Dritter sowie nach einmaligem Einfuehrungsaufwand versus "
+            "laufendem Aufwand. Bilden Sie solche Fallgruppen aber nur, wenn daraus "
+            "wesentlich unterschiedliche Zeit- oder Sachaufwaende folgen. Bilden Sie keine "
+            "Fallgruppen nur deshalb, weil unterschiedliche Behoerden oder Drittstellen "
+            "beteiligt sind, sofern sich der buergerseitige Aufwand dadurch nicht merklich "
+            "aendert. Verwenden Sie moeglichst wenige, fachlich trennscharfe Fallgruppen."
+        ),
+        PromptId.CASES_CALCULATION: (
+            "Bei periodisch zu erfuellenden privaten Pflichten von Buergerinnen und Buergern ergibt sich die Fallzahl "
+            "grundsaetzlich aus der Multiplikation von Betroffenen und Haeufigkeit pro Jahr. "
+            "Bei anlassbezogenen Pflichten ist die jaehrlich zu erwartende Zahl der Faelle "
+            "zugrunde zu legen. Einmaliger Erfuellungsaufwand im privaten Bereich ist "
+            "gesondert auszuweisen und nicht mit laufenden jaehrlichen Faellen zu "
+            "vermischen. Beruecksichtigen Sie plausible Sowieso-Anteile, wenn ein Teil der "
+            "Betroffenen die Handlung auch ohne die Gesetzesaenderung vorgenommen haette. "
+            "Veraendern Sie Fallzahlen nicht kuenstlich, wenn sich tatsaechlich nur der "
+            "Zeit- oder Sachaufwand pro Fall aendert."
+        ),
+    },
 }
 
 
@@ -1386,17 +1384,11 @@ def _render_step_analysis_addressee_rule(norm_addressee: str | None) -> str:
 def _render_norm_addressee_context(norm_addressee: str | None) -> str:
     if not norm_addressee:
         return ""
-    return NORM_ADDRESSEE_PROMPT_OPENINGS.get(norm_addressee, "").strip()
+    return NORM_ADDRESSEE_CONTEXTS.get(norm_addressee, "").strip()
 
 
 def _render_prompt_specific_addressee_rule(prompt_id: str, norm_addressee: str | None) -> str:
-    if norm_addressee == ADMINISTRATION:
-        return ADMINISTRATION_PROMPT_RULES.get(prompt_id, "").strip()
-    if norm_addressee == BUSINESS:
-        return BUSINESS_PROMPT_RULES.get(prompt_id, "").strip()
-    if norm_addressee == CITIZENS:
-        return CITIZENS_PROMPT_RULES.get(prompt_id, "").strip()
-    return ""
+    return NORM_ADDRESSEE_RULES.get(norm_addressee or "", {}).get(prompt_id, "").strip()
 
 
 def _render_handbook_process_example(norm_addressee: str | None) -> str:
