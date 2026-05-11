@@ -648,9 +648,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         um Rechtsverstoesse oder den Verlust von Anspruechen zu vermeiden. Auch Regelungen, die nur Ziele, Grenzwerte oder foerderbedingte Verhaltensaenderungen 
         vorgeben, gelten als Vorgaben, wenn sie direkt Aufwand ausloesen.
 
-        Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum Teil neben  Ge- oder Verboten lediglich Ziele oder Grenzwerte festlegt
-        oder zum Beispiel durch staatliche Foerderungen Verhaltensaenderungen erreichen will. Auch solche Einzelregelungen sind  als Vorgaben zu verstehen, weil
-        sie unmittelbar zur Aenderung von Kosten bzw. Zeitaufwand  bei den Normadressaten fuehren.
+        Bei der Identifizierung von Vorgaben ist zu beachten, dass der Gesetzgeber zum Teil neben Ge- oder Verboten lediglich Ziele oder Grenzwerte festlegt
+        oder zum Beispiel durch staatliche Foerderungen Verhaltensaenderungen erreichen will. Auch solche Einzelregelungen sind als Vorgaben zu verstehen, weil
+        sie unmittelbar zur Aenderung von Kosten bzw. Zeitaufwand bei den Normadressaten fuehren.
 
         Wichtig fuer den Normadressaten `administration` (Verwaltung): Uebersehen Sie die Verwaltung nicht. Pruefen Sie bei jeder Vorgabe ausdruecklich,
         ob sie der zustaendigen Behoerde einen konkreten Vollzugsauftrag auferlegt – typische Ausloeser sind Antrags-, Anzeige-, Genehmigungs-,
