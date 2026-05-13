@@ -568,21 +568,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - gesetz_vorschlag: str
     PromptId.LAW_SUMMARY: (
         """
-        Sie sind Legist im deutschen Bundestag. 
+        Sie sind Legist im deutschen Bundestag.
 
         {law_mode_context}
-
-        Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\", \"summary\": \"...\"}}.
-
-        {law_mode_context}
-
-        Der 'title' soll ein kurzer Titel sein (max. 12 Woerter), der 'blurb' soll genau ein Satz sein. Fuer die 'summary' geben Sie bitte eine 
-        ausfuehrliche Zusammenfassung an, mit Hilfe derer man die Ziele und wesentlichen Unterschiede der Gesetzesaenderung verstehen kann ohne 
-        die zwei Gesetzestexte vorliegen zu haben.
 
         Geltendes Gesetz: {gesetz_gueltig}
 
         Gesetzesvorschlag: {gesetz_vorschlag}
+
+        Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\", \"summary\": \"...\"}}.
+
+        Der 'title' soll ein kurzer Titel sein (max. 12 Woerter), der 'blurb' soll genau ein Satz sein. Fuer die 'summary' geben Sie bitte eine
+        ausfuehrliche Zusammenfassung an, mit Hilfe derer man die Ziele und wesentlichen Unterschiede der Gesetzesaenderung verstehen kann ohne
+        die Gesetzestexte vorliegen zu haben.
         """
     ),
     # Render contract:
