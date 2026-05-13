@@ -113,29 +113,6 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
 }
 
 
-PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS: Dict[str, str] = {
-    ADMINISTRATION: (
-        "Dieser Lauf betrifft nur den Normadressaten `administration` "
-        "(Verwaltung). Verwaltungstaetigkeiten sind Bearbeitungs- oder "
-        "Vollzugshandlungen der zustaendigen Behoerde, z.B. Pruefung, "
-        "Bescheidung, Aufsicht, Register- oder Aktenfuehrung."
-    ),
-    BUSINESS: (
-        "Dieser Lauf betrifft nur den Normadressaten `business` "
-        "(Wirtschaft). Unternehmenstaetigkeiten sind Handlungen von Unternehmen "
-        "zur Erfuellung der Vorgabe, z.B. Melden, Nachweisen, Dokumentieren, "
-        "interne Ablaeufe anpassen oder bei behoerdlichen Pruefungen mitwirken."
-    ),
-    CITIZENS: (
-        "Dieser Lauf betrifft nur den Normadressaten `citizens` "
-        "(Buergerinnen und Buerger). Buergerseitige Taetigkeiten sind "
-        "Handlungen der privaten Pflichterfuellung, z.B. informieren, "
-        "Unterlagen beschaffen, Formulare ausfuellen, erscheinen, bezahlen "
-        "oder Dritte beauftragen."
-    ),
-}
-
-
 PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
     ADMINISTRATION: (
         "Jede Taetigkeit beschreibt eine Bearbeitungshandlung der Verwaltung "
@@ -858,12 +835,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - step_analysis_checklist
-    # - step_analysis_addressee_context
+    # - norm_addressee_prompt_opening
     # - step_analysis_addressee_rule
     PromptId.PROCESS_STEP_ANALYSIS: (
         LEGIST_PROMPT_OPENING
         + """
-        {step_analysis_addressee_context}
+        {norm_addressee_prompt_opening}
 
         Das Gesetz bzw. die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
         positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
@@ -1200,9 +1177,6 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     )
     if prompt_id == PromptId.PROCESS_STEP_ANALYSIS:
         render_values["step_analysis_checklist"] = _render_step_analysis_checklist(norm_addressee)
-        render_values["step_analysis_addressee_context"] = _render_step_analysis_addressee_context(
-            norm_addressee,
-        )
         render_values["step_analysis_addressee_rule"] = _render_step_analysis_addressee_rule(
             norm_addressee,
         )
@@ -1369,11 +1343,6 @@ def _render_step_analysis_checklist(norm_addressee: str | None) -> str:
         return _PROCESS_STEP_ANALYSIS_CHECKLIST_CITIZENS
     return ""
 
-
-def _render_step_analysis_addressee_context(norm_addressee: str | None) -> str:
-    if not norm_addressee:
-        return ""
-    return PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS.get(norm_addressee, "")
 
 
 def _render_step_analysis_addressee_rule(norm_addressee: str | None) -> str:
