@@ -545,6 +545,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Gesetzesvorschlag. Leiten Sie daraus ab, was der Gesetzgeber erreichen moechte. 
         Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\", \"summary\": \"...\"}}.
 
+        {law_mode_context}
+
         Der 'title' soll ein kurzer Titel sein (max. 12 Woerter), der 'blurb' soll genau ein Satz sein. Fuer die 'summary' geben Sie bitte eine 
         ausfuehrliche Zusammenfassung an, mit Hilfe derer man die Ziele und wesentlichen Unterschiede der Gesetzesaenderung verstehen kann ohne 
         die zwei Gesetzestexte vorliegen zu haben.
@@ -560,6 +562,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     PromptId.REGULATIONS_IDENTIFICATION: (
         LEGIST_PROMPT_OPENING
         + """ 
+        {law_mode_context}
+
         Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
 
         Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
@@ -1130,6 +1134,7 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         if not name.startswith("_") and isinstance(value, str)
     }
     render_values = dict(kwargs)
+    render_values.setdefault("law_mode_context", "")
     raw_norm_addressee = render_values.get("norm_addressee")
     if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and raw_norm_addressee in (None, ""):
         raise KeyError("render_prompt requires explicit norm_addressee")
@@ -1417,5 +1422,3 @@ def _render_effort_json_schema(norm_addressee: str | None) -> str:
     if not norm_addressee:
         norm_addressee = ADMINISTRATION
     return EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee, EFFORT_JSON_SCHEMA_DEFAULT).strip()
-
-

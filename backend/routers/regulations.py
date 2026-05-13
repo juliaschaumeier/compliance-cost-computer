@@ -33,6 +33,46 @@ from backend.routers._llm_router_utils import (
 
 router = APIRouter(prefix="/regulations", tags=["regulations"])
 
+_NEW_LAW_BASELINE_TEXT = (
+    "Es gibt kein aktuell geltendes Gegenstueck. "
+    "Der Gesetzesvorschlag ist als neue Regelung ohne bestehenden Ausgangstext "
+    "zu behandeln."
+)
+
+_LAW_MODE_CONTEXTS: dict[tuple[str, str], str] = {
+    (
+        PromptId.LAW_SUMMARY,
+        "comparison",
+    ): (
+        "Arbeitsmodus: Vergleich. Vergleichen Sie geltenden Text und "
+        "Gesetzesvorschlag direkt miteinander.\n\n"
+    ),
+    (
+        PromptId.REGULATIONS_IDENTIFICATION,
+        "comparison",
+    ): (
+        "Arbeitsmodus: Vergleich. Identifizieren Sie die Unterschiede zwischen "
+        "geltendem Text und Gesetzesvorschlag.\n\n"
+    ),
+    (
+        PromptId.LAW_SUMMARY,
+        "new_law",
+    ): (
+        "Arbeitsmodus: Neuregelung. Es gibt kein aktuell geltendes "
+        "Vergleichsgesetz. Behandeln Sie den Gesetzesvorschlag als vollstaendig "
+        "neue Regelung und stellen Sie keinen Selbstvergleich an.\n\n"
+    ),
+    (
+        PromptId.REGULATIONS_IDENTIFICATION,
+        "new_law",
+    ): (
+        "Arbeitsmodus: Neuregelung. Es gibt kein aktuell geltendes "
+        "Vergleichsgesetz. Identifizieren Sie die im Gesetzesvorschlag enthaltenen "
+        "Vorgaben als Einfuehrungen, soweit nicht aus dem Text selbst etwas anderes "
+        "hervorgeht, und stellen Sie keinen Selbstvergleich an.\n\n"
+    ),
+}
+
 
 def _ensure_regulations_dir() -> Path:
     path = settings.regulations_path
@@ -320,6 +360,38 @@ def _clear_existing_tiles(session_id: int) -> None:
         db.delete_tile(tile.id, session_id=session_id)
 
 
+def _resolve_law_mode(
+    current_text: str,
+    proposed_text: str,
+) -> tuple[str, str]:
+    if not proposed_text:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Proposed law not selected for session. "
+                "Select a proposed law and run summary first."
+            ),
+        )
+    if current_text:
+        return "comparison", current_text
+    return "new_law", _NEW_LAW_BASELINE_TEXT
+
+
+def _render_law_mode_context(prompt_id: str, law_mode: str) -> str:
+    """Render mode-specific prompt guidance for summary vs. regulations tasks.
+    Distinguishes comparison runs from proposed-only new-law runs."""
+    try:
+        return _LAW_MODE_CONTEXTS[(prompt_id, law_mode)]
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+            f"Unsupported law mode context combination: prompt_id={prompt_id!r}, "
+            f"law_mode={law_mode!r}"
+            ),
+        ) from exc
+
+
 @router.post("/identify")
 async def identify_regulations(
     payload: RegulationIdentifyRequest,
@@ -330,11 +402,7 @@ async def identify_regulations(
         payload.model,
     )
     current_text, proposed_text = db.get_session_law_texts(session_id)
-    if not current_text or not proposed_text:
-        raise HTTPException(
-            status_code=422,
-            detail="Law files not selected for session. Run summary first.",
-        )
+    law_mode, current_prompt_text = _resolve_law_mode(current_text, proposed_text)
     existing = db.list_regulations_for_session(session_id)
     if existing:
         return {
@@ -353,8 +421,11 @@ async def identify_regulations(
     prompt = render_prompt(
         PromptId.REGULATIONS_IDENTIFICATION,
         session_id=session_id,
-        gesetz_gueltig=current_text,
+        gesetz_gueltig=current_prompt_text,
         gesetz_vorschlag=proposed_text,
+        law_mode_context=_render_law_mode_context(
+            PromptId.REGULATIONS_IDENTIFICATION, law_mode
+        ),
     )
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
@@ -415,10 +486,12 @@ async def summarize_regulation(
         if not current_content:
             raise HTTPException(status_code=400, detail="Current file is empty")
 
+    law_mode, current_prompt_text = _resolve_law_mode(current_content, content)
     prompt = render_prompt(
         PromptId.LAW_SUMMARY,
-        gesetz_gueltig=current_content or content,
+        gesetz_gueltig=current_prompt_text,
         gesetz_vorschlag=content,
+        law_mode_context=_render_law_mode_context(PromptId.LAW_SUMMARY, law_mode),
     )
 
     if payload.app_session_id:

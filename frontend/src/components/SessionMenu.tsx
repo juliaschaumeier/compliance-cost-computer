@@ -4,17 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
-import {
-  apiClient,
-  buildLlmRequestOptions,
-  type ApiClientError,
-} from "@/lib/api";
+import { apiClient, type ApiClientError } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
 import {
   emitRunAllStepCleared,
   emitRunAllStepStarted,
   type RunAllStepKey,
 } from "@/lib/runAllStepEvents";
+import {
+  formatSessionStartError,
+  logSessionStartError,
+  prepareSessionDocuments,
+} from "@/lib/sessionStart";
 import { deriveTabFromStatus } from "@/lib/sessionStatus";
 import { SessionStatus, SessionSummary } from "@/types";
 
@@ -52,8 +53,15 @@ function deriveRunAllStepKeyFromStatus(
 export default function SessionMenu({ compact }: SessionMenuProps) {
   const {
     state,
+    setAvailableRegulations,
     setCurrentTab,
     setAppSessionId,
+    setSelectedCurrentLaw,
+    setSelectedRegulation,
+    setPendingCurrentUpload,
+    setPendingProposedUpload,
+    setPendingCurrentUploadName,
+    setPendingProposedUploadName,
     setSummaryReady,
     setRegulationsReady,
     setLastCompletedStep,
@@ -534,19 +542,40 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     }
     resetStatus();
     setIsRunningAll(true);
+    setStatus("Schritte werden vorbereitet...");
     emitRunAllStepCleared();
-    const { model, provider, keys } = buildLlmRequestOptions({
-      selectedModel: state.selectedModel,
-      availableModels: state.availableModels,
-    });
     try {
+      const { currentFilename, proposedFilename, llm } =
+        await prepareSessionDocuments({
+          appSessionId: state.appSessionId,
+          selectedModel: state.selectedModel,
+          availableModels: state.availableModels,
+          availableRegulations: state.availableRegulations,
+          selectedCurrentLaw: state.selectedCurrentLaw,
+          selectedRegulation: state.selectedRegulation,
+          pendingCurrent: {
+            file: state.pendingCurrentUpload,
+            desiredName: state.pendingCurrentUploadName,
+          },
+          pendingProposed: {
+            file: state.pendingProposedUpload,
+            desiredName: state.pendingProposedUploadName,
+          },
+          setSelectedCurrentLaw,
+          setSelectedRegulation,
+          setPendingCurrentUpload,
+          setPendingProposedUpload,
+          setPendingCurrentUploadName,
+          setPendingProposedUploadName,
+          setAvailableRegulations,
+        });
       const start = await apiClient.startRunAllSteps({
         appSessionId: state.appSessionId,
-        currentFilename: state.selectedCurrentLaw || undefined,
-        proposedFilename: state.selectedRegulation || undefined,
-        model,
-        provider,
-        keys,
+        currentFilename,
+        proposedFilename,
+        model: llm.model,
+        provider: llm.provider,
+        keys: llm.keys,
       });
       setStatus(
         start.started
@@ -557,11 +586,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setIsCancellingRun(false);
       beginRunEventStream(start.run_id);
     } catch (error) {
-      logClientError("SessionMenu.startRunAll", error, {
+      logSessionStartError("SessionMenu.startRunAll", error, {
         appSessionId: state.appSessionId,
       });
-      const err = error as Error;
-      setStatus(err?.message || "Schritte konnten nicht gestartet werden.");
+      setStatus(formatSessionStartError(error));
       setIsRunningAll(false);
       setCurrentRunId(null);
       setIsCancellingRun(false);
