@@ -598,11 +598,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen
         des Zeit-, Personal- sowie Sachaufwands ermittelt.
 
+        {law_mode_context}
+
         Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
 
         Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
-
-        {law_mode_context}
 
         Identifizieren Sie alle darin enthaltenen Vorgaben (Einzelregelungen) im nachfolgenden Sinne.
         Wichtig: Jede Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
