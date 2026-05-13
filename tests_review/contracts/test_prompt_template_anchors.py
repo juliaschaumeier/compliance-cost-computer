@@ -14,7 +14,7 @@ Kernaussage anschlaegt.
 import pytest
 
 from backend.core.prompts import (
-    PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS,
+    NORM_ADDRESSEE_PROMPT_OPENINGS,
     PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES,
     PROMPT_TEMPLATES,
     PromptId,
@@ -83,10 +83,10 @@ class TestProcessStepAnalysisContract:
             case_groups_json="[]",
             norm_addressee=norm_addressee,
         )
-        context = PROCESS_STEP_ANALYSIS_ADDRESSEE_CONTEXTS[norm_addressee]
+        context = NORM_ADDRESSEE_PROMPT_OPENINGS[norm_addressee].strip()
         rule = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[norm_addressee]
 
-        assert context.strip()
+        assert context
         assert rule.strip()
         assert context in text
         assert rule in text

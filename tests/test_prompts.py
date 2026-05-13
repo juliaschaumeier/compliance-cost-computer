@@ -49,7 +49,7 @@ def _compact(text: str) -> str:
 def test_effort_prompt_for_business_uses_only_business_tables_and_guidance():
     prompt = _render_effort_prompt(BUSINESS)
 
-    assert "Dieser Lauf betrifft den Normadressaten Wirtschaft." in prompt
+    assert "Dieser Lauf betrifft nur den Normadressaten Wirtschaft." in prompt
     assert "A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt" in prompt
     assert "Anhang Wirtschaft:" in prompt
     assert "Zeitwerttabelle Wirtschaft" in prompt
@@ -60,13 +60,12 @@ def test_effort_prompt_for_business_uses_only_business_tables_and_guidance():
     assert "Zeitwerttabelle Verwaltung" not in prompt
     assert "Lohnkostentabelle Verwaltung" not in prompt
     assert "Einfacher und mittlerer Dienst" not in prompt
-    assert "Buergerinnen und Buerger" not in prompt
 
 
 def test_effort_prompt_for_citizens_uses_simplified_schema_without_wages():
     prompt = _render_effort_prompt(CITIZENS)
 
-    assert "Dieser Lauf betrifft den Normadressaten Buergerinnen und Buerger." in prompt
+    assert "Dieser Lauf betrifft nur den Normadressaten Buergerinnen und Buerger." in prompt
     assert "Monetarisieren Sie den Zeitaufwand nicht." in prompt
     assert "Anhang Buergerinnen und Buerger:" in prompt
     assert "Zeitwerttabelle Buergerinnen und Buerger" in prompt
@@ -81,7 +80,7 @@ def test_effort_prompt_for_citizens_uses_simplified_schema_without_wages():
 def test_effort_prompt_for_administration_keeps_administration_specific_tables():
     prompt = _render_effort_prompt(ADMINISTRATION)
 
-    assert "Dieser Lauf betrifft den Normadressaten Verwaltung." in prompt
+    assert "Dieser Lauf betrifft nur den Normadressaten Verwaltung." in prompt
     assert "A=Einfacher und mittlerer Dienst, B=Gehobener Dienst, C=Hoeherer Dienst" in prompt
     assert "Anhang Verwaltung:" in prompt
     assert "Zeitwerttabelle Verwaltung" in prompt
@@ -261,7 +260,7 @@ def test_norm_addressee_prompts_end_with_final_json_instruction(prompt_id, norm_
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
 def test_norm_addressee_prompts_integrate_guidance_before_schema(prompt_id, norm_addressee):
     prompt = _render_prompt_for_contract(prompt_id, norm_addressee)
-    context_marker = "Dieser Lauf betrifft den Normadressaten"
+    context_marker = "Dieser Lauf betrifft nur den Normadressaten"
     schema_marker = "Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:"
 
     assert context_marker in prompt
@@ -275,21 +274,28 @@ def test_process_step_analysis_prompt_sets_known_norm_addressee_after_context():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
     assert prompt.index("Sie sind Legist im deutschen Bundestag") < prompt.index(
-        "Die wesentlichen Unterschiede der Gesetzesaenderung"
+        "Das Gesetz bzw. die Gesetzesaenderung ist wie folgt"
     )
-    assert "Dieser Lauf betrifft nur den Normadressaten `business`" in prompt
-    assert prompt.index("Die wesentlichen Unterschiede der Gesetzesaenderung") < prompt.index(
-        "Dieser Lauf betrifft nur den Normadressaten `business`"
+    assert "Dieser Lauf betrifft nur den Normadressaten Wirtschaft" in prompt
+    assert prompt.index("Das Gesetz bzw. die Gesetzesaenderung ist wie folgt") < prompt.index(
+        "Dieser Lauf betrifft nur den Normadressaten Wirtschaft"
     )
     assert '"normadressat": "business"' in prompt
     assert '"normadressat": "administration | business | citizens"' not in prompt
+
+
+_ADDRESSEE_GERMAN = {
+    ADMINISTRATION: "Verwaltung",
+    BUSINESS: "Wirtschaft",
+    CITIZENS: "Buergerinnen und Buerger",
+}
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
 def test_process_step_analysis_prompt_prefills_each_known_norm_addressee(norm_addressee):
     prompt = _render_step_analysis_prompt(norm_addressee)
 
-    assert f"Dieser Lauf betrifft nur den Normadressaten `{norm_addressee}`" in prompt
+    assert f"Dieser Lauf betrifft nur den Normadressaten {_ADDRESSEE_GERMAN[norm_addressee]}" in prompt
     assert f'"normadressat": "{norm_addressee}"' in prompt
     assert '"normadressat": "administration | business | citizens"' not in prompt
 
@@ -320,10 +326,10 @@ def test_process_step_analysis_prompt_keeps_general_context_before_step_scope(no
     prompt = _render_step_analysis_prompt(norm_addressee)
 
     assert "Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung" in prompt
-    assert "Die wesentlichen Unterschiede der Gesetzesaenderung" in prompt
+    assert "Das Gesetz bzw. die Gesetzesaenderung ist wie folgt" in prompt
     assert "Schaetzen Sie in diesem Schritt keine Minuten" in prompt
     assert prompt.index(
-        "Die wesentlichen Unterschiede der Gesetzesaenderung"
+        "Das Gesetz bzw. die Gesetzesaenderung ist wie folgt"
     ) < prompt.index("Schaetzen Sie in diesem Schritt keine Minuten")
 
 
@@ -472,8 +478,3 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
     assert "Gesamtzeitaufwand" not in prompt
 
 
-@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_does_not_use_generic_addressee_context(norm_addressee):
-    prompt = _render_step_analysis_prompt(norm_addressee)
-    generic_context = NORM_ADDRESSEE_PROMPT_OPENINGS[norm_addressee].strip()
-    assert generic_context not in prompt

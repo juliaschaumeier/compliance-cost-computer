@@ -56,7 +56,7 @@ LEGIST_PROMPT_OPENING = (
 NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
     ADMINISTRATION: (
         """
-        Dieser Lauf betrifft den Normadressaten Verwaltung.
+        Dieser Lauf betrifft nur den Normadressaten Verwaltung.
 
         Ein Verwaltungsprozess ist die durch die Regelung ausgeloeste Bearbeitungs-
         oder Vollzugshandlung einer zustaendigen Behoerde bei einem konkreten
@@ -79,7 +79,7 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
     ),
     BUSINESS: (
         """
-        Dieser Lauf betrifft den Normadressaten Wirtschaft.
+        Dieser Lauf betrifft nur den Normadressaten Wirtschaft.
 
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Wirtschaft.
         Analysieren Sie nur wirtschaftsbezogene Prozesse, Fallgruppen, Taetigkeiten,
@@ -91,7 +91,7 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
     ),
     CITIZENS: (
         """
-        Dieser Lauf betrifft den Normadressaten Buergerinnen und Buerger.
+        Dieser Lauf betrifft nur den Normadressaten Buergerinnen und Buerger.
 
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand von Buergerinnen und
         Buergern. Analysieren Sie nur buergerbezogene Prozesse, Fallgruppen, Taetigkeiten,
