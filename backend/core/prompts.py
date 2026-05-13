@@ -46,7 +46,7 @@ LEGIST_PROMPT_OPENING = (
     welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen
     des Zeit-, Personal- sowie Sachaufwands ermittelt.
 
-    Die wesentlichen Unterschiede der Gesetzesaenderung sind wie folgt
+    Das Gesetz bzw. die Gesetzesaenderung ist wie folgt
     zusammengefasst: {law_summary}
     """
 )
@@ -605,7 +605,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
 
         Identifizieren Sie alle darin enthaltenen Vorgaben (Einzelregelungen) im nachfolgenden Sinne.
-        Wichtig: Jede Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
+        Wichtig: Das Gesetz bzw. die Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
         also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung handelt.
         Beruecksichtigen Sie dabei auch implizite Aenderungen von Vorgaben, bei denen bisher Betroffene wegfallen, weil sie kuenftig stattdessen einem neuen
         Prozess unterliegen; solche Faelle sind ebenfalls als eigene relevante Vorgaben mit passendem Aenderungsstatus auszuweisen.
@@ -695,7 +695,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {norm_addressee_prompt_opening}
 
-        Die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
+        Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
 
         Ihre Aufgabe ist es, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfuellt werden, zu gemeinsamen
         Prozessen zu buendeln. Soweit eine Buendelung von Vorgaben in Prozesse nicht moeglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch 
@@ -769,7 +769,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {norm_addressee_prompt_opening}
 
-        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
+        Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
 
         Ihre Aufgabe ist es, Fallgruppen zu bilden, wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfuellt.
         Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Fuer jede Fallgruppe ist der Erfuellungsaufwand separat zu
@@ -863,7 +863,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {step_analysis_addressee_context}
 
-        Die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
+        Das Gesetz bzw. die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
         positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
         Fallgruppen: {case_groups_json}
 
@@ -980,7 +980,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {norm_addressee_prompt_opening}
 
-        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen
+        Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen
         differenziert werden: {case_groups_json}
 
         Ihre Aufgabe ist es, die Aenderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Haeufigkeit und die Anzahl der Betroffenen 
@@ -1115,7 +1115,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {norm_addressee_prompt_opening}
 
-        Die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und
+        Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und
         Prozessschritte differenziert werden: {step_analysis_json}
 
         Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Taetigkeiten pro Einzelfall zu identifizieren. 
