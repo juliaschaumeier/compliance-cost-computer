@@ -570,8 +570,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         """
         Sie sind Legist im deutschen Bundestag. 
 
-        Vergleichen Sie den derzeit gueltigen Gesetzestext mit dem vorgeschlagenen 
-        Gesetzesvorschlag. Leiten Sie daraus ab, was der Gesetzgeber erreichen moechte. 
+        {law_mode_context}
+
         Geben Sie strikt JSON zurueck im Format: {{\"title\": \"...\", \"blurb\": \"...\", \"summary\": \"...\"}}.
 
         {law_mode_context}
@@ -606,8 +606,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {law_mode_context}
 
-        Ihre Aufgabe ist es, ausgehend von den konsolidierten Versionen die Gesetzesaenderungen herauszuarbeiten und alle darin enthaltenen Vorgaben
-        (Einzelregelungen) im nachfolgenden Sinne zu identifizieren. 
+        Identifizieren Sie alle darin enthaltenen Vorgaben (Einzelregelungen) im nachfolgenden Sinne.
         Wichtig: Jede Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, 
         also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung handelt.
         Beruecksichtigen Sie dabei auch implizite Aenderungen von Vorgaben, bei denen bisher Betroffene wegfallen, weil sie kuenftig stattdessen einem neuen
