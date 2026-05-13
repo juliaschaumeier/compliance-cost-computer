@@ -44,7 +44,8 @@ LEGIST_PROMPT_OPENING = (
     einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese
     schliessen Taetigkeiten ein, welche neu hinzukommen, welche sich aendern und
     welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen
-    des Zeit-, Personal- sowie Sachaufwands ermittelt.
+    des Zeit-, Personal- sowie Sachaufwands fuer die drei Normadressaten
+    Buergerinnen und Buerger, Wirtschaft und Verwaltung ermittelt.
 
     Das Gesetz bzw. die Gesetzesaenderung ist wie folgt
     zusammengefasst: {law_summary}
@@ -596,7 +597,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         einer Vorgabe oder eines Prozesses im Einzelfall zu erwarten sind. Diese
         schliessen Taetigkeiten ein, welche neu hinzukommen, welche sich aendern und
         welche wegfallen. Fuer diese Taetigkeiten werden die zu erwartenden Aenderungen
-        des Zeit-, Personal- sowie Sachaufwands ermittelt.
+        des Zeit-, Personal- sowie Sachaufwands fuer die drei Normadressaten
+        Buergerinnen und Buerger, Wirtschaft und Verwaltung ermittelt.
 
         {law_mode_context}
 
