@@ -171,10 +171,6 @@ export default function UploadPanel() {
   };
 
   const handleStart = async () => {
-    if (!state.selectedModel) {
-      setStatus("Bitte zuerst ein Modell auswählen.");
-      return;
-    }
     if (!canStart) {
       return;
     }

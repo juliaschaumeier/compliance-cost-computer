@@ -383,9 +383,12 @@ def _render_law_mode_context(prompt_id: str, law_mode: str) -> str:
     try:
         return _LAW_MODE_CONTEXTS[(prompt_id, law_mode)]
     except KeyError as exc:
-        raise ValueError(
+        raise HTTPException(
+            status_code=500,
+            detail=(
             f"Unsupported law mode context combination: prompt_id={prompt_id!r}, "
             f"law_mode={law_mode!r}"
+            ),
         ) from exc
 
 
