@@ -58,3 +58,6 @@ workplans/
 
 # Claude Code local settings (kept on disk, not tracked)
 .claude/settings.local.json
+
+# Local prompt audits and analysis artifacts (kept on disk, not tracked)
+prompt_audits/

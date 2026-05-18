@@ -11,3 +11,10 @@
 - For review-driven implementation from a review action list, use the `fixer` subagent.
 - For CCC workflow/session-state/LLM-monitor diagnosis, follow the repo-local workflow debugging guidance and use the matching subagent when helpful.
 - Keep changes aligned with the existing repo structure, layering, and testing style described in the imported files.
+
+# Working Style
+
+- Always ask before making any code changes — propose what you intend to do and wait for explicit approval.
+- Be minimally invasive: change only what is necessary to address the task, nothing more.
+- Prefer the cleanest solution. Think critically about whether the complexity of a proposed change is justified before implementing it.
+- When in doubt whether a change is really needed, raise the question rather than making the change.

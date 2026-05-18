@@ -184,6 +184,7 @@ def test_init_db_migrates_legacy_llm_answers_before_state_indexes(monkeypatch, t
     cur.execute("PRAGMA table_info(llm_answers)")
     columns = {row["name"] for row in cur.fetchall()}
     assert "answer_state" in columns
+    assert "prompt_text" in columns
 
     cur.execute("PRAGMA index_list(llm_answers)")
     indexes = {row["name"] for row in cur.fetchall()}

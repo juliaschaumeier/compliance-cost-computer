@@ -21,15 +21,36 @@ def _is_effort_prompt(prompt: str) -> bool:
 def _detect_addressee_from_prompt(prompt: str) -> str:
     lowered = prompt.lower()
     if (
-        "normadressaten bürgerinnen und bürger" in lowered
+        '"normadressat": "citizens"' in lowered
+        or "normadressat `citizens`" in lowered
+        or "normadressaten `citizens`" in lowered
+        or "normadressat citizens" in lowered
+        or "normadressaten citizens" in lowered
+        or "normadressaten bürgerinnen und bürger" in lowered
         or "normadressaten buergerinnen und buerger" in lowered
         or "normadressat buergerinnen und buerger" in lowered
         or "normadressat bürgerinnen und bürger" in lowered
     ):
         return CITIZENS
-    if "normadressaten wirtschaft" in lowered or "normadressat wirtschaft" in lowered:
+    if (
+        '"normadressat": "business"' in lowered
+        or "normadressat `business`" in lowered
+        or "normadressaten `business`" in lowered
+        or "normadressat business" in lowered
+        or "normadressaten business" in lowered
+        or "normadressaten wirtschaft" in lowered
+        or "normadressat wirtschaft" in lowered
+    ):
         return BUSINESS
-    if "normadressaten verwaltung" in lowered or "normadressat verwaltung" in lowered:
+    if (
+        '"normadressat": "administration"' in lowered
+        or "normadressat `administration`" in lowered
+        or "normadressaten `administration`" in lowered
+        or "normadressat administration" in lowered
+        or "normadressaten administration" in lowered
+        or "normadressaten verwaltung" in lowered
+        or "normadressat verwaltung" in lowered
+    ):
         return ADMINISTRATION
     return ADMINISTRATION
 

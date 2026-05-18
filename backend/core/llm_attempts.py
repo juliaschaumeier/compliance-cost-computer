@@ -212,6 +212,7 @@ def mark_llm_query_failed(
         answer_state=db.LLM_ANSWER_STATE_INVALID,
         state_reason="query_failed",
         norm_addressee=norm_addressee,
+        prompt_text=prompt,
     )
 
 
@@ -253,6 +254,7 @@ def stage_llm_response(
         estimated_cost_usd=llm_result.estimated_cost_usd,
         provider_response_json=llm_result.provider_response_json,
         norm_addressee=norm_addressee,
+        prompt_text=prompt,
     )
 
 
