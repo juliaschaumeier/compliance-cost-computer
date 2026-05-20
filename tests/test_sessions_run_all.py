@@ -3,6 +3,7 @@ import time
 import asyncio
 
 from backend.core import db
+from backend.core.deep_research_service import DeepResearchResult
 from backend.routers import (
     case_groups as case_groups_router,
     effort as effort_router,
@@ -694,6 +695,124 @@ def test_run_all_executes_all_addressees_end_to_end(test_client, monkeypatch):
         BUSINESS: True,
         CITIZENS: True,
     }
+
+
+def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypatch):
+    app_session_id = "RUNALL-DEEP-RESEARCH"
+    db.insert_law("current_deep.txt", "aktuelles gesetz")
+    db.insert_law("proposed_deep.txt", "neuer entwurf")
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_case_group_research_enabled(session_id, True)
+    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
+
+    async def fake_effort_llm(prompt, *_args, **_kwargs):
+        if not _is_effort_prompt(prompt):
+            raise AssertionError("cases_calculation should be replaced by Deep Research")
+        addressee = _detect_addressee_from_prompt(prompt)
+        sid = db.get_session_id_by_app_id(app_session_id)
+        assert sid is not None
+        processes = db.list_processes_for_session_and_addressee(sid, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(sid, addressee)
+        steps = db.list_process_steps_for_session_and_addressee(sid, addressee)
+        assert len(processes) == 1
+        assert len(case_groups) == 1
+        assert len(steps) == 1
+        if addressee == CITIZENS:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "zeitaufwand_in_min_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        else:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "stundenlohn_satz_a_vorschlag": "60",
+                "zeitaufwand_in_min_a_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "normadressat": addressee,
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    async def fake_run_deep_research(*_args, **_kwargs):
+        sid = db.get_session_id_by_app_id(app_session_id)
+        assert sid is not None
+        processes = []
+        for group in db.list_case_groups_for_session(sid):
+            processes.append(
+                {
+                    "prozess_id": str(group["process_id"]),
+                    "normadressat": group["norm_addressee"],
+                    "fallgruppen": [
+                        {
+                            "fallgruppen_id": str(group["case_group_id"]),
+                            "anzahl_betroffene_gueltig": "10",
+                            "haeufigkeit_pro_jahr_gueltig": "1",
+                            "anzahl_betroffene_vorschlag": "10",
+                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "confidence": {
+                                "anzahl_betroffene_gueltig": "high",
+                                "haeufigkeit_pro_jahr_gueltig": "medium",
+                                "anzahl_betroffene_vorschlag": "high",
+                                "haeufigkeit_pro_jahr_vorschlag": "medium",
+                            },
+                            "erklaerungen": {
+                                "anzahl_betroffene_gueltig": "Deep Research Begründung",
+                                "haeufigkeit_pro_jahr_gueltig": "Deep Research Begründung",
+                                "anzahl_betroffene_vorschlag": "Deep Research Begründung",
+                                "haeufigkeit_pro_jahr_vorschlag": "Deep Research Begründung",
+                            },
+                        }
+                    ],
+                }
+            )
+        report_text = json.dumps({"prozesse": processes})
+        return DeepResearchResult(
+            agent="test-agent",
+            interaction_id="dr-test",
+            report_text=report_text,
+            response_json={"status": "completed"},
+        )
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
+    monkeypatch.setattr(sessions_router, "run_deep_research", fake_run_deep_research)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "current_filename": "current_deep.txt",
+            "proposed_filename": "proposed_deep.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["final_status"]["total_cost_ready"] is True
+    run = db.get_latest_deep_research_run(session_id, "case_group_metrics")
+    assert run is not None
+    assert run["status"] == "parsed"
+    assert all(
+        group["case_metric_research_json"]
+        for group in db.list_case_groups_for_session(session_id)
+    )
 
 
 def test_run_all_skips_administration_when_only_business_regulations_exist(

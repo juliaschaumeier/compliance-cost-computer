@@ -86,13 +86,13 @@ def build_case_group_tile_text(
         return f"{label}: " + " | ".join(parts)
 
     current_line = _format_case_line(
-        "Gueltig",
+        "Aktuell",
         addressees_current,
         annual_frequency_current,
         cases_current,
     )
     proposed_line = _format_case_line(
-        "Vorschlag",
+        "Entwurf",
         addressees_proposed,
         annual_frequency_proposed,
         cases_proposed,
@@ -151,14 +151,14 @@ def build_process_step_tile_text(
         return f"{label}: " + " | ".join(parts)
 
     current_line = _format_effort_values(
-        "Gueltig",
+        "Aktuell",
         hourly_rates_current,
         time_required_current,
         expenses_current,
         cost_current,
     )
     proposed_line = _format_effort_values(
-        "Vorschlag",
+        "Entwurf",
         hourly_rates_proposed,
         time_required_proposed,
         expenses_proposed,

@@ -48,6 +48,7 @@ export interface SessionSummary {
   created_at: string;
   llm_model: string;
   used_llm_models?: string | null;
+  case_group_research_enabled?: boolean;
 }
 
 export interface SessionsResponse {
@@ -67,8 +68,17 @@ export interface SessionStatus {
   effort_ready_by_addressee?: Record<NormAddressee, boolean>;
   total_cost_ready: boolean;
   total_cost_ready_by_addressee?: Record<NormAddressee, boolean>;
+  case_group_research_enabled?: boolean;
+  case_group_research_status?: string;
   last_completed_step?: string | null;
   last_completed_label?: string | null;
+}
+
+export interface CaseGroupResearchSettingsResponse {
+  app_session_id: string;
+  enabled: boolean;
+  status: string;
+  locked: boolean;
 }
 
 export interface UndoStepResponse {
@@ -348,6 +358,7 @@ export interface EditableCaseGroupRow {
   addressees_proposed_effective: number | null;
   annual_frequency_proposed_effective: number | null;
   cases_proposed_effective: number | null;
+  case_metric_research_json?: Record<string, unknown> | unknown[] | string | null;
 }
 
 export interface EditableCaseGroupsResponse {

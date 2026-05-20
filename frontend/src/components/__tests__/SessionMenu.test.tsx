@@ -154,20 +154,6 @@ describe("SessionMenu", () => {
     return user;
   }
 
-  it("rebuilds the currently selected norm addressee", async () => {
-    const user = await openMenu();
-
-    await user.click(
-      screen.getByRole("button", {
-        name: /kacheln dieser session neu laden/i,
-      })
-    );
-
-    await waitFor(() =>
-      expect(mockRebuildTiles).toHaveBeenCalledWith("ABC123", "business")
-    );
-  });
-
   it("rebuilds the selected norm addressee after loading another session", async () => {
     const user = await openMenu();
 

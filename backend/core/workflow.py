@@ -41,6 +41,8 @@ def _undo_total_cost(session_id: int) -> None:
 def _undo_effort(session_id: int) -> None:
     for addressee in SUPPORTED_NORM_ADDRESSEES:
         db.clear_effort_metrics(session_id, norm_addressee=addressee)
+    if db.get_case_group_research_enabled(session_id):
+        db.clear_case_group_research(session_id)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],

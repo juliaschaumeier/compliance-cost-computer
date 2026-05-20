@@ -121,8 +121,8 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
             <thead>
               <tr>
                 <th scope="col" />
-                <th scope="col">Gültig</th>
-                <th scope="col">Vorschlag</th>
+                <th scope="col">Aktuell</th>
+                <th scope="col">Entwurf</th>
               </tr>
             </thead>
             <tbody>

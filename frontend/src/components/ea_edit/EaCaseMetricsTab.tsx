@@ -34,32 +34,36 @@ const CASE_FIELDS = [
     editedKey: "addressees_current_edited",
     effectiveKey: "addressees_current_effective",
     side: "current",
+    researchKey: "anzahl_betroffene_gueltig",
     columnLabel: "Betroffene",
-    reviewLabel: "Gültig Betroffene",
+    reviewLabel: "Aktuelles Gesetz Betroffene",
   },
   {
     key: "annual_frequency_current",
     editedKey: "annual_frequency_current_edited",
     effectiveKey: "annual_frequency_current_effective",
     side: "current",
+    researchKey: "haeufigkeit_pro_jahr_gueltig",
     columnLabel: "Häufigkeit",
-    reviewLabel: "Gültig Häufigkeit",
+    reviewLabel: "Aktuelles Gesetz Häufigkeit",
   },
   {
     key: "addressees_proposed",
     editedKey: "addressees_proposed_edited",
     effectiveKey: "addressees_proposed_effective",
     side: "proposed",
+    researchKey: "anzahl_betroffene_vorschlag",
     columnLabel: "Betroffene",
-    reviewLabel: "Vorschlag Betroffene",
+    reviewLabel: "Gesetzesentwurf Betroffene",
   },
   {
     key: "annual_frequency_proposed",
     editedKey: "annual_frequency_proposed_edited",
     effectiveKey: "annual_frequency_proposed_effective",
     side: "proposed",
+    researchKey: "haeufigkeit_pro_jahr_vorschlag",
     columnLabel: "Häufigkeit",
-    reviewLabel: "Vorschlag Häufigkeit",
+    reviewLabel: "Gesetzesentwurf Häufigkeit",
   },
 ] as const;
 
@@ -69,6 +73,78 @@ type CaseDraftRow = Record<CaseFieldKey, string>;
 type CaseDraft = Record<number, CaseDraftRow>;
 type CaseParsedValues = Record<CaseFieldKey, number | null>;
 type CaseChangedCells = Record<CaseFieldKey, boolean>;
+type ResearchEvidence = {
+  confidence?: string;
+  explanation?: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseResearchMetadata(
+  raw: EditableCaseGroupRow["case_metric_research_json"]
+): Record<string, ResearchEvidence> {
+  const parsed = typeof raw === "string" ? safeJsonParse(raw) : raw;
+  const metadata = asRecord(parsed);
+  if (!metadata) {
+    return {};
+  }
+  const confidence = asRecord(metadata.confidence);
+  const explanations = asRecord(metadata.erklaerungen);
+  const result: Record<string, ResearchEvidence> = {};
+  for (const field of CASE_FIELDS) {
+    const key = field.researchKey;
+    const explanation = explanations?.[key];
+    const confidenceValue = confidence?.[key];
+    result[key] = {
+      confidence: typeof confidenceValue === "string" ? confidenceValue : undefined,
+      explanation: typeof explanation === "string" ? explanation : undefined,
+    };
+  }
+  return result;
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function EvidenceDisclosure({
+  evidence,
+  dimmed,
+}: {
+  evidence?: ResearchEvidence;
+  dimmed: boolean;
+}) {
+  if (!evidence?.confidence && !evidence?.explanation) {
+    return null;
+  }
+  const confidence = evidence.confidence || "unbekannt";
+  return (
+    <details className={`mt-1 text-[10px] ${dimmed ? "opacity-40" : ""}`}>
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
+        <span>{confidence}</span>
+        <span aria-hidden="true">▾</span>
+      </summary>
+      {evidence.explanation && (
+        <div className="mt-1 max-w-[13rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 leading-snug text-slate-600">
+          {dimmed && (
+            <div className="mb-1 font-semibold text-slate-500">
+              Hinweis zum Modellwert
+            </div>
+          )}
+          {evidence.explanation}
+        </div>
+      )}
+    </details>
+  );
+}
 
 function buildCaseDraftRow(row: EditableCaseGroupRow): CaseDraftRow {
   const draft = {} as CaseDraftRow;
@@ -311,13 +387,13 @@ export default function EaCaseMetricsTab({
               <tr className="border-b border-slate-200 text-left text-slate-600">
                 <th className="px-2 py-2">Fallgruppe</th>
                 <th className="bg-sky-50 px-2 py-2 text-sky-900" colSpan={3}>
-                  Gültig
+                  Aktuelles Gesetz
                 </th>
                 <th
                   className="border-l border-slate-200 bg-emerald-50 px-2 py-2 text-emerald-900"
                   colSpan={3}
                 >
-                  Vorschlag
+                  Gesetzesentwurf
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-left text-slate-500">
@@ -345,6 +421,7 @@ export default function EaCaseMetricsTab({
               {rows.map((row) => {
                 const draftRow = draft[row.case_group_id] || buildCaseDraftRow(row);
                 const changedCellsByField = changedByCaseGroupId.get(row.case_group_id);
+                const researchEvidence = parseResearchMetadata(row.case_metric_research_json);
                 const inputClass = (value: string) =>
                   `w-24 rounded px-2 py-1 ${
                     isValidNullableNumberInput(value)
@@ -374,6 +451,10 @@ export default function EaCaseMetricsTab({
                           onChange={(event) => updateField(field.key, event.target.value)}
                           className={inputClass(draftRow[field.key])}
                         />
+                        <EvidenceDisclosure
+                          evidence={researchEvidence[field.researchKey]}
+                          dimmed={Boolean(changedCellsByField?.[field.key])}
+                        />
                       </td>
                     ))}
                     <td
@@ -396,6 +477,10 @@ export default function EaCaseMetricsTab({
                           value={draftRow[field.key]}
                           onChange={(event) => updateField(field.key, event.target.value)}
                           className={inputClass(draftRow[field.key])}
+                        />
+                        <EvidenceDisclosure
+                          evidence={researchEvidence[field.researchKey]}
+                          dimmed={Boolean(changedCellsByField?.[field.key])}
                         />
                       </td>
                     ))}

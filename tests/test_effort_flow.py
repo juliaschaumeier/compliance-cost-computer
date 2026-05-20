@@ -1,8 +1,12 @@
+import asyncio
+
+import pytest
+
 from backend.core import db
+from backend.core.auth import ApiKeys
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.routers import effort as effort_router
-import pytest
 
 
 def _is_effort_prompt(prompt: str) -> bool:
@@ -170,8 +174,8 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     case_tile = next(tile for tile in tiles if tile.id == f"case_group_{case_group_id}")
     step_tile = next(tile for tile in tiles if tile.id == f"step_{step_one}")
     assert case_tile.text.startswith("Beschreibung Fallgruppe")
-    assert "Gueltig: Betroffene: 100 | Haeufigkeit/Jahr: 2 | Faelle: 200" in case_tile.text
-    assert "Vorschlag: Betroffene: 120 | Haeufigkeit/Jahr: 2 | Faelle: 240" in case_tile.text
+    assert "Aktuell: Betroffene: 100 | Haeufigkeit/Jahr: 2 | Faelle: 200" in case_tile.text
+    assert "Entwurf: Betroffene: 120 | Haeufigkeit/Jahr: 2 | Faelle: 240" in case_tile.text
     assert case_tile.meta_information["addressees_current"] == 100
     assert case_tile.meta_information["annual_frequency_current"] == 2
     assert case_tile.meta_information["cases_current"] == 200
@@ -180,8 +184,8 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     assert case_tile.meta_information["cases_proposed"] == 240
 
     assert step_tile.text.startswith("Beschreibung Schritt 1")
-    assert "Gueltig:" in step_tile.text
-    assert "Vorschlag:" in step_tile.text
+    assert "Aktuell:" in step_tile.text
+    assert "Entwurf:" in step_tile.text
     assert step_tile.meta_information["time_required_current"]["a"] == 1
     assert step_tile.meta_information["time_required_proposed"]["a"] == 1.5
     assert step_tile.meta_information["expenses_current"] == 10
@@ -421,6 +425,126 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
     assert payload["status"] == "existing"
     assert payload["case_groups_updated"] == 0
     assert payload["steps_updated"] == 0
+
+
+def test_public_calculate_effort_ignores_skip_cases_calculation(test_client, monkeypatch):
+    session_id, _ = db.upsert_session("EFFORT-PUBLIC-SKIP", "test-model")
+    _process_id, case_group_id = _seed_case_group(session_id)
+    step_one, _step_two = _seed_steps(session_id, case_group_id)
+
+    cases_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_gueltig": "10",
+              "haeufigkeit_pro_jahr_gueltig": "2",
+              "anzahl_betroffene_vorschlag": "12",
+              "haeufigkeit_pro_jahr_vorschlag": "3"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_response = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": "1",
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_one}",
+                  "stundenlohn_satz_a_gueltig": "40",
+                  "zeitaufwand_in_min_a_gueltig": "5",
+                  "sachaufwand_gueltig": "1"
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    calls = []
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(cases_response, effort_response, calls=calls),
+    )
+
+    response = test_client.post(
+        "/effort/calculate",
+        json={
+            "app_session_id": "EFFORT-PUBLIC-SKIP",
+            "model": "test-model",
+            "provider": "openai",
+            "skip_cases_calculation": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(calls) == 2
+    case_group = db.list_case_groups_for_session(session_id)[0]
+    assert case_group["addressees_current"] == 10
+    assert case_group["annual_frequency_proposed"] == 3
+
+
+def test_internal_skip_cases_uses_step_only_existing_check(monkeypatch):
+    session_id, _ = db.upsert_session("EFFORT-INTERNAL-SKIP-EXISTING", "test-model")
+    _process_id, case_group_id = _seed_case_group(session_id)
+    step_one, _step_two = _seed_steps(session_id, case_group_id)
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_one,
+        norm_addressee=ADMINISTRATION,
+        hourly_rates_current={"a": 40, "b": None, "c": None, "d": None},
+        time_required_current={"a": 5, "b": None, "c": None, "d": None},
+        expenses_current=1,
+        hourly_rates_proposed={"a": None, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=_step_two,
+        norm_addressee=ADMINISTRATION,
+        hourly_rates_current={"a": 40, "b": None, "c": None, "d": None},
+        time_required_current={"a": 5, "b": None, "c": None, "d": None},
+        expenses_current=1,
+        hourly_rates_proposed={"a": None, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    async def fail_query_llm(*_args, **_kwargs):
+        raise AssertionError("LLM should not be called when step metrics already exist")
+
+    monkeypatch.setattr(effort_router, "query_llm", fail_query_llm)
+    payload = effort_router.EffortCalculationRequest(
+        app_session_id="EFFORT-INTERNAL-SKIP-EXISTING",
+        model="test-model",
+        provider="openai",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    response = asyncio.run(
+        effort_router._calculate_effort(
+            payload,
+            ApiKeys(),
+            skip_cases_calculation=True,
+        )
+    )
+
+    assert response["status"] == "existing"
+    assert response["case_groups_updated"] == 0
+    assert response["steps_updated"] == 0
 
 
 def test_calculate_effort_rejects_legacy_keys(test_client, monkeypatch):
@@ -1156,5 +1280,3 @@ def test_calculate_effort_rejects_invalid_norm_addressee(test_client):
     )
     assert resp.status_code == 422
     assert "Unsupported norm_addressee" in resp.json()["detail"]
-
-

@@ -26,11 +26,11 @@ const TAB_COPY: Record<EditorTab, { title: string; hint: string }> = {
   },
   case_metrics: {
     title: "Fallzahlen",
-    hint: "Bearbeite Betroffene und Häufigkeit je Fallgruppe für Gültig und Vorschlag.",
+    hint: "Bearbeite Betroffene und Häufigkeit je Fallgruppe für aktuelles Gesetz und Gesetzesentwurf.",
   },
   effort_metrics: {
     title: "Schrittkosten",
-    hint: "Bearbeite Zeitaufwand und Sachaufwand je Prozessschritt für Gültig und Vorschlag.",
+    hint: "Bearbeite Zeitaufwand und Sachaufwand je Prozessschritt für aktuelles Gesetz und Gesetzesentwurf.",
   },
 };
 

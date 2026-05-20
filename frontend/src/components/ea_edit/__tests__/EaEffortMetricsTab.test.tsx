@@ -99,7 +99,7 @@ describe("EaEffortMetricsTab", () => {
     await user.clear(inputs[0]);
     await user.type(inputs[0], "7");
     await user.click(screen.getByRole("button", { name: /prüfen/i }));
-    expect(screen.getByText("Gültig Zeit eD/mD")).toBeInTheDocument();
+    expect(screen.getByText("Aktuelles Gesetz Zeit eD/mD")).toBeInTheDocument();
     expect(screen.getAllByRole("cell", { name: "1" })).toHaveLength(2);
     expect(screen.getByRole("cell", { name: "7" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /änderungen speichern/i }));

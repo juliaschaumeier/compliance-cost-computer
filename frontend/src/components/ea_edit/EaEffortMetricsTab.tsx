@@ -113,7 +113,7 @@ function getReviewLabel(
   slot: PayGradeSlot,
   side: "current" | "proposed",
 ): string {
-  const sidePrefix = side === "current" ? "Gültig" : "Vorschlag";
+  const sidePrefix = side === "current" ? "Aktuelles Gesetz" : "Gesetzesentwurf";
   if (slot === "expenses") {
     return `${sidePrefix} Sachaufwand`;
   }
@@ -689,13 +689,13 @@ export default function EaEffortMetricsTab({
               <tr className="border-b border-slate-200 text-left text-slate-600">
                 <th className="px-2 py-2">Schritt</th>
                 <th className="bg-sky-50 px-2 py-2 text-sky-900" colSpan={currentFields.length}>
-                  Gültig
+                  Aktuelles Gesetz
                 </th>
                 <th
                   className="border-l border-slate-200 bg-emerald-50 px-2 py-2 text-emerald-900"
                   colSpan={proposedFields.length}
                 >
-                  Vorschlag
+                  Gesetzesentwurf
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-left text-slate-500">

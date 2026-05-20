@@ -74,7 +74,7 @@ describe("EaCaseMetricsTab", () => {
     await user.clear(inputs[0]);
     await user.type(inputs[0], "13");
     await user.click(screen.getByRole("button", { name: /prüfen/i }));
-    expect(screen.getByText("Gültig Betroffene")).toBeInTheDocument();
+    expect(screen.getByText("Aktuelles Gesetz Betroffene")).toBeInTheDocument();
     expect(screen.getAllByRole("cell", { name: "10" })).toHaveLength(2);
     expect(screen.getByRole("cell", { name: "13" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /änderungen speichern/i }));
@@ -146,6 +146,73 @@ describe("EaCaseMetricsTab", () => {
 
     expect(inputs[0].closest("td")).toHaveClass("bg-amber-50");
     expect(inputs[1].closest("td")).not.toHaveClass("bg-amber-50");
+  });
+
+  it("shows research evidence and marks it as model evidence after edits", async () => {
+    mockGetEditableCaseGroups.mockResolvedValueOnce({
+      rows: [
+        {
+          case_group_id: 11,
+          norm_addressee: "administration",
+          process_id: 1,
+          case_group: "Fallgruppe A",
+          description: "Beschreibung",
+          change_status: "geaendert",
+          addressees_current: 10,
+          annual_frequency_current: 2,
+          cases_current: 20,
+          addressees_current_edited: null,
+          annual_frequency_current_edited: null,
+          cases_current_edited: null,
+          addressees_proposed: 12,
+          annual_frequency_proposed: 2,
+          cases_proposed: 24,
+          addressees_proposed_edited: null,
+          annual_frequency_proposed_edited: null,
+          cases_proposed_edited: null,
+          addressees_current_effective: 10,
+          annual_frequency_current_effective: 2,
+          cases_current_effective: 20,
+          addressees_proposed_effective: 12,
+          annual_frequency_proposed_effective: 2,
+          cases_proposed_effective: 24,
+          case_metric_research_json: {
+            confidence: {
+              anzahl_betroffene_gueltig: "high",
+            },
+            erklaerungen: {
+              anzahl_betroffene_gueltig:
+                "Destatis weist eine passende Grundgesamtheit aus.",
+            },
+          },
+        },
+      ],
+    });
+    render(
+      <EaCaseMetricsTab normAddressee="administration"
+        open
+        active
+        appSessionId="CASE-TAB"
+        runAutoRecompute={jest.fn()}
+      />
+    );
+    const row = await screen.findByText("Fallgruppe A");
+    const tr = row.closest("tr");
+    expect(tr).toBeTruthy();
+    const evidence = screen.getByText("high").closest("details");
+    expect(evidence).toBeTruthy();
+    expect(evidence).not.toHaveClass("opacity-40");
+    expect(
+      screen.getByText("Destatis weist eine passende Grundgesamtheit aus.")
+    ).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    const inputs = within(tr as HTMLElement).getAllByRole("textbox");
+    await user.clear(inputs[0]);
+    await user.type(inputs[0], "13");
+
+    expect(screen.getByText("high").closest("details")).toHaveClass("opacity-40");
+    expect(screen.getByText("Hinweis zum Modellwert")).toBeInTheDocument();
   });
 
   it("renders zeros in a lighter text color", async () => {
