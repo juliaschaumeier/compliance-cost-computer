@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     prompt_audit_enabled: bool = False
     prompt_audit_output_dir: Path = BASE_DIR / "prompt_audits"
     prompt_audit_session_ids: str = ""
+    deep_research_primary_agent: str = "deep-research-preview-04-2026"
+    deep_research_fallback_agent: str = "deep-research-pro-preview-12-2025"
+    deep_research_poll_interval_seconds: float = 5.0
     db_path: Path = DEFAULT_DB_PATH
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 

@@ -23,6 +23,7 @@ import {
   EditableCaseGroupsResponse,
   EditableProcessStepsResponse,
   NormAddressee,
+  CaseGroupResearchSettingsResponse,
 } from "@/types";
 
 const API_BASE_URL =
@@ -343,6 +344,58 @@ export const apiClient = {
       await throwApiClientErrorFromResponse(response, "Failed to export session");
     }
     return response.json();
+  },
+  async getCaseGroupResearchSettings(
+    appSessionId: string
+  ): Promise<CaseGroupResearchSettingsResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/case-group-research?app_session_id=${encodeURIComponent(
+        appSessionId
+      )}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to load Deep Research settings"
+      );
+    }
+    return response.json();
+  },
+  async updateCaseGroupResearchSettings(
+    appSessionId: string,
+    enabled: boolean
+  ): Promise<CaseGroupResearchSettingsResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/case-group-research`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: appSessionId,
+        enabled,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to update Deep Research settings"
+      );
+    }
+    return response.json();
+  },
+  async downloadDeepResearchReport(appSessionId: string): Promise<Blob> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/deep-research-report?app_session_id=${encodeURIComponent(
+        appSessionId
+      )}&format=pdf`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to download Deep Research report"
+      );
+    }
+    return response.blob();
   },
   async startRunAllSteps(
     options: {

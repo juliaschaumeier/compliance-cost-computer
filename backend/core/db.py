@@ -598,6 +598,7 @@ def _create_case_groups_table(cur: sqlite3.Cursor, table_name: str = "case_group
             cases_proposed_edited       REAL,
             cost                        REAL,
             last_edited_at              TEXT,
+            case_metric_research_json   JSON,
             FOREIGN KEY (process_id)
             REFERENCES processes
                 ON UPDATE CASCADE
@@ -607,6 +608,49 @@ def _create_case_groups_table(cur: sqlite3.Cursor, table_name: str = "case_group
                 ON UPDATE CASCADE
                 ON DELETE CASCADE
         )
+        """
+    )
+
+
+def _create_deep_research_runs_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "deep_research_runs",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            research_run_id       INTEGER PRIMARY KEY,
+            session_id            INTEGER NOT NULL,
+            purpose               TEXT NOT NULL,
+            provider              TEXT NOT NULL DEFAULT 'gemini',
+            agent                 TEXT NOT NULL,
+            status                TEXT NOT NULL,
+            interaction_id        TEXT,
+            prompt_text           TEXT,
+            report_md             TEXT,
+            result_json           JSON,
+            response_json         JSON,
+            error                 TEXT,
+            input_tokens          INTEGER,
+            output_tokens         INTEGER,
+            thought_tokens        INTEGER,
+            total_tokens          INTEGER,
+            estimated_cost_usd    REAL,
+            created_at            TEXT NOT NULL DEFAULT current_timestamp,
+            started_at            TEXT,
+            completed_at          TEXT,
+            parsed_at             TEXT,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE INDEX IF NOT EXISTS idx_{table_name}_session_purpose
+        ON {table_name}(session_id, purpose, research_run_id)
         """
     )
 
@@ -982,6 +1026,12 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     _ensure_column(
         cur,
         "sessions",
+        "case_group_research_enabled",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    _ensure_column(
+        cur,
+        "sessions",
         "pay_rate_administration_level",
         f"TEXT NOT NULL DEFAULT '{PAY_RATE_LEVEL_BUND}'",
     )
@@ -1043,6 +1093,7 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     _ensure_column(cur, "case_groups", "annual_frequency_proposed_edited", "REAL")
     _ensure_column(cur, "case_groups", "cases_proposed_edited", "REAL")
     _ensure_column(cur, "case_groups", "last_edited_at", "TEXT")
+    _ensure_column(cur, "case_groups", "case_metric_research_json", "JSON")
 
     # Migration helper: add editable overrides for process-step metrics.
     for suffix in ("current", "proposed"):
@@ -1171,6 +1222,7 @@ def init_db() -> None:
     )
     _create_pay_rate_defaults_table(cur)
     _seed_pay_rate_defaults(cur)
+    _create_deep_research_runs_table(cur)
     # TODO: Maybe add updated_at with trigger rule: https://www.sqlitetutorial.net/sqlite-date-functions/sqlite-current_timestamp/
     # TODO: Potentially add the change in cases? How meaningful is that number?
     cur.execute(
@@ -1196,6 +1248,7 @@ def init_db() -> None:
             law_diff_title      TEXT,
             law_diff_blurb      TEXT,
             law_diff_summary    TEXT,
+            case_group_research_enabled INTEGER NOT NULL DEFAULT 0,
             cc_cost             REAL,
             FOREIGN KEY (current_law_id) 
             REFERENCES laws(document_id) 
@@ -1213,6 +1266,7 @@ def init_db() -> None:
     )
     _create_session_total_costs_by_addressee_table(cur)
     _create_session_pay_rate_overrides_by_addressee_table(cur)
+    _create_deep_research_runs_table(cur)
     _create_session_scoped_tile_tables(cur)
     cur.execute(
         """
@@ -1738,7 +1792,8 @@ def list_sessions(limit: int = 50) -> List[dict]:
             s.app_session_id,
             s.created_at,
             s.llm_model,
-            s.used_llm_models
+            s.used_llm_models,
+            s.case_group_research_enabled
         FROM sessions AS s
         ORDER BY s.created_at DESC, s.session_id DESC
         LIMIT ?
@@ -1748,6 +1803,193 @@ def list_sessions(limit: int = 50) -> List[dict]:
     rows = [dict(row) for row in cur.fetchall()]
     _maybe_close(conn)
     return rows
+
+
+def get_case_group_research_enabled(session_id: int) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT case_group_research_enabled
+        FROM sessions
+        WHERE session_id = ?
+        LIMIT 1
+        """,
+        (session_id,),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return bool(row and row["case_group_research_enabled"])
+
+
+def update_case_group_research_enabled(session_id: int, enabled: bool) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE sessions
+        SET case_group_research_enabled = ?
+        WHERE session_id = ?
+          AND COALESCE(case_group_research_enabled, 0) != ?
+        """,
+        (1 if enabled else 0, session_id, 1 if enabled else 0),
+    )
+    changed = cur.rowcount > 0
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return changed
+
+
+def create_deep_research_run(
+    *,
+    session_id: int,
+    purpose: str,
+    agent: str,
+    provider: str = "gemini",
+    prompt_text: str | None = None,
+    status: str = "idle",
+) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO deep_research_runs (
+            session_id,
+            purpose,
+            provider,
+            agent,
+            status,
+            prompt_text,
+            started_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = 'running' THEN current_timestamp ELSE NULL END)
+        """,
+        (session_id, purpose, provider, agent, status, prompt_text, status),
+    )
+    _maybe_commit(conn)
+    research_run_id = int(cur.lastrowid)
+    _maybe_close(conn)
+    return research_run_id
+
+
+def update_deep_research_run(
+    research_run_id: int,
+    *,
+    status: str | None = None,
+    agent: str | None = None,
+    interaction_id: str | None = None,
+    report_md: str | None = None,
+    result_json: dict | list | None = None,
+    response_json: dict | list | None = None,
+    error: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    thought_tokens: int | None = None,
+    total_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+) -> None:
+    assignments: list[str] = []
+    values: list[object] = []
+    if status is not None:
+        assignments.append("status = ?")
+        values.append(status)
+        if status == "running":
+            assignments.append("started_at = COALESCE(started_at, current_timestamp)")
+        if status in {"completed", "failed", "cancelled"}:
+            assignments.append("completed_at = COALESCE(completed_at, current_timestamp)")
+        if status == "parsed":
+            assignments.append("parsed_at = COALESCE(parsed_at, current_timestamp)")
+            assignments.append("completed_at = COALESCE(completed_at, current_timestamp)")
+    for column, value in (
+        ("agent", agent),
+        ("interaction_id", interaction_id),
+        ("report_md", report_md),
+        ("error", error),
+        ("input_tokens", input_tokens),
+        ("output_tokens", output_tokens),
+        ("thought_tokens", thought_tokens),
+        ("total_tokens", total_tokens),
+        ("estimated_cost_usd", estimated_cost_usd),
+    ):
+        if value is not None:
+            assignments.append(f"{column} = ?")
+            values.append(value)
+    if result_json is not None:
+        assignments.append("result_json = ?")
+        values.append(json.dumps(result_json, ensure_ascii=False))
+    if response_json is not None:
+        assignments.append("response_json = ?")
+        values.append(json.dumps(response_json, ensure_ascii=False))
+    if not assignments:
+        return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        UPDATE deep_research_runs
+        SET {", ".join(assignments)}
+        WHERE research_run_id = ?
+        """,
+        (*values, research_run_id),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def get_latest_deep_research_run(
+    session_id: int,
+    purpose: str,
+) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT *
+        FROM deep_research_runs
+        WHERE session_id = ? AND purpose = ?
+        ORDER BY research_run_id DESC
+        LIMIT 1
+        """,
+        (session_id, purpose),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    if row is None:
+        return None
+    return dict(row)
+
+
+def get_latest_deep_research_run_status(session_id: int, purpose: str) -> str:
+    run = get_latest_deep_research_run(session_id, purpose)
+    return str(run.get("status") or "idle") if run else "idle"
+
+
+def clear_case_group_research(session_id: int) -> None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM deep_research_runs
+        WHERE session_id = ? AND purpose = 'case_group_metrics'
+        """,
+        (session_id,),
+    )
+    cur.execute(
+        """
+        UPDATE case_groups
+        SET addressees_current = NULL,
+            annual_frequency_current = NULL,
+            cases_current = NULL,
+            addressees_proposed = NULL,
+            annual_frequency_proposed = NULL,
+            cases_proposed = NULL,
+            case_metric_research_json = NULL
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
 
 
 def list_edit_audit_for_session(session_id: int, limit: int = 200) -> List[dict]:
@@ -1870,7 +2112,58 @@ def get_session_status(app_session_id: str) -> dict | None:
         ),
         "effort_ready_by_addressee": effort_ready_by_addressee,
         "total_cost_ready_by_addressee": total_cost_ready_by_addressee,
+        "case_group_research_enabled": bool(
+            session.get("case_group_research_enabled")
+        ),
+        "case_group_research_status": get_latest_deep_research_run_status(
+            session_id,
+            "case_group_metrics",
+        ),
     }
+
+
+def _count_process_steps_with_cost_inputs(
+    cur: sqlite3.Cursor,
+    session_id: int,
+    norm_addressee: str,
+) -> tuple[int, int]:
+    cur.execute(
+        """
+        SELECT COUNT(*) AS total_count
+        FROM process_steps
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, norm_addressee),
+    )
+    total_steps = int(cur.fetchone()["total_count"] or 0)
+    if total_steps == 0:
+        return 0, 0
+
+    # Ready-Check MUSS auf dieselben Felder schauen, die _has_step_cost_inputs
+    # in costs.py fordert, sonst meldet die Pipeline faelschlich "fertig",
+    # effort.py skippt die Neuberechnung, und compute_costs wirft 422.
+    # hourly_rate ist allein nicht kostenrelevant; die Rate kommt ggf. aus active_rates.
+    cur.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM process_steps
+        WHERE session_id = ? AND norm_addressee = ?
+          AND (
+            time_required_in_min_a_current IS NOT NULL
+            OR time_required_in_min_b_current IS NOT NULL
+            OR time_required_in_min_c_current IS NOT NULL
+            OR time_required_in_min_d_current IS NOT NULL
+            OR time_required_in_min_a_proposed IS NOT NULL
+            OR time_required_in_min_b_proposed IS NOT NULL
+            OR time_required_in_min_c_proposed IS NOT NULL
+            OR time_required_in_min_d_proposed IS NOT NULL
+            OR expenses_current IS NOT NULL
+            OR expenses_proposed IS NOT NULL
+          )
+        """,
+        (session_id, norm_addressee),
+    )
+    return total_steps, int(cur.fetchone()["count"])
 
 
 def has_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> bool:
@@ -1903,41 +2196,11 @@ def has_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) ->
         (session_id, resolved),
     )
     groups_with_metrics = int(cur.fetchone()["count"])
-    cur.execute(
-        """
-        SELECT COUNT(*) AS total_count
-        FROM process_steps
-        WHERE session_id = ? AND norm_addressee = ?
-        """,
-        (session_id, resolved),
+    total_steps, steps_with_metrics = _count_process_steps_with_cost_inputs(
+        cur,
+        session_id,
+        resolved,
     )
-    total_steps = int(cur.fetchone()["total_count"] or 0)
-    # Ready-Check MUSS auf dieselben Felder schauen, die _has_step_cost_inputs
-    # in costs.py fordert, sonst meldet die Pipeline faelschlich "fertig",
-    # effort.py skippt die Neuberechnung, und compute_costs wirft 422.
-    # hourly_rate und execution_per_case sind allein nicht kostenrelevant
-    # (Rate kommt ggf. aus active_rates, execution_per_case ist Metadaten).
-    cur.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM process_steps
-        WHERE session_id = ? AND norm_addressee = ?
-          AND (
-            time_required_in_min_a_current IS NOT NULL
-            OR time_required_in_min_b_current IS NOT NULL
-            OR time_required_in_min_c_current IS NOT NULL
-            OR time_required_in_min_d_current IS NOT NULL
-            OR time_required_in_min_a_proposed IS NOT NULL
-            OR time_required_in_min_b_proposed IS NOT NULL
-            OR time_required_in_min_c_proposed IS NOT NULL
-            OR time_required_in_min_d_proposed IS NOT NULL
-            OR expenses_current IS NOT NULL
-            OR expenses_proposed IS NOT NULL
-          )
-        """,
-        (session_id, resolved),
-    )
-    steps_with_metrics = int(cur.fetchone()["count"])
     _maybe_close(conn)
     return (
         total_case_groups > 0
@@ -1945,6 +2208,22 @@ def has_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) ->
         and groups_with_metrics == total_case_groups
         and steps_with_metrics == total_steps
     )
+
+
+def has_process_step_effort_metrics(
+    session_id: int,
+    norm_addressee: str = ADMINISTRATION,
+) -> bool:
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    total_steps, steps_with_metrics = _count_process_steps_with_cost_inputs(
+        cur,
+        session_id,
+        resolved,
+    )
+    _maybe_close(conn)
+    return total_steps > 0 and steps_with_metrics == total_steps
 
 
 def has_total_cost_for_addressee(session_id: int, norm_addressee: str = ADMINISTRATION) -> bool:
@@ -2655,6 +2934,7 @@ def list_case_groups_for_session_and_addressee(
             annual_frequency_proposed_edited,
             cases_proposed_edited,
             last_edited_at,
+            case_metric_research_json,
             cost
         FROM case_groups
         WHERE session_id = ?
@@ -3460,6 +3740,7 @@ def upsert_case_group_metrics_by_addressee(
     annual_frequency_proposed: float | None = None,
     cases_current: float | None = None,
     cases_proposed: float | None = None,
+    case_metric_research_json: dict | list | None = None,
 ) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
     if cases_current is None and addressees_current is not None and annual_frequency_current is not None:
@@ -3468,28 +3749,32 @@ def upsert_case_group_metrics_by_addressee(
         cases_proposed = addressees_proposed * annual_frequency_proposed
     conn = get_conn()
     cur = conn.cursor()
+    assignments = [
+        "addressees_current = ?",
+        "annual_frequency_current = ?",
+        "addressees_proposed = ?",
+        "annual_frequency_proposed = ?",
+        "cases_current = ?",
+        "cases_proposed = ?",
+    ]
+    values: list[object] = [
+        addressees_current,
+        annual_frequency_current,
+        addressees_proposed,
+        annual_frequency_proposed,
+        cases_current,
+        cases_proposed,
+    ]
+    if case_metric_research_json is not None:
+        assignments.append("case_metric_research_json = ?")
+        values.append(json.dumps(case_metric_research_json, ensure_ascii=False))
     cur.execute(
-        """
+        f"""
         UPDATE case_groups
-        SET addressees_current = ?,
-            annual_frequency_current = ?,
-            addressees_proposed = ?,
-            annual_frequency_proposed = ?,
-            cases_current = ?,
-            cases_proposed = ?
+        SET {", ".join(assignments)}
         WHERE case_group_id = ? AND session_id = ? AND norm_addressee = ?
         """,
-        (
-            addressees_current,
-            annual_frequency_current,
-            addressees_proposed,
-            annual_frequency_proposed,
-            cases_current,
-            cases_proposed,
-            case_group_id,
-            session_id,
-            resolved,
-        ),
+        (*values, case_group_id, session_id, resolved),
     )
     _maybe_commit(conn)
     _maybe_close(conn)

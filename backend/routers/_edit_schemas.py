@@ -32,6 +32,7 @@ class EditableCaseGroupRow(BaseModel):
     addressees_proposed_effective: float | None = None
     annual_frequency_proposed_effective: float | None = None
     cases_proposed_effective: float | None = None
+    case_metric_research_json: dict | list | str | None = None
 
 
 class EditableCaseGroupsResponse(BaseModel):

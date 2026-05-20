@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import inspect
 import json
 import time
 import uuid
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Annotated, AsyncGenerator, Awaitable, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db, llm_monitor, llm_trace
 from backend.core.config import settings
+from backend.core.deep_research_cases import (
+    CASE_GROUP_RESEARCH_PURPOSE,
+    apply_deep_research_case_metrics,
+)
+from backend.core.deep_research_cases_prompt import build_deep_research_cases_prompt
+from backend.core.deep_research_service import DeepResearchError, run_deep_research
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.session_graph import build_session_tiles_snapshot
@@ -65,6 +73,7 @@ class SessionSummary(BaseModel):
     created_at: str
     llm_model: str
     used_llm_models: str | None = None
+    case_group_research_enabled: bool = False
 
 
 class SessionListResponse(BaseModel):
@@ -84,6 +93,8 @@ class SessionStatusResponse(BaseModel):
     effort_ready_by_addressee: dict[str, bool] = {}
     total_cost_ready: bool
     total_cost_ready_by_addressee: dict[str, bool] = {}
+    case_group_research_enabled: bool = False
+    case_group_research_status: str = "idle"
     last_completed_step: str | None = None
     last_completed_label: str | None = None
 
@@ -122,6 +133,18 @@ class SessionEditAuditRow(BaseModel):
 class SessionEditAuditResponse(BaseModel):
     app_session_id: str
     rows: list[SessionEditAuditRow]
+
+
+class CaseGroupResearchSettingsRequest(BaseModel):
+    app_session_id: AppSessionId
+    enabled: bool
+
+
+class CaseGroupResearchSettingsResponse(BaseModel):
+    app_session_id: str
+    enabled: bool
+    status: str = "idle"
+    locked: bool = False
 
 
 class SessionExportResponse(BaseModel):
@@ -460,6 +483,79 @@ def _step_error_message(exc: Exception) -> str:
     return message or exc.__class__.__name__
 
 
+async def _run_case_group_deep_research(
+    *,
+    app_session_id: str,
+    session_id: int,
+    api_keys: ApiKeys,
+) -> None:
+    latest = db.get_latest_deep_research_run(session_id, CASE_GROUP_RESEARCH_PURPOSE)
+    latest_status = str(latest.get("status") or "") if latest else "idle"
+    if latest_status == "parsed":
+        return
+    if latest_status == "completed" and latest and latest.get("report_md"):
+        apply_deep_research_case_metrics(
+            session_id=session_id,
+            report_text=str(latest["report_md"]),
+            research_run_id=int(latest["research_run_id"]),
+        )
+        return
+    if latest_status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="Deep Research for case groups is already running.",
+        )
+
+    prompt = build_deep_research_cases_prompt(app_session_id=app_session_id)
+    research_run_id = db.create_deep_research_run(
+        session_id=session_id,
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent=settings.deep_research_primary_agent,
+        status="running",
+        prompt_text=prompt,
+    )
+    try:
+        result = await run_deep_research(prompt=prompt, api_keys=api_keys)
+        db.update_deep_research_run(
+            research_run_id,
+            status="completed",
+            agent=result.agent,
+            interaction_id=result.interaction_id,
+            report_md=result.report_text,
+            response_json=result.response_json,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            thought_tokens=result.thought_tokens,
+            total_tokens=result.total_tokens,
+        )
+        apply_deep_research_case_metrics(
+            session_id=session_id,
+            report_text=result.report_text,
+            research_run_id=research_run_id,
+        )
+    except asyncio.CancelledError:
+        db.update_deep_research_run(
+            research_run_id,
+            status="cancelled",
+            error="Deep Research was cancelled by the run-all task.",
+        )
+        raise
+    except DeepResearchError as exc:
+        db.update_deep_research_run(
+            research_run_id,
+            status="failed",
+            error=str(exc),
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        db.update_deep_research_run(
+            research_run_id,
+            status="failed",
+            error=_step_error_message(exc),
+        )
+        raise
+
+
 async def _run_single_step(
     step_key: str,
     payload: SessionRunAllRequest,
@@ -597,6 +693,11 @@ async def _run_single_step(
         return
 
     if step_key == "effort":
+        session_id = db.get_session_id_by_app_id(payload.app_session_id)
+        if session_id is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        use_deep_research = db.get_case_group_research_enabled(session_id)
+
         async def _run_effort(norm_addressee: str) -> None:
             effort_payload = effort_router.EffortCalculationRequest(
                 app_session_id=payload.app_session_id,
@@ -604,9 +705,23 @@ async def _run_single_step(
                 provider=payload.provider,
                 norm_addressee=norm_addressee,
             )
-            await effort_router.calculate_effort(effort_payload, api_keys)
+            await effort_router._calculate_effort(
+                effort_payload,
+                api_keys,
+                skip_cases_calculation=use_deep_research,
+            )
 
-        await _run_for_supported_addressees(_run_effort)
+        if use_deep_research:
+            await asyncio.gather(
+                _run_case_group_deep_research(
+                    app_session_id=payload.app_session_id,
+                    session_id=session_id,
+                    api_keys=api_keys,
+                ),
+                _run_for_supported_addressees(_run_effort),
+            )
+        else:
+            await _run_for_supported_addressees(_run_effort)
         return
 
     if step_key == "total_cost":
@@ -830,6 +945,45 @@ async def session_edit_audit(
     return SessionEditAuditResponse(app_session_id=app_session_id, rows=rows)
 
 
+def _research_settings_response(app_session_id: str) -> CaseGroupResearchSettingsResponse:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    status = db.get_latest_deep_research_run_status(session_id, "case_group_metrics")
+    return CaseGroupResearchSettingsResponse(
+        app_session_id=app_session_id,
+        enabled=bool(session.get("case_group_research_enabled")),
+        status=status,
+        locked=status not in {"idle", "failed", "cancelled"},
+    )
+
+
+@router.get("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+async def case_group_research_settings(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+) -> CaseGroupResearchSettingsResponse:
+    return _research_settings_response(app_session_id)
+
+
+@router.post("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+async def case_group_research_settings_update(
+    payload: CaseGroupResearchSettingsRequest,
+) -> CaseGroupResearchSettingsResponse:
+    session = db.get_session_by_app_id(payload.app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    status = db.get_latest_deep_research_run_status(session_id, "case_group_metrics")
+    if status not in {"idle", "failed", "cancelled"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Deep Research mode is locked after a research run has started. Revert effort to change it.",
+        )
+    db.update_case_group_research_enabled(session_id, payload.enabled)
+    return _research_settings_response(payload.app_session_id)
+
+
 @router.get("/export", response_model=SessionExportResponse)
 async def export_session(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
@@ -909,6 +1063,91 @@ async def export_session(
 
     filename = f"ccc_session_{info['app_session_id']}.md"
     return SessionExportResponse(filename=filename, markdown=markdown)
+
+
+def _render_research_report_pdf(report_md: str, title: str) -> bytes:
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+    except Exception as exc:  # pragma: no cover - exercised only without optional dep.
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "render_failed",
+                "message": "PDF rendering requires reportlab. Please install project requirements.",
+            },
+        ) from exc
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36,
+        title=title,
+    )
+    styles = getSampleStyleSheet()
+    story = [Paragraph(html.escape(title), styles["Title"]), Spacer(1, 12)]
+    for block in report_md.split("\n\n"):
+        text = block.strip()
+        if not text:
+            continue
+        if text.startswith("#"):
+            heading = text.lstrip("#").strip()
+            story.append(Paragraph(html.escape(heading), styles["Heading2"]))
+        else:
+            story.append(Paragraph(html.escape(text).replace("\n", "<br/>"), styles["BodyText"]))
+        story.append(Spacer(1, 8))
+    try:
+        doc.build(story)
+    except Exception as exc:  # pragma: no cover - reportlab internals.
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "render_failed", "message": str(exc)},
+        ) from exc
+    return buffer.getvalue()
+
+
+@router.get("/deep-research-report")
+async def download_deep_research_report(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    format: Literal["pdf", "md"] = "pdf",
+) -> Response:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    run = db.get_latest_deep_research_run(
+        int(session["session_id"]),
+        CASE_GROUP_RESEARCH_PURPOSE,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="No Deep Research report for session")
+    status = str(run.get("status") or "")
+    if status not in {"completed", "parsed"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Deep Research report is not ready yet (status: {status or 'idle'}).",
+        )
+    report_md = str(run.get("report_md") or "").strip()
+    if not report_md:
+        raise HTTPException(status_code=404, detail="Deep Research report is empty")
+
+    base_filename = f"ccc_deep_research_{app_session_id}"
+    if format == "md":
+        return Response(
+            content=report_md,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
+        )
+    pdf = _render_research_report_pdf(report_md, f"Deep Research Report {app_session_id}")
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.pdf"'},
+    )
 
 
 @router.post("/undo", response_model=SessionUndoResponse)

@@ -149,8 +149,8 @@ describe("TileNode", () => {
       />
     );
 
-    expect(screen.getByRole("columnheader", { name: "Gültig" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Vorschlag" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Aktuell" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Entwurf" })).toBeInTheDocument();
     expect(screen.getByRole("rowheader", { name: "eD/mD" })).toBeInTheDocument();
     expect(screen.getByText("12 min")).toBeInTheDocument();
     expect(screen.getByText("15 min")).toBeInTheDocument();
@@ -204,6 +204,6 @@ describe("TileNode", () => {
     );
 
     expect(screen.getByTitle("Text ausklappen")).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Gültig" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Aktuell" })).not.toBeInTheDocument();
   });
 });

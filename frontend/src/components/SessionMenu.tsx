@@ -72,6 +72,11 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const [selectedSession, setSelectedSession] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
+  const [researchEnabled, setResearchEnabled] = useState(false);
+  const [researchStatus, setResearchStatus] = useState("idle");
+  const [researchLocked, setResearchLocked] = useState(false);
+  const [isUpdatingResearch, setIsUpdatingResearch] = useState(false);
+  const [isDownloadingResearch, setIsDownloadingResearch] = useState(false);
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [isCancellingRun, setIsCancellingRun] = useState(false);
@@ -119,11 +124,28 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         }
       }
     };
+    const loadResearchSettings = async () => {
+      try {
+        const research = await apiClient.getCaseGroupResearchSettings(
+          state.appSessionId
+        );
+        if (!cancelled) {
+          setResearchEnabled(research.enabled);
+          setResearchStatus(research.status);
+          setResearchLocked(research.locked);
+        }
+      } catch (error) {
+        logClientError("SessionMenu.loadResearchSettings", error, {
+          appSessionId: state.appSessionId,
+        });
+      }
+    };
     loadSessions();
+    loadResearchSettings();
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, state.appSessionId]);
 
   const formattedSessions = useMemo(() => {
     return sessions.map((session) => {
@@ -178,7 +200,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       return;
     }
     const updatePosition = () => {
-      const width = 320;
+      const width = 360;
       const padding = 16;
       if (!triggerRef.current) {
         setMenuPos({ top: 96, left: padding });
@@ -207,23 +229,6 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       window.removeEventListener("scroll", updatePosition, true);
     };
   }, [isOpen]);
-
-  const handleRebuildCurrent = async () => {
-    try {
-      resetStatus();
-      await apiClient.rebuildTiles(
-        state.appSessionId,
-        state.selectedNormAddressee
-      );
-      window.dispatchEvent(new Event("tiles-updated"));
-      setStatus("Tiles der Session wurden neu geladen.");
-    } catch (error) {
-      logClientError("SessionMenu.rebuildTiles", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatus("Tiles konnten nicht neu geladen werden.");
-    }
-  };
 
   const handleNewSession = () => {
     sessionStorage.clear();
@@ -269,6 +274,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         state.appSessionId,
         state.selectedNormAddressee
       );
+      const sessionStatus = await apiClient.getSessionStatus(state.appSessionId);
+      applySessionStatus(sessionStatus);
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus(`Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`);
     } catch (error) {
@@ -304,11 +311,71 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     }
   };
 
+  const handleToggleDeepResearch = async () => {
+    if (isUpdatingResearch || researchLocked) {
+      return;
+    }
+    try {
+      resetStatus();
+      setIsUpdatingResearch(true);
+      const result = await apiClient.updateCaseGroupResearchSettings(
+        state.appSessionId,
+        !researchEnabled
+      );
+      setResearchEnabled(result.enabled);
+      setResearchStatus(result.status);
+      setResearchLocked(result.locked);
+      setStatus(
+        result.enabled
+          ? "Deep Research für Fallzahlen aktiviert."
+          : "Deep Research für Fallzahlen deaktiviert."
+      );
+    } catch (error) {
+      logClientError("SessionMenu.toggleDeepResearch", error, {
+        appSessionId: state.appSessionId,
+      });
+      setStatus("Deep-Research-Einstellung konnte nicht gespeichert werden.");
+    } finally {
+      setIsUpdatingResearch(false);
+    }
+  };
+
+  const handleDownloadDeepResearchReport = async () => {
+    try {
+      resetStatus();
+      setIsDownloadingResearch(true);
+      const blob = await apiClient.downloadDeepResearchReport(state.appSessionId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ccc_deep_research_${state.appSessionId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus("Deep-Research-Bericht heruntergeladen.");
+    } catch (error) {
+      logClientError("SessionMenu.downloadDeepResearchReport", error, {
+        appSessionId: state.appSessionId,
+      });
+      setStatus("Deep-Research-Bericht ist noch nicht verfügbar.");
+    } finally {
+      setIsDownloadingResearch(false);
+    }
+  };
+
   const applySessionStatus = (sessionStatus: SessionStatus) => {
     setSummaryReady(sessionStatus.summary_ready);
     setRegulationsReady(sessionStatus.regulations_ready);
     setLastCompletedStep(sessionStatus.last_completed_step ?? null);
     setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
+    setResearchEnabled(Boolean(sessionStatus.case_group_research_enabled));
+    setResearchStatus(sessionStatus.case_group_research_status || "idle");
+    setResearchLocked(
+      !["idle", "failed", "cancelled"].includes(
+        sessionStatus.case_group_research_status || "idle"
+      )
+    );
     setCurrentTab(deriveTabFromStatus(sessionStatus));
     window.dispatchEvent(new Event("tiles-updated"));
   };
@@ -600,7 +667,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
   const menuContent = (
     <div
-      className="fixed z-[60] w-80 rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-2xl"
+      className="fixed z-[60] w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-2xl"
       style={{ top: menuPos.top, left: menuPos.left }}
     >
       <div className="flex items-center justify-between">
@@ -613,23 +680,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         </button>
       </div>
       <div className="mt-4 space-y-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Session
+        </div>
         <button
           onClick={handleNewSession}
           className="w-full rounded-xl bg-slate-900 px-3 py-2 text-left text-xs font-semibold text-white"
         >
           Neue Session starten
-        </button>
-        <button
-          onClick={handleRebuildCurrent}
-          className="w-full rounded-xl bg-slate-900 px-3 py-2 text-left text-xs font-semibold text-white"
-        >
-          Kacheln dieser Session neu laden
-        </button>
-        <button
-          onClick={handleExportSession}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          Session exportieren (Mermaid)
         </button>
         <button
           onClick={handleRunAllSteps}
@@ -658,6 +716,59 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           {isUndoing
             ? "Bitte warten..."
             : `\"${lastStepLabel || "Letzten Schritt"}\" zurücksetzen`}
+        </button>
+      </div>
+      <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              Fallzahlen
+            </div>
+            <div className="mt-1 font-semibold text-slate-900">
+              Deep Research für Fallzahlen
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500">
+              Status: {researchStatus}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={researchEnabled}
+            disabled={researchLocked || isUpdatingResearch || isRunningAll}
+            onClick={handleToggleDeepResearch}
+            className={`mt-1 h-6 w-11 rounded-full border p-0.5 transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              researchEnabled
+                ? "border-slate-900 bg-slate-900"
+                : "border-slate-300 bg-slate-100"
+            }`}
+          >
+            <span
+              className={`block h-4 w-4 rounded-full bg-white transition ${
+                researchEnabled ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+        <button
+          onClick={handleDownloadDeepResearchReport}
+          disabled={isDownloadingResearch || researchStatus !== "parsed"}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          {isDownloadingResearch
+            ? "Bericht wird geladen..."
+            : "Deep-Research-Bericht herunterladen"}
+        </button>
+      </div>
+      <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Export
+        </div>
+        <button
+          onClick={handleExportSession}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Sessiongraph exportieren (Mermaid)
         </button>
       </div>
       <div className="mt-4">

@@ -193,6 +193,7 @@ Recherchehinweise
   - Gesetzestexte und Gesetzesbegruendungen,
   - Bundestags- oder Ausschussmaterialien,
   - Verwaltungs-, Ministeriums- oder Statistikmaterialien,
+  - Destatis, die Webseite des Statistischen Bundesamtes (https://www.destatis.de/DE/Home/_inhalt.html),
   - OnDEA bzw. vorhandene Erfuellungsaufwandsschaetzungen, soweit einschlaegig,
   - amtliche Statistiken,
   - Registerdaten,
@@ -230,6 +231,7 @@ Erstellen Sie einen ausfuehrlichen Bericht mit:
 Teil 2: Kurze Begruendungszeilen je Fallgruppe und Kennzahl
 
 Fuegen Sie danach fuer jede Fallgruppe genau eine kurze Zeile je Kennzahl ein. Jede Zeile muss einen echten numerischen Wert und einen kurzen Begruendungssatz enthalten.
+Der Begruendungssatz soll in sich verstaendlich sein und, soweit die Quelle fuer die Einordnung wichtig ist, die relevante Quelle oder URL direkt in der Zeile nennen.
 
 Format:
 
@@ -274,10 +276,10 @@ Fuegen Sie am Ende einen maschinenlesbaren JSON-Block genau nach folgendem Schem
           "haeufigkeit_pro_jahr_vorschlag": 0,
           "fallzahl_vorschlag": 0,
           "erklaerungen": {{
-            "anzahl_betroffene_gueltig": "",
-            "haeufigkeit_pro_jahr_gueltig": "",
-            "anzahl_betroffene_vorschlag": "",
-            "haeufigkeit_pro_jahr_vorschlag": ""
+            "anzahl_betroffene_gueltig": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
+            "haeufigkeit_pro_jahr_gueltig": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
+            "anzahl_betroffene_vorschlag": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
+            "haeufigkeit_pro_jahr_vorschlag": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich"
           }},
           "confidence": {{
             "anzahl_betroffene_gueltig": "high | medium | low",
@@ -318,6 +320,7 @@ Qualitaetsmassstab
 - Wenn die Evidenz schwach ist, nennen Sie trotzdem einen bestmoeglichen empfohlenen Zahlenwert und markieren die Konfidenz entsprechend.
 - Der Bericht muss fuer eine Person verstaendlich sein, die nur den Session-Kontext und Ihre Antwort liest.
 - Der JSON-Block muss vollstaendig sein und die im Session-Kontext enthaltenen IDs unveraendert uebernehmen.
+- Die Feldwerte in `erklaerungen` werden spaeter direkt in der App angezeigt. Formulieren Sie sie deshalb knapp, eigenstaendig und mit Quellenhinweis/URL im Text, sofern die Quelle zum Verstaendnis der Zahl erforderlich ist. Die separate `quellen`-Liste bleibt zusaetzliche Audit- und Report-Metadaten.
 
 Session-Kontext
 

@@ -144,7 +144,11 @@ function parseLegacyStepText(text: string): ParsedLegacyTable {
       continue;
     }
     const lower = line.toLowerCase();
-    if (lower.includes("gültig") && lower.includes("vorschlag") && line.includes("|")) {
+    if (
+      ((lower.includes("gültig") && lower.includes("vorschlag")) ||
+        (lower.includes("aktuell") && lower.includes("entwurf"))) &&
+      line.includes("|")
+    ) {
       continue;
     }
     const match = line.match(rowRegex);
@@ -182,11 +186,11 @@ function parseLegacyCaseText(text: string): ParsedLegacyTable {
       continue;
     }
     const lower = line.toLowerCase();
-    if (lower === "gültig:") {
+    if (lower === "gültig:" || lower === "gueltig:" || lower === "aktuell:") {
       section = "current";
       continue;
     }
-    if (lower === "vorschlag:") {
+    if (lower === "vorschlag:" || lower === "entwurf:") {
       section = "proposed";
       continue;
     }

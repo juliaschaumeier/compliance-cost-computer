@@ -100,6 +100,7 @@ def test_build_deep_research_cases_prompt_combines_addressees(monkeypatch):
     assert "anzahl_betroffene_gueltig" in prompt
     assert "haeufigkeit_pro_jahr_vorschlag" in prompt
     assert "kurze Begruendung" in prompt
+    assert "https://www.destatis.de/DE/Home/_inhalt.html" in prompt
     assert '"normadressat": "administration"' in prompt
     assert '"normadressat": "business"' in prompt
     assert '"normadressat": "citizens"' not in prompt
