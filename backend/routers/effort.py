@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -222,6 +223,51 @@ _BUSINESS_LEVEL_ALIASES: dict[str, str] = {
 }
 
 
+_WZ_VALID_LETTERS: frozenset[str] = frozenset("ABCDEFGHIJKLMNPQRS")
+_WZ_PREFIX_RE = re.compile(
+    r"^(?:wirtschaftsabschnitt|wz[ -]?abschnitt|wz)?\s*[-–—]?\s*([a-s])\b",
+    re.IGNORECASE,
+)
+_WZ_GESAMTWIRTSCHAFT_VALUES = frozenset([
+    "gesamtwirtschaft",
+    "gesamtwirtschaft (a-s ohne o)",
+])
+_ADMIN_LEVEL_ALIASES: dict[str, str] = {
+    "bund": "bund",
+    "laender": "laender",
+    "länder": "laender",
+    "lander": "laender",
+    "land": "laender",
+    "kommunen": "kommunen",
+    "kommune": "kommunen",
+    "sozialversicherung": "sozialversicherung",
+    "durchschnitt": "durchschnitt",
+    "öffentliche verwaltung": "durchschnitt",
+    "oeffentliche verwaltung": "durchschnitt",
+    "durchschnitt öffentliche verwaltung, verteidigung, sozialversicherung": "durchschnitt",
+    "durchschnitt oeffentliche verwaltung, verteidigung, sozialversicherung": "durchschnitt",
+}
+
+
+def _normalize_role_wage_source(raw_role: dict, norm_addressee: str) -> str | None:
+    raw = str(raw_role.get("lohnquelle") or "").strip()
+    if not raw:
+        return None
+    if norm_addressee == BUSINESS:
+        normalized = raw.lower()
+        if normalized in _WZ_GESAMTWIRTSCHAFT_VALUES:
+            return "gesamtwirtschaft"
+        match = _WZ_PREFIX_RE.match(normalized)
+        if match:
+            letter = match.group(1).upper()
+            if letter in _WZ_VALID_LETTERS:
+                return letter
+        return None
+    if norm_addressee == ADMINISTRATION:
+        return _ADMIN_LEVEL_ALIASES.get(raw.lower())
+    return None
+
+
 def _resolve_effort_group(
     raw_role: dict,
     norm_addressee: str,
@@ -275,16 +321,16 @@ def _parse_role_entries(
     entry: dict,
     period_suffix: str,
     norm_addressee: str,
-) -> tuple[dict[str, float | None], dict[str, float | None], bool]:
+) -> tuple[dict[str, float | None], dict[str, float | None], list[dict], bool]:
     slot_keys = ["a", "b", "c", "d"]
     hourly_rates = {key: None for key in slot_keys}
     time_required = {key: None for key in slot_keys}
+    role_sources: dict[str, dict] = {}
     raw_roles = entry.get(f"rollen_{period_suffix}")
     used_new_format = isinstance(raw_roles, list)
     if not used_new_format:
-        return hourly_rates, time_required, False
+        return hourly_rates, time_required, [], False
 
-    parsed_roles: list[tuple[str, float | None, float | None]] = []
     for raw_role in raw_roles:
         if not isinstance(raw_role, dict):
             continue
@@ -303,12 +349,35 @@ def _parse_role_entries(
         )
         if hourly_rate is None and duration is None:
             continue
-        parsed_roles.append((slot, hourly_rate, duration))
-
-    for slot, hourly_rate, duration in parsed_roles:
+        if norm_addressee in (ADMINISTRATION, BUSINESS):
+            source_value = _normalize_role_wage_source(raw_role, norm_addressee)
+            if source_value is None and hourly_rate is not None:
+                source_kind = (
+                    "verwaltungsebene" if norm_addressee == ADMINISTRATION
+                    else "wirtschaftsabschnitt"
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"effort_calculation: Fehlende oder ungueltige `lohnquelle` "
+                        f"{raw_role.get('lohnquelle')!r} fuer Normadressat {norm_addressee!r}. "
+                        f"Erwartet: {source_kind}."
+                    ),
+                )
+            if source_value is not None:
+                source_kind = (
+                    "verwaltungsebene" if norm_addressee == ADMINISTRATION
+                    else "wirtschaftsabschnitt"
+                )
+                role_sources[slot] = {
+                    "slot": slot,
+                    "role": str(raw_role.get("rolle") or "").strip(),
+                    "source_kind": source_kind,
+                    "source_value": source_value,
+                }
         hourly_rates[slot] = hourly_rate
         time_required[slot] = duration
-    return hourly_rates, time_required, True
+    return hourly_rates, time_required, list(role_sources.values()), True
 
 
 def _parse_citizens_effort_entry(entry: dict, step_id: int) -> dict | None:
@@ -369,12 +438,12 @@ def _parse_org_effort_entry(
     norm_addressee: str,
 ) -> tuple[dict | None, set[str]]:
     fallback_kinds: set[str] = set()
-    hourly_rates_current, time_required_current, uses_role_format_current = _parse_role_entries(
+    hourly_rates_current, time_required_current, role_sources_current, uses_role_format_current = _parse_role_entries(
         entry,
         "gueltig",
         norm_addressee,
     )
-    hourly_rates_proposed, time_required_proposed, uses_role_format_proposed = _parse_role_entries(
+    hourly_rates_proposed, time_required_proposed, role_sources_proposed, uses_role_format_proposed = _parse_role_entries(
         entry,
         "vorschlag",
         norm_addressee,
@@ -485,6 +554,8 @@ def _parse_org_effort_entry(
         "expenses_proposed": expenses_proposed,
         "execution_per_case": _parse_execution_per_case(entry),
         "aenderungsstatus": extract_change_status(entry),
+        "role_sources_current": role_sources_current,
+        "role_sources_proposed": role_sources_proposed,
     }, fallback_kinds
 
 
@@ -790,6 +861,8 @@ async def _calculate_effort(
                     time_required_proposed=entry["time_required_proposed"],
                     expenses_proposed=entry.get("expenses_proposed"),
                     execution_per_case=entry.get("execution_per_case"),
+                    role_sources_current=entry.get("role_sources_current"),
+                    role_sources_proposed=entry.get("role_sources_proposed"),
                 )
 
             if not skip_cases_calculation:

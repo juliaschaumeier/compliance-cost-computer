@@ -555,3 +555,40 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
     assert "Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen" in prompt
     assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" not in prompt
     assert "Gesamtzeitaufwand" not in prompt
+
+
+def test_effort_prompt_includes_lohnquelle_field_for_administration():
+    prompt = _render_effort_prompt(ADMINISTRATION)
+
+    assert '"lohnquelle"' in prompt
+
+
+def test_effort_prompt_includes_lohnquelle_field_for_business():
+    prompt = _render_effort_prompt(BUSINESS)
+
+    assert '"lohnquelle"' in prompt
+
+
+def test_effort_prompt_excludes_lohnquelle_field_for_citizens():
+    prompt = _render_effort_prompt(CITIZENS)
+
+    assert '"lohnquelle"' not in prompt
+
+
+def test_effort_prompt_administration_guidance_names_verwaltungsebenen():
+    prompt = _render_effort_prompt(ADMINISTRATION)
+
+    assert "verwaltungsebene" in prompt.lower() or "bund" in prompt.lower()
+    assert "laender" in prompt.lower() or "länder" in prompt.lower()
+    assert "kommunen" in prompt.lower()
+    assert "sozialversicherung" in prompt.lower()
+    assert "durchschnitt" in prompt.lower()
+
+
+def test_effort_prompt_business_guidance_names_wirtschaftsabschnitt():
+    prompt = _render_effort_prompt(BUSINESS)
+
+    assert "wirtschaftsabschnitt" in prompt.lower() or "lohnquelle" in prompt.lower()
+    assert "gesamtwirtschaft" in prompt.lower()
+
+

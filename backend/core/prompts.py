@@ -338,7 +338,10 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "Kommunikationstechnik,\n"
         "• Aufwand fuer die Nachruestung von Anlagen,\n"
         "• Sachaufwand fuer Wege zu anderen Behoerden oder Stellen "
-        "(siehe Anhang 5: Wegezeiten und -sachkosten)."
+        "(siehe Anhang 5: Wegezeiten und -sachkosten).\n\n"
+        "Tragen Sie im Feld `lohnquelle` die Verwaltungsebene ein, aus der der "
+        "Stundenlohn entnommen wurde: `bund`, `laender`, `kommunen`, "
+        "`sozialversicherung` oder `durchschnitt`."
     ),
     BUSINESS: (
         "Sofern keine spezifischen Daten ueber "
@@ -368,7 +371,11 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "Kommunikationstechnik,\n"
         "• Aufwand fuer die Nachruestung von Anlagen,\n"
         "• Sachaufwand fuer Wege zu anderen Behoerden oder Stellen "
-        "(siehe Anhang 5: Wegezeiten und -sachkosten)."
+        "(siehe Anhang 5: Wegezeiten und -sachkosten).\n\n"
+        "Tragen Sie im Feld `lohnquelle` den Buchstaben des Wirtschaftsabschnitts "
+        "aus der Lohnkostentabelle ein (z.B. `I` fuer Gastgewerbe, `K` fuer "
+        "Finanz- und Versicherungsdienstleistungen). Fuer den Gesamtwirtschaftswert "
+        "(letzte Tabellenzeile) verwenden Sie `gesamtwirtschaft`."
     ),
     CITIZENS: (
         "Ermitteln Sie fuer jede Taetigkeit "
@@ -455,7 +462,8 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
                             "lohngruppe": "A | B | C | D",
                             "schwierigkeitsgrad": "",
                             "stundenlohn": "",
-                            "zeitaufwand_in_min": ""
+                            "zeitaufwand_in_min": "",
+                            "lohnquelle": ""
                         }
                     ],
                     "sachaufwand_gueltig": "",
@@ -465,7 +473,8 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
                             "lohngruppe": "A | B | C | D",
                             "schwierigkeitsgrad": "",
                             "stundenlohn": "",
-                            "zeitaufwand_in_min": ""
+                            "zeitaufwand_in_min": "",
+                            "lohnquelle": ""
                         }
                     ],
                     "sachaufwand_vorschlag": "",

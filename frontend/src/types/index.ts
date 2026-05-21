@@ -411,6 +411,15 @@ export interface EditableProcessStepRow {
   time_required_in_min_c_proposed_effective: number | null;
   time_required_in_min_d_proposed_effective: number | null;
   expenses_proposed_effective: number | null;
+  role_sources_current: RoleSourceEntry[] | null;
+  role_sources_proposed: RoleSourceEntry[] | null;
+}
+
+export interface RoleSourceEntry {
+  slot: string;
+  role: string;
+  source_kind: string;
+  source_value: string;
 }
 
 export interface EditableProcessStepsResponse {

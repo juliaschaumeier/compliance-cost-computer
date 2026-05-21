@@ -18,6 +18,27 @@ hourly wage. Business roles use `wirtschaftsabschnitt`; administration roles use
     silently; the rebuilt implementation must reject missing or invalid sources
     when a role carries effort values.
 
+- 2026-05-21
+  - Current `develop` inspection confirmed that effort roles are parsed directly
+    in `backend/routers/effort.py`; there is no active role Pydantic model to
+    update for this path.
+  - DB inspection confirmed that `process_steps` has no role-source columns yet
+    and editable process-step rows are resolved through `db_edit_metrics`.
+  - Plan refined to keep legacy flat effort fields readable, while requiring
+    source metadata only for the role-array format that the prompt now asks the
+    LLM to emit.
+
+- 2026-05-21
+  - Minimality review reduced the stored metadata shape to provenance only:
+    `slot`, `role`, `source_kind`, `source_value`. Do not duplicate hourly
+    rates or time values in `role_sources`, because editable values can change.
+  - Plan refined to avoid changing the legacy admin-only
+    `update_process_step_effort_split` helper unless a test proves it is needed;
+    the production path is `upsert_process_step_effort_split_by_addressee`.
+  - Explicitly decided not to validate whether the reported hourly wage matches
+    the handbook table row in this issue; the feature documents the selected row
+    and preserves it for review.
+
 ## Open Questions
 
 - None blocking approval.
@@ -38,14 +59,33 @@ Explicitly deferred or out of scope:
 
 ## Current Plan
 
-- [ ] Add DB persistence for current/proposed role wage-source metadata.
-- [ ] Extend effort prompt schema and guidance minimally for administration and business.
-- [ ] Parse and validate `wirtschaftsabschnitt` for business roles.
-- [ ] Parse and validate `verwaltungsebene` for administration roles.
-- [ ] Reject roles with effort values when the required wage-source field is missing or invalid.
-- [ ] Expose role wage sources through editable process-step APIs.
-- [ ] Show compact read-only wage-source provenance in the EA effort editor.
-- [ ] Add focused backend and frontend regression tests.
+- [ ] Add `role_sources_current_json` and `role_sources_proposed_json` to
+      `process_steps`, including table creation, legacy migration, decoding,
+      encoding, and clearing during effort undo/reset.
+- [ ] Extend `EFFORT_JSON_SCHEMA_DEFAULT` and `EFFORT_METHOD_GUIDANCE` only for
+      `administration` and `business`: roles should include
+      `verwaltungsebene` or `wirtschaftsabschnitt`; citizens stay role-free.
+- [ ] Extend `_parse_role_entries` to return role-source metadata alongside the
+      existing hourly-rate and time dictionaries.
+- [ ] Keep each role-source item minimal: `slot`, `role`, `source_kind`,
+      `source_value` only.
+- [ ] Validate business sources as WZ sections `A` through `N` and `P` through
+      `S`; normalize labels such as `I Gastgewerbe` or `WZ I` to `I`.
+- [ ] Validate administration sources as `bund`, `laender`, `kommunen`,
+      `sozialversicherung`, or `durchschnitt`; normalize common German aliases
+      such as `Länder`.
+- [ ] Reject role-array entries that contain `stundenlohn` or
+      `zeitaufwand_in_min` but omit the required source field. Legacy flat
+      fields remain accepted without role-source metadata.
+- [ ] Persist parsed role-source metadata through
+      `upsert_process_step_effort_split_by_addressee`; preserve it naturally
+      when users edit effort values through the editable metrics API.
+- [ ] Expose decoded role-source arrays in `EditableProcessStepRow` and frontend
+      types.
+- [ ] Show compact read-only provenance tags below the relevant time inputs in
+      `EaEffortMetricsTab`; do not make role sources editable in this issue.
+- [ ] Add focused backend and frontend regression tests for prompts, parsing,
+      persistence, editable API preservation, undo/reset clearing, and UI tags.
 
 ## Decisions
 
@@ -53,6 +93,12 @@ Explicitly deferred or out of scope:
 - Store wage-source metadata separately from editable effort values so manual edits do not rewrite provenance.
 - Validation belongs in effort parsing, before persistence.
 - Citizens do not get role wage-source fields because citizen effort is not monetized by role.
+- Legacy flat effort fields are a compatibility path and do not get synthetic
+  role-source metadata.
+- The implementation does not validate wage amounts against handbook table
+  values; it records the source row chosen by the LLM for auditability.
+- Do not change `update_process_step_effort_split` unless needed by a failing
+  regression test; prefer the addressee-aware upsert path for new behavior.
 
 ## Implementation Status
 

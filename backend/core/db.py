@@ -540,6 +540,8 @@ def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_
             cost_current                    REAL,
             cost_proposed                   REAL,
             last_edited_at                  TEXT,
+            role_sources_current_json       TEXT,
+            role_sources_proposed_json      TEXT,
             FOREIGN KEY (case_group_id)
             REFERENCES case_groups
                 ON UPDATE CASCADE
@@ -1226,6 +1228,8 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
         _ensure_column(cur, "process_steps", f"expenses_{suffix}_edited", "REAL")
     _ensure_column(cur, "process_steps", "last_edited_at", "TEXT")
     _ensure_column(cur, "process_steps", "execution_per_case", "INTEGER")
+    _ensure_column(cur, "process_steps", "role_sources_current_json", "TEXT")
+    _ensure_column(cur, "process_steps", "role_sources_proposed_json", "TEXT")
 
     defaults = _resolve_pay_rate_defaults(cur, PAY_RATE_LEVEL_BUND)
     cur.execute(
@@ -3353,6 +3357,8 @@ def list_process_steps_for_session_and_addressee(
         "time_required_in_min_d_proposed_edited",
         "expenses_proposed_edited",
         "last_edited_at",
+        "role_sources_current_json",
+        "role_sources_proposed_json",
     ]
     for optional_column in optional_columns:
         if _table_has_column(cur, "process_steps", optional_column):
@@ -3436,6 +3442,8 @@ def resolve_effective_process_step_metrics(step: dict) -> dict:
             step.get(f"expenses_{suffix}"),
             step.get(f"expenses_{suffix}_edited"),
         )
+        raw_json = step.get(f"role_sources_{suffix}_json")
+        resolved[f"role_sources_{suffix}"] = json.loads(raw_json) if raw_json else None
     return resolved
 
 
@@ -4256,6 +4264,8 @@ def upsert_process_step_effort_split_by_addressee(
     time_required_proposed: dict[str, float | None],
     expenses_proposed: float | None,
     execution_per_case: bool | None = None,
+    role_sources_current: list[dict] | None = None,
+    role_sources_proposed: list[dict] | None = None,
 ) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
     if resolved == CITIZENS:
@@ -4294,7 +4304,9 @@ def upsert_process_step_effort_split_by_addressee(
             time_required_in_min_c_proposed = ?,
             time_required_in_min_d_proposed = ?,
             expenses_proposed = ?,
-            execution_per_case = COALESCE(?, execution_per_case)
+            execution_per_case = COALESCE(?, execution_per_case),
+            role_sources_current_json = ?,
+            role_sources_proposed_json = ?
         WHERE step_id = ? AND session_id = ? AND norm_addressee = ?
         """,
         (
@@ -4317,6 +4329,8 @@ def upsert_process_step_effort_split_by_addressee(
             time_required_proposed.get("d"),
             expenses_proposed,
             (int(bool(execution_per_case)) if execution_per_case is not None else None),
+            json.dumps(role_sources_current) if role_sources_current else None,
+            json.dumps(role_sources_proposed) if role_sources_proposed else None,
             step_id,
             session_id,
             resolved,
@@ -4749,7 +4763,9 @@ def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) 
             time_required_in_min_d_proposed_edited = NULL,
             expenses_proposed = NULL,
             expenses_proposed_edited = NULL,
-            last_edited_at = NULL
+            last_edited_at = NULL,
+            role_sources_current_json = NULL,
+            role_sources_proposed_json = NULL
         WHERE session_id = ? AND norm_addressee = ?
         """,
         (session_id, resolved),

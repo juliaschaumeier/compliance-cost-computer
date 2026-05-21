@@ -1345,3 +1345,291 @@ def test_calculate_effort_rejects_invalid_norm_addressee(test_client):
     )
     assert resp.status_code == 422
     assert "Unsupported norm_addressee" in resp.json()["detail"]
+
+
+def _build_org_effort_response_with_roles(case_group_id, step_id, norm_addressee):
+    if norm_addressee == ADMINISTRATION:
+        lohnquelle_gueltig = "bund"
+        lohnquelle_vorschlag = "laender"
+    else:
+        lohnquelle_gueltig = "I"
+        lohnquelle_vorschlag = "K"
+    return f"""
+    {{
+      "normadressat": "{norm_addressee}",
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_gueltig": "10",
+              "haeufigkeit_pro_jahr_gueltig": "1",
+              "anzahl_betroffene_vorschlag": "12",
+              "haeufigkeit_pro_jahr_vorschlag": "1",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "rollen_gueltig": [
+                    {{
+                      "lohngruppe": "a",
+                      "stundenlohn": "40",
+                      "zeitaufwand_in_min": "30",
+                      "lohnquelle": "{lohnquelle_gueltig}"
+                    }}
+                  ],
+                  "rollen_vorschlag": [
+                    {{
+                      "lohngruppe": "b",
+                      "stundenlohn": "45",
+                      "zeitaufwand_in_min": "20",
+                      "lohnquelle": "{lohnquelle_vorschlag}"
+                    }}
+                  ]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+
+def _seed_org_session(norm_addressee):
+    app_id = f"EFFORT-ROLESRC-{norm_addressee.upper()}"
+    session_id, _ = db.upsert_session(app_id, "test-model")
+    process_id = db.insert_process(
+        session_id, "Prozess", "Beschreibung", norm_addressee=norm_addressee
+    )
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Fallgruppe", "Beschreibung", norm_addressee=norm_addressee
+    )
+    step_id = db.insert_process_step(
+        session_id, case_group_id, "Schritt", "Beschreibung", norm_addressee=norm_addressee
+    )
+    return app_id, session_id, case_group_id, step_id
+
+
+def test_role_wage_source_persisted_for_administration(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, ADMINISTRATION)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 200
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is not None
+    assert steps[0]["role_sources_proposed_json"] is not None
+
+    import json
+    sources_current = json.loads(steps[0]["role_sources_current_json"])
+    sources_proposed = json.loads(steps[0]["role_sources_proposed_json"])
+    assert sources_current == [
+        {"slot": "a", "role": "", "source_kind": "verwaltungsebene", "source_value": "bund"}
+    ]
+    assert sources_proposed == [
+        {"slot": "b", "role": "", "source_kind": "verwaltungsebene", "source_value": "laender"}
+    ]
+
+
+def test_role_wage_source_persisted_for_business(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(BUSINESS)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, BUSINESS)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, BUSINESS)
+    import json
+    sources_current = json.loads(steps[0]["role_sources_current_json"])
+    assert sources_current == [
+        {"slot": "a", "role": "", "source_kind": "wirtschaftsabschnitt", "source_value": "I"}
+    ]
+
+
+def test_role_wage_source_missing_lohnquelle_with_hourly_rate_rejected(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "rollen_gueltig": [{{
+              "lohngruppe": "a",
+              "stundenlohn": "40",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "rollen_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "lohnquelle" in resp.json()["detail"].lower()
+
+
+def test_role_wage_source_only_zeitaufwand_no_lohnquelle_accepted(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "rollen_gueltig": [{{
+              "lohngruppe": "a",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "rollen_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 200
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is None
+
+
+def test_role_wage_source_cleared_on_undo(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, ADMINISTRATION)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is not None
+
+    db.clear_effort_metrics(session_id, ADMINISTRATION)
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is None
+    assert steps[0]["role_sources_proposed_json"] is None
+
+
+def test_role_wage_source_decoded_in_editable_api(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, ADMINISTRATION)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+
+    resp = test_client.get(
+        "/process-steps/editable",
+        params={"app_session_id": app_id, "case_group_id": case_group_id},
+    )
+    assert resp.status_code == 200
+    rows = resp.json()["rows"]
+    assert len(rows) == 1
+    sources = rows[0]["role_sources_current"]
+    assert sources == [
+        {"slot": "a", "role": "", "source_kind": "verwaltungsebene", "source_value": "bund"}
+    ]
+
+
+def test_role_wage_source_legacy_flat_format_has_no_role_sources(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "stundenlohn_satz_a_gueltig": "40",
+            "zeitaufwand_in_min_a_gueltig": "30",
+            "stundenlohn_satz_a_vorschlag": "42",
+            "zeitaufwand_in_min_a_vorschlag": "25"
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 200
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is None
+    assert steps[0]["role_sources_proposed_json"] is None
+
+
