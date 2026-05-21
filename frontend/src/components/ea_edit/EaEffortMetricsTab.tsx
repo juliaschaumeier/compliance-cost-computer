@@ -737,65 +737,37 @@ export default function EaEffortMetricsTab({
                     [row.step_id]: { ...draftRow, [fieldKey]: value },
                   }));
                 };
-                const currentSourcesBySlot = new Map(
-                  (row.role_sources_current ?? []).map((s) => [s.slot, s])
-                );
-                const proposedSourcesBySlot = new Map(
-                  (row.role_sources_proposed ?? []).map((s) => [s.slot, s])
-                );
                 return (
                   <tr key={row.step_id} className="border-b border-slate-100">
                     <td className="px-2 py-2 font-semibold text-slate-800">{row.step}</td>
-                    {currentFields.map((field) => {
-                      const source =
-                        field.slot !== "expenses"
-                          ? currentSourcesBySlot.get(field.slot)
-                          : undefined;
-                      return (
-                        <td
-                          key={`${row.step_id}-${field.key}`}
-                          className={`px-2 py-2 ${
-                            changedCellsByField?.[field.key] ? "bg-amber-50" : ""
-                          }`}
-                        >
-                          <input
-                            value={draftRow[field.key]}
-                            onChange={(event) => updateField(field.key, event.target.value)}
-                            className={inputClass(draftRow[field.key])}
-                          />
-                          {source && (
-                            <span className="mt-0.5 block text-[9px] text-slate-400">
-                              {source.source_value}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    {proposedFields.map((field) => {
-                      const source =
-                        field.slot !== "expenses"
-                          ? proposedSourcesBySlot.get(field.slot)
-                          : undefined;
-                      return (
-                        <td
-                          key={`${row.step_id}-${field.key}`}
-                          className={`px-2 py-2 ${
-                            changedCellsByField?.[field.key] ? "bg-amber-50" : ""
-                          } ${field === proposedFields[0] ? "border-l border-slate-200" : ""}`}
-                        >
-                          <input
-                            value={draftRow[field.key]}
-                            onChange={(event) => updateField(field.key, event.target.value)}
-                            className={inputClass(draftRow[field.key])}
-                          />
-                          {source && (
-                            <span className="mt-0.5 block text-[9px] text-slate-400">
-                              {source.source_value}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
+                    {currentFields.map((field) => (
+                      <td
+                        key={`${row.step_id}-${field.key}`}
+                        className={`px-2 py-2 ${
+                          changedCellsByField?.[field.key] ? "bg-amber-50" : ""
+                        }`}
+                      >
+                        <input
+                          value={draftRow[field.key]}
+                          onChange={(event) => updateField(field.key, event.target.value)}
+                          className={inputClass(draftRow[field.key])}
+                        />
+                      </td>
+                    ))}
+                    {proposedFields.map((field) => (
+                      <td
+                        key={`${row.step_id}-${field.key}`}
+                        className={`px-2 py-2 ${
+                          changedCellsByField?.[field.key] ? "bg-amber-50" : ""
+                        } ${field === proposedFields[0] ? "border-l border-slate-200" : ""}`}
+                      >
+                        <input
+                          value={draftRow[field.key]}
+                          onChange={(event) => updateField(field.key, event.target.value)}
+                          className={inputClass(draftRow[field.key])}
+                        />
+                      </td>
+                    ))}
                   </tr>
                 );
               })}
