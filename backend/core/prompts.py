@@ -36,7 +36,7 @@ PROMPTS_REQUIRING_NORM_ADDRESSEE = {
 
 LEGIST_PROMPT_OPENING = (
     """
-    Sie sind Legist im deutschen Bundestag und damit betraut, die
+    Sie sind Legist im Bundesressort und damit betraut, die
     Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen.
 
     Insbesondere werden zur Ermittlung der zu erwartenden Aenderung des Aufwands
@@ -546,7 +546,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - gesetz_vorschlag: str
     PromptId.LAW_SUMMARY: (
         """
-        Sie sind Legist im deutschen Bundestag.
+        Sie sind Legist im Bundesressort.
 
         {law_mode_context}
 
@@ -566,7 +566,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - gesetz_vorschlag: str
     PromptId.REGULATIONS_IDENTIFICATION: (
         """
-        Sie sind Legist im deutschen Bundestag und damit betraut, die
+        Sie sind Legist im Bundesressort und damit betraut, die
         Erfuellungsaufwandsaenderung zu einer geplanten Gesetzesaenderung zu berechnen.
 
         Insbesondere werden zur Ermittlung der zu erwartenden Aenderung des Aufwands
