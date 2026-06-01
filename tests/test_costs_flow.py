@@ -464,6 +464,109 @@ def test_compute_costs_allows_business_time_only_inputs_with_active_rates(test_c
     assert resp.json()["total_cost"] == pytest.approx(26.1)
 
 
+def test_compute_costs_business_time_only_uses_baseline_row_not_gesamtwirtschaft(
+    test_client,
+):
+    """Regression (M-2): Ein Schritt mit Zeit, aber OHNE per-Schritt-Modell-Satz und
+    OHNE Override faellt auf die tatsaechlich genutzte Baseline-Zeile zurueck
+    (role_sources -> "K"), nicht mehr auf den Gesamtwirtschaft-Snapshot.
+    K.a = 29.0, Gesamtwirtschaft.a = 26.1; 1 h -> 29.0 belegt die genutzte Zeile."""
+    session_id, _ = db.upsert_session("COST-BUSINESS-BASELINE-ROW", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Business Process",
+        "Beschreibung Prozess",
+        norm_addressee=BUSINESS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Business Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=BUSINESS,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Business Step",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+    for tile_id, title, link_from, column, meta in (
+        (f"process_{process_id}", "Business Process", [], 2, {"process_id": process_id}),
+        (
+            f"case_group_{case_group_id}",
+            "Business Case Group",
+            [f"process_{process_id}"],
+            3,
+            {"case_group_id": case_group_id, "process_id": process_id},
+        ),
+        (
+            f"step_{step_id}",
+            "Business Step",
+            [f"case_group_{case_group_id}"],
+            4,
+            {"step_id": step_id, "case_group_id": case_group_id},
+        ),
+    ):
+        db.upsert_tile(
+            Tile(
+                id=tile_id,
+                title=title,
+                text=title,
+                meta_information=meta,
+                column=column,
+                row=0,
+                deletable=True,
+                link_from_tile=link_from,
+            ),
+            session_id=session_id,
+            norm_addressee=BUSINESS,
+        )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    # Zeit auf Stufe a, aber KEIN per-Schritt-Modell-Satz; genutzte Zeile via
+    # role_sources = "K" (Finanz- und Versicherungsdienstleistungen).
+    role_sources = [
+        {
+            "slot": "a",
+            "role": "",
+            "source_kind": "wirtschaftsabschnitt",
+            "source_value": "K",
+        }
+    ]
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        role_sources_current=role_sources,
+        role_sources_proposed=role_sources,
+    )
+
+    # Sicherstellen, dass die genutzte Baseline-Zeile tatsaechlich "K" ist.
+    assert db.get_used_wage_baseline(session_id, BUSINESS) == "K"
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-BUSINESS-BASELINE-ROW", "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+    # K.a = 29.0 (nicht Gesamtwirtschaft 26.1).
+    assert resp.json()["total_cost"] == pytest.approx(29.0)
+
+
 def test_compute_costs_business_allocates_bureaucracy_proportionally_for_mixed_steps(
     test_client,
 ):

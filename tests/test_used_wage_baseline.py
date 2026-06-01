@@ -231,3 +231,30 @@ def test_baseline_picks_dominant_row_on_mixed_sources():
     )
 
     assert db.get_used_wage_baseline(session_id, BUSINESS) == "R"
+
+
+def test_baseline_tie_break_is_deterministic_alphabetical():
+    # Gleichstand: je ein Eintrag fuer "R" und "K". Der Tie-Break muss
+    # deterministisch den alphabetisch ersten source_value waehlen ("K" < "R"),
+    # unabhaengig von der Lese-/Iterationsreihenfolge.
+    session_id, case_group_id = _seed_session(BUSINESS)
+    _persist_step(
+        session_id,
+        case_group_id,
+        BUSINESS,
+        hourly_rates={"a": None, "b": 32.2, "c": None, "d": None},
+        role_sources=[
+            {"slot": "b", "role": "", "source_kind": "wirtschaftsabschnitt", "source_value": "R"},
+        ],
+    )
+    _persist_step(
+        session_id,
+        case_group_id,
+        BUSINESS,
+        hourly_rates={"a": None, "b": None, "c": 51.0, "d": None},
+        role_sources=[
+            {"slot": "c", "role": "", "source_kind": "wirtschaftsabschnitt", "source_value": "K"},
+        ],
+    )
+
+    assert db.get_used_wage_baseline(session_id, BUSINESS) == "K"
