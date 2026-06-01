@@ -45,9 +45,16 @@ def _resolve_hourly_rate(
     key: str,
     norm_addressee: str,
     active_rates: dict[str, float],
+    edited_rates: dict[str, float | None],
 ) -> float:
     if norm_addressee == CITIZENS:
         return 0.0
+    # Manueller Session-Override schlaegt den per-Schritt vom Modell zugewiesenen Satz.
+    # Gleiche Semantik wie _effective_value(base, edited) in db.py:2782 (manuell schlaegt
+    # Modell); inline gehalten, kein Import der privaten Funktion.
+    edited = edited_rates.get(key)
+    if edited is not None:
+        return float(edited)
     value = step.get(f"hourly_rate_{key}_{suffix}")
     if value is not None:
         return float(value)
@@ -61,10 +68,13 @@ def _compute_step_cost(
     suffix: str,
     norm_addressee: str,
     active_rates: dict[str, float],
+    edited_rates: dict[str, float | None],
 ) -> float:
     total = 0.0
     for key in ["a", "b", "c", "d"]:
-        rate = _resolve_hourly_rate(step, suffix, key, norm_addressee, active_rates)
+        rate = _resolve_hourly_rate(
+            step, suffix, key, norm_addressee, active_rates, edited_rates
+        )
         minutes = _safe_number(step.get(f"time_required_in_min_{key}_{suffix}_effective"))
         total += rate * (minutes / 60.0)
     total += _safe_number(step.get(f"expenses_{suffix}_effective"))
@@ -285,6 +295,7 @@ def _compute_step_metrics(
     case_groups: list[dict],
     norm_addressee: str,
     active_rates: dict[str, float],
+    edited_rates: dict[str, float | None],
     business_information_fractions: dict[int, float],
 ) -> tuple[
     dict[int, float],
@@ -309,8 +320,12 @@ def _compute_step_metrics(
             cost_current = _safe_number(step.get("expenses_current_effective"))
             cost_proposed = _safe_number(step.get("expenses_proposed_effective"))
         else:
-            cost_current = _compute_step_cost(step, "current", norm_addressee, active_rates)
-            cost_proposed = _compute_step_cost(step, "proposed", norm_addressee, active_rates)
+            cost_current = _compute_step_cost(
+                step, "current", norm_addressee, active_rates, edited_rates
+            )
+            cost_proposed = _compute_step_cost(
+                step, "proposed", norm_addressee, active_rates, edited_rates
+            )
         time_current = _compute_step_time_minutes(step, "current")
         time_proposed = _compute_step_time_minutes(step, "proposed")
         bureaucracy_fraction = (
@@ -575,6 +590,7 @@ def compute_total_cost_for_session(
     if not pay_rates:
         raise HTTPException(status_code=404, detail="Session pay rates not found")
     active_rates = pay_rates["active"]
+    edited_rates = pay_rates["edited"]
     effective_case_groups = [
         db.resolve_effective_case_group_metrics(group) for group in case_groups
     ]
@@ -633,6 +649,7 @@ def compute_total_cost_for_session(
             case_groups=effective_case_groups,
             norm_addressee=norm_addressee,
             active_rates=active_rates,
+            edited_rates=edited_rates,
             business_information_fractions=business_information_fractions,
         )
         _persist_step_costs(

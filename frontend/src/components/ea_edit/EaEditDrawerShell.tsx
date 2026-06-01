@@ -31,7 +31,7 @@ const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
 const TAB_COPY: Record<EditorTab, { title: string; hint: string }> = {
   pay_rates: {
     title: "Globale Lohnsätze",
-    hint: "Lege die aktiven Lohnsätze für diese Session fest. Die Werte dienen als Rückfallwerte für Schritte, die keinen eigenen Satz aus der Berechnung haben.",
+    hint: "Lohnsätze für diese Session. Hier gesetzte Werte überschreiben die vom Modell genutzten Sätze für alle Schritte dieses Normadressaten. Ohne Eintrag gelten die Modellwerte.",
   },
   case_metrics: {
     title: "Fallzahlen",
