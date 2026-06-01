@@ -28,6 +28,38 @@ const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
   citizens: "Bürgerinnen und Bürger",
 };
 
+// Kurzlabels fuer die genutzte Wirtschaftsabschnitt-Quelle (wage_source_label).
+// Quelle: Lohnkostentabelle Wirtschaft (WZ-Abschnitte A-S + Gesamtwirtschaft).
+const WZ_SECTION_LABELS: Record<string, string> = {
+  A: "Land- und Forstwirtschaft, Fischerei",
+  B: "Bergbau",
+  C: "Verarbeitendes Gewerbe",
+  D: "Energieversorgung",
+  E: "Wasser-/Abfallwirtschaft",
+  F: "Baugewerbe",
+  G: "Handel; Kfz-Reparatur",
+  H: "Verkehr und Lagerei",
+  I: "Gastgewerbe",
+  J: "Information und Kommunikation",
+  K: "Finanz- und Versicherungsdienstleistungen",
+  L: "Grundstücks- und Wohnungswesen",
+  M: "Freiberufliche/wiss./techn. Dienstleistungen",
+  N: "Sonstige wirtschaftliche Dienstleistungen",
+  P: "Erziehung und Unterricht",
+  Q: "Gesundheits- und Sozialwesen",
+  R: "Kunst, Unterhaltung und Erholung",
+  S: "Sonstige Dienstleistungen",
+  gesamtwirtschaft: "Gesamtwirtschaft (A-S ohne O)",
+};
+
+function formatWageSourceLabel(value: string): string {
+  const detail = WZ_SECTION_LABELS[value];
+  if (!detail) {
+    return value;
+  }
+  return value === "gesamtwirtschaft" ? detail : `${value} · ${detail}`;
+}
+
 type PayGradeKey = "a" | "b" | "c" | "d";
 
 const PAY_GRADE_ROWS_BY_ADDRESSEE: Record<
@@ -298,6 +330,14 @@ export default function EaPayRatesTab({
             {" · Verwaltungsebene: "}
             <span className="font-semibold uppercase">
               {payRates?.administration_level || "bund"}
+            </span>
+          </>
+        )}
+        {normAddressee === "business" && payRates?.wage_source_label && (
+          <>
+            {" · Wirtschaftsabschnitt: "}
+            <span className="font-semibold">
+              {formatWageSourceLabel(payRates.wage_source_label)}
             </span>
           </>
         )}

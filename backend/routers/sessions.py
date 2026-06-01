@@ -136,6 +136,7 @@ class SessionPayRatesResponse(BaseModel):
     norm_addressee: str = ADMINISTRATION
     editable: bool = True
     administration_level: str | None = None
+    wage_source_label: str | None = None
     defaults: dict[str, float]
     edited: dict[str, float | None]
     active: dict[str, float]
@@ -515,6 +516,11 @@ def _as_session_pay_rates_response(
             None
             if pay_rates["administration_level"] is None
             else str(pay_rates["administration_level"])
+        ),
+        wage_source_label=(
+            None
+            if pay_rates.get("wage_source_label") is None
+            else str(pay_rates["wage_source_label"])
         ),
         defaults={key: float(value) for key, value in pay_rates["defaults"].items()},
         edited={

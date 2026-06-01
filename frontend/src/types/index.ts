@@ -320,7 +320,10 @@ export interface TotalCostResponse {
 
 export interface SessionPayRatesResponse {
   app_session_id: string;
-  administration_level: string;
+  norm_addressee?: NormAddressee;
+  editable?: boolean;
+  administration_level: string | null;
+  wage_source_label?: string | null;
   defaults: Record<string, number>;
   edited: Record<string, number | null>;
   active: Record<string, number>;

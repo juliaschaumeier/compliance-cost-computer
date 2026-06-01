@@ -3474,7 +3474,7 @@ def list_pay_rate_defaults(norm_addressee: str = ADMINISTRATION) -> list[dict]:
     Default ist administration, damit der Validierungs-/Render-Pfad nicht versehentlich
     business-source_values (WZ-Abschnitte) als gueltige administration_level akzeptiert.
     Fuer administration wird source_value als administration_level ausgegeben, damit der
-    bestehende Router-/Test-Vertrag stabil bleibt. Reine Konstanten-Aufloesung, kein DB-Zugriff.
+    bestehende Router-/Test-Vertrag stabil bleibt.
     """
     resolved = normalize_norm_addressee(norm_addressee)
     table = _PAY_RATE_DEFAULTS_BY_ADDRESSEE.get(resolved, {})
@@ -3488,6 +3488,62 @@ def list_pay_rate_defaults(norm_addressee: str = ADMINISTRATION) -> list[dict]:
         }
         for source_value, rates in sorted(table.items())
     ]
+
+
+def get_used_wage_baseline(session_id: int, norm_addressee: str) -> str | None:
+    """Liefert das dominante Lohnzeilen-Label aus role_sources (read-only).
+
+    Liest role_sources_current_json + role_sources_proposed_json aller Schritte der
+    Session+Normadressat, wählt die dominante source_value (meiste Einträge) und gibt
+    deren Label zurück (z. B. "laender" für admin, "K" für business). Gibt None zurück,
+    wenn keine validen role_sources vorhanden sind (→ Aufrufer nutzt die hartkodierten
+    Stammdaten-Defaults). Berührt keine Persistenz; Override-Tabelle bleibt unangetastet.
+    Die Sätze werden NICHT mehr aus den hourly_rate_*-Spalten abgeleitet, sondern vom
+    Aufrufer aus den kanonischen Stammdaten je Label aufgelöst.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved not in (ADMINISTRATION, BUSINESS):
+        return None
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            role_sources_current_json,
+            role_sources_proposed_json
+        FROM process_steps
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    rows = cur.fetchall()
+    _maybe_close(conn)
+
+    # Pro source_value zählen, wie oft sie vorkommt (Dominanz-Wahl).
+    counts: dict[str, int] = {}
+    for row in rows:
+        for suffix in ("current", "proposed"):
+            raw = row[f"role_sources_{suffix}_json"]
+            if not raw:
+                continue
+            try:
+                entries = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                source_value = entry.get("source_value")
+                slot = entry.get("slot")
+                if not source_value or slot not in PAY_RATE_KEYS:
+                    continue
+                counts[source_value] = counts.get(source_value, 0) + 1
+
+    if not counts:
+        return None
+    return max(counts, key=lambda value: counts[value])
 
 
 def get_session_administration_pay_rates(session_id: int) -> dict | None:
@@ -3548,16 +3604,36 @@ def get_session_pay_rates_for_addressee(
         administration_rates = get_session_administration_pay_rates(session_id)
         if administration_rates is None:
             return None
+        level = administration_rates["administration_level"]
+        defaults = administration_rates["defaults"]
+        baseline = get_used_wage_baseline(session_id, ADMINISTRATION)
+        if baseline is not None:
+            # Ebenen-Label + vollstaendige Stammdaten-Zeile spiegeln die tatsaechlich
+            # genutzte Lohnzeile. Das Label steht sauber in administration_level (gueltige
+            # Verwaltungsebene) und ist damit save-tauglich; kein wage_source_label noetig.
+            level = baseline
+            defaults = get_default_pay_rates_for_addressee(
+                ADMINISTRATION, source_value=baseline
+            )
+        edited = administration_rates["edited"]
+        active = {
+            key: (edited[key] if edited[key] is not None else defaults[key])
+            for key in PAY_RATE_KEYS
+        }
         return {
             "norm_addressee": resolved,
             "editable": True,
-            "administration_level": administration_rates["administration_level"],
-            "defaults": administration_rates["defaults"],
-            "edited": administration_rates["edited"],
-            "active": administration_rates["active"],
+            "administration_level": level,
+            "wage_source_label": None,
+            "defaults": defaults,
+            "edited": edited,
+            "active": active,
         }
     if resolved == BUSINESS:
-        defaults = get_default_pay_rates_for_addressee(BUSINESS)
+        baseline = get_used_wage_baseline(session_id, BUSINESS)
+        # Genutzter WZ-Abschnitt: vollstaendige Stammdaten-Zeile + Label im Badge.
+        # Bei fehlendem Label faellt die generische Resolve auf Gesamtwirtschaft zurueck.
+        defaults = get_default_pay_rates_for_addressee(BUSINESS, source_value=baseline)
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
@@ -3584,6 +3660,7 @@ def get_session_pay_rates_for_addressee(
             "norm_addressee": resolved,
             "editable": True,
             "administration_level": None,
+            "wage_source_label": baseline,
             "defaults": defaults,
             "edited": edited,
             "active": active,
@@ -3593,6 +3670,7 @@ def get_session_pay_rates_for_addressee(
         "norm_addressee": resolved,
         "editable": False,
         "administration_level": None,
+        "wage_source_label": None,
         "defaults": defaults,
         "edited": _empty_pay_rate_edits(),
         "active": defaults,

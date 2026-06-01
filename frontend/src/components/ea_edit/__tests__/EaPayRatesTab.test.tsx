@@ -274,6 +274,44 @@ describe("EaPayRatesTab", () => {
     expect(input).toHaveValue("99");
   });
 
+  it("shows the used economic section badge for business when wage_source_label is present", async () => {
+    mockGetSessionPayRates.mockResolvedValueOnce({
+      app_session_id: "PAY-TAB",
+      norm_addressee: "business",
+      administration_level: null,
+      wage_source_label: "K",
+      defaults: { a: 10, b: 20, c: 51, d: 40 },
+      edited: { a: null, b: null, c: null, d: null },
+      active: { a: 10, b: 20, c: 51, d: 40 },
+    });
+    render(
+      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    await screen.findByText(/Niedrig/i);
+    expect(screen.getByText(/Wirtschaftsabschnitt:/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/K · Finanz- und Versicherungsdienstleistungen/i)
+    ).toBeInTheDocument();
+  });
+
+  it("renders no economic section badge for business when wage_source_label is absent", async () => {
+    mockGetSessionPayRates.mockResolvedValueOnce({
+      app_session_id: "PAY-TAB",
+      norm_addressee: "business",
+      administration_level: null,
+      defaults: { a: 10, b: 20, c: 30, d: 40 },
+      edited: { a: null, b: null, c: null, d: null },
+      active: { a: 10, b: 20, c: 30, d: 40 },
+    });
+    render(
+      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    await screen.findByText(/Niedrig/i);
+    expect(screen.queryByText(/Wirtschaftsabschnitt:/i)).not.toBeInTheDocument();
+  });
+
   it("does not prefill 'Neu' from saved edited values and stays clean by default", async () => {
     mockGetSessionPayRates.mockResolvedValueOnce({
       app_session_id: "PAY-TAB",
