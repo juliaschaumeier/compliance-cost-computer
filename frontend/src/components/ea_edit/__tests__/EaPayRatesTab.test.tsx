@@ -312,6 +312,52 @@ describe("EaPayRatesTab", () => {
     expect(screen.queryByText(/Wirtschaftsabschnitt:/i)).not.toBeInTheDocument();
   });
 
+  it("does not send administrationLevel when saving business pay rates", async () => {
+    mockGetSessionPayRates.mockResolvedValueOnce({
+      app_session_id: "PAY-TAB",
+      norm_addressee: "business",
+      administration_level: null,
+      wage_source_label: "K",
+      defaults: { a: 10, b: 20, c: 30, d: 40 },
+      edited: { a: null, b: null, c: null, d: null },
+      active: { a: 10, b: 20, c: 30, d: 40 },
+    });
+    mockUpdateSessionPayRates.mockResolvedValueOnce({
+      app_session_id: "PAY-TAB",
+      norm_addressee: "business",
+      administration_level: null,
+      wage_source_label: "K",
+      defaults: { a: 10, b: 20, c: 30, d: 40 },
+      edited: { a: 99, b: null, c: null, d: null },
+      active: { a: 99, b: 20, c: 30, d: 40 },
+    });
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+    );
+
+    const row = await screen.findByText(/Niedrig/i);
+    const tr = row.closest("tr");
+    expect(tr).toBeTruthy();
+    const input = within(tr as HTMLElement).getByRole("textbox");
+    const user = userEvent.setup();
+
+    await user.clear(input);
+    await user.type(input, "99");
+    await user.click(screen.getByRole("button", { name: /lohnsätze speichern/i }));
+
+    await waitFor(() => expect(mockUpdateSessionPayRates).toHaveBeenCalledTimes(1));
+    expect(mockUpdateSessionPayRates).toHaveBeenCalledWith({
+      appSessionId: "PAY-TAB",
+      normAddressee: "business",
+      administrationLevel: undefined,
+      editedA: 99,
+      editedB: null,
+      editedC: null,
+      editedD: null,
+    });
+  });
+
   it("does not prefill 'Neu' from saved edited values and stays clean by default", async () => {
     mockGetSessionPayRates.mockResolvedValueOnce({
       app_session_id: "PAY-TAB",

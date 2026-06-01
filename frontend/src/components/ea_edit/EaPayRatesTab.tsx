@@ -221,7 +221,12 @@ export default function EaPayRatesTab({
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
             normAddressee,
-            administrationLevel: payRates.administration_level || "bund",
+            // administration_level wird nur fuer Verwaltung unterstuetzt; fuer business
+            // wuerde ein mitgesendeter Wert ein 422 ausloesen.
+            administrationLevel:
+              normAddressee === "administration"
+                ? payRates.administration_level || "bund"
+                : undefined,
             editedA: nextEdited.a,
             editedB: nextEdited.b,
             editedC: nextEdited.c,
@@ -251,7 +256,12 @@ export default function EaPayRatesTab({
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
             normAddressee,
-            administrationLevel: payRates.administration_level || "bund",
+            // administration_level wird nur fuer Verwaltung unterstuetzt; fuer business
+            // wuerde ein mitgesendeter Wert ein 422 ausloesen.
+            administrationLevel:
+              normAddressee === "administration"
+                ? payRates.administration_level || "bund"
+                : undefined,
             editedA: null,
             editedB: null,
             editedC: null,
