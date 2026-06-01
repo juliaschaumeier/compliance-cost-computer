@@ -3500,6 +3500,10 @@ def get_used_wage_baseline(session_id: int, norm_addressee: str) -> str | None:
     Stammdaten-Defaults). Berührt keine Persistenz; Override-Tabelle bleibt unangetastet.
     Die Sätze werden NICHT mehr aus den hourly_rate_*-Spalten abgeleitet, sondern vom
     Aufrufer aus den kanonischen Stammdaten je Label aufgelöst.
+
+    current und proposed werden bewusst zu EINEM dominanten Label zusammengefasst
+    (eine genutzte Zeile je Adressat). Nutzen die Perioden unterschiedliche Zeilen,
+    zeigt der Tab nur die insgesamt dominante; das ist eine bewusste Designentscheidung.
     """
     resolved = normalize_norm_addressee(norm_addressee)
     if resolved not in (ADMINISTRATION, BUSINESS):
@@ -3543,7 +3547,11 @@ def get_used_wage_baseline(session_id: int, norm_addressee: str) -> str | None:
 
     if not counts:
         return None
-    return max(counts, key=lambda value: counts[value])
+    # Dominanteste Zeile waehlen. Tie-Break deterministisch: bei gleichem Count
+    # gewinnt der alphabetisch erste source_value, damit das Ergebnis nicht von
+    # der Dict-/Iterationsreihenfolge abhaengt.
+    max_count = max(counts.values())
+    return min(value for value, count in counts.items() if count == max_count)
 
 
 def get_session_administration_pay_rates(session_id: int) -> dict | None:
@@ -3825,9 +3833,10 @@ def update_session_pay_rate_edits_for_addressee(
     if administration_level is not None:
         raise ValueError("administration_level is only supported for administration")
 
+    # resolved ist hier immer BUSINESS (admin/citizens sind oben behandelt);
+    # get_session_pay_rates_for_addressee liefert fuer BUSINESS stets ein Dict,
+    # daher kein None-Guard noetig.
     previous = get_session_pay_rates_for_addressee(session_id, resolved)
-    if previous is None:
-        return False
     changed = False
     for key in PAY_RATE_KEYS:
         changed = changed or value_changed(previous["edited"].get(key), edited.get(key))
@@ -4806,6 +4815,12 @@ def clear_session_summary(session_id: int) -> None:
 
 
 def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
+    # Effort-Undo raeumt die Step-`_edited`-Zeiten und die role_sources, aber
+    # bewusst NICHT die manuellen Lohnsatz-Overrides
+    # (sessions.pay_rate_edited_* bzw. session_pay_rate_overrides_by_addressee).
+    # Diese Asymmetrie ist gewollt: Der Override ist eine eigenstaendige
+    # Nutzer-Einstellung auf Session-Ebene und kein Effort-Ergebnis; er bleibt
+    # daher ueber ein Re-Run hinweg erhalten.
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
