@@ -4,6 +4,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List
 
@@ -1964,6 +1965,113 @@ def get_latest_deep_research_run_status(session_id: int, purpose: str) -> str:
     return str(run.get("status") or "idle") if run else "idle"
 
 
+def get_latest_deep_research_run_elapsed_seconds(
+    session_id: int,
+    purpose: str,
+) -> int | None:
+    run = get_latest_deep_research_run(session_id, purpose)
+    if not run or not run.get("started_at"):
+        return None
+    completed_at = run.get("completed_at")
+    try:
+        started = datetime.fromisoformat(str(run["started_at"]).replace(" ", "T"))
+        completed = (
+            datetime.fromisoformat(str(completed_at).replace(" ", "T"))
+            if completed_at
+            else datetime.utcnow()
+        )
+    except ValueError:
+        return None
+    return max(0, int((completed - started).total_seconds()))
+
+
+def _elapsed_ms_between(started_at: object, completed_at: object) -> int | None:
+    if not started_at or not completed_at:
+        return None
+    try:
+        started = datetime.fromisoformat(str(started_at).replace(" ", "T"))
+        completed = datetime.fromisoformat(str(completed_at).replace(" ", "T"))
+    except ValueError:
+        return None
+    elapsed = int((completed - started).total_seconds() * 1000)
+    return max(elapsed, 0)
+
+
+def list_recent_deep_research_monitor_rows_for_session(
+    session_id: int,
+    limit: int = 80,
+) -> list[dict]:
+    safe_limit = max(1, min(limit, 500))
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            research_run_id,
+            purpose,
+            provider,
+            agent,
+            status,
+            error,
+            input_tokens,
+            output_tokens,
+            thought_tokens,
+            estimated_cost_usd,
+            created_at,
+            started_at,
+            completed_at,
+            parsed_at
+        FROM deep_research_runs
+        WHERE session_id = ? AND purpose = 'case_group_metrics'
+        ORDER BY research_run_id DESC
+        LIMIT ?
+        """,
+        (session_id, safe_limit),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+
+    normalized: list[dict] = []
+    for row in rows:
+        status = str(row.get("status") or "")
+        if status == "running":
+            continue
+        if status == "parsed":
+            answer_state = LLM_ANSWER_STATE_ACTIVE
+            state_reason = "session_updated"
+        elif status == "completed":
+            answer_state = LLM_ANSWER_STATE_PENDING
+            state_reason = "waiting_for_session_update"
+        else:
+            answer_state = LLM_ANSWER_STATE_INVALID
+            state_reason = status or "deep_research_failed"
+        completed_at = row.get("parsed_at") or row.get("completed_at")
+        normalized.append(
+            {
+                "answer_id": None,
+                "prompt_id": "deep_research_case_group_metrics",
+                "model": str(row.get("agent") or ""),
+                "provider": str(row.get("provider") or "gemini"),
+                "attempt_id": f"deep_research:{row.get('research_run_id')}",
+                "request_id": None,
+                "route_method": None,
+                "route_path": None,
+                "elapsed_ms": _elapsed_ms_between(row.get("started_at"), completed_at),
+                "answer_state": answer_state,
+                "state_reason": state_reason,
+                "input_tokens": row.get("input_tokens"),
+                "output_tokens": row.get("output_tokens"),
+                "hidden_thinking_tokens": row.get("thought_tokens"),
+                "estimated_cost_usd": row.get("estimated_cost_usd"),
+                "error_kind": status if status in {"failed", "cancelled"} else None,
+                "error_status_code": None,
+                "error": row.get("error"),
+                "created_at": completed_at or row.get("created_at"),
+            }
+        )
+    return normalized
+
+
 def clear_case_group_research(session_id: int) -> None:
     conn = get_conn()
     cur = conn.cursor()
@@ -2116,6 +2224,10 @@ def get_session_status(app_session_id: str) -> dict | None:
             session.get("case_group_research_enabled")
         ),
         "case_group_research_status": get_latest_deep_research_run_status(
+            session_id,
+            "case_group_metrics",
+        ),
+        "case_group_research_elapsed_seconds": get_latest_deep_research_run_elapsed_seconds(
             session_id,
             "case_group_metrics",
         ),

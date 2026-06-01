@@ -244,26 +244,6 @@ export const apiClient = {
     return response.json();
   },
 
-  async deleteTile(
-    tileId: string,
-    appSessionId: string,
-    normAddressee?: NormAddressee
-  ): Promise<void> {
-    const params = new URLSearchParams({
-      app_session_id: appSessionId,
-    });
-    if (normAddressee && normAddressee !== "administration") {
-      params.set("norm_addressee", normAddressee);
-    }
-    const query = `?${params.toString()}`;
-    const response = await fetch(`${API_BASE_URL}/tiles/${tileId}${query}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to delete tile");
-    }
-  },
-
   async rebuildTiles(
     appSessionId: string,
     normAddressee?: NormAddressee

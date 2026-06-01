@@ -345,26 +345,6 @@ function GraphCanvasInner() {
     };
   }, [refreshTiles]);
 
-  const handleDelete = useCallback(
-    async (tileId: string) => {
-      try {
-        await apiClient.deleteTile(
-          tileId,
-          state.appSessionId,
-          state.selectedNormAddressee
-        );
-        setTiles((prev) => prev.filter((tile) => tile.id !== tileId));
-      } catch (err) {
-        logClientError("GraphCanvas.deleteTile", err, {
-          appSessionId: state.appSessionId,
-          tileId,
-        });
-        setError("Tile konnte nicht gelöscht werden.");
-      }
-    },
-    [state.appSessionId, state.selectedNormAddressee]
-  );
-
   const relatedNodeIds = useMemo(() => {
     if (!focusedNodeId) {
       return new Set<string>();
@@ -571,13 +551,11 @@ function GraphCanvasInner() {
         data: {
           title: tile.title,
           text: buildTileBodyText(tile),
-          deletable: tile.deletable,
           headerMetricLeft: metrics.left,
           headerMetricRight: metrics.right,
           metricTable: buildTileMetricTable(tile, state.selectedNormAddressee),
           onBodyRef: registerBodyRef,
           onNodeRef: registerNodeRef,
-          onDelete: () => handleDelete(tile.id),
           onToggleExpand: () =>
             setExpandedNodeIds((prev) => ({
               ...prev,
@@ -600,7 +578,6 @@ function GraphCanvasInner() {
     });
   }, [
     tiles,
-    handleDelete,
     canvasHeight,
     focusedNodeId,
     relatedNodeIds,

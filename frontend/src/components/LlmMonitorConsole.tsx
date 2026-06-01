@@ -71,6 +71,9 @@ function recentRowKey(row: LlmMonitorRecentCall): string {
   if (typeof row.answer_id === "number" && row.answer_id > 0) {
     return `answer:${row.answer_id}`;
   }
+  if (row.attempt_id) {
+    return `attempt:${row.attempt_id}`;
+  }
   return [
     "synthetic",
     row.attempt_id || "-",

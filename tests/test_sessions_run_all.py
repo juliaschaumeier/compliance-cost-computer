@@ -2,6 +2,8 @@ import json
 import time
 import asyncio
 
+import pytest
+
 from backend.core import db
 from backend.core.deep_research_service import DeepResearchResult
 from backend.routers import (
@@ -785,6 +787,7 @@ def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypa
             interaction_id="dr-test",
             report_text=report_text,
             response_json={"status": "completed"},
+            estimated_cost_usd=0.032,
         )
 
     monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
@@ -809,6 +812,7 @@ def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypa
     run = db.get_latest_deep_research_run(session_id, "case_group_metrics")
     assert run is not None
     assert run["status"] == "parsed"
+    assert run["estimated_cost_usd"] == pytest.approx(0.032)
     assert all(
         group["case_metric_research_json"]
         for group in db.list_case_groups_for_session(session_id)

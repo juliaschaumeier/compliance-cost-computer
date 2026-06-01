@@ -50,6 +50,12 @@ function deriveRunAllStepKeyFromStatus(
   return null;
 }
 
+function formatElapsedDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")} min`;
+}
+
 export default function SessionMenu({ compact }: SessionMenuProps) {
   const {
     state,
@@ -74,6 +80,13 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const [isUndoing, setIsUndoing] = useState(false);
   const [researchEnabled, setResearchEnabled] = useState(false);
   const [researchStatus, setResearchStatus] = useState("idle");
+  const [researchElapsedSeconds, setResearchElapsedSeconds] = useState<
+    number | null
+  >(null);
+  const [researchElapsedLoadedAt, setResearchElapsedLoadedAt] = useState<
+    number | null
+  >(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [researchLocked, setResearchLocked] = useState(false);
   const [isUpdatingResearch, setIsUpdatingResearch] = useState(false);
   const [isDownloadingResearch, setIsDownloadingResearch] = useState(false);
@@ -133,6 +146,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           setResearchEnabled(research.enabled);
           setResearchStatus(research.status);
           setResearchLocked(research.locked);
+          setResearchElapsedSeconds(research.elapsed_seconds ?? null);
+          setResearchElapsedLoadedAt(
+            typeof research.elapsed_seconds === "number" ? Date.now() : null
+          );
         }
       } catch (error) {
         logClientError("SessionMenu.loadResearchSettings", error, {
@@ -146,6 +163,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       cancelled = true;
     };
   }, [isOpen, state.appSessionId]);
+
+  useEffect(() => {
+    if (!isOpen || researchStatus !== "running") {
+      return;
+    }
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isOpen, researchStatus]);
 
   const formattedSessions = useMemo(() => {
     return sessions.map((session) => {
@@ -325,6 +350,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setResearchEnabled(result.enabled);
       setResearchStatus(result.status);
       setResearchLocked(result.locked);
+      setResearchElapsedSeconds(result.elapsed_seconds ?? null);
+      setResearchElapsedLoadedAt(
+        typeof result.elapsed_seconds === "number" ? Date.now() : null
+      );
       setStatus(
         result.enabled
           ? "Deep Research für Fallzahlen aktiviert."
@@ -371,6 +400,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
     setResearchEnabled(Boolean(sessionStatus.case_group_research_enabled));
     setResearchStatus(sessionStatus.case_group_research_status || "idle");
+    setResearchElapsedSeconds(
+      sessionStatus.case_group_research_elapsed_seconds ?? null
+    );
+    setResearchElapsedLoadedAt(
+      typeof sessionStatus.case_group_research_elapsed_seconds === "number"
+        ? Date.now()
+        : null
+    );
     setResearchLocked(
       !["idle", "failed", "cancelled"].includes(
         sessionStatus.case_group_research_status || "idle"
@@ -379,6 +416,22 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setCurrentTab(deriveTabFromStatus(sessionStatus));
     window.dispatchEvent(new Event("tiles-updated"));
   };
+
+  const researchElapsedDisplay = useMemo(() => {
+    if (researchStatus !== "running" || researchElapsedSeconds === null) {
+      return null;
+    }
+    const clientElapsedSeconds =
+      researchElapsedLoadedAt === null
+        ? 0
+        : Math.max(0, Math.floor((nowMs - researchElapsedLoadedAt) / 1000));
+    return formatElapsedDuration(researchElapsedSeconds + clientElapsedSeconds);
+  }, [
+    nowMs,
+    researchElapsedLoadedAt,
+    researchElapsedSeconds,
+    researchStatus,
+  ]);
 
   const stopRunMonitoring = () => {
     if (runEventSourceRef.current) {
@@ -729,6 +782,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             </div>
             <div className="mt-1 text-[11px] text-slate-500">
               Status: {researchStatus}
+              {researchElapsedDisplay ? ` · läuft seit ${researchElapsedDisplay}` : ""}
             </div>
           </div>
           <button
@@ -737,15 +791,22 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             aria-checked={researchEnabled}
             disabled={researchLocked || isUpdatingResearch || isRunningAll}
             onClick={handleToggleDeepResearch}
-            className={`mt-1 h-6 w-11 rounded-full border p-0.5 transition disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`relative mt-1 h-6 w-14 rounded-full border p-0.5 text-[10px] font-bold leading-none transition disabled:cursor-not-allowed disabled:opacity-50 ${
               researchEnabled
-                ? "border-slate-900 bg-slate-900"
-                : "border-slate-300 bg-slate-100"
+                ? "border-slate-900 bg-slate-900 text-white"
+                : "border-slate-300 bg-slate-100 text-slate-500"
             }`}
           >
             <span
-              className={`block h-4 w-4 rounded-full bg-white transition ${
-                researchEnabled ? "translate-x-5" : "translate-x-0"
+              className={`absolute top-1/2 -translate-y-1/2 ${
+                researchEnabled ? "left-2" : "right-2"
+              }`}
+            >
+              {researchEnabled ? "An" : "Aus"}
+            </span>
+            <span
+              className={`block h-4 w-4 rounded-full bg-white shadow-sm transition ${
+                researchEnabled ? "translate-x-8" : "translate-x-0"
               }`}
             />
           </button>

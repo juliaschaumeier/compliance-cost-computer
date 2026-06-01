@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import html
 import inspect
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ from backend.core.deep_research_cases_prompt import build_deep_research_cases_pr
 from backend.core.deep_research_service import DeepResearchError, run_deep_research
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.core.request_context import get_request_context
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
@@ -47,6 +50,8 @@ from backend.routers import (
 
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+DEEP_RESEARCH_MONITOR_PROMPT_ID = "deep_research_case_group_metrics"
 
 ModelName = Annotated[
     str,
@@ -95,6 +100,7 @@ class SessionStatusResponse(BaseModel):
     total_cost_ready_by_addressee: dict[str, bool] = {}
     case_group_research_enabled: bool = False
     case_group_research_status: str = "idle"
+    case_group_research_elapsed_seconds: int | None = None
     last_completed_step: str | None = None
     last_completed_label: str | None = None
 
@@ -145,6 +151,7 @@ class CaseGroupResearchSettingsResponse(BaseModel):
     enabled: bool
     status: str = "idle"
     locked: bool = False
+    elapsed_seconds: int | None = None
 
 
 class SessionExportResponse(BaseModel):
@@ -483,6 +490,67 @@ def _step_error_message(exc: Exception) -> str:
     return message or exc.__class__.__name__
 
 
+def _deep_research_attempt_id(research_run_id: int) -> str:
+    return f"deep_research:{research_run_id}"
+
+
+async def _publish_deep_research_monitor_event(
+    *,
+    app_session_id: str,
+    session_id: int,
+    research_run_id: int,
+    event_type: str,
+    agent: str,
+    request_context: dict[str, str | None],
+    elapsed_ms: int | None = None,
+    prompt_chars: int | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    thought_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+    error: str | None = None,
+    error_kind: str | None = None,
+    answer_state: str | None = None,
+    state_reason: str | None = None,
+) -> None:
+    event: dict[str, object] = {
+        "event_type": event_type,
+        "attempt_id": _deep_research_attempt_id(research_run_id),
+        "session_id": session_id,
+        "prompt_id": DEEP_RESEARCH_MONITOR_PROMPT_ID,
+        "model": agent,
+        "provider": "gemini",
+        "request_id": request_context.get("request_id"),
+        "route_method": request_context.get("route_method"),
+        "route_path": request_context.get("route_path"),
+        "stream_mode": "non_stream",
+    }
+    for key, value in (
+        ("elapsed_ms", elapsed_ms),
+        ("prompt_chars", prompt_chars),
+        ("input_tokens", input_tokens),
+        ("output_tokens", output_tokens),
+        ("hidden_thinking_tokens", thought_tokens),
+        ("estimated_cost_usd", estimated_cost_usd),
+        ("error", error),
+        ("error_kind", error_kind),
+        ("answer_state", answer_state),
+        ("state_reason", state_reason),
+    ):
+        if value is not None:
+            event[key] = value
+    await llm_monitor.publish_llm_event(app_session_id=app_session_id, event=event)
+
+
+def _recent_monitor_rows(session_id: int, limit: int) -> list[dict]:
+    rows = [
+        *db.list_recent_llm_answers_for_session(session_id, limit=limit),
+        *db.list_recent_deep_research_monitor_rows_for_session(session_id, limit=limit),
+    ]
+    rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    return rows[: max(1, min(limit, 500))]
+
+
 async def _run_case_group_deep_research(
     *,
     app_session_id: str,
@@ -514,8 +582,29 @@ async def _run_case_group_deep_research(
         status="running",
         prompt_text=prompt,
     )
+    request_context = get_request_context()
+    started = time.perf_counter()
+    await _publish_deep_research_monitor_event(
+        app_session_id=app_session_id,
+        session_id=session_id,
+        research_run_id=research_run_id,
+        event_type="llm_query_started",
+        agent=settings.deep_research_primary_agent,
+        request_context=request_context,
+        prompt_chars=len(prompt),
+    )
+    query_succeeded = False
     try:
-        result = await run_deep_research(prompt=prompt, api_keys=api_keys)
+        result = await run_deep_research(
+            prompt=prompt,
+            api_keys=api_keys,
+            on_interaction_started=lambda agent, interaction_id: db.update_deep_research_run(
+                research_run_id,
+                agent=agent,
+                interaction_id=interaction_id,
+            ),
+        )
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         db.update_deep_research_run(
             research_run_id,
             status="completed",
@@ -527,17 +616,74 @@ async def _run_case_group_deep_research(
             output_tokens=result.output_tokens,
             thought_tokens=result.thought_tokens,
             total_tokens=result.total_tokens,
+            estimated_cost_usd=result.estimated_cost_usd,
         )
-        apply_deep_research_case_metrics(
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
             session_id=session_id,
-            report_text=result.report_text,
             research_run_id=research_run_id,
+            event_type="llm_query_succeeded",
+            agent=result.agent,
+            request_context=request_context,
+            elapsed_ms=elapsed_ms,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            thought_tokens=result.thought_tokens,
+            estimated_cost_usd=result.estimated_cost_usd,
+        )
+        query_succeeded = True
+        try:
+            apply_deep_research_case_metrics(
+                session_id=session_id,
+                report_text=result.report_text,
+                research_run_id=research_run_id,
+            )
+        except Exception as exc:
+            await _publish_deep_research_monitor_event(
+                app_session_id=app_session_id,
+                session_id=session_id,
+                research_run_id=research_run_id,
+                event_type="llm_apply_failed",
+                agent=result.agent,
+                request_context=request_context,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                error=_step_error_message(exc),
+                error_kind="deep_research_apply_failed",
+                answer_state="invalid",
+                state_reason="session_update_failed",
+            )
+            raise
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            event_type="llm_apply_succeeded",
+            agent=result.agent,
+            request_context=request_context,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            thought_tokens=result.thought_tokens,
+            estimated_cost_usd=result.estimated_cost_usd,
+            answer_state="active",
+            state_reason="session_updated",
         )
     except asyncio.CancelledError:
         db.update_deep_research_run(
             research_run_id,
             status="cancelled",
             error="Deep Research was cancelled by the run-all task.",
+        )
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            event_type="llm_query_failed",
+            agent=settings.deep_research_primary_agent,
+            request_context=request_context,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            error="Deep Research was cancelled by the run-all task.",
+            error_kind="cancelled",
         )
         raise
     except DeepResearchError as exc:
@@ -546,6 +692,17 @@ async def _run_case_group_deep_research(
             status="failed",
             error=str(exc),
         )
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            event_type="llm_query_failed",
+            agent=settings.deep_research_primary_agent,
+            request_context=request_context,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            error=str(exc),
+            error_kind="deep_research_query_failed",
+        )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         db.update_deep_research_run(
@@ -553,6 +710,18 @@ async def _run_case_group_deep_research(
             status="failed",
             error=_step_error_message(exc),
         )
+        if not query_succeeded:
+            await _publish_deep_research_monitor_event(
+                app_session_id=app_session_id,
+                session_id=session_id,
+                research_run_id=research_run_id,
+                event_type="llm_query_failed",
+                agent=settings.deep_research_primary_agent,
+                request_context=request_context,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                error=_step_error_message(exc),
+                error_kind="deep_research_failed",
+            )
         raise
 
 
@@ -956,6 +1125,10 @@ def _research_settings_response(app_session_id: str) -> CaseGroupResearchSetting
         enabled=bool(session.get("case_group_research_enabled")),
         status=status,
         locked=status not in {"idle", "failed", "cancelled"},
+        elapsed_seconds=db.get_latest_deep_research_run_elapsed_seconds(
+            session_id,
+            CASE_GROUP_RESEARCH_PURPOSE,
+        ),
     )
 
 
@@ -1065,11 +1238,143 @@ async def export_session(
     return SessionExportResponse(filename=filename, markdown=markdown)
 
 
-def _render_research_report_pdf(report_md: str, title: str) -> bytes:
+def _split_pipe_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for char in stripped:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    if escaped:
+        current.append("\\")
+    cells.append("".join(current).strip())
+    return cells
+
+
+def _is_pipe_table_separator(line: str) -> bool:
+    cells = _split_pipe_table_row(line)
+    if len(cells) < 2:
+        return False
+    for cell in cells:
+        marker = cell.strip()
+        if len(marker) < 3:
+            return False
+        marker = marker.strip(":")
+        if not marker or any(char != "-" for char in marker):
+            return False
+    return True
+
+
+def _parse_pipe_table(block: str) -> list[list[str]] | None:
+    lines = [line.strip() for line in block.splitlines() if line.strip()]
+    if len(lines) < 3 or "|" not in lines[0] or not _is_pipe_table_separator(lines[1]):
+        return None
+    rows = [_split_pipe_table_row(lines[0])]
+    expected_columns = len(rows[0])
+    if expected_columns < 2:
+        return None
+    body_rows = [_split_pipe_table_row(line) for line in lines[2:]]
+    if not body_rows:
+        return None
+    for row in body_rows:
+        if len(row) != expected_columns:
+            return None
+    rows.extend(body_rows)
+    return rows
+
+
+def _research_pdf_inline_markup(text: str) -> str:
+    escaped = html.escape(text).replace("\n", "<br/>")
+    parts = escaped.split("**")
+    if len(parts) == 1:
+        return _linkify_research_pdf_urls(escaped)
+    rendered: list[str] = []
+    for index, part in enumerate(parts):
+        linked_part = _linkify_research_pdf_urls(part)
+        if index % 2 == 1 and part:
+            rendered.append(f"<b>{linked_part}</b>")
+        else:
+            rendered.append(linked_part)
+    return "".join(rendered)
+
+
+def _linkify_research_pdf_urls(escaped_text: str) -> str:
+    url_pattern = re.compile(r"https?://[^\s<]+")
+
+    def replace(match: re.Match[str]) -> str:
+        url = match.group(0)
+        trailing = ""
+        while url and url[-1] in ".,;:)]]":
+            trailing = f"{url[-1]}{trailing}"
+            url = url[:-1]
+        if not url:
+            return match.group(0)
+        return f'<link href="{url}"><font color="blue">{url}</font></link>{trailing}'
+
+    return url_pattern.sub(replace, escaped_text)
+
+
+def _format_research_report_metadata_lines(metadata: dict[str, object]) -> list[str]:
+    lines = [
+        "<b>Hinweis:</b> Dieser Deep-Research-Bericht wurde KI-gestuetzt erzeugt. "
+        "Die genannten Zahlen, Quellen und Schlussfolgerungen sollten vor einer offiziellen "
+        "Verwendung fachlich geprueft werden.",
+    ]
+    for label, value in (
+        ("Session", metadata.get("app_session_id")),
+        ("Erstellt", metadata.get("generated_at")),
+        ("Agent", metadata.get("agent")),
+        ("Status", metadata.get("status")),
+    ):
+        if value:
+            lines.append(f"<b>{label}:</b> {html.escape(str(value))}")
+    token_parts = [
+        f"in {metadata.get('input_tokens')}" if metadata.get("input_tokens") is not None else None,
+        f"out {metadata.get('output_tokens')}" if metadata.get("output_tokens") is not None else None,
+        (
+            f"thinking {metadata.get('thought_tokens')}"
+            if metadata.get("thought_tokens") is not None
+            else None
+        ),
+        f"total {metadata.get('total_tokens')}" if metadata.get("total_tokens") is not None else None,
+    ]
+    tokens = " / ".join(part for part in token_parts if part)
+    if tokens:
+        lines.append(f"<b>Token:</b> {html.escape(tokens)}")
+    cost = metadata.get("estimated_cost_usd")
+    if cost is not None:
+        try:
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> ${float(cost):.4f}")
+        except (TypeError, ValueError):
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> {html.escape(str(cost))}")
+    return lines
+
+
+def _render_research_report_pdf(
+    report_md: str,
+    title: str,
+    metadata: dict[str, object] | None = None,
+) -> bytes:
     try:
+        from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except Exception as exc:  # pragma: no cover - exercised only without optional dep.
         raise HTTPException(
             status_code=500,
@@ -1090,7 +1395,33 @@ def _render_research_report_pdf(report_md: str, title: str) -> bytes:
         title=title,
     )
     styles = getSampleStyleSheet()
+    table_cell_style = ParagraphStyle(
+        "ResearchTableCell",
+        parent=styles["BodyText"],
+        fontSize=8,
+        leading=10,
+    )
+    available_width = A4[0] - doc.leftMargin - doc.rightMargin
     story = [Paragraph(html.escape(title), styles["Title"]), Spacer(1, 12)]
+    if metadata:
+        metadata_lines = _format_research_report_metadata_lines(metadata)
+        metadata_box = Table(
+            [[Paragraph("<br/>".join(metadata_lines), styles["BodyText"])]],
+            colWidths=[available_width],
+        )
+        metadata_box.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.extend([metadata_box, Spacer(1, 12)])
     for block in report_md.split("\n\n"):
         text = block.strip()
         if not text:
@@ -1098,11 +1429,50 @@ def _render_research_report_pdf(report_md: str, title: str) -> bytes:
         if text.startswith("#"):
             heading = text.lstrip("#").strip()
             story.append(Paragraph(html.escape(heading), styles["Heading2"]))
+        elif table_rows := _parse_pipe_table(text):
+            column_count = len(table_rows[0])
+            table_data = [
+                [
+                    Paragraph(_research_pdf_inline_markup(cell), table_cell_style)
+                    for cell in row
+                ]
+                for row in table_rows
+            ]
+            table = Table(
+                table_data,
+                colWidths=[available_width / column_count] * column_count,
+                repeatRows=1,
+            )
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+                        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#cbd5e1")),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ]
+                )
+            )
+            story.append(table)
         else:
-            story.append(Paragraph(html.escape(text).replace("\n", "<br/>"), styles["BodyText"]))
+            story.append(Paragraph(_research_pdf_inline_markup(text), styles["BodyText"]))
         story.append(Spacer(1, 8))
     try:
-        doc.build(story)
+        def add_page_number(canvas, document) -> None:
+            canvas.saveState()
+            canvas.setFont("Helvetica", 8)
+            canvas.setFillColor(colors.HexColor("#64748b"))
+            canvas.drawRightString(
+                document.pagesize[0] - document.rightMargin,
+                18,
+                f"Seite {document.page}",
+            )
+            canvas.restoreState()
+
+        doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
     except Exception as exc:  # pragma: no cover - reportlab internals.
         raise HTTPException(
             status_code=500,
@@ -1142,7 +1512,21 @@ async def download_deep_research_report(
             media_type="text/markdown; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
         )
-    pdf = _render_research_report_pdf(report_md, f"Deep Research Report {app_session_id}")
+    pdf = _render_research_report_pdf(
+        report_md,
+        f"Deep Research Report {app_session_id}",
+        metadata={
+            "app_session_id": app_session_id,
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "agent": run.get("agent"),
+            "status": status,
+            "input_tokens": run.get("input_tokens"),
+            "output_tokens": run.get("output_tokens"),
+            "thought_tokens": run.get("thought_tokens"),
+            "total_tokens": run.get("total_tokens"),
+            "estimated_cost_usd": run.get("estimated_cost_usd"),
+        },
+    )
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -1466,7 +1850,7 @@ async def get_llm_monitor_snapshot(
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
     pending = await llm_monitor.get_pending(app_session_id)
-    recent = db.list_recent_llm_answers_for_session(session_id, limit=limit)
+    recent = _recent_monitor_rows(session_id, limit)
     events = await llm_monitor.get_recent_events(app_session_id, limit=limit)
     stream_attempts = await llm_monitor.get_stream_attempts(
         app_session_id,
@@ -1504,10 +1888,7 @@ async def stream_llm_monitor_events(
                     "pending": monitor_snapshot["pending"],
                     "events": monitor_snapshot["events"],
                     "stream_attempts": monitor_snapshot["stream_attempts"],
-                    "recent": db.list_recent_llm_answers_for_session(
-                        session_id,
-                        limit=limit,
-                    ),
+                    "recent": _recent_monitor_rows(session_id, limit),
                 },
             )
             if once:

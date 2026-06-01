@@ -8,13 +8,11 @@ import { TileMetricTable } from "@/components/tileMetrics";
 export interface TileNodeData {
   title: string;
   text: string;
-  deletable: boolean;
   headerMetricLeft?: string | null;
   headerMetricRight?: string | null;
   metricTable?: TileMetricTable | null;
   onBodyRef: (id: string, element: HTMLParagraphElement | null) => void;
   onNodeRef: (id: string, element: HTMLDivElement | null) => void;
-  onDelete: () => void;
   onToggleExpand: () => void;
   isExpanded: boolean;
   textHasOverflow: boolean;
@@ -52,7 +50,7 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
     <div ref={setNodeRef} className={`tile-node ${highlightClass}`}>
       <Handle type="target" position={Position.Left} />
       <div className="tile-header">
-        {(data.changeStatus || data.deletable || data.headerMetricLeft || data.headerMetricRight) && (
+        {(data.changeStatus || data.headerMetricLeft || data.headerMetricRight) && (
           <div className="tile-meta-row">
             {data.changeStatus ? (
               <span className={`tile-status tile-status-${data.changeStatus}`}>
@@ -61,20 +59,11 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
             ) : (
               <span />
             )}
-            {(data.deletable || data.headerMetricLeft || data.headerMetricRight) && (
+            {(data.headerMetricLeft || data.headerMetricRight) && (
               <div className="tile-actions">
                 {data.headerMetricLeft && (
                   <span className="tile-metric tile-metric-left">{data.headerMetricLeft}</span>
                 )}
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    data.onDelete();
-                  }}
-                  disabled={!data.deletable}
-                >
-                  ×
-                </button>
                 {data.headerMetricRight && (
                   <span className="tile-metric tile-metric-right">{data.headerMetricRight}</span>
                 )}

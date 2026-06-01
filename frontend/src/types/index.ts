@@ -70,6 +70,7 @@ export interface SessionStatus {
   total_cost_ready_by_addressee?: Record<NormAddressee, boolean>;
   case_group_research_enabled?: boolean;
   case_group_research_status?: string;
+  case_group_research_elapsed_seconds?: number | null;
   last_completed_step?: string | null;
   last_completed_label?: string | null;
 }
@@ -79,6 +80,7 @@ export interface CaseGroupResearchSettingsResponse {
   enabled: boolean;
   status: string;
   locked: boolean;
+  elapsed_seconds?: number | null;
 }
 
 export interface UndoStepResponse {
