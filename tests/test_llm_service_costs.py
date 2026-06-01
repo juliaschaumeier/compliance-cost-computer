@@ -40,6 +40,80 @@ def test_extract_provider_reported_cost_usd():
     assert reported == 0.00123
 
 
+def test_estimate_cost_supports_deep_research_agent_alias():
+    resolved = llm_service._resolve_estimated_cost_usd(
+        provider="gemini",
+        model="deep-research-preview-04-2026",
+        input_tokens=1_000_000,
+        output_tokens=2_000_000,
+    )
+
+    assert resolved == 26.0
+
+
+def test_estimate_cost_supports_current_recommended_openai_models():
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="openai",
+            model="gpt-5.5",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 35.0
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="openai",
+            model="gpt-5.4-mini",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 5.25
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="openai",
+            model="gpt-5.4-nano",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 1.45
+    )
+
+
+def test_estimate_cost_supports_current_recommended_gemini_models():
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="gemini",
+            model="gemini-3.5-flash",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 10.5
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="gemini",
+            model="gemini-3-flash-preview",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 3.5
+    )
+
+
+def test_estimate_cost_returns_none_for_deepinfra_without_provider_reported_cost():
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="deepinfra",
+            model="anthropic/claude-sonnet-4-6",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        is None
+    )
+
+
 def test_normalize_llm_exception_timeout_reason():
     normalized = llm_service._normalize_llm_exception(
         provider="openai",

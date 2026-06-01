@@ -17,6 +17,9 @@ jest.mock("@/lib/api", () => ({
     getSessionStatus: jest.fn(),
     undoLastStep: jest.fn(),
     exportSession: jest.fn(),
+    getCaseGroupResearchSettings: jest.fn(),
+    updateCaseGroupResearchSettings: jest.fn(),
+    downloadDeepResearchReport: jest.fn(),
     startRunAllSteps: jest.fn(),
     cancelRunAll: jest.fn(),
     getRunAllStatus: jest.fn(),
@@ -40,6 +43,8 @@ const mockRebuildTiles = apiClient.rebuildTiles as jest.Mock;
 const mockListSessions = apiClient.listSessions as jest.Mock;
 const mockGetSessionStatus = apiClient.getSessionStatus as jest.Mock;
 const mockUndoLastStep = apiClient.undoLastStep as jest.Mock;
+const mockGetCaseGroupResearchSettings =
+  apiClient.getCaseGroupResearchSettings as jest.Mock;
 const mockStartRunAllSteps = apiClient.startRunAllSteps as jest.Mock;
 const mockPrepareSessionDocuments = prepareSessionDocuments as jest.Mock;
 
@@ -123,6 +128,13 @@ describe("SessionMenu", () => {
       status: "ok",
       undone_step: "effort",
       undone_label: "Aufwand berechnen",
+    });
+    mockGetCaseGroupResearchSettings.mockResolvedValue({
+      app_session_id: "ABC123",
+      enabled: true,
+      status: "idle",
+      locked: false,
+      elapsed_seconds: null,
     });
     mockStartRunAllSteps.mockResolvedValue({
       run_id: "run-123",
@@ -249,5 +261,21 @@ describe("SessionMenu", () => {
         keys: { openaiApiKey: "key" },
       })
     );
+  });
+
+  it("shows elapsed Deep Research runtime while running", async () => {
+    mockGetCaseGroupResearchSettings.mockResolvedValue({
+      app_session_id: "ABC123",
+      enabled: true,
+      status: "running",
+      locked: true,
+      elapsed_seconds: 125,
+    });
+
+    await openMenu();
+
+    expect(
+      await screen.findByText(/Status: running · läuft seit 2:05 min/i)
+    ).toBeInTheDocument();
   });
 });

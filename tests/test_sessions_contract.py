@@ -292,6 +292,46 @@ def test_sessions_llm_monitor_snapshot_contract(test_client):
     assert first["provider"] == "openai"
 
 
+def test_sessions_llm_monitor_snapshot_includes_deep_research_recent(test_client):
+    app_session_id = "CONTRACT-LLM-MONITOR-DR"
+    session_id, _ = db.upsert_session(app_session_id, "gpt-5")
+    run_id = db.create_deep_research_run(
+        session_id=session_id,
+        purpose="case_group_metrics",
+        agent="deep-research-preview-04-2026",
+        status="running",
+    )
+    db.update_deep_research_run(
+        run_id,
+        status="parsed",
+        input_tokens=100,
+        output_tokens=200,
+        thought_tokens=30,
+        estimated_cost_usd=0.0042,
+    )
+
+    resp = test_client.get(
+        "/sessions/llm-monitor",
+        params={"app_session_id": app_session_id},
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    _parse_contract(sessions_router.SessionLlmMonitorSnapshotResponse, payload)
+    deep_research_row = next(
+        row
+        for row in payload["recent"]
+        if row["prompt_id"] == "deep_research_case_group_metrics"
+    )
+    assert deep_research_row["provider"] == "gemini"
+    assert deep_research_row["model"] == "deep-research-preview-04-2026"
+    assert deep_research_row["attempt_id"] == f"deep_research:{run_id}"
+    assert deep_research_row["answer_state"] == "active"
+    assert deep_research_row["input_tokens"] == 100
+    assert deep_research_row["hidden_thinking_tokens"] == 30
+    assert deep_research_row["estimated_cost_usd"] == 0.0042
+
+
 def test_sessions_llm_monitor_events_contract(test_client):
     app_session_id = "CONTRACT-LLM-MONITOR-EVENTS"
     db.upsert_session(app_session_id, "gpt-5")

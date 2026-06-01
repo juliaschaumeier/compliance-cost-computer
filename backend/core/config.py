@@ -43,27 +43,27 @@ class Settings(BaseSettings):
 settings = Settings()
 
 OPENAI_RECOMMENDED = [
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
     "gpt-5.2",
-    "gpt-5.2-pro",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
 ]
 
 DEEPINFRA_RECOMMENDED = [
-    "anthropic/claude-4-opus",
-    "anthropic/claude-4-sonnet",
-    "deepseek-ai/DeepSeek-R1-0528",
+    "anthropic/claude-sonnet-4-6",
+    "anthropic/claude-opus-4-7",
+    "deepseek-ai/DeepSeek-V3.2",
+    "Qwen/Qwen3.5-397B-A17B",
     "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-    "Qwen/Qwen2.5-72B-Instruct",
 ]
 
 GEMINI_RECOMMENDED = [
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-3-pro-preview",
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite",
     "gemini-3-flash-preview",
+    "gemini-2.5-pro",
     # "gemini-2.0-flash",
     # "gemini-2.0-flash-lite",
 ]

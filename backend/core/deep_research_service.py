@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from google import genai
 
 from backend.core.auth import ApiKeys
 from backend.core.config import settings
+from backend.core.llm_service import _resolve_estimated_cost_usd
 
 
 class DeepResearchError(RuntimeError):
     pass
+
+
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -24,6 +34,7 @@ class DeepResearchResult:
     output_tokens: int | None = None
     thought_tokens: int | None = None
     total_tokens: int | None = None
+    estimated_cost_usd: float | None = None
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -82,11 +93,25 @@ def _extract_usage(interaction_json: dict[str, Any] | list[Any] | None) -> dict[
             "total_tokens": None,
         }
     return {
-        "input_tokens": usage.get("total_input_tokens"),
-        "output_tokens": usage.get("total_output_tokens"),
-        "thought_tokens": usage.get("total_thought_tokens"),
-        "total_tokens": usage.get("total_tokens"),
+        "input_tokens": _as_int(usage.get("total_input_tokens")),
+        "output_tokens": _as_int(usage.get("total_output_tokens")),
+        "thought_tokens": _as_int(usage.get("total_thought_tokens")),
+        "total_tokens": _as_int(usage.get("total_tokens")),
     }
+
+
+def _billable_output_tokens_for_cost(
+    *,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    thought_tokens: int | None,
+    total_tokens: int | None,
+) -> int | None:
+    if total_tokens is not None and input_tokens is not None:
+        return max(total_tokens - input_tokens, 0)
+    if output_tokens is None and thought_tokens is None:
+        return None
+    return (output_tokens or 0) + (thought_tokens or 0)
 
 
 def _run_interaction_sync(
@@ -95,6 +120,7 @@ def _run_interaction_sync(
     prompt: str,
     agent: str,
     poll_interval_seconds: float,
+    on_interaction_started: Callable[[str, str], None] | None = None,
 ) -> DeepResearchResult:
     if not api_key:
         raise DeepResearchError("Gemini API key is required for Deep Research")
@@ -112,6 +138,8 @@ def _run_interaction_sync(
     interaction_id = str(getattr(interaction, "id", "") or "")
     if not interaction_id:
         raise DeepResearchError("Gemini did not return a Deep Research interaction id")
+    if on_interaction_started:
+        on_interaction_started(agent, interaction_id)
 
     while True:
         result = client.interactions.get(id=interaction_id)
@@ -122,6 +150,12 @@ def _run_interaction_sync(
             if not report_text.strip():
                 raise DeepResearchError("Gemini Deep Research completed without report text")
             usage = _extract_usage(response_json)
+            billable_output_tokens = _billable_output_tokens_for_cost(
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                thought_tokens=usage["thought_tokens"],
+                total_tokens=usage["total_tokens"],
+            )
             return DeepResearchResult(
                 agent=agent,
                 interaction_id=interaction_id,
@@ -131,6 +165,12 @@ def _run_interaction_sync(
                 output_tokens=usage["output_tokens"],
                 thought_tokens=usage["thought_tokens"],
                 total_tokens=usage["total_tokens"],
+                estimated_cost_usd=_resolve_estimated_cost_usd(
+                    provider="gemini",
+                    model=agent,
+                    input_tokens=usage["input_tokens"],
+                    output_tokens=billable_output_tokens,
+                ),
             )
         if status == "failed":
             error = getattr(result, "error", None)
@@ -147,6 +187,7 @@ async def run_deep_research(
     prompt: str,
     api_keys: ApiKeys,
     agent: str | None = None,
+    on_interaction_started: Callable[[str, str], None] | None = None,
 ) -> DeepResearchResult:
     primary_agent = agent or settings.deep_research_primary_agent
     fallback_agent = settings.deep_research_fallback_agent
@@ -158,6 +199,7 @@ async def run_deep_research(
             prompt=prompt,
             agent=primary_agent,
             poll_interval_seconds=poll_interval,
+            on_interaction_started=on_interaction_started,
         )
     except Exception as exc:
         message = str(exc)
@@ -169,6 +211,7 @@ async def run_deep_research(
                     prompt=prompt,
                     agent=fallback_agent,
                     poll_interval_seconds=poll_interval,
+                    on_interaction_started=on_interaction_started,
                 )
             except Exception as fallback_exc:
                 raise DeepResearchError(
