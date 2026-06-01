@@ -42,11 +42,47 @@ PAY_RATE_BUND_DEFAULTS: dict[str, float] = {
     "c": 67.6,
     "d": 44.4,
 }
+# Standardlohnsaetze je Verwaltungsebene (Euro pro Stunde) aus der
+# Lohnkostentabelle Verwaltung (handbook_tables.py, Anhang 8, Spalten
+# "Lohnkosten pro Stunde": eD/mD -> a, gD -> b, hD -> c, Durchschnitt -> d).
+# Keys = administration_level (= _normalize_role_wage_source-Output fuer admin).
+PAY_RATE_LEVEL_DEFAULTS: dict[str, dict[str, float]] = {
+    "bund": PAY_RATE_BUND_DEFAULTS,
+    "laender": {"a": 30.5, "b": 43.2, "c": 69.3, "d": 46.7},
+    "kommunen": {"a": 25.5, "b": 42.2, "c": 70.4, "d": 40.7},
+    "sozialversicherung": {"a": 30.3, "b": 46.3, "c": 73.2, "d": 48.1},
+    "durchschnitt": {"a": 27.3, "b": 42.9, "c": 69.3, "d": 44.4},
+}
 PAY_RATE_BUSINESS_DEFAULTS: dict[str, float] = {
     "a": 26.1,
     "b": 37.1,
     "c": 62.4,
     "d": 38.6,
+}
+# Standardlohnsaetze je Wirtschaftsabschnitt (Euro pro Stunde) aus der
+# Lohnkostentabelle Wirtschaft (handbook_tables.py, Spalten Niedrig -> a,
+# Mittel -> b, Hoch -> c, Durchschnitt -> d). Keys = WZ-Abschnitt (A..S ohne O)
+# bzw. "gesamtwirtschaft" (= _normalize_role_wage_source-Output fuer business).
+PAY_RATE_BUSINESS_SECTION_DEFAULTS: dict[str, dict[str, float]] = {
+    "A": {"a": 22.7, "b": 25.6, "c": 45.8, "d": 25.0},
+    "B": {"a": 32.6, "b": 41.8, "c": 85.6, "d": 45.0},
+    "C": {"a": 31.6, "b": 44.2, "c": 76.2, "d": 46.2},
+    "D": {"a": 33.6, "b": 54.9, "c": 80.7, "d": 57.8},
+    "E": {"a": 28.5, "b": 37.0, "c": 64.7, "d": 37.4},
+    "F": {"a": 26.1, "b": 33.7, "c": 59.5, "d": 33.7},
+    "G": {"a": 23.6, "b": 32.4, "c": 62.4, "d": 33.4},
+    "H": {"a": 25.9, "b": 32.2, "c": 62.8, "d": 32.1},
+    "I": {"a": 21.7, "b": 24.4, "c": 39.7, "d": 23.6},
+    "J": {"a": 25.1, "b": 49.9, "c": 63.7, "d": 52.8},
+    "K": {"a": 29.0, "b": 54.4, "c": 93.1, "d": 57.9},
+    "L": {"a": 24.1, "b": 34.7, "c": 56.2, "d": 35.0},
+    "M": {"a": 25.5, "b": 40.9, "c": 64.2, "d": 46.7},
+    "N": {"a": 23.3, "b": 30.2, "c": 55.0, "d": 28.0},
+    "P": {"a": 26.3, "b": 36.4, "c": 53.1, "d": 43.2},
+    "Q": {"a": 27.0, "b": 34.2, "c": 62.0, "d": 36.9},
+    "R": {"a": 22.9, "b": 32.2, "c": 51.0, "d": 31.7},
+    "S": {"a": 23.6, "b": 30.3, "c": 49.0, "d": 32.1},
+    "gesamtwirtschaft": PAY_RATE_BUSINESS_DEFAULTS,
 }
 NORM_ADDRESSEE_CHECK_SQL = "CHECK (norm_addressee IN ({values}))".format(
     values=", ".join(f"'{na}'" for na in SUPPORTED_NORM_ADDRESSEES)
@@ -206,85 +242,69 @@ def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
     cur.execute("PRAGMA foreign_keys = ON")
 
 
-def _create_pay_rate_defaults_table(cur: sqlite3.Cursor) -> None:
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS pay_rate_defaults (
-            administration_level TEXT PRIMARY KEY,
-            hourly_rate_a        REAL NOT NULL,
-            hourly_rate_b        REAL NOT NULL,
-            hourly_rate_c        REAL NOT NULL,
-            hourly_rate_d        REAL NOT NULL
-        )
-        """
-    )
-
-
-def _seed_pay_rate_defaults(cur: sqlite3.Cursor) -> None:
-    cur.execute(
-        """
-        INSERT OR IGNORE INTO pay_rate_defaults (
-            administration_level,
-            hourly_rate_a,
-            hourly_rate_b,
-            hourly_rate_c,
-            hourly_rate_d
-        )
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            PAY_RATE_LEVEL_BUND,
-            PAY_RATE_BUND_DEFAULTS["a"],
-            PAY_RATE_BUND_DEFAULTS["b"],
-            PAY_RATE_BUND_DEFAULTS["c"],
-            PAY_RATE_BUND_DEFAULTS["d"],
-        ),
-    )
+# Kanonische Stammdaten je Normadressat. Die Python-Konstanten sind die alleinige
+# Quelle der Wahrheit; es gibt KEINE pay_rate_defaults-Tabelle mehr. Reproduzierbarkeit
+# einer Session liegt in den sessions.pay_rate_default_*-Snapshots.
+_PAY_RATE_DEFAULTS_BY_ADDRESSEE: dict[str, dict[str, dict[str, float]]] = {
+    ADMINISTRATION: PAY_RATE_LEVEL_DEFAULTS,
+    BUSINESS: PAY_RATE_BUSINESS_SECTION_DEFAULTS,
+}
+# Fallback-Schluessel + Konstante je Normadressat, wenn weder das angefragte Label
+# noch der Default-Schluessel im Konstanten-Dict gefunden werden.
+_PAY_RATE_FALLBACK_KEY: dict[str, str] = {
+    ADMINISTRATION: PAY_RATE_LEVEL_BUND,
+    BUSINESS: "gesamtwirtschaft",
+}
+_PAY_RATE_FALLBACK_DEFAULTS: dict[str, dict[str, float]] = {
+    ADMINISTRATION: PAY_RATE_BUND_DEFAULTS,
+    BUSINESS: PAY_RATE_BUSINESS_DEFAULTS,
+}
 
 
 def _resolve_pay_rate_defaults(
-    cur: sqlite3.Cursor,
-    administration_level: str | None,
+    norm_addressee: str,
+    source_value: str | None,
 ) -> dict[str, float]:
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
-    level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
-    cur.execute(
-        """
-        SELECT hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
-        FROM pay_rate_defaults
-        WHERE administration_level = ?
-        """,
-        (level,),
-    )
-    row = cur.fetchone()
-    if row:
-        return {
-            "a": float(row["hourly_rate_a"]),
-            "b": float(row["hourly_rate_b"]),
-            "c": float(row["hourly_rate_c"]),
-            "d": float(row["hourly_rate_d"]),
-        }
-    return dict(PAY_RATE_BUND_DEFAULTS)
+    """Loest die kanonische Stammdaten-Zeile (a..d) je Normadressat + Quelle auf.
+
+    Reine Konstanten-Aufloesung ohne DB-Zugriff. Fallback-Kette: angefragte source_value
+    -> adressat-spezifischer Default-Schluessel (administration -> "bund",
+    business -> "gesamtwirtschaft") -> hartkodierte Konstante.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    table = _PAY_RATE_DEFAULTS_BY_ADDRESSEE.get(resolved, {})
+
+    fallback_key = _PAY_RATE_FALLBACK_KEY.get(resolved, PAY_RATE_LEVEL_BUND)
+    requested = str(source_value or "").strip()
+    if resolved == ADMINISTRATION:
+        requested = requested.lower()
+    lookup_keys = [requested] if requested else []
+    if fallback_key not in lookup_keys:
+        lookup_keys.append(fallback_key)
+
+    for key in lookup_keys:
+        rates = table.get(key)
+        if rates:
+            return {
+                "a": float(rates["a"]),
+                "b": float(rates["b"]),
+                "c": float(rates["c"]),
+                "d": float(rates["d"]),
+            }
+    return dict(_PAY_RATE_FALLBACK_DEFAULTS.get(resolved, PAY_RATE_BUND_DEFAULTS))
 
 
 def get_default_pay_rates_for_addressee(
     norm_addressee: str,
-    administration_level: str | None = None,
+    source_value: str | None = None,
 ) -> dict[str, float]:
     resolved = normalize_norm_addressee(norm_addressee)
-    if resolved == BUSINESS:
-        return dict(PAY_RATE_BUSINESS_DEFAULTS)
-    if resolved == ADMINISTRATION:
-        conn = get_conn()
-        cur = conn.cursor()
-        defaults = _resolve_pay_rate_defaults(cur, administration_level)
-        _maybe_close(conn)
-        return defaults
-    raise ValueError(
-        f"pay-rate defaults are only defined for {ADMINISTRATION} and {BUSINESS}, "
-        f"got norm_addressee={norm_addressee!r}"
-    )
+    if resolved not in (ADMINISTRATION, BUSINESS):
+        raise ValueError(
+            f"pay-rate defaults are only defined for {ADMINISTRATION} and {BUSINESS}, "
+            f"got norm_addressee={norm_addressee!r}"
+        )
+    return _resolve_pay_rate_defaults(resolved, source_value)
 
 
 def _empty_pay_rate_edits() -> dict[str, float | None]:
@@ -1186,8 +1206,11 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
         """
     )
 
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
+    # Abwaertskompatibilitaet: die frueher hier angelegte Stammdaten-Tabelle
+    # pay_rate_defaults wird nicht mehr verwendet (Lohnsaetze werden Constants-only
+    # aus den Python-Konstanten aufgeloest). Verwaiste Tabelle aus Alt-DBs entfernen.
+    # Session-Snapshots in sessions.pay_rate_default_* bleiben unberuehrt.
+    cur.execute("DROP TABLE IF EXISTS pay_rate_defaults")
 
     # Migration helper: add editable overrides for case group metrics.
     _ensure_column(cur, "case_groups", "addressees_current_edited", "REAL")
@@ -1231,7 +1254,7 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
     _ensure_column(cur, "process_steps", "role_sources_current_json", "TEXT")
     _ensure_column(cur, "process_steps", "role_sources_proposed_json", "TEXT")
 
-    defaults = _resolve_pay_rate_defaults(cur, PAY_RATE_LEVEL_BUND)
+    defaults = _resolve_pay_rate_defaults(ADMINISTRATION, PAY_RATE_LEVEL_BUND)
     cur.execute(
         """
         UPDATE sessions
@@ -1326,8 +1349,6 @@ def init_db() -> None:
         )
         """
     )
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
     _create_deep_research_runs_table(cur)
     # TODO: Maybe add updated_at with trigger rule: https://www.sqlitetutorial.net/sqlite-date-functions/sqlite-current_timestamp/
     # TODO: Potentially add the change in cases? How meaningful is that number?
@@ -2658,7 +2679,7 @@ def ensure_session(
 def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
     conn = get_conn()
     cur = conn.cursor()
-    defaults = _resolve_pay_rate_defaults(cur, PAY_RATE_LEVEL_BUND)
+    defaults = _resolve_pay_rate_defaults(ADMINISTRATION, PAY_RATE_LEVEL_BUND)
     cur.execute(
         "SELECT session_id FROM sessions WHERE app_session_id = ?",
         (app_session_id,),
@@ -3447,21 +3468,26 @@ def resolve_effective_process_step_metrics(step: dict) -> dict:
     return resolved
 
 
-def list_pay_rate_defaults() -> list[dict]:
-    conn = get_conn()
-    cur = conn.cursor()
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
-    cur.execute(
-        """
-        SELECT administration_level, hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
-        FROM pay_rate_defaults
-        ORDER BY administration_level
-        """
-    )
-    rows = [dict(row) for row in cur.fetchall()]
-    _maybe_close(conn)
-    return rows
+def list_pay_rate_defaults(norm_addressee: str = ADMINISTRATION) -> list[dict]:
+    """Listet die kanonischen Stammdaten-Zeilen eines Normadressaten.
+
+    Default ist administration, damit der Validierungs-/Render-Pfad nicht versehentlich
+    business-source_values (WZ-Abschnitte) als gueltige administration_level akzeptiert.
+    Fuer administration wird source_value als administration_level ausgegeben, damit der
+    bestehende Router-/Test-Vertrag stabil bleibt. Reine Konstanten-Aufloesung, kein DB-Zugriff.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    table = _PAY_RATE_DEFAULTS_BY_ADDRESSEE.get(resolved, {})
+    return [
+        {
+            "administration_level": source_value,
+            "hourly_rate_a": float(rates["a"]),
+            "hourly_rate_b": float(rates["b"]),
+            "hourly_rate_c": float(rates["c"]),
+            "hourly_rate_d": float(rates["d"]),
+        }
+        for source_value, rates in sorted(table.items())
+    ]
 
 
 def get_session_administration_pay_rates(session_id: int) -> dict | None:
@@ -3616,23 +3642,17 @@ def update_session_pay_rate_edits(
         return False
     previous = dict(previous_row)
     level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
-    cur.execute(
-        """
-        SELECT hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
-        FROM pay_rate_defaults
-        WHERE administration_level = ?
-        """,
-        (level,),
-    )
-    row = cur.fetchone()
-    if row is None:
+    # Constants-only Validierung: nur echte Verwaltungsebenen sind gueltig. Eine
+    # WZ-Sektion (z. B. "K") ist KEIN gueltiges administration_level.
+    rates = PAY_RATE_LEVEL_DEFAULTS.get(level)
+    if rates is None:
         _maybe_close(conn)
         raise ValueError(f"Unknown administration_level: {level}")
     defaults = {
-        "a": float(row["hourly_rate_a"]),
-        "b": float(row["hourly_rate_b"]),
-        "c": float(row["hourly_rate_c"]),
-        "d": float(row["hourly_rate_d"]),
+        "a": float(rates["a"]),
+        "b": float(rates["b"]),
+        "c": float(rates["c"]),
+        "d": float(rates["d"]),
     }
     changed = value_changed(previous.get("pay_rate_administration_level"), level)
     for key in PAY_RATE_KEYS:
