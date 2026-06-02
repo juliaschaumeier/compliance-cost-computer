@@ -44,7 +44,7 @@ def _resolve_hourly_rate(
     suffix: str,
     key: str,
     norm_addressee: str,
-    active_rates: dict[str, float],
+    default_rates: dict[str, float],
     edited_rates: dict[str, float | None],
 ) -> float:
     if norm_addressee == CITIZENS:
@@ -59,7 +59,7 @@ def _resolve_hourly_rate(
     if value is not None:
         return float(value)
     if norm_addressee in {ADMINISTRATION, BUSINESS}:
-        return _safe_number(active_rates.get(key))
+        return _safe_number(default_rates.get(key))
     return 0.0
 
 
@@ -67,13 +67,13 @@ def _compute_step_cost(
     step: dict,
     suffix: str,
     norm_addressee: str,
-    active_rates: dict[str, float],
+    default_rates: dict[str, float],
     edited_rates: dict[str, float | None],
 ) -> float:
     total = 0.0
     for key in ["a", "b", "c", "d"]:
         rate = _resolve_hourly_rate(
-            step, suffix, key, norm_addressee, active_rates, edited_rates
+            step, suffix, key, norm_addressee, default_rates, edited_rates
         )
         minutes = _safe_number(step.get(f"time_required_in_min_{key}_{suffix}_effective"))
         total += rate * (minutes / 60.0)
@@ -294,7 +294,7 @@ def _compute_step_metrics(
     steps: list[dict],
     case_groups: list[dict],
     norm_addressee: str,
-    active_rates: dict[str, float],
+    default_rates: dict[str, float],
     edited_rates: dict[str, float | None],
     business_information_fractions: dict[int, float],
 ) -> tuple[
@@ -321,10 +321,10 @@ def _compute_step_metrics(
             cost_proposed = _safe_number(step.get("expenses_proposed_effective"))
         else:
             cost_current = _compute_step_cost(
-                step, "current", norm_addressee, active_rates, edited_rates
+                step, "current", norm_addressee, default_rates, edited_rates
             )
             cost_proposed = _compute_step_cost(
-                step, "proposed", norm_addressee, active_rates, edited_rates
+                step, "proposed", norm_addressee, default_rates, edited_rates
             )
         time_current = _compute_step_time_minutes(step, "current")
         time_proposed = _compute_step_time_minutes(step, "proposed")
@@ -589,7 +589,7 @@ def compute_total_cost_for_session(
     pay_rates = db.get_session_pay_rates_for_addressee(session_id, norm_addressee)
     if not pay_rates:
         raise HTTPException(status_code=404, detail="Session pay rates not found")
-    active_rates = pay_rates["active"]
+    default_rates = pay_rates["defaults"]
     edited_rates = pay_rates["edited"]
     effective_case_groups = [
         db.resolve_effective_case_group_metrics(group) for group in case_groups
@@ -648,7 +648,7 @@ def compute_total_cost_for_session(
             steps=effective_steps,
             case_groups=effective_case_groups,
             norm_addressee=norm_addressee,
-            active_rates=active_rates,
+            default_rates=default_rates,
             edited_rates=edited_rates,
             business_information_fractions=business_information_fractions,
         )
