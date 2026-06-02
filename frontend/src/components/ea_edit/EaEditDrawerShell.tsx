@@ -55,6 +55,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
   const cancelResetRef = useRef<HTMLButtonElement | null>(null);
   const { recomputeStatus, runAutoRecompute } = useDebouncedSessionRecompute({
     appSessionId: state.appSessionId,
+    normAddressee: state.selectedNormAddressee,
     debounceMs: 400,
   });
   const {

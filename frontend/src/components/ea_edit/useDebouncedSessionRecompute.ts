@@ -4,14 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
+import { NormAddressee } from "@/types";
 
 type UseDebouncedSessionRecomputeOptions = {
   appSessionId: string;
+  normAddressee?: NormAddressee;
   debounceMs?: number;
 };
 
 export function useDebouncedSessionRecompute({
   appSessionId,
+  normAddressee,
   debounceMs = 400,
 }: UseDebouncedSessionRecomputeOptions) {
   const [recomputeStatus, setRecomputeStatus] = useState<string | null>(null);
@@ -60,7 +63,7 @@ export function useDebouncedSessionRecompute({
       return;
     }
     const request = (async () => {
-      await apiClient.computeTotalCost({ appSessionId });
+      await apiClient.computeTotalCost({ appSessionId, normAddressee });
       window.dispatchEvent(new Event("tiles-updated"));
     })();
     recomputeInFlightRef.current = request;
@@ -75,7 +78,7 @@ export function useDebouncedSessionRecompute({
     } finally {
       recomputeInFlightRef.current = null;
     }
-  }, [appSessionId, waitForDebounce]);
+  }, [appSessionId, normAddressee, waitForDebounce]);
 
   return {
     recomputeStatus,
