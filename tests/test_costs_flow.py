@@ -1278,3 +1278,92 @@ def test_override_does_not_affect_citizens(test_client):
     assert payload["total_cost"] is None
     assert payload["total_time_minutes"] == pytest.approx(60.0)
     assert payload["total_expenses"] == pytest.approx(10.0)
+
+
+def _set_business_pay_rate_override(test_client, app_session_id: str, **edited: float | None):
+    """Wie _set_admin_pay_rate_override, aber fuer Wirtschaft: kein administration_level
+    (das wuerde fuer business ein 422 ausloesen)."""
+    payload = {
+        "app_session_id": app_session_id,
+        "norm_addressee": BUSINESS,
+        "edited_a": edited.get("a"),
+        "edited_b": edited.get("b"),
+        "edited_c": edited.get("c"),
+        "edited_d": edited.get("d"),
+    }
+    resp = test_client.post("/sessions/pay-rates", json=payload)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _seed_business_single_step(session_id: int, *, model_rate_a: float) -> None:
+    process_id = db.insert_process(session_id, "Business Process", "d", norm_addressee=BUSINESS)
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Business Case Group", "d", norm_addressee=BUSINESS
+    )
+    step_id = db.insert_process_step(
+        session_id, case_group_id, "Business Step", "d", norm_addressee=BUSINESS
+    )
+    for tile_id, column, link in (
+        (f"process_{process_id}", 2, []),
+        (f"case_group_{case_group_id}", 3, [f"process_{process_id}"]),
+        (f"step_{step_id}", 4, [f"case_group_{case_group_id}"]),
+    ):
+        db.upsert_tile(
+            Tile(
+                id=tile_id,
+                title="t",
+                text="d",
+                meta_information={},
+                column=column,
+                row=0,
+                deletable=True,
+                link_from_tile=link,
+            ),
+            session_id=session_id,
+            norm_addressee=BUSINESS,
+        )
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": model_rate_a, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+
+def test_manual_business_pay_rate_override_beats_per_step_rate(test_client):
+    """B6: Wie B1, aber fuer Wirtschaft. Ein im Tab "Globale Lohnsaetze" gesetzter
+    Business-Override schlaegt den pro Schritt vom Modell zugewiesenen Satz und fliesst
+    in die Kostenberechnung ein (Lücke, die den frueheren Wirtschaft-Recompute-Bug
+    verdeckte)."""
+    session_id, _ = db.upsert_session("COST-OVERRIDE-B6", "test-model")
+    _seed_business_single_step(session_id, model_rate_a=50)
+
+    # Ohne Override: Modell-Satz 50 EUR/h * 1 h = 50.
+    resp_no_override = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-OVERRIDE-B6", "norm_addressee": BUSINESS},
+    )
+    assert resp_no_override.status_code == 200
+    assert resp_no_override.json()["total_cost"] == pytest.approx(50.0)
+
+    # Mit Override a = 80: Override schlaegt den Modell-Satz -> 80 EUR/h * 1 h = 80.
+    _set_business_pay_rate_override(test_client, "COST-OVERRIDE-B6", a=80)
+    resp_override = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-OVERRIDE-B6", "norm_addressee": BUSINESS},
+    )
+    assert resp_override.status_code == 200
+    assert resp_override.json()["total_cost"] == pytest.approx(80.0)
