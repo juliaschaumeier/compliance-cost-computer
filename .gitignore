@@ -61,3 +61,6 @@ workplans/
 
 # Local prompt audits and analysis artifacts (kept on disk, not tracked)
 prompt_audits/
+
+# TypeScript incremental build info (artifact, not source)
+frontend/tsconfig.tsbuildinfo
