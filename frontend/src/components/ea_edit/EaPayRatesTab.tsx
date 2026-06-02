@@ -356,16 +356,16 @@ export default function EaPayRatesTab({
         Zahlenformat: z. B. 1.234,56 (de-DE).
       </div>
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-        Die Spalte „Stammdaten (genutzte Zeile)“ zeigt den Tabellensatz der
-        genutzten Lohnzeile. Die Berechnung nutzt pro Schritt den vom Modell
-        ermittelten Satz, sofern dieser nicht über „Neu“ überschrieben wird.
+        Die Spalte „Lohnkostentabelle“ zeigt den Standardlohnsatz der genutzten
+        Lohnzeile aus der Lohnkostentabelle. Die Berechnung nutzt pro Schritt den
+        vom Modell ermittelten Satz, sofern dieser nicht über „Neu“ überschrieben wird.
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-xs">
           <thead>
             <tr className="border-b border-slate-200 text-left text-slate-600">
               <th className="px-2 py-2">Qualifikation</th>
-              <th className="px-2 py-2">Stammdaten (genutzte Zeile)</th>
+              <th className="px-2 py-2">Lohnkostentabelle</th>
               <th className="px-2 py-2">Aktiv</th>
               <th className="px-2 py-2">Neu</th>
             </tr>
