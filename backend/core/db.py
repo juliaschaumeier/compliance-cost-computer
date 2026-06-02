@@ -42,10 +42,8 @@ PAY_RATE_BUND_DEFAULTS: dict[str, float] = {
     "c": 67.6,
     "d": 44.4,
 }
-# Standardlohnsaetze je Verwaltungsebene (Euro pro Stunde) aus der
-# Lohnkostentabelle Verwaltung (handbook_tables.py, Anhang 8, Spalten
-# "Lohnkosten pro Stunde": eD/mD -> a, gD -> b, hD -> c, Durchschnitt -> d).
-# Keys = administration_level (= _normalize_role_wage_source-Output fuer admin).
+# Hourly wage rates per administration level (handbook_tables.py, Anhang 8).
+# Keys are administration_level values; columns eD/mD,gD,hD,avg map to a,b,c,d.
 PAY_RATE_LEVEL_DEFAULTS: dict[str, dict[str, float]] = {
     "bund": PAY_RATE_BUND_DEFAULTS,
     "laender": {"a": 30.5, "b": 43.2, "c": 69.3, "d": 46.7},
@@ -59,10 +57,8 @@ PAY_RATE_BUSINESS_DEFAULTS: dict[str, float] = {
     "c": 62.4,
     "d": 38.6,
 }
-# Standardlohnsaetze je Wirtschaftsabschnitt (Euro pro Stunde) aus der
-# Lohnkostentabelle Wirtschaft (handbook_tables.py, Spalten Niedrig -> a,
-# Mittel -> b, Hoch -> c, Durchschnitt -> d). Keys = WZ-Abschnitt (A..S ohne O)
-# bzw. "gesamtwirtschaft" (= _normalize_role_wage_source-Output fuer business).
+# Hourly wage rates per economic section (handbook_tables.py).
+# Keys are WZ sections (A..S without O) plus "gesamtwirtschaft".
 PAY_RATE_BUSINESS_SECTION_DEFAULTS: dict[str, dict[str, float]] = {
     "A": {"a": 22.7, "b": 25.6, "c": 45.8, "d": 25.0},
     "B": {"a": 32.6, "b": 41.8, "c": 85.6, "d": 45.0},
@@ -242,15 +238,15 @@ def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
     cur.execute("PRAGMA foreign_keys = ON")
 
 
-# Kanonische Stammdaten je Normadressat. Die Python-Konstanten sind die alleinige
-# Quelle der Wahrheit; es gibt KEINE pay_rate_defaults-Tabelle mehr. Reproduzierbarkeit
-# einer Session liegt in den sessions.pay_rate_default_*-Snapshots.
+# Canonical wage rates per norm addressee. These constants are the single source
+# of truth; there is no pay_rate_defaults table. Per-session reproducibility lives
+# in the sessions.pay_rate_default_* snapshots.
 _PAY_RATE_DEFAULTS_BY_ADDRESSEE: dict[str, dict[str, dict[str, float]]] = {
     ADMINISTRATION: PAY_RATE_LEVEL_DEFAULTS,
     BUSINESS: PAY_RATE_BUSINESS_SECTION_DEFAULTS,
 }
-# Fallback-Schluessel + Konstante je Normadressat, wenn weder das angefragte Label
-# noch der Default-Schluessel im Konstanten-Dict gefunden werden.
+# Fallback key + constant per norm addressee when neither the requested label
+# nor the default key is found in the constants dict.
 _PAY_RATE_FALLBACK_KEY: dict[str, str] = {
     ADMINISTRATION: PAY_RATE_LEVEL_BUND,
     BUSINESS: "gesamtwirtschaft",
@@ -265,11 +261,11 @@ def _resolve_pay_rate_defaults(
     norm_addressee: str,
     source_value: str | None,
 ) -> dict[str, float]:
-    """Loest die kanonische Stammdaten-Zeile (a..d) je Normadressat + Quelle auf.
+    """Resolve the canonical rate row (a..d) for a norm addressee + source.
 
-    Reine Konstanten-Aufloesung ohne DB-Zugriff. Fallback-Kette: angefragte source_value
-    -> adressat-spezifischer Default-Schluessel (administration -> "bund",
-    business -> "gesamtwirtschaft") -> hartkodierte Konstante.
+    Constants-only, no DB access. Fallback chain: requested source_value ->
+    addressee default key (administration -> "bund", business -> "gesamtwirtschaft")
+    -> hardcoded constant.
     """
     resolved = normalize_norm_addressee(norm_addressee)
     table = _PAY_RATE_DEFAULTS_BY_ADDRESSEE.get(resolved, {})
@@ -1206,10 +1202,8 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
         """
     )
 
-    # Abwaertskompatibilitaet: die frueher hier angelegte Stammdaten-Tabelle
-    # pay_rate_defaults wird nicht mehr verwendet (Lohnsaetze werden Constants-only
-    # aus den Python-Konstanten aufgeloest). Verwaiste Tabelle aus Alt-DBs entfernen.
-    # Session-Snapshots in sessions.pay_rate_default_* bleiben unberuehrt.
+    # Migration helper: drop the orphaned pay_rate_defaults table. Wage rates are
+    # now constants-only; session snapshots in sessions.pay_rate_default_* are kept.
     cur.execute("DROP TABLE IF EXISTS pay_rate_defaults")
 
     # Migration helper: add editable overrides for case group metrics.
@@ -3469,12 +3463,12 @@ def resolve_effective_process_step_metrics(step: dict) -> dict:
 
 
 def list_pay_rate_defaults(norm_addressee: str = ADMINISTRATION) -> list[dict]:
-    """Listet die kanonischen Stammdaten-Zeilen eines Normadressaten.
+    """List the canonical rate rows for a norm addressee.
 
-    Default ist administration, damit der Validierungs-/Render-Pfad nicht versehentlich
-    business-source_values (WZ-Abschnitte) als gueltige administration_level akzeptiert.
-    Fuer administration wird source_value als administration_level ausgegeben, damit der
-    bestehende Router-/Test-Vertrag stabil bleibt.
+    Defaults to administration so the validation/render path does not accidentally
+    accept business source_values (WZ sections) as valid administration_level. For
+    administration, source_value is exposed as administration_level to keep the
+    existing router/test contract stable.
     """
     resolved = normalize_norm_addressee(norm_addressee)
     table = _PAY_RATE_DEFAULTS_BY_ADDRESSEE.get(resolved, {})
@@ -3491,19 +3485,13 @@ def list_pay_rate_defaults(norm_addressee: str = ADMINISTRATION) -> list[dict]:
 
 
 def get_used_wage_baseline(session_id: int, norm_addressee: str) -> str | None:
-    """Liefert das dominante Lohnzeilen-Label aus role_sources (read-only).
+    """Return the dominant wage-row label from role_sources (read-only).
 
-    Liest role_sources_current_json + role_sources_proposed_json aller Schritte der
-    Session+Normadressat, wählt die dominante source_value (meiste Einträge) und gibt
-    deren Label zurück (z. B. "laender" für admin, "K" für business). Gibt None zurück,
-    wenn keine validen role_sources vorhanden sind (→ Aufrufer nutzt die hartkodierten
-    Stammdaten-Defaults). Berührt keine Persistenz; Override-Tabelle bleibt unangetastet.
-    Die Sätze werden NICHT mehr aus den hourly_rate_*-Spalten abgeleitet, sondern vom
-    Aufrufer aus den kanonischen Stammdaten je Label aufgelöst.
-
-    current und proposed werden bewusst zu EINEM dominanten Label zusammengefasst
-    (eine genutzte Zeile je Adressat). Nutzen die Perioden unterschiedliche Zeilen,
-    zeigt der Tab nur die insgesamt dominante; das ist eine bewusste Designentscheidung.
+    Reads role_sources_current_json + role_sources_proposed_json across all steps of
+    the session+addressee and returns the most frequent source_value (e.g. "laender"
+    for admin, "K" for business), or None when no valid role_sources exist (callers
+    then fall back to the constant defaults). current and proposed are intentionally
+    collapsed into one dominant label per addressee.
     """
     resolved = normalize_norm_addressee(norm_addressee)
     if resolved not in (ADMINISTRATION, BUSINESS):
@@ -3523,7 +3511,7 @@ def get_used_wage_baseline(session_id: int, norm_addressee: str) -> str | None:
     rows = cur.fetchall()
     _maybe_close(conn)
 
-    # Pro source_value zählen, wie oft sie vorkommt (Dominanz-Wahl).
+    # Count occurrences per source_value to pick the dominant one.
     counts: dict[str, int] = {}
     for row in rows:
         for suffix in ("current", "proposed"):
@@ -3547,9 +3535,8 @@ def get_used_wage_baseline(session_id: int, norm_addressee: str) -> str | None:
 
     if not counts:
         return None
-    # Dominanteste Zeile waehlen. Tie-Break deterministisch: bei gleichem Count
-    # gewinnt der alphabetisch erste source_value, damit das Ergebnis nicht von
-    # der Dict-/Iterationsreihenfolge abhaengt.
+    # Pick the dominant row. Deterministic tie-break: on equal counts the
+    # alphabetically first source_value wins, independent of dict iteration order.
     max_count = max(counts.values())
     return min(value for value, count in counts.items() if count == max_count)
 
@@ -3616,9 +3603,8 @@ def get_session_pay_rates_for_addressee(
         defaults = administration_rates["defaults"]
         baseline = get_used_wage_baseline(session_id, ADMINISTRATION)
         if baseline is not None:
-            # Ebenen-Label + vollstaendige Stammdaten-Zeile spiegeln die tatsaechlich
-            # genutzte Lohnzeile. Das Label steht sauber in administration_level (gueltige
-            # Verwaltungsebene) und ist damit save-tauglich; kein wage_source_label noetig.
+            # administration_level carries the used level label; it is a valid level
+            # and thus save-compatible, so no separate wage_source_label is needed.
             level = baseline
             defaults = get_default_pay_rates_for_addressee(
                 ADMINISTRATION, source_value=baseline
@@ -3639,8 +3625,8 @@ def get_session_pay_rates_for_addressee(
         }
     if resolved == BUSINESS:
         baseline = get_used_wage_baseline(session_id, BUSINESS)
-        # Genutzter WZ-Abschnitt: vollstaendige Stammdaten-Zeile + Label im Badge.
-        # Bei fehlendem Label faellt die generische Resolve auf Gesamtwirtschaft zurueck.
+        # Used WZ section: full rate row + label for the badge. Without a label the
+        # resolve falls back to gesamtwirtschaft.
         defaults = get_default_pay_rates_for_addressee(BUSINESS, source_value=baseline)
         conn = get_conn()
         cur = conn.cursor()
@@ -3728,8 +3714,8 @@ def update_session_pay_rate_edits(
         return False
     previous = dict(previous_row)
     level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
-    # Constants-only Validierung: nur echte Verwaltungsebenen sind gueltig. Eine
-    # WZ-Sektion (z. B. "K") ist KEIN gueltiges administration_level.
+    # Constants-only validation: only real administration levels are valid; a WZ
+    # section (e.g. "K") is not a valid administration_level.
     rates = PAY_RATE_LEVEL_DEFAULTS.get(level)
     if rates is None:
         _maybe_close(conn)
@@ -3833,9 +3819,9 @@ def update_session_pay_rate_edits_for_addressee(
     if administration_level is not None:
         raise ValueError("administration_level is only supported for administration")
 
-    # resolved ist hier immer BUSINESS (admin/citizens sind oben behandelt);
-    # get_session_pay_rates_for_addressee liefert fuer BUSINESS stets ein Dict,
-    # daher kein None-Guard noetig.
+    # resolved is always BUSINESS here (admin/citizens handled above), and
+    # get_session_pay_rates_for_addressee always returns a dict for BUSINESS,
+    # so no None guard is needed.
     previous = get_session_pay_rates_for_addressee(session_id, resolved)
     changed = False
     for key in PAY_RATE_KEYS:
@@ -4815,12 +4801,10 @@ def clear_session_summary(session_id: int) -> None:
 
 
 def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
-    # Effort-Undo raeumt die Step-`_edited`-Zeiten und die role_sources, aber
-    # bewusst NICHT die manuellen Lohnsatz-Overrides
-    # (sessions.pay_rate_edited_* bzw. session_pay_rate_overrides_by_addressee).
-    # Diese Asymmetrie ist gewollt: Der Override ist eine eigenstaendige
-    # Nutzer-Einstellung auf Session-Ebene und kein Effort-Ergebnis; er bleibt
-    # daher ueber ein Re-Run hinweg erhalten.
+    # Effort undo clears the step `_edited` times and role_sources, but intentionally
+    # NOT the manual pay-rate overrides (sessions.pay_rate_edited_* /
+    # session_pay_rate_overrides_by_addressee). The override is a standalone
+    # session-level user setting, not an effort result, so it survives a re-run.
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()

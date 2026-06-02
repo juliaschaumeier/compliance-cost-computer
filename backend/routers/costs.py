@@ -49,9 +49,8 @@ def _resolve_hourly_rate(
 ) -> float:
     if norm_addressee == CITIZENS:
         return 0.0
-    # Manueller Session-Override schlaegt den per-Schritt vom Modell zugewiesenen Satz.
-    # Gleiche Semantik wie _effective_value(base, edited) in db.py:2782 (manuell schlaegt
-    # Modell); inline gehalten, kein Import der privaten Funktion.
+    # Manual session override beats the per-step model rate (same semantics as
+    # _effective_value(base, edited); inlined to avoid importing a private helper).
     edited = edited_rates.get(key)
     if edited is not None:
         return float(edited)

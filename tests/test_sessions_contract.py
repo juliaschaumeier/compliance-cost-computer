@@ -211,7 +211,7 @@ def test_sessions_pay_rates_contract_includes_wage_source_label(test_client):
     assert used_resp.status_code == 200
     used = _parse_contract(sessions_router.SessionPayRatesResponse, used_resp.json())
     assert used.wage_source_label == "K"
-    # defaults spiegeln die kanonische WZ-Abschnitts-Zeile (K), nicht den genutzten Satz.
+    # defaults reflect the canonical WZ-section row (K), not the per-step rate.
     assert used.defaults == {"a": 29.0, "b": 54.4, "c": 93.1, "d": 57.9}
 
 
@@ -259,7 +259,7 @@ def test_pay_rates_save_and_reset_for_laender_session_no_422(test_client):
     assert get_resp.status_code == 200
     assert get_resp.json()["administration_level"] == "laender"
 
-    # Speichern mit dem genutzten Level: darf NICHT 422 werfen.
+    # Saving with the used level must NOT raise 422.
     save_resp = test_client.post(
         "/sessions/pay-rates",
         json={
@@ -273,7 +273,7 @@ def test_pay_rates_save_and_reset_for_laender_session_no_422(test_client):
     )
     assert save_resp.status_code == 200
 
-    # Zuruecksetzen mit demselben Level: ebenfalls kein 422.
+    # Resetting with the same level: also no 422.
     reset_resp = test_client.post(
         "/sessions/pay-rates",
         json={

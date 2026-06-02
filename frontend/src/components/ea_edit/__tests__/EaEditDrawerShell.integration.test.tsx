@@ -62,9 +62,9 @@ describe("EaEditDrawerShell integration", () => {
   });
 
   it("recomputes the SELECTED addressee (business) after a business pay-rate save", async () => {
-    // Regression: das automatische Neuberechnen lief frueher immer fuer
-    // administration (norm_addressee fehlte im Request), sodass ein im
-    // Wirtschaft-Tab gesetzter Override die Wirtschaft-Gesamtkosten nie aktualisierte.
+    // Regression: auto-recompute used to always run for administration
+    // (norm_addressee was missing from the request), so a business-tab override
+    // never updated the business total.
     mockUseApp.mockReturnValue({
       state: {
         appSessionId: "EA-INTEGRATION",

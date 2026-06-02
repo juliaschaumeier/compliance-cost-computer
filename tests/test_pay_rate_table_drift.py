@@ -1,17 +1,16 @@
-"""Guard: die Lohnsatz-Konstanten in db.py duerfen nicht von der Lohnkostentabelle
-im Handbuch (handbook_tables.Appendix) abweichen.
+"""Guard: the wage-rate constants in db.py must match the handbook wage table.
 
-db.py haelt die Lohnsaetze als strukturierte Rechen-Konstanten
-(PAY_RATE_LEVEL_DEFAULTS / PAY_RATE_BUSINESS_SECTION_DEFAULTS); das Handbuch haelt
-dieselben Werte als Markdown-Prosa fuer den LLM-Prompt. Beide muessen uebereinstimmen,
-sonst rechnet/zeigt der Tab andere Saetze als der Prompt dem Modell nennt. Dieser Test
-parst die jeweilige "Lohnkosten pro Stunde"-Tabelle und vergleicht sie 1:1.
+db.py holds the rates as compute constants (PAY_RATE_LEVEL_DEFAULTS /
+PAY_RATE_BUSINESS_SECTION_DEFAULTS); handbook_tables.Appendix holds the same values
+as markdown prose for the LLM prompt. The two must agree, otherwise the tab computes
+or shows rates that differ from what the prompt tells the model. This test parses the
+"Lohnkosten pro Stunde" table and compares it 1:1.
 """
 
 from backend.core import db
 from backend.core.handbook_tables import Appendix
 
-# Zeilen-Label im Handbuch -> Konstanten-Key in db.py.
+# Handbook row label -> constants key in db.py.
 _ADMIN_LABEL_TO_KEY = {
     "Bund": "bund",
     "Länder": "laender",
@@ -22,17 +21,15 @@ _ADMIN_LABEL_TO_KEY = {
 
 
 def _parse_german_decimal(token: str) -> float:
-    # Handbuch nutzt Komma als Dezimaltrenner (z. B. "30,50"); MAK-Tabelle nutzt
-    # Leerzeichen-Tausender, die hier nicht vorkommen (wir parsen nur "pro Stunde").
+    # Handbook uses comma as decimal separator (e.g. "30,50").
     return float(token.strip().replace(",", "."))
 
 
 def _parse_hourly_table(markdown: str) -> dict[str, tuple[float, float, float, float]]:
-    """Liest die EINE Tabelle unter '*Lohnkosten pro Stunde in Euro*'.
+    """Parse the single table under '*Lohnkosten pro Stunde in Euro*'.
 
-    Ankert bewusst auf diese Ueberschrift und stoppt an der naechsten
-    '*Lohnkosten ...*'-Sektion (die Verwaltungs-Tabelle enthaelt zusaetzlich eine
-    MAK-/Jahres-Tabelle mit denselben Zeilen-Labels, die NICHT gemeint ist).
+    Anchors on that heading and stops at the next '*Lohnkosten ...*' section: the
+    admin table also has a per-MAK (yearly) table with identical row labels.
     """
     start = markdown.index("*Lohnkosten pro Stunde in Euro*")
     rest = markdown[start + len("*Lohnkosten pro Stunde in Euro*"):]
@@ -49,7 +46,7 @@ def _parse_hourly_table(markdown: str) -> dict[str, tuple[float, float, float, f
         if len(cells) != 5:
             continue
         label = cells[0]
-        # Kopf- und Trennzeile ueberspringen.
+        # Skip header and separator rows.
         if label in ("Verwaltungsebene", "Wirtschaftsabschnitt") or set(label) <= {"-"}:
             continue
         parsed[label] = tuple(_parse_german_decimal(c) for c in cells[1:])
@@ -73,7 +70,7 @@ def test_business_constants_match_handbook_hourly_table():
         if label.startswith("Gesamtwirtschaft"):
             key = "gesamtwirtschaft"
         else:
-            # WZ-Code = erster Buchstabe des Zeilen-Labels (z. B. "K Erbringung ...").
+            # WZ code = first token of the row label (e.g. "K Erbringung ...").
             key = label.split(" ", 1)[0]
         const = db.PAY_RATE_BUSINESS_SECTION_DEFAULTS[key]
         a, b, c, d = rates
@@ -83,8 +80,8 @@ def test_business_constants_match_handbook_hourly_table():
 
 
 def test_no_extra_business_sections_beyond_handbook():
-    # Jede Konstanten-Sektion muss durch eine Handbuch-Zeile gedeckt sein
-    # (Gesamtwirtschaft wird separat als eigene Handbuch-Zeile gefuehrt).
+    # Every constants section must be covered by a handbook row
+    # (gesamtwirtschaft is its own handbook row).
     table = _parse_hourly_table(Appendix.Lohnkostentabelle_Wirtschaft)
     handbook_keys = {
         "gesamtwirtschaft" if label.startswith("Gesamtwirtschaft") else label.split(" ", 1)[0]

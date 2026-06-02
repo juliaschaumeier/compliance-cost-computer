@@ -28,8 +28,8 @@ const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
   citizens: "Bürgerinnen und Bürger",
 };
 
-// Kurzlabels fuer die genutzte Wirtschaftsabschnitt-Quelle (wage_source_label).
-// Quelle: Lohnkostentabelle Wirtschaft (WZ-Abschnitte A-S + Gesamtwirtschaft).
+// Short labels for the used economic-section source (wage_source_label).
+// Source: Lohnkostentabelle Wirtschaft (WZ sections A-S + gesamtwirtschaft).
 const WZ_SECTION_LABELS: Record<string, string> = {
   A: "Land- und Forstwirtschaft, Fischerei",
   B: "Bergbau",
@@ -221,8 +221,8 @@ export default function EaPayRatesTab({
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
             normAddressee,
-            // administration_level wird nur fuer Verwaltung unterstuetzt; fuer business
-            // wuerde ein mitgesendeter Wert ein 422 ausloesen.
+            // administration_level is only supported for administration; sending it
+            // for business would raise 422.
             administrationLevel:
               normAddressee === "administration"
                 ? payRates.administration_level || "bund"
@@ -256,8 +256,8 @@ export default function EaPayRatesTab({
           const response = await apiClient.updateSessionPayRates({
             appSessionId,
             normAddressee,
-            // administration_level wird nur fuer Verwaltung unterstuetzt; fuer business
-            // wuerde ein mitgesendeter Wert ein 422 ausloesen.
+            // administration_level is only supported for administration; sending it
+            // for business would raise 422.
             administrationLevel:
               normAddressee === "administration"
                 ? payRates.administration_level || "bund"

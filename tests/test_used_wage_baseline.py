@@ -3,8 +3,8 @@ from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
 
 
 def test_pay_rate_defaults_contains_all_administration_levels():
-    # list_pay_rate_defaults liefert per Default NUR administration-Zeilen
-    # (source_value als administration_level aliased), keine WZ-Abschnitte.
+    # list_pay_rate_defaults returns ONLY administration rows by default
+    # (source_value aliased as administration_level), no WZ sections.
     levels = {
         str(row.get("administration_level") or "").strip().lower()
         for row in db.list_pay_rate_defaults()
@@ -16,7 +16,7 @@ def test_pay_rate_defaults_contains_all_administration_levels():
         "sozialversicherung",
         "durchschnitt",
     } <= levels
-    # WZ-Abschnitte duerfen hier NICHT als gueltige Verwaltungs-Level auftauchen.
+    # WZ sections must NOT appear here as valid administration levels.
     assert "k" not in levels
     assert "gesamtwirtschaft" not in levels
 
@@ -27,7 +27,7 @@ def test_list_pay_rate_defaults_business_returns_section_rows():
         for row in db.list_pay_rate_defaults(BUSINESS)
     }
     assert {"K", "gesamtwirtschaft"} <= sources
-    # Verwaltungsebenen duerfen hier nicht auftauchen.
+    # Administration levels must not appear here.
     assert "bund" not in sources
 
 
@@ -106,7 +106,7 @@ def test_session_pay_rates_admin_uses_full_level_row():
     pay_rates = db.get_session_pay_rates_for_addressee(session_id, ADMINISTRATION)
     assert pay_rates is not None
     assert pay_rates["administration_level"] == "laender"
-    # Vollstaendige Laender-Zeile aus Stammdaten (kein Bund-d, keine gemischte Zeile).
+    # Full laender row from constants (no bund-d, no mixed row).
     assert pay_rates["defaults"] == {"a": 30.5, "b": 43.2, "c": 69.3, "d": 46.7}
     assert pay_rates["wage_source_label"] is None
 
@@ -234,9 +234,8 @@ def test_baseline_picks_dominant_row_on_mixed_sources():
 
 
 def test_baseline_tie_break_is_deterministic_alphabetical():
-    # Gleichstand: je ein Eintrag fuer "R" und "K". Der Tie-Break muss
-    # deterministisch den alphabetisch ersten source_value waehlen ("K" < "R"),
-    # unabhaengig von der Lese-/Iterationsreihenfolge.
+    # Tie: one entry each for "R" and "K". The tie-break must deterministically
+    # pick the alphabetically first source_value ("K" < "R"), independent of order.
     session_id, case_group_id = _seed_session(BUSINESS)
     _persist_step(
         session_id,

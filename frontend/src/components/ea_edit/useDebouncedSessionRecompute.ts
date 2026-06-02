@@ -8,9 +8,8 @@ import { NormAddressee } from "@/types";
 
 type UseDebouncedSessionRecomputeOptions = {
   appSessionId: string;
-  // Pflichtfeld: ohne Adressat defaultet /costs/compute still auf administration,
-  // sodass eine Bearbeitung anderer Adressaten heimlich die falschen Gesamtkosten
-  // neu berechnen wuerde. Daher hier erzwungen statt optional.
+  // Required: without it /costs/compute silently defaults to administration, so an
+  // edit of another addressee would recompute the wrong total. Enforced, not optional.
   normAddressee: NormAddressee;
   debounceMs?: number;
 };

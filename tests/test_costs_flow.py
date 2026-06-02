@@ -531,8 +531,7 @@ def test_compute_costs_business_time_only_uses_baseline_row_not_gesamtwirtschaft
         addressees_proposed=1,
         annual_frequency_proposed=1,
     )
-    # Zeit auf Stufe a, aber KEIN per-Schritt-Modell-Satz; genutzte Zeile via
-    # role_sources = "K" (Finanz- und Versicherungsdienstleistungen).
+    # Time on slot a but no per-step model rate; used row via role_sources = "K".
     role_sources = [
         {
             "slot": "a",
@@ -555,7 +554,7 @@ def test_compute_costs_business_time_only_uses_baseline_row_not_gesamtwirtschaft
         role_sources_proposed=role_sources,
     )
 
-    # Sicherstellen, dass die genutzte Baseline-Zeile tatsaechlich "K" ist.
+    # Make sure the used baseline row is actually "K".
     assert db.get_used_wage_baseline(session_id, BUSINESS) == "K"
 
     resp = test_client.post(
@@ -1010,7 +1009,7 @@ def test_manual_pay_rate_override_beats_per_step_rate(test_client):
         addressees_proposed=1,
         annual_frequency_proposed=1,
     )
-    # Schritt 1 traegt den Modell-Schritt-Satz b = 50; Schritt 2 ohne Aufwand.
+    # Step 1 carries the per-step model rate b = 50; step 2 has no effort.
     db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_one"],
@@ -1032,14 +1031,14 @@ def test_manual_pay_rate_override_beats_per_step_rate(test_client):
         expenses_proposed=None,
     )
 
-    # Ohne Override: Modell-Satz 50 EUR/h * 1 h = 50.
+    # Without override: model rate 50 EUR/h * 1 h = 50.
     resp_no_override = test_client.post(
         "/costs/compute", json={"app_session_id": "COST-OVERRIDE-B1"}
     )
     assert resp_no_override.status_code == 200
     assert resp_no_override.json()["total_cost"] == pytest.approx(50.0)
 
-    # Mit Override b = 80: Override schlaegt den Modell-Satz -> 80 EUR/h * 1 h = 80.
+    # With override b = 80: override beats the model rate -> 80 EUR/h * 1 h = 80.
     _set_admin_pay_rate_override(test_client, "COST-OVERRIDE-B1", b=80)
     resp_override = test_client.post(
         "/costs/compute", json={"app_session_id": "COST-OVERRIDE-B1"}
@@ -1099,7 +1098,7 @@ def test_override_only_b_keeps_other_slots_on_model_rate(test_client):
         addressees_proposed=1,
         annual_frequency_proposed=1,
     )
-    # Je Slot 60 min (1 h) und ein Modell-Satz; Summe ohne Override = 10+20+30+40 = 100.
+    # 60 min (1 h) per slot with a model rate; sum without override = 10+20+30+40 = 100.
     db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_one"],
@@ -1143,7 +1142,7 @@ def test_override_applies_to_current_and_proposed(test_client):
         addressees_proposed=1,
         annual_frequency_proposed=1,
     )
-    # current und proposed je 1 h Aufwand auf Stufe b mit Modell-Satz 50.
+    # current and proposed each 1 h of effort on slot b with model rate 50.
     db.update_process_step_effort_split(
         session_id=session_id,
         step_id=seeded["step_one"],
@@ -1179,7 +1178,7 @@ def test_override_applies_to_current_and_proposed(test_client):
     )
     row = cur.fetchone()
     conn.close()
-    # current UND proposed nutzen den Override 80 statt des Modell-Satzes 50.
+    # current AND proposed use the override 80 instead of the model rate 50.
     assert row["cost_current"] == pytest.approx(80.0)
     assert row["cost_proposed"] == pytest.approx(80.0)
 
@@ -1274,15 +1273,15 @@ def test_override_does_not_affect_citizens(test_client):
     )
     assert resp.status_code == 200
     payload = resp.json()
-    # Buerger tragen keine Lohnkosten; nur die Auslagen (10) zaehlen.
+    # Citizens carry no wage costs; only the expenses (10) count.
     assert payload["total_cost"] is None
     assert payload["total_time_minutes"] == pytest.approx(60.0)
     assert payload["total_expenses"] == pytest.approx(10.0)
 
 
 def _set_business_pay_rate_override(test_client, app_session_id: str, **edited: float | None):
-    """Wie _set_admin_pay_rate_override, aber fuer Wirtschaft: kein administration_level
-    (das wuerde fuer business ein 422 ausloesen)."""
+    """Like _set_admin_pay_rate_override but for business: no administration_level
+    (which would raise 422 for business)."""
     payload = {
         "app_session_id": app_session_id,
         "norm_addressee": BUSINESS,
@@ -1344,14 +1343,13 @@ def _seed_business_single_step(session_id: int, *, model_rate_a: float) -> None:
 
 
 def test_manual_business_pay_rate_override_beats_per_step_rate(test_client):
-    """B6: Wie B1, aber fuer Wirtschaft. Ein im Tab "Globale Lohnsaetze" gesetzter
-    Business-Override schlaegt den pro Schritt vom Modell zugewiesenen Satz und fliesst
-    in die Kostenberechnung ein (Lücke, die den frueheren Wirtschaft-Recompute-Bug
-    verdeckte)."""
+    """B6: like B1 but for business. A business override set via the pay-rates tab
+    beats the per-step model rate and flows into the computed total (the path that was
+    untested and hid the earlier business recompute bug)."""
     session_id, _ = db.upsert_session("COST-OVERRIDE-B6", "test-model")
     _seed_business_single_step(session_id, model_rate_a=50)
 
-    # Ohne Override: Modell-Satz 50 EUR/h * 1 h = 50.
+    # Without override: model rate 50 EUR/h * 1 h = 50.
     resp_no_override = test_client.post(
         "/costs/compute",
         json={"app_session_id": "COST-OVERRIDE-B6", "norm_addressee": BUSINESS},
@@ -1359,7 +1357,7 @@ def test_manual_business_pay_rate_override_beats_per_step_rate(test_client):
     assert resp_no_override.status_code == 200
     assert resp_no_override.json()["total_cost"] == pytest.approx(50.0)
 
-    # Mit Override a = 80: Override schlaegt den Modell-Satz -> 80 EUR/h * 1 h = 80.
+    # With override a = 80: override beats the model rate -> 80 EUR/h * 1 h = 80.
     _set_business_pay_rate_override(test_client, "COST-OVERRIDE-B6", a=80)
     resp_override = test_client.post(
         "/costs/compute",
