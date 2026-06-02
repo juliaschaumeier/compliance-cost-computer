@@ -437,6 +437,12 @@ def test_undo_effort_clears_all_norm_addressees(test_client):
         norm_addressee=ADMINISTRATION,
         addressees_proposed=10,
         annual_frequency_proposed=2,
+        case_metric_research_json={
+            "confidence": {"anzahl_betroffene_vorschlag": "medium"},
+            "erklaerungen": {
+                "anzahl_betroffene_vorschlag": "Admin-Evidenz vor Undo."
+            },
+        },
     )
     db.upsert_case_group_metrics_by_addressee(
         session_id=session_id,
@@ -444,6 +450,12 @@ def test_undo_effort_clears_all_norm_addressees(test_client):
         norm_addressee=BUSINESS,
         addressees_proposed=20,
         annual_frequency_proposed=3,
+        case_metric_research_json={
+            "confidence": {"anzahl_betroffene_vorschlag": "high"},
+            "erklaerungen": {
+                "anzahl_betroffene_vorschlag": "Business-Evidenz vor Undo."
+            },
+        },
     )
     db.upsert_process_step_effort_split_by_addressee(
         session_id=session_id,
@@ -480,7 +492,7 @@ def test_undo_effort_clears_all_norm_addressees(test_client):
     for seed in (admin, business):
         cur.execute(
             """
-            SELECT addressees_proposed, annual_frequency_proposed
+            SELECT addressees_proposed, annual_frequency_proposed, case_metric_research_json
             FROM case_groups
             WHERE case_group_id = ?
             """,
@@ -489,6 +501,7 @@ def test_undo_effort_clears_all_norm_addressees(test_client):
         row = cur.fetchone()
         assert row["addressees_proposed"] is None
         assert row["annual_frequency_proposed"] is None
+        assert row["case_metric_research_json"] is None
 
         cur.execute(
             """

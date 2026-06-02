@@ -1002,6 +1002,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
+        Fuegen Sie fuer jede Fallgruppe zusaetzlich erklaerungen und confidence hinzu. Die erklaerungen
+        muessen pro Kennzahl kurz und eigenstaendig darstellen, auf welcher Grundlage der jeweilige Wert hergeleitet wurde.
+        confidence muss pro Kennzahl genau einen der Werte high, medium oder low enthalten und gibt an,
+        wie belastbar die jeweilige Schaetzung ist.
+
         {{
         "normadressat": "{norm_addressee}",
         "prozesse": [
@@ -1027,7 +1032,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "anzahl_betroffene_gueltig": "",
                     "haeufigkeit_pro_jahr_gueltig": "",
                     "anzahl_betroffene_vorschlag": "",
-                    "haeufigkeit_pro_jahr_vorschlag": ""
+                    "haeufigkeit_pro_jahr_vorschlag": "",
+                    "erklaerungen": {{
+                        "anzahl_betroffene_gueltig": "",
+                        "haeufigkeit_pro_jahr_gueltig": "",
+                        "anzahl_betroffene_vorschlag": "",
+                        "haeufigkeit_pro_jahr_vorschlag": ""
+                    }},
+                    "confidence": {{
+                        "anzahl_betroffene_gueltig": "high | medium | low",
+                        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
+                        "anzahl_betroffene_vorschlag": "high | medium | low",
+                        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
+                    }}
                 }},
                 {{
                     "fallgruppen_id": "",
@@ -1037,7 +1054,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "anzahl_betroffene_gueltig": "",
                     "haeufigkeit_pro_jahr_gueltig": "",
                     "anzahl_betroffene_vorschlag": "",
-                    "haeufigkeit_pro_jahr_vorschlag": ""
+                    "haeufigkeit_pro_jahr_vorschlag": "",
+                    "erklaerungen": {{
+                        "anzahl_betroffene_gueltig": "",
+                        "haeufigkeit_pro_jahr_gueltig": "",
+                        "anzahl_betroffene_vorschlag": "",
+                        "haeufigkeit_pro_jahr_vorschlag": ""
+                    }},
+                    "confidence": {{
+                        "anzahl_betroffene_gueltig": "high | medium | low",
+                        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
+                        "anzahl_betroffene_vorschlag": "high | medium | low",
+                        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
+                    }}
                 }}
             ]
             }},
@@ -1069,7 +1098,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
                     "anzahl_betroffene_gueltig": "",
                     "haeufigkeit_pro_jahr_gueltig": "",
                     "anzahl_betroffene_vorschlag": "",
-                    "haeufigkeit_pro_jahr_vorschlag": ""
+                    "haeufigkeit_pro_jahr_vorschlag": "",
+                    "erklaerungen": {{
+                        "anzahl_betroffene_gueltig": "",
+                        "haeufigkeit_pro_jahr_gueltig": "",
+                        "anzahl_betroffene_vorschlag": "",
+                        "haeufigkeit_pro_jahr_vorschlag": ""
+                    }},
+                    "confidence": {{
+                        "anzahl_betroffene_gueltig": "high | medium | low",
+                        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
+                        "anzahl_betroffene_vorschlag": "high | medium | low",
+                        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
+                    }}
                 }}
             ]
             }}
