@@ -356,9 +356,9 @@ export default function EaPayRatesTab({
         Zahlenformat: z. B. 1.234,56 (de-DE).
       </div>
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-        Die Spalte „Lohnkostentabelle“ zeigt den Standardlohnsatz der genutzten
-        Lohnzeile aus der Lohnkostentabelle. Die Berechnung nutzt pro Schritt den
-        vom Modell ermittelten Satz, sofern dieser nicht über „Neu“ überschrieben wird.
+        Die Spalte „Lohnkostentabelle“ zeigt den Standardlohnsatz aus der
+        Lohnkostentabelle. Die Berechnung nutzt pro Schritt den vom Modell
+        ermittelten Satz, sofern dieser nicht über „Neu“ überschrieben wird.
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-xs">
