@@ -1,5 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import React from "react";
+import { renderToString } from "react-dom/server.node";
 
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
@@ -118,5 +119,17 @@ describe("AppContext session status sync", () => {
       const node = getByTestId("state");
       expect(node.getAttribute("data-addressee")).toBe("citizens");
     });
+  });
+
+  it("uses the server-safe default before client storage is restored", () => {
+    sessionStorage.setItem("selected_norm_addressee", "business");
+
+    const html = renderToString(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    expect(html).toContain('data-addressee="administration"');
   });
 });

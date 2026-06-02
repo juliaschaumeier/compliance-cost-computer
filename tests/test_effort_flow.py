@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -95,7 +96,19 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
               "anzahl_betroffene_gueltig": "100",
               "haeufigkeit_pro_jahr_gueltig": "2",
               "anzahl_betroffene_vorschlag": "120",
-              "haeufigkeit_pro_jahr_vorschlag": "2"
+              "haeufigkeit_pro_jahr_vorschlag": "2",
+              "erklaerungen": {{
+                "anzahl_betroffene_gueltig": "100 Betroffene laut Modellannahme.",
+                "haeufigkeit_pro_jahr_gueltig": "Zweimal jaehrlich laut Vorgang.",
+                "anzahl_betroffene_vorschlag": "120 Betroffene nach Erweiterung.",
+                "haeufigkeit_pro_jahr_vorschlag": "Weiterhin zweimal jaehrlich."
+              }},
+              "confidence": {{
+                "anzahl_betroffene_gueltig": "medium",
+                "haeufigkeit_pro_jahr_gueltig": "high",
+                "anzahl_betroffene_vorschlag": "medium",
+                "haeufigkeit_pro_jahr_vorschlag": "high"
+              }}
             }}
           ]
         }}
@@ -161,6 +174,21 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     assert case_groups[0]["annual_frequency_current"] == 2
     assert case_groups[0]["addressees_proposed"] == 120
     assert case_groups[0]["annual_frequency_proposed"] == 2
+    research_json = json.loads(case_groups[0]["case_metric_research_json"])
+    assert research_json == {
+        "confidence": {
+            "anzahl_betroffene_gueltig": "medium",
+            "haeufigkeit_pro_jahr_gueltig": "high",
+            "anzahl_betroffene_vorschlag": "medium",
+            "haeufigkeit_pro_jahr_vorschlag": "high",
+        },
+        "erklaerungen": {
+            "anzahl_betroffene_gueltig": "100 Betroffene laut Modellannahme.",
+            "haeufigkeit_pro_jahr_gueltig": "Zweimal jaehrlich laut Vorgang.",
+            "anzahl_betroffene_vorschlag": "120 Betroffene nach Erweiterung.",
+            "haeufigkeit_pro_jahr_vorschlag": "Weiterhin zweimal jaehrlich.",
+        },
+    }
 
     steps = db.list_process_steps_for_session(session_id)
     assert steps[0]["hourly_rate_a_current"] == 40
@@ -299,6 +327,43 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     assert step["hourly_rate_a_proposed"] == 44
     assert step["time_required_in_min_a_proposed"] == 6
     assert step["expenses_proposed"] == 8
+
+
+def test_parse_cases_payload_keeps_evidence_metadata():
+    payload = """
+    {
+      "normadressat": "business",
+      "prozesse": [
+        {
+          "prozess_id": "1",
+          "fallgruppen": [
+            {
+              "fallgruppen_id": "42",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "1",
+              "erklaerungen": {
+                "anzahl_betroffene_vorschlag": "10 erwartete Faelle."
+              },
+              "confidence": {
+                "anzahl_betroffene_vorschlag": "medium"
+              },
+              "raw_should_not_be_copied": true
+            }
+          ]
+        }
+      ]
+    }
+    """
+
+    parsed, fallbacks = effort_router._parse_cases_payload(payload, BUSINESS)
+
+    assert fallbacks == set()
+    assert parsed[0]["case_metric_research_json"] == {
+        "confidence": {"anzahl_betroffene_vorschlag": "medium"},
+        "erklaerungen": {
+            "anzahl_betroffene_vorschlag": "10 erwartete Faelle."
+        },
+    }
 
 
 def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeypatch):

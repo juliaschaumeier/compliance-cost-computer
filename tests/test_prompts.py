@@ -165,6 +165,28 @@ def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
     assert "Aufgrund einer Änderung der Straßenverkehrs-Ordnung (StVO)" in prompt
 
 
+def test_cases_calculation_prompt_requests_case_metric_evidence():
+    prompt = render_prompt(
+        PromptId.CASES_CALCULATION,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+        norm_addressee=BUSINESS,
+    )
+
+    assert '"erklaerungen"' in prompt
+    assert '"confidence"' in prompt
+    assert "high | medium | low" in prompt
+    assert "auf welcher Grundlage der jeweilige Wert hergeleitet wurde" in prompt
+    assert "wie belastbar die jeweilige Schaetzung ist" in prompt
+    for key in (
+        "anzahl_betroffene_gueltig",
+        "haeufigkeit_pro_jahr_gueltig",
+        "anzahl_betroffene_vorschlag",
+        "haeufigkeit_pro_jahr_vorschlag",
+    ):
+        assert key in prompt
+
+
 def test_process_compilation_prompt_skips_business_example_for_administration():
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
@@ -476,5 +498,3 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
     assert "Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen" in prompt
     assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" not in prompt
     assert "Gesamtzeitaufwand" not in prompt
-
-

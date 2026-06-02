@@ -4418,6 +4418,7 @@ def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) 
             addressees_proposed_edited = NULL,
             annual_frequency_proposed_edited = NULL,
             cases_proposed_edited = NULL,
+            case_metric_research_json = NULL,
             last_edited_at = NULL
         WHERE session_id = ? AND norm_addressee = ?
         """,
