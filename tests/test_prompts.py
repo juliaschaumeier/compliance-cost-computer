@@ -273,7 +273,7 @@ def test_norm_addressee_prompts_integrate_guidance_before_schema(prompt_id, norm
 def test_process_step_analysis_prompt_sets_known_norm_addressee_after_context():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
-    assert prompt.index("Sie sind Legist im Bundesressort") < prompt.index(
+    assert prompt.index("Sie sind Legist und unterstuetzen die fachliche Pruefung") < prompt.index(
         "Das Gesetz bzw. die Gesetzesaenderung ist wie folgt"
     )
     assert "Dieser Lauf betrifft nur den Normadressaten Wirtschaft" in prompt
@@ -304,7 +304,7 @@ def test_process_step_analysis_prompt_uses_integrated_step_specific_intro():
     prompt = _render_step_analysis_prompt(BUSINESS)
 
     assert "Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten" in prompt
-    assert prompt.index("Sie sind Legist im Bundesressort") < prompt.index(
+    assert prompt.index("Sie sind Legist und unterstuetzen die fachliche Pruefung") < prompt.index(
         "Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten"
     )
 
