@@ -85,8 +85,8 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Wirtschaft.
         Analysieren Sie nur wirtschaftsbezogene Prozesse, Fallgruppen, Taetigkeiten,
         Fallzahlen und Werte. Uebernehmen Sie keine Verwaltungslogik, Verwaltungswerte
-        oder buergerbezogenen Inhalte. Informationspflichten der Wirtschaft, interne
-        Umstellungen, externe Dienstleistungen sowie wirtschaftsspezifische Pruef-,
+        oder buergerbezogenen Inhalte. Informationspflichten der Wirtschaft, externe
+        Dienstleistungen sowie wirtschaftsspezifische Pruef-,
         Melde-, Nachweis- und Dokumentationspflichten sind mitzudenken.
         """
     ),
@@ -226,10 +226,9 @@ NORM_ADDRESSEE_RULES_BUSINESS: Dict[str, str] = {
     PromptId.CASE_GROUP_DEVELOPMENT: (
         "Typische wirtschaftsseitige Differenzierungsachsen sind: (i) "
         "Informationspflicht versus sonstige Vorgabe (BKI-Relevanz), (ii) "
-        "Ersterfuellung mit Einarbeitung versus Routineerfuellung (Einarbeitung "
-        "faellt bei Routine in der Regel weg), (iii) Neuanschaffung versus "
-        "Umruestung bestehender Anlagen, (iv) weitgehend automatisierter oder "
-        "digital gestuetzter Ablauf versus manuelle Bearbeitung, (v) KMU versus "
+        "Neuanschaffung versus "
+        "Umruestung bestehender Anlagen, (iii) weitgehend automatisierter oder "
+        "digital gestuetzter Ablauf versus manuelle Bearbeitung, (iv) KMU versus "
         "Grossunternehmen, soweit sich der Aufwand pro Fall wesentlich "
         "unterscheidet. Bilden Sie solche Fallgruppen "
         "nur, wenn daraus wesentliche Unterschiede im Personal- oder Sachaufwand "
