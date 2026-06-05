@@ -674,6 +674,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {handbook_process_example}
 
+        Ordnen Sie jede `vorgaben_id` genau einem Prozess zu; pruefen Sie vor der Ausgabe, dass keine `vorgaben_id` in mehreren Prozessen vorkommt.
+        Loest eine Vorgabe sowohl eine externe Bearbeitung als auch eine interne Anpassung aus, beschreiben Sie beides im selben Prozess, statt die Vorgabe
+        auf mehrere Prozesse aufzuteilen; eine feinere Untergliederung erfolgt spaeter in Fallgruppen und Prozessschritten.
+
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
