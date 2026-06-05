@@ -616,8 +616,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Wichtig fuer den Normadressaten `administration` (Verwaltung): Uebersehen Sie die Verwaltung nicht. Pruefen Sie bei jeder Vorgabe ausdruecklich,
         ob sie der zustaendigen Behoerde einen konkreten Vollzugsauftrag auferlegt – typische Ausloeser sind Antrags-, Anzeige-, Genehmigungs-,
         Anerkennungs-, Melde-, Register- oder Nachweisverfahren, laufende Aufsicht und Kontrollen, anlassbezogene Einzelfallpruefungen,
-        Bescheidung und Rechtsbehelfsverfahren, Auszahlungs- oder Foerderverfahren sowie einmalige interne Umstellungen (IT, Formulare,
-        Schulung). Wenn die Erfuellung einer Vorgabe durch Wirtschaft oder Buergerinnen/Buerger praktisch nur moeglich ist, weil die
+        Bescheidung und Rechtsbehelfsverfahren sowie Auszahlungs- oder Foerderverfahren. Wenn die Erfuellung einer Vorgabe durch Wirtschaft oder Buergerinnen/Buerger praktisch nur moeglich ist, weil die
         Verwaltung etwas pruefen, bescheiden, registrieren, kontrollieren oder auszahlen muss, ist `administration` zusaetzlich als
         betroffener Normadressat auszuweisen. Ein bloss mittelbarer Mehraufwand ohne
         konkreten Vollzugsauftrag ist hingegen nicht der Verwaltung zuzuordnen – erfinden Sie keine Verwaltungsvorgaben, wo keine sind.
