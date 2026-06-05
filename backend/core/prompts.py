@@ -65,9 +65,8 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         Vorgang. Typische Auspraegungen sind Antragsbearbeitung und Bescheidung,
         Anerkennung/Genehmigung/Registrierung, turnusmaessige oder anlassbezogene
         Pruefung und Aufsicht, Erstattungs- und Auszahlungsverfahren, Register- und
-        Aktenfuehrung, Rechtsbehelfs- und Widerspruchsbearbeitung sowie einmalige
-        Umstellungsaufwaende (Schulung, IT-Anpassung, Formular- und Merkblatt-
-        pflege). Der verwaltungsseitige Erfuellungsaufwand entsteht dort, wo die
+        Aktenfuehrung sowie Rechtsbehelfs- und Widerspruchsbearbeitung. Der
+        verwaltungsseitige Erfuellungsaufwand entsteht dort, wo die
         Behoerde tatsaechlich taetig wird.
 
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Verwaltung.
@@ -102,8 +101,7 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         Zeitaufwand und privater Sachaufwand im Vordergrund; eine generelle Monetarisierung
         des Zeitaufwands findet nicht statt. Achten Sie besonders auf alltagsnahe
         Pflichterfuellung, persoenliches Erscheinen, Beschaffung von Nachweisen oder Material,
-        Einschaltung Dritter, Gebuehren, Porto- und Fahrtkosten sowie auf einmalige
-        Einfuehrungsaufwaende im privaten Bereich. Beschreiben Sie niemals interne
+        Einschaltung Dritter, Gebuehren sowie Porto- und Fahrtkosten. Beschreiben Sie niemals interne
         Verwaltungspruefungen, verwaltungsinterne Abstimmungen, Bearbeitungsschritte der
         Behoerde, Unternehmensorganisation oder fachliche Schritte Dritter als Taetigkeiten
         der Buergerinnen und Buerger. Wenn eine Handlung von einer Behoerde, einem
