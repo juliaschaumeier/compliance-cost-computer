@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from backend.core.handbook_examples import (
-    CASE_GROUP_DEVELOPMENT_EXAMPLE,
     CASES_CALCULATION_CASE_EXAMPLE,
     CASES_CALCULATION_FREQUENCY_EXAMPLE,
     PROCESS_COMPILATION_EXAMPLE,
@@ -726,7 +725,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
-    # - handbook_case_group_example
     # - norm_addressee_prompt_opening
     # - norm_addressee_rule
     PromptId.CASE_GROUP_DEVELOPMENT: (
@@ -750,8 +748,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Wiederkehrende Erstbearbeitungen (z.B. die laufend neu hinzukommenden Erstantraege oder Erstanerkennungen) sind hingegen zulaessig, weil sie jaehrlich anfallen.
 
         {norm_addressee_rule}
-
-        {handbook_case_group_example}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
@@ -855,6 +851,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Nur wiederkehrende Taetigkeiten: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Setup, Migration, Erstimplementierung, initiale Schulungswelle, einmalige IT-Umstellung, Einarbeitung in die neue Vorgabe) duerfen nicht ausgegeben werden.
 
         {step_analysis_addressee_rule}
+
+        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. Einarbeitung, Erstimplementierung, einmalige Umstellung) nicht uebernehmen.
 
         {step_analysis_checklist}
 
@@ -1195,10 +1193,6 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         _render_handbook_process_example(norm_addressee),
     )
     render_values.setdefault(
-        "handbook_case_group_example",
-        _render_handbook_case_group_example(norm_addressee),
-    )
-    render_values.setdefault(
         "handbook_cases_frequency_example",
         _render_handbook_cases_frequency_example(),
     )
@@ -1400,13 +1394,16 @@ def _render_prompt_specific_addressee_rule(prompt_id: str, norm_addressee: str |
 
 def _render_handbook_process_example(norm_addressee: str | None) -> str:
     if norm_addressee == BUSINESS:
-        return _render_handbook_example_block(PROCESS_COMPILATION_EXAMPLE)
-    return ""
-
-
-def _render_handbook_case_group_example(norm_addressee: str | None) -> str:
-    if norm_addressee == BUSINESS:
-        return _render_handbook_example_block(CASE_GROUP_DEVELOPMENT_EXAMPLE)
+        return _render_handbook_example_block(
+            PROCESS_COMPILATION_EXAMPLE,
+            heading=(
+                "Methodenbeispiel aus dem Leitfaden zur Orientierung; "
+                "nicht als Sachverhalt dieses Regelungsvorhabens verwenden. "
+                "Bilden Sie nur Prozesse fuer jaehrlich wiederkehrenden Aufwand; "
+                "einmalige Umstellungs-/Einfuehrungsposten (z.B. Schulung des "
+                "Personals, Nachruestung/Austausch von Geraeten) nicht uebernehmen:"
+            ),
+        )
     return ""
 
 

@@ -124,12 +124,17 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
     ) in prompt
+    # Recurring-only-Rahmung der (verbatim unveraenderten) Beispiel-Ueberschrift (#13/#25).
+    assert "Bilden Sie nur Prozesse fuer jaehrlich wiederkehrenden Aufwand" in prompt
     assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" in prompt
     assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
     assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
 
 
-def test_case_group_development_prompt_includes_verbatim_handbook_example():
+def test_case_group_development_prompt_omits_handbook_example():
+    # Das Leitfaden-Fallgruppenbeispiel (Umruestung/Ersatz von Anlagen) ist rein
+    # einmalig und wird im recurring-only-Modus bewusst nicht mehr eingespeist
+    # (#13/#25) - auch nicht fuer business.
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
         law_summary="Kurzfassung",
@@ -137,12 +142,12 @@ def test_case_group_development_prompt_includes_verbatim_handbook_example():
         norm_addressee=BUSINESS,
     )
 
+    assert "Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)" not in prompt
+    assert "Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)" not in prompt
     assert (
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
-    ) in prompt
-    assert "Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)" in prompt
-    assert "Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)" in prompt
+    ) not in prompt
 
 
 def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
@@ -372,6 +377,21 @@ def test_process_step_analysis_prompt_excludes_effort_schema_fields(norm_address
         '"ausfuehrung_pro_einzelfall"',
     ]
     assert all(field not in prompt for field in forbidden_schema_fields)
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_frames_checklist_recurring_only(norm_addressee):
+    prompt = render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+        norm_addressee=norm_addressee,
+    )
+
+    assert (
+        "Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus"
+        in prompt
+    )
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
