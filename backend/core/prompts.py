@@ -466,8 +466,7 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
                             "zeitaufwand_in_min": ""
                         }
                     ],
-                    "sachaufwand_vorschlag": "",
-                    "ausfuehrung_pro_einzelfall": "0 | 1"
+                    "sachaufwand_vorschlag": ""
                 }
             ]
         }
@@ -513,8 +512,7 @@ EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
                     "zeitaufwand_in_min_gueltig": "",
                     "sachaufwand_gueltig": "",
                     "zeitaufwand_in_min_vorschlag": "",
-                    "sachaufwand_vorschlag": "",
-                    "ausfuehrung_pro_einzelfall": "0 | 1"
+                    "sachaufwand_vorschlag": ""
                 }
             ]
         }
@@ -1146,10 +1144,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         neu, sondern den fuer die geltende und die vorgeschlagene Rechtslage jeweils relevanten Aufwand derselben Taetigkeit. Wenn sich nur ein Teilaspekt
         aendert, darf nicht automatisch der gesamte Schritt neu und vollumfaenglich angesetzt werden. Unveraenderte Aufwaende sollten in _gueltig und
         _vorschlag gleich bleiben; nur geaenderte Mehr- oder Minderaufwaende sind abweichend auszuweisen.
-
-        Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgefuehrt wird (=0).
-        Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
-        einzelnen Fall erneut anfaellt.
 
         Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen resultiert zunaechst kein Zeitaufwand.
 
