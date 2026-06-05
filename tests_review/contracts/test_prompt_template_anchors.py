@@ -144,7 +144,7 @@ class TestRecurringOnlyContract:
 
     def test_process_step_analysis_demands_recurring_only(self):
         t = PROMPT_TEMPLATES[PromptId.PROCESS_STEP_ANALYSIS]
-        assert "Nur wiederkehrende Taetigkeiten" in t
+        assert "Nur jaehrlich wiederkehrender Erfuellungsaufwand" in t
 
     def test_cases_calculation_demands_recurring_only(self):
         t = PROMPT_TEMPLATES[PromptId.CASES_CALCULATION]
