@@ -745,6 +745,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht moeglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Fallgruppen fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
+        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. IT-Rollout, initiale Leitlinien- oder Formularerstellung, Initialschulung des Personals, einmalige interne Umstellung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
+        Wiederkehrende Erstbearbeitungen (z.B. die laufend neu hinzukommenden Erstantraege oder Erstanerkennungen) sind hingegen zulaessig, weil sie jaehrlich anfallen.
+
         {norm_addressee_rule}
 
         {handbook_case_group_example}
@@ -847,6 +851,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
         Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
+
+        Nur wiederkehrende Taetigkeiten: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Setup, Migration, Erstimplementierung, initiale Schulungswelle, einmalige IT-Umstellung, Einarbeitung in die neue Vorgabe) duerfen nicht ausgegeben werden.
 
         {step_analysis_addressee_rule}
 
@@ -970,6 +976,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Antraegen anlassbezogen erfuellt werden, sollte die Zahl der
         jaehrlich zu erwartenden Antraege als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl
         fuer Ueberwachungs- und Kontrollmassnahmen ist in der Regel wesentlich geringer.
+
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Quantifizieren Sie Fallzahlen ausschliesslich fuer regelmaessig pro Jahr wiederkehrende Fallgruppen. Einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung darf hier nicht quantifiziert werden.
 
         {norm_addressee_rule}
 
@@ -1130,6 +1138,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         neu, sondern den fuer die geltende und die vorgeschlagene Rechtslage jeweils relevanten Aufwand derselben Taetigkeit. Wenn sich nur ein Teilaspekt
         aendert, darf nicht automatisch der gesamte Schritt neu und vollumfaenglich angesetzt werden. Unveraenderte Aufwaende sollten in _gueltig und
         _vorschlag gleich bleiben; nur geaenderte Mehr- oder Minderaufwaende sind abweichend auszuweisen.
+
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Berechnen Sie ausschliesslich den regelmaessig wiederkehrenden Aufwand pro Einzelfall und Jahr. Einmaliger Umstellungs-, Einfuehrungs- oder Einarbeitungsaufwand darf nicht in Zeit-, Personal- oder Sachaufwand einfliessen.
 
         Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen resultiert zunaechst kein Zeitaufwand.
 

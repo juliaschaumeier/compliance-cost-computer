@@ -14,7 +14,12 @@ Kernaussage anschlaegt.
 import pytest
 
 from backend.core.prompts import (
+    EFFORT_JSON_SCHEMA_BY_ADDRESSEE,
+    EFFORT_JSON_SCHEMA_DEFAULT,
     NORM_ADDRESSEE_PROMPT_OPENINGS,
+    NORM_ADDRESSEE_RULES_ADMINISTRATION,
+    NORM_ADDRESSEE_RULES_BUSINESS,
+    NORM_ADDRESSEE_RULES_CITIZENS,
     PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES,
     PROMPT_TEMPLATES,
     PromptId,
@@ -121,3 +126,48 @@ class TestProcessStepAnalysisContract:
 
         assert "wenige, fachlich klare Haupttaetigkeiten" in text
         assert "drei bis fuenf" not in text
+
+
+class TestRecurringOnlyContract:
+    """Issues #13/#25: Die Pipeline erzeugt/berechnet ausschliesslich jaehrlich
+    wiederkehrenden Erfuellungsaufwand. Einmaliger Umstellungs-/Einfuehrungs-/
+    Einarbeitungsaufwand wird nicht ausgegeben, quantifiziert oder bewertet.
+
+    Diese Anker sichern die positive "nur wiederkehrend"-Pflichtregel in den vier
+    Bodies sowie die Abwesenheit der entfernten einmalig-Logik gegen Rueckkehr.
+    """
+
+    def test_case_group_development_demands_recurring_only(self):
+        t = PROMPT_TEMPLATES[PromptId.CASE_GROUP_DEVELOPMENT]
+        assert "Nur jaehrlich wiederkehrender Erfuellungsaufwand" in t
+        assert "Nicht zulaessig als Fallgruppe" in t
+
+    def test_process_step_analysis_demands_recurring_only(self):
+        t = PROMPT_TEMPLATES[PromptId.PROCESS_STEP_ANALYSIS]
+        assert "Nur wiederkehrende Taetigkeiten" in t
+
+    def test_cases_calculation_demands_recurring_only(self):
+        t = PROMPT_TEMPLATES[PromptId.CASES_CALCULATION]
+        assert (
+            "Quantifizieren Sie Fallzahlen ausschliesslich fuer regelmaessig pro Jahr "
+            "wiederkehrende Fallgruppen" in t
+        )
+
+    def test_effort_calculation_demands_recurring_only(self):
+        t = PROMPT_TEMPLATES[PromptId.EFFORT_CALCULATION]
+        assert "regelmaessig wiederkehrenden Aufwand pro Einzelfall und Jahr" in t
+
+    def test_addressee_rules_have_no_one_time_axes(self):
+        # Die entfernten einmalig-Achsen duerfen nicht zurueckkehren.
+        for rules in (
+            NORM_ADDRESSEE_RULES_ADMINISTRATION,
+            NORM_ADDRESSEE_RULES_BUSINESS,
+            NORM_ADDRESSEE_RULES_CITIZENS,
+        ):
+            for text in rules.values():
+                assert "einmalig" not in text.lower()
+
+    def test_effort_schema_has_no_per_case_execution_field(self):
+        assert "ausfuehrung_pro_einzelfall" not in EFFORT_JSON_SCHEMA_DEFAULT
+        for schema in EFFORT_JSON_SCHEMA_BY_ADDRESSEE.values():
+            assert "ausfuehrung_pro_einzelfall" not in schema
