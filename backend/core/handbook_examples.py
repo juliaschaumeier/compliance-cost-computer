@@ -10,21 +10,6 @@ Erfüllungsaufwands in Regelungsvorhaben der Bundesregierung", Februar 2026.
 """
 
 
-CASE_GROUP_DEVELOPMENT_EXAMPLE = """
-→ Beispiel für Bildung von Fallgruppen (fiktiv):
-Unternehmen, die bestimmte Industrieanlagen betreiben, sind zur Einhaltung neuer Vorgaben
-und strengerer Schadstoffgrenzwerte verpflichtet. Es ist davon auszugehen, dass 80 Prozent der
-1 000 betroffenen Unternehmen ihre bestehenden Anlagen lediglich mit neuen Filtersystemen
-ausrüsten werden, während die restlichen 20 Prozent ihre Altanlagen komplett durch neue er-
-setzen müssen, um die verschärften Grenzwerte einzuhalten. Es wird angenommen, dass der
-Aufwand zur Umrüstung bestehender Anlagen sehr viel geringer ist als der Aufwand für den Er-
-satz der Altanlagen durch Neuanlagen. Für die Ermittlung des Erfüllungsaufwands werden des-
-halb zwei Fallgruppen gebildet:
-Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)
-Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)
-""".strip()
-
-
 PROCESS_COMPILATION_EXAMPLE = """
 → Beispiele für Prozesse:
 1. Die UV-Schutz-Verordnung dient dem Schutz der menschlichen Gesundheit vor schädlichen
