@@ -66,6 +66,12 @@ class TestProcessCompilationUnionNationalRule:
         # Begruendung muss erhalten bleiben, damit der LLM versteht warum
         assert "EU-bedingten" in template or "EU-bedingt" in template
 
+    def test_template_requires_one_process_per_vorgabe(self, template: str):
+        # Issue #13: jede vorgaben_id nur in einem Prozess; Selbstcheck vor Ausgabe.
+        assert "genau einem Prozess" in template
+        assert "in mehreren Prozessen vorkommt" in template
+        assert "im selben Prozess" in template
+
 
 # ---------------------------------------------------------------------------
 # Weitere Leitfaden-Anker, parallel abgesichert
