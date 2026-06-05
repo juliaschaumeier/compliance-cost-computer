@@ -102,6 +102,13 @@ def test_build_deep_research_cases_prompt_combines_addressees(monkeypatch):
         "Betrachten Sie ausschliesslich jaehrlich wiederkehrenden Erfuellungsaufwand"
         in prompt
     )
+    # "einmalig" wurde bewusst aus der Diagnose-Frage entfernt (#13/#25).
+    assert "periodisch, anlassbezogen oder bestandsbezogen" in prompt
+    # Negativ-Guard gegen einmalige Vorgaenge als jaehrliche Fallzahl (#13/#25).
+    assert (
+        "Keine einmaligen Vorgaenge, die nur bei Einfuehrung der Regelung anfallen"
+        in prompt
+    )
     assert "anzahl_betroffene_gueltig" in prompt
     assert "haeufigkeit_pro_jahr_vorschlag" in prompt
     assert "kurze Begruendung" in prompt
