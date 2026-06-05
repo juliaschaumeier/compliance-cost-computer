@@ -770,7 +770,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
         Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Fallgruppen fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
-        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. IT-Rollout, initiale Leitlinien- oder Formularerstellung, Initialschulung des Personals, einmalige interne Umstellung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
+        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. IT-Rollout, Erstimplementierung, Erstschulung, einmalige Umstellung, Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
         Wiederkehrende Erstbearbeitungen (z.B. die laufend neu hinzukommenden Erstantraege oder Erstanerkennungen) sind hingegen zulaessig, weil sie jaehrlich anfallen.
 
         {norm_addressee_rule}
@@ -874,11 +874,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
         Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
 
-        Nur wiederkehrende Taetigkeiten: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Setup, Migration, Erstimplementierung, initiale Schulungswelle, einmalige IT-Umstellung, Einarbeitung in die neue Vorgabe) duerfen nicht ausgegeben werden.
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. IT-Rollout, Erstimplementierung, Erstschulung, einmalige Umstellung, Einarbeitung) duerfen nicht ausgegeben werden.
 
         {step_analysis_addressee_rule}
 
-        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. Einarbeitung, Erstimplementierung, einmalige Umstellung) nicht uebernehmen.
+        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. IT-Rollout, Erstimplementierung, Erstschulung, einmalige Umstellung, Einarbeitung) nicht uebernehmen.
 
         {step_analysis_checklist}
 
