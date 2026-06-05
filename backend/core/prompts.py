@@ -998,8 +998,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Antraegen anlassbezogen erfuellt werden, sollte die Zahl der
         jaehrlich zu erwartenden Antraege als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl
         fuer Ueberwachungs- und Kontrollmassnahmen ist in der Regel wesentlich geringer.
-        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfaellt, wird als
-        einmaliger Erfuellungsaufwand bzw. Umstellungsaufwand bezeichnet und ist gesondert auszuweisen.
 
         {norm_addressee_rule}
 
