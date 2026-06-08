@@ -639,6 +639,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Hinweis zu `ist_informationspflicht_wirtschaft`: Dieses Flag ist ausschliesslich fuer den Normadressaten
         Wirtschaft (`business`) vorgesehen und kennzeichnet eine Informationspflicht im Sinne des Leitfadens.
+        Informationspflichten sind Vorgaben, nach denen Daten und sonstige Informationen fuer Behoerden oder
+        Dritte zu beschaffen, verfuegbar zu halten oder zu uebermitteln sind. Dazu zaehlen das Ausfuellen von
+        Antraegen und Formularen, die Mitwirkung an amtlichen Erhebungen sowie saemtliche Nachweis- und
+        Dokumentationspflichten (Auskunfts-, Melde-, Berichts-, Veroeffentlichungs-, Registrierungs-,
+        Genehmigungspflichten). Typische Beispiele sind Preisauszeichnung und Kennzeichnungspflichten,
+        gesetzliche Bekanntmachungspflichten, das Beifuegen von AGB, die Gewerbeanmeldung, die Beantragung von
+        Genehmigungen oder Zuwendungen, die Anzeige bestimmter Taetigkeiten oder die Meldung von Ereignissen
+        (z. B. Unfaellen), die Aufbewahrung von Unterlagen sowie die Mitwirkung bei Pruefungen (z. B. Aussenpruefung).
         Setzen Sie das Flag nur dann auf "1", wenn (a) `business` im `normadressaten`-Array enthalten ist UND
         (b) die Vorgabe fuer die Wirtschaft eine Informationspflicht darstellt. In allen anderen Faellen - also
         bei reinen Verwaltungs- oder Buerger-Vorgaben, oder bei Wirtschaftsvorgaben ohne Informationspflicht-Charakter -
