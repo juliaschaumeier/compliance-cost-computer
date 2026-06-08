@@ -23,10 +23,12 @@ export interface TileNodeData {
 
 export function TileNode({ data, id }: NodeProps<TileNodeData>) {
   const isLawTile = id === "law_tile";
+  const isTotalTile = id === "total_cost";
+  const alwaysExpanded = isLawTile || isTotalTile;
   const bodyText = data.text;
-  const isExpanded = isLawTile || data.isExpanded;
+  const isExpanded = alwaysExpanded || data.isExpanded;
   const canExpand =
-    !isLawTile &&
+    !alwaysExpanded &&
     (Boolean(data.metricTable) || (Boolean(bodyText) && data.textHasOverflow));
   const { onNodeRef, onBodyRef } = data;
   const setNodeRef = useCallback(

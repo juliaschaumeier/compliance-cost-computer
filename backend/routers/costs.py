@@ -393,17 +393,50 @@ def _build_total_tile_text(
     *,
     norm_addressee: str,
     total_cost: float | None,
+    bureaucracy_cost: float | None,
     total_time_minutes: float | None,
     total_expenses: float | None,
+    administration_level: str | None = None,
 ) -> str:
     if norm_addressee == CITIZENS:
         lines: list[str] = []
         if total_time_minutes is not None:
-            lines.append(f"Zeit: {format_number(total_time_minutes / 60.0)} Std.")
+            lines.append(
+                "Veränderung des jährlichen Zeitaufwandes: "
+                f"{format_number(total_time_minutes / 60.0)} Std."
+            )
         if total_expenses is not None:
-            lines.append(f"Sachaufwand: {format_currency(total_expenses)}")
+            lines.append(
+                "Veränderung des jährlichen Sachaufwandes: "
+                f"{format_currency(total_expenses)}"
+            )
         return "\n".join(lines).strip()
-    return format_currency(total_cost or 0.0)
+    if norm_addressee == BUSINESS:
+        lines = [
+            "Veränderung des jährlichen Erfüllungsaufwandes: "
+            f"{format_currency(total_cost or 0.0)}"
+        ]
+        if bureaucracy_cost is not None:
+            lines.append(
+                "davon Bürokratiekosten aus Informationspflichten: "
+                f"{format_currency(bureaucracy_cost)}"
+            )
+        return "\n".join(lines).strip()
+    # Verwaltung: Gesamtbetrag plus Aufteilung nach der Verwaltungsebene der
+    # Session. Das Tool rechnet je Session genau eine Ebene, daher 100/0
+    # (ein Mischfall Bund/Land ist strukturell nicht moeglich).
+    is_bund = str(administration_level or "bund").strip().lower() == "bund"
+    total = total_cost or 0.0
+    return "\n".join(
+        [
+            "Veränderung des jährlichen Erfüllungsaufwandes: "
+            f"{format_currency(total)}",
+            "davon auf Bundesebene: "
+            f"{format_currency(total if is_bund else 0.0)}",
+            "davon auf Landesebene: "
+            f"{format_currency(0.0 if is_bund else total)}",
+        ]
+    ).strip()
 
 
 def _persist_step_costs(
@@ -716,16 +749,18 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         link_from = [f"step_{step_id}" for step_id in _last_step_ids(steps)]
         total_tile = Tile(
             id="total_cost",
-            title=(
-                "Jährlicher Erfüllungsaufwand"
-                if norm_addressee == CITIZENS
-                else "Jährliche Kosten"
-            ),
+            title={
+                CITIZENS: "Erfüllungsaufwand für Bürgerinnen und Bürger",
+                BUSINESS: "Erfüllungsaufwand für Wirtschaft",
+                ADMINISTRATION: "Erfüllungsaufwand für Verwaltung",
+            }.get(norm_addressee, "Erfüllungsaufwand"),
             text=_build_total_tile_text(
                 norm_addressee=norm_addressee,
                 total_cost=total_cost,
+                bureaucracy_cost=bureaucracy_cost,
                 total_time_minutes=total_time_minutes,
                 total_expenses=total_expenses,
+                administration_level=session.get("pay_rate_administration_level"),
             ),
             meta_information=_build_total_meta(
                 app_session_id=payload.app_session_id,

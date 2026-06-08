@@ -203,4 +203,21 @@ describe("TileNode", () => {
     expect(screen.getByTitle("Text ausklappen")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Aktuell" })).not.toBeInTheDocument();
   });
+
+  it("keeps the total cost tile always expanded and not collapsible", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("total_cost", {
+          text: "Veränderung des jährlichen Erfüllungsaufwandes: 59,9 Tsd. €",
+          isExpanded: false,
+          textHasOverflow: true,
+        })}
+      />
+    );
+
+    const body = screen.getByText(/Veränderung des jährlichen Erfüllungsaufwandes/);
+    expect(body).toHaveClass("tile-body-text");
+    expect(body).toHaveClass("is-expanded");
+    expect(screen.queryByTitle(/Text (ein|aus)klappen/)).not.toBeInTheDocument();
+  });
 });
