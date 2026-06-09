@@ -560,13 +560,15 @@ def _aggregate_process_costs(
     )
 
 
-@router.post("/compute")
-async def compute_costs(payload: CostComputationRequest) -> dict:
-    session = db.get_session_by_app_id(payload.app_session_id)
+def compute_total_cost_for_session(
+    app_session_id: str,
+    norm_addressee: str | None = None,
+) -> dict:
+    session = db.get_session_by_app_id(app_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
-    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
+    norm_addressee = normalize_norm_addressee_or_422(norm_addressee)
 
     processes, case_groups, steps = _load_structure_rows(session_id, norm_addressee)
     pay_rates = db.get_session_pay_rates_for_addressee(session_id, norm_addressee)
@@ -728,7 +730,7 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
                 total_expenses=total_expenses,
             ),
             meta_information=_build_total_meta(
-                app_session_id=payload.app_session_id,
+                app_session_id=app_session_id,
                 norm_addressee=norm_addressee,
                 total_cost=total_cost,
                 bureaucracy_cost=bureaucracy_cost,
@@ -748,4 +750,12 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         bureaucracy_cost=bureaucracy_cost,
         total_time_minutes=total_time_minutes,
         total_expenses=total_expenses,
+    )
+
+
+@router.post("/compute")
+async def compute_costs(payload: CostComputationRequest) -> dict:
+    return compute_total_cost_for_session(
+        app_session_id=payload.app_session_id,
+        norm_addressee=payload.norm_addressee,
     )

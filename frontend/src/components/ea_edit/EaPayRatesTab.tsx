@@ -240,6 +240,14 @@ export default function EaPayRatesTab({
     }
   };
 
+  const handlePayInputChange = (key: PayGradeKey, value: string) => {
+    setStatus(null);
+    setPayEditedInputs((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
   if (!active) {
     return null;
   }
@@ -326,10 +334,7 @@ export default function EaPayRatesTab({
                   <input
                     value={payEditedInputs[row.key] ?? ""}
                     onChange={(event) =>
-                      setPayEditedInputs((prev) => ({
-                        ...prev,
-                        [row.key]: event.target.value,
-                      }))
+                      handlePayInputChange(row.key, event.target.value)
                     }
                     className={inputClass(payEditedInputs[row.key] ?? "")}
                   />

@@ -431,6 +431,7 @@ export default function EaCaseMetricsTab({
                       : "border border-red-400 bg-red-50"
                   }`;
                 const updateField = (fieldKey: CaseFieldKey, value: string) => {
+                  setStatus(null);
                   setDraft((prev) => ({
                     ...prev,
                     [row.case_group_id]: { ...draftRow, [fieldKey]: value },

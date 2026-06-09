@@ -12,6 +12,7 @@ jest.mock("@/contexts/AppContext", () => ({
 jest.mock("@/lib/api", () => ({
   apiClient: {
     computeTotalCost: jest.fn(),
+    resetSessionEaEdits: jest.fn(),
   },
 }));
 
@@ -94,15 +95,23 @@ jest.mock("@/components/ea_edit/EaEffortMetricsTab", () => ({
 
 const mockUseApp = useApp as jest.Mock;
 const mockComputeTotalCost = apiClient.computeTotalCost as jest.Mock;
+const mockResetSessionEaEdits = apiClient.resetSessionEaEdits as jest.Mock;
 
 describe("EaEditDrawerShell", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockComputeTotalCost.mockReset();
+    mockResetSessionEaEdits.mockReset();
+    mockResetSessionEaEdits.mockResolvedValue({
+      app_session_id: "EA-TEST",
+      reset_counts: { pay_rates: 1, case_groups: 2, process_steps: 3 },
+      recomputed_norm_addressees: ["administration", "business", "citizens"],
+    });
     mockUseApp.mockReturnValue({
       state: {
         appSessionId: "EA-TEST",
         selectedNormAddressee: "administration",
+        isComplianceExportRunning: false,
       },
     });
   });
@@ -333,5 +342,83 @@ describe("EaEditDrawerShell", () => {
 
     await user.click(screen.getByRole("button", { name: /^schließen$/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks EA editing while compliance export generation is running", () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        appSessionId: "EA-TEST",
+        selectedNormAddressee: "administration",
+        isComplianceExportRunning: true,
+      },
+    });
+
+    render(<EaEditDrawerShell open onClose={jest.fn()} />);
+
+    expect(
+      screen.getByText(/vorblatt\/begründung wird gerade erzeugt/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/bitte warte, bis die pdf-erstellung abgeschlossen ist/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /trigger recompute/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("resets all EA edits after explicit confirmation", async () => {
+    const dispatchSpy = jest.spyOn(window, "dispatchEvent");
+    render(<EaEditDrawerShell open onClose={jest.fn()} />);
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /alle ea-werte auf modellwerte zurücksetzen/i,
+      })
+    );
+
+    expect(
+      await screen.findByRole("dialog", {
+        name: /alle ea-werte auf modellwerte zurücksetzen/i,
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/lohnsätze, fallzahlen und schrittkosten für alle normadressaten/i)
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^zurücksetzen$/i }));
+
+    await waitFor(() =>
+      expect(mockResetSessionEaEdits).toHaveBeenCalledWith({
+        appSessionId: "EA-TEST",
+      })
+    );
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: "tiles-updated" }));
+    expect(
+      await screen.findByText(/alle ea-bearbeitungen wurden auf modellwerte zurückgesetzt/i)
+    ).toBeInTheDocument();
+    dispatchSpy.mockRestore();
+  });
+
+  it("clears the global reset status when the drawer is reopened", async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    const { rerender } = render(<EaEditDrawerShell open onClose={jest.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /alle ea-werte auf modellwerte zurücksetzen/i,
+      })
+    );
+    await user.click(screen.getByRole("button", { name: /^zurücksetzen$/i }));
+    expect(
+      await screen.findByText(/alle ea-bearbeitungen wurden auf modellwerte zurückgesetzt/i)
+    ).toBeInTheDocument();
+
+    rerender(<EaEditDrawerShell open={false} onClose={jest.fn()} />);
+    rerender(<EaEditDrawerShell open onClose={jest.fn()} />);
+
+    expect(
+      screen.queryByText(/alle ea-bearbeitungen wurden auf modellwerte zurückgesetzt/i)
+    ).not.toBeInTheDocument();
   });
 });
