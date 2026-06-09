@@ -47,6 +47,10 @@ export type LlmRequestOptions = {
   keys: ApiKeys;
 };
 
+export type ComplianceTextUserEditPolicy =
+  | "reject_if_user_edits"
+  | "use_user_edits";
+
 type LlmRequestOptionsInput = {
   selectedModel: string;
   availableModels: Model[];
@@ -373,6 +377,34 @@ export const apiClient = {
       await throwApiClientErrorFromResponse(
         response,
         "Failed to download Deep Research report"
+      );
+    }
+    return response.blob();
+  },
+  async downloadComplianceTextExport(options: {
+    appSessionId: string;
+    model?: string;
+    provider?: string;
+    keys?: ApiKeys;
+    userEditPolicy?: ComplianceTextUserEditPolicy;
+  }): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/sessions/compliance-text-export`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...buildKeyHeaders(options.keys || {}),
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        model: options.model,
+        provider: options.provider,
+        user_edit_policy: options.userEditPolicy || "reject_if_user_edits",
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to download Vorblatt/Begründung export"
       );
     }
     return response.blob();
@@ -726,6 +758,28 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to update session pay rates");
+    }
+    return response.json();
+  },
+
+  async resetSessionEaEdits(options: {
+    appSessionId: string;
+  }): Promise<{
+    app_session_id: string;
+    reset_counts: Record<string, number>;
+    recomputed_norm_addressees: string[];
+  }> {
+    const response = await fetch(`${API_BASE_URL}/sessions/ea-edits/reset`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to reset EA edits");
     }
     return response.json();
   },

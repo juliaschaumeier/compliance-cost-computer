@@ -4,7 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
-import { apiClient, type ApiClientError } from "@/lib/api";
+import {
+  apiClient,
+  buildLlmRequestOptions,
+  type ApiClientError,
+  type ComplianceTextUserEditPolicy,
+} from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
 import {
   emitRunAllStepCleared,
@@ -72,6 +77,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setRegulationsReady,
     setLastCompletedStep,
     setLastCompletedLabel,
+    setIsComplianceExportRunning,
   } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -90,6 +96,12 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const [researchLocked, setResearchLocked] = useState(false);
   const [isUpdatingResearch, setIsUpdatingResearch] = useState(false);
   const [isDownloadingResearch, setIsDownloadingResearch] = useState(false);
+  const [isDownloadingComplianceExport, setIsDownloadingComplianceExport] =
+    useState(false);
+  const [
+    isComplianceEditChoiceVisible,
+    setIsComplianceEditChoiceVisible,
+  ] = useState(false);
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [isCancellingRun, setIsCancellingRun] = useState(false);
@@ -165,6 +177,12 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   }, [isOpen, state.appSessionId]);
 
   useEffect(() => {
+    setSelectedSession(isOpen ? state.appSessionId : "");
+    resetStatus();
+    setIsComplianceEditChoiceVisible(false);
+  }, [isOpen, state.appSessionId]);
+
+  useEffect(() => {
     if (!isOpen || researchStatus !== "running") {
       return;
     }
@@ -194,10 +212,25 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     });
   }, [sessions]);
 
+  const hasPendingSessionSwitch =
+    Boolean(selectedSession) && selectedSession !== state.appSessionId;
+
   const resetStatus = () => setStatus(null);
   const getErrorStatus = (error: unknown): number | undefined => {
     const status = (error as ApiClientError)?.status;
     return typeof status === "number" ? status : undefined;
+  };
+  const getDetailError = (error: unknown): string | undefined => {
+    const details = (error as ApiClientError)?.details;
+    if (
+      details &&
+      typeof details === "object" &&
+      "error" in details &&
+      typeof (details as { error?: unknown }).error === "string"
+    ) {
+      return (details as { error: string }).error;
+    }
+    return undefined;
   };
   const getRunStatusErrorMessage = (error: unknown): string => {
     const err = error as ApiClientError;
@@ -261,7 +294,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   };
 
   const handleLoadSession = async () => {
-    if (!selectedSession) {
+    if (!hasPendingSessionSwitch) {
       setStatus("Bitte eine Session auswählen.");
       return;
     }
@@ -390,6 +423,99 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setStatus("Deep-Research-Bericht ist noch nicht verfügbar.");
     } finally {
       setIsDownloadingResearch(false);
+    }
+  };
+
+  const downloadComplianceExport = async (
+    userEditPolicy: ComplianceTextUserEditPolicy,
+    appSessionId: string
+  ) => {
+    const llm = buildLlmRequestOptions({
+      selectedModel: state.selectedModel,
+      availableModels: state.availableModels,
+    });
+    const blob = await apiClient.downloadComplianceTextExport({
+      appSessionId,
+      model: llm.model,
+      provider: llm.provider,
+      keys: llm.keys,
+      userEditPolicy,
+    });
+    const suffix =
+      userEditPolicy === "use_user_edits"
+        ? "_ea_bearbeitet"
+        : "";
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ccc_vorblatt_begruendung_${appSessionId}${suffix}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadComplianceExport = async () => {
+    if (!state.totalCostReady) {
+      setStatus("Vorblatt/Begründung kann erst nach Abschluss aller Schritte exportiert werden.");
+      return;
+    }
+    if (!state.selectedModel) {
+      setStatus("Bitte zuerst ein Modell auswählen.");
+      return;
+    }
+    const exportSessionId = state.appSessionId;
+    try {
+      resetStatus();
+      setIsComplianceEditChoiceVisible(false);
+      setIsDownloadingComplianceExport(true);
+      setIsComplianceExportRunning(true);
+      await downloadComplianceExport("reject_if_user_edits", exportSessionId);
+      setStatus("Vorblatt/Begründung exportiert.");
+    } catch (error) {
+      if (getErrorStatus(error) === 409 && getDetailError(error) === "user_edits_present") {
+        setIsComplianceEditChoiceVisible(true);
+        setStatus("Es gibt bearbeitete EA-Werte. Bitte Exportvariante auswählen.");
+      } else {
+        logClientError("SessionMenu.downloadComplianceExport", error, {
+          appSessionId: exportSessionId,
+        });
+        setStatus("Vorblatt/Begründung-Export fehlgeschlagen.");
+      }
+    } finally {
+      setIsDownloadingComplianceExport(false);
+      setIsComplianceExportRunning(false);
+    }
+  };
+
+  const handleComplianceEditChoice = async (
+    userEditPolicy: ComplianceTextUserEditPolicy | null
+  ) => {
+    if (userEditPolicy === null) {
+      setIsComplianceEditChoiceVisible(false);
+      setStatus("Vorblatt/Begründung-Export abgebrochen.");
+      return;
+    }
+    const exportSessionId = state.appSessionId;
+    try {
+      resetStatus();
+      setIsDownloadingComplianceExport(true);
+      setIsComplianceEditChoiceVisible(false);
+      setIsComplianceExportRunning(true);
+      await downloadComplianceExport(userEditPolicy, exportSessionId);
+      setStatus(
+        userEditPolicy === "use_user_edits"
+          ? "Vorblatt/Begründung mit bearbeiteten EA-Werten exportiert."
+          : "Vorblatt/Begründung exportiert."
+      );
+    } catch (error) {
+      logClientError("SessionMenu.downloadComplianceExport.retry", error, {
+        appSessionId: exportSessionId,
+      });
+      setStatus("Vorblatt/Begründung-Export fehlgeschlagen.");
+    } finally {
+      setIsDownloadingComplianceExport(false);
+      setIsComplianceExportRunning(false);
     }
   };
 
@@ -831,6 +957,47 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         >
           Sessiongraph exportieren (Mermaid)
         </button>
+        <button
+          onClick={handleDownloadComplianceExport}
+          disabled={
+            isDownloadingComplianceExport ||
+            isRunningAll ||
+            !state.totalCostReady
+          }
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          {isDownloadingComplianceExport
+            ? "Vorblatt/Begründung wird geladen..."
+            : "Vorblatt/Begründung exportieren"}
+        </button>
+        {isComplianceEditChoiceVisible && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+            <div className="font-semibold">
+              Bearbeitete EA-Werte vorhanden.
+            </div>
+            <div className="mt-1 text-amber-800">
+              Der Export verwendet immer den aktuell sichtbaren EA-Stand. Wenn du Modellwerte exportieren möchtest, setze die EA-Werte zuerst in „EA bearbeiten“ zurück.
+            </div>
+            <div className="mt-2 space-y-1">
+              <button
+                type="button"
+                onClick={() => handleComplianceEditChoice("use_user_edits")}
+                disabled={isDownloadingComplianceExport}
+                className="w-full rounded-lg bg-amber-900 px-2 py-1.5 text-left font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Bearbeitete EA-Werte verwenden
+              </button>
+              <button
+                type="button"
+                onClick={() => handleComplianceEditChoice(null)}
+                disabled={isDownloadingComplianceExport}
+                className="w-full rounded-lg px-2 py-1.5 text-left font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <div className="mt-4">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
@@ -851,9 +1018,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         <div className="mt-2 flex justify-end">
           <button
             onClick={handleLoadSession}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white"
+            disabled={!hasPendingSessionSwitch}
+            className={`rounded-xl px-4 py-2 text-xs font-semibold transition ${
+              hasPendingSessionSwitch
+                ? "bg-slate-900 text-white hover:bg-slate-800"
+                : "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
+            }`}
           >
-            Wechseln
+            {hasPendingSessionSwitch ? "Session wechseln" : "Aktuelle Session"}
           </button>
         </div>
       </div>

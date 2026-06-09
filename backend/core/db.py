@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Iterable, List
 
 from .config import settings
@@ -729,6 +730,106 @@ def _create_session_total_costs_by_addressee_table(
     )
 
 
+def _create_compliance_text_examples_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "compliance_text_examples",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            example_id      INTEGER PRIMARY KEY,
+            slug            TEXT NOT NULL UNIQUE,
+            title           TEXT NOT NULL,
+            body_md         TEXT NOT NULL,
+            sort_order      INTEGER NOT NULL DEFAULT 0,
+            source_path     TEXT,
+            created_at      TEXT NOT NULL DEFAULT current_timestamp,
+            updated_at      TEXT NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
+
+
+def _create_compliance_text_exports_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "compliance_text_exports",
+) -> None:
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            export_id              INTEGER PRIMARY KEY,
+            session_id             INTEGER NOT NULL,
+            llm_answer_id          INTEGER,
+            status                 TEXT NOT NULL,
+            model                  TEXT,
+            provider               TEXT,
+            prompt_text            TEXT,
+            generated_markdown     TEXT NOT NULL,
+            source_snapshot_json   JSON NOT NULL,
+            source_snapshot_sha256 TEXT NOT NULL,
+            used_deep_research     INTEGER NOT NULL DEFAULT 0,
+            deep_research_run_id   INTEGER,
+            used_user_edits        INTEGER NOT NULL DEFAULT 0,
+            user_edit_policy       TEXT NOT NULL,
+            metadata_json          JSON,
+            input_tokens           INTEGER,
+            output_tokens          INTEGER,
+            hidden_thinking_tokens INTEGER,
+            estimated_cost_usd     REAL,
+            created_at             TEXT NOT NULL DEFAULT current_timestamp,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (llm_answer_id)
+            REFERENCES llm_answers (answer_id)
+                ON UPDATE SET NULL
+                ON DELETE SET NULL
+        )
+        """
+    )
+    cur.execute(
+        f"""
+        CREATE INDEX IF NOT EXISTS idx_{table_name}_session_snapshot_policy
+        ON {table_name}(session_id, source_snapshot_sha256, user_edit_policy, export_id)
+        """
+    )
+
+
+def _slugify_compliance_example(filename: str) -> str:
+    stem = Path(filename).stem.lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", stem).strip("_")
+    return slug or "example"
+
+
+def _seed_compliance_text_examples(cur: sqlite3.Cursor) -> None:
+    cur.execute("SELECT COUNT(*) AS count FROM compliance_text_examples")
+    if int(cur.fetchone()["count"]) > 0:
+        return
+    examples_dir = Path(__file__).resolve().parents[2] / "resources" / "compliance_text_examples"
+    if not examples_dir.exists():
+        return
+    markdown_files = sorted(path for path in examples_dir.iterdir() if path.suffix.lower() == ".md")
+    for index, path in enumerate(markdown_files[:3], start=1):
+        body_md = path.read_text(encoding="utf-8")
+        slug = _slugify_compliance_example(path.name)
+        title = path.stem.replace("_", " ").replace("-", " ").strip() or f"Beispiel {index}"
+        source_path = str(path.relative_to(Path(__file__).resolve().parents[2]))
+        cur.execute(
+            """
+            INSERT INTO compliance_text_examples (
+                slug,
+                title,
+                body_md,
+                sort_order,
+                source_path
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (slug, title, body_md, index, source_path),
+        )
+
+
 def _create_session_pay_rate_overrides_by_addressee_table(
     cur: sqlite3.Cursor,
     table_name: str = "session_pay_rate_overrides_by_addressee",
@@ -1267,6 +1368,9 @@ def init_db() -> None:
     )
     _create_session_total_costs_by_addressee_table(cur)
     _create_session_pay_rate_overrides_by_addressee_table(cur)
+    _create_compliance_text_examples_table(cur)
+    _create_compliance_text_exports_table(cur)
+    _seed_compliance_text_examples(cur)
     _create_deep_research_runs_table(cur)
     _create_session_scoped_tile_tables(cur)
     cur.execute(
@@ -1963,6 +2067,125 @@ def get_latest_deep_research_run(
 def get_latest_deep_research_run_status(session_id: int, purpose: str) -> str:
     run = get_latest_deep_research_run(session_id, purpose)
     return str(run.get("status") or "idle") if run else "idle"
+
+
+def list_compliance_text_examples(limit: int = 3) -> list[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    _create_compliance_text_examples_table(cur)
+    cur.execute(
+        """
+        SELECT example_id, slug, title, body_md, sort_order, source_path, updated_at
+        FROM compliance_text_examples
+        ORDER BY sort_order, example_id
+        LIMIT ?
+        """,
+        (max(1, min(limit, 20)),),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
+def get_latest_compliance_text_export(
+    session_id: int,
+    source_snapshot_sha256: str,
+    user_edit_policy: str,
+) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    _create_compliance_text_exports_table(cur)
+    cur.execute(
+        """
+        SELECT *
+        FROM compliance_text_exports
+        WHERE session_id = ?
+          AND source_snapshot_sha256 = ?
+          AND user_edit_policy = ?
+          AND status = 'succeeded'
+        ORDER BY export_id DESC
+        LIMIT 1
+        """,
+        (session_id, source_snapshot_sha256, user_edit_policy),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return dict(row) if row else None
+
+
+def insert_compliance_text_export(
+    *,
+    session_id: int,
+    llm_answer_id: int | None,
+    status: str,
+    model: str | None,
+    provider: str | None,
+    prompt_text: str | None,
+    generated_markdown: str,
+    source_snapshot_json: dict | list,
+    source_snapshot_sha256: str,
+    used_deep_research: bool,
+    deep_research_run_id: int | None,
+    used_user_edits: bool,
+    user_edit_policy: str,
+    metadata_json: dict | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    hidden_thinking_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    _create_compliance_text_exports_table(cur)
+    cur.execute(
+        """
+        INSERT INTO compliance_text_exports (
+            session_id,
+            llm_answer_id,
+            status,
+            model,
+            provider,
+            prompt_text,
+            generated_markdown,
+            source_snapshot_json,
+            source_snapshot_sha256,
+            used_deep_research,
+            deep_research_run_id,
+            used_user_edits,
+            user_edit_policy,
+            metadata_json,
+            input_tokens,
+            output_tokens,
+            hidden_thinking_tokens,
+            estimated_cost_usd
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            session_id,
+            llm_answer_id,
+            status,
+            model,
+            provider,
+            prompt_text,
+            generated_markdown,
+            json.dumps(source_snapshot_json, ensure_ascii=False),
+            source_snapshot_sha256,
+            int(bool(used_deep_research)),
+            deep_research_run_id,
+            int(bool(used_user_edits)),
+            user_edit_policy,
+            json.dumps(metadata_json, ensure_ascii=False) if metadata_json is not None else None,
+            input_tokens,
+            output_tokens,
+            hidden_thinking_tokens,
+            estimated_cost_usd,
+        ),
+    )
+    export_id = int(cur.lastrowid)
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return export_id
 
 
 def get_latest_deep_research_run_elapsed_seconds(
@@ -3539,6 +3762,67 @@ def update_session_pay_rate_edits_for_addressee(
     _maybe_commit(conn)
     _maybe_close(conn)
     return True
+
+
+def reset_all_ea_edit_overrides(session_id: int) -> dict[str, int]:
+    """Clear user EA overrides without deleting generated model values."""
+    with transaction():
+        case_rows = [
+            {
+                "case_group_id": row["case_group_id"],
+                "addressees_current": None,
+                "annual_frequency_current": None,
+                "addressees_proposed": None,
+                "annual_frequency_proposed": None,
+            }
+            for row in list_editable_case_groups(session_id)
+        ]
+        process_step_rows = [
+            {
+                "step_id": row["step_id"],
+                "time_required_in_min_a_current": None,
+                "time_required_in_min_b_current": None,
+                "time_required_in_min_c_current": None,
+                "time_required_in_min_d_current": None,
+                "expenses_current": None,
+                "time_required_in_min_a_proposed": None,
+                "time_required_in_min_b_proposed": None,
+                "time_required_in_min_c_proposed": None,
+                "time_required_in_min_d_proposed": None,
+                "expenses_proposed": None,
+            }
+            for row in list_editable_process_steps(session_id)
+        ]
+
+        updated_case_groups, _missing_case_groups = bulk_update_case_group_edits(
+            session_id,
+            case_rows,
+        )
+        updated_process_steps, _missing_process_steps = bulk_update_process_step_edits(
+            session_id,
+            process_step_rows,
+        )
+
+        updated_pay_rates = 0
+        for norm_addressee in (ADMINISTRATION, BUSINESS):
+            pay_rates = get_session_pay_rates_for_addressee(session_id, norm_addressee)
+            if not pay_rates or not any(
+                pay_rates["edited"].get(key) is not None for key in PAY_RATE_KEYS
+            ):
+                continue
+            if update_session_pay_rate_edits_for_addressee(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                administration_level=pay_rates.get("administration_level"),
+                edited=_empty_pay_rate_edits(),
+            ):
+                updated_pay_rates += 1
+
+        return {
+            "pay_rates": updated_pay_rates,
+            "case_groups": updated_case_groups,
+            "process_steps": updated_process_steps,
+        }
 
 
 # --- Edit Metrics (delegated to backend.core.db_edit_metrics) ---

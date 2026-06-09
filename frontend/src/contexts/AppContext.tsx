@@ -76,6 +76,7 @@ interface AppState {
   totalCostReady: boolean;
   lastCompletedStep: string | null;
   lastCompletedLabel: string | null;
+  isComplianceExportRunning: boolean;
 }
 
 interface AppContextValue {
@@ -101,6 +102,7 @@ interface AppContextValue {
   setTotalCostReady: (ready: boolean) => void;
   setLastCompletedStep: (step: string | null) => void;
   setLastCompletedLabel: (label: string | null) => void;
+  setIsComplianceExportRunning: (running: boolean) => void;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -154,6 +156,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   >(createDefaultAddresseeReadiness);
   const [lastCompletedStep, setLastCompletedStep] = useState<string | null>(null);
   const [lastCompletedLabel, setLastCompletedLabel] = useState<string | null>(null);
+  const [isComplianceExportRunning, setIsComplianceExportRunning] = useState(false);
   const appSessionIdAttempts = useRef(0);
   const readinessSetters = useMemo<
     Record<ReadinessStorageKey, (value: boolean) => void>
@@ -554,6 +557,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           totalCostReady,
           lastCompletedStep,
           lastCompletedLabel,
+          isComplianceExportRunning,
         },
         setCurrentTab,
         setAppSessionId,
@@ -674,6 +678,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ),
         setLastCompletedStep,
         setLastCompletedLabel,
+        setIsComplianceExportRunning,
       }}
     >
       {children}

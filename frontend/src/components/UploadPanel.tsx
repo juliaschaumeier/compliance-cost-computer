@@ -127,6 +127,12 @@ export default function UploadPanel() {
     loadRegulations();
   }, [loadRegulations]);
 
+  useEffect(() => {
+    setStatus(null);
+    setShowLists({ current: false, proposed: false });
+    setIsDragging({ current: false, proposed: false });
+  }, [state.appSessionId]);
+
   const handleFileSelection = (target: UploadTarget, file: File | null) => {
     setStatus(null);
     setSummaryReady(false);
@@ -151,6 +157,15 @@ export default function UploadPanel() {
 
   const handleDrop = (target: UploadTarget, file: File | null) => {
     handleFileSelection(target, file);
+  };
+
+  const updatePendingUploadName = (target: UploadTarget, value: string) => {
+    setStatus(null);
+    if (target === "current") {
+      setPendingCurrentUploadName(value);
+    } else {
+      setPendingProposedUploadName(value);
+    }
   };
 
   const hasProposed = Boolean(
@@ -309,7 +324,7 @@ export default function UploadPanel() {
                 <input
                   value={state.pendingCurrentUploadName}
                   onChange={(event) =>
-                    setPendingCurrentUploadName(event.target.value)
+                    updatePendingUploadName("current", event.target.value)
                   }
                   className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
                   placeholder="Neuer Dateiname"
@@ -409,7 +424,7 @@ export default function UploadPanel() {
                 <input
                   value={state.pendingProposedUploadName}
                   onChange={(event) =>
-                    setPendingProposedUploadName(event.target.value)
+                    updatePendingUploadName("proposed", event.target.value)
                   }
                   className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs"
                   placeholder="Neuer Dateiname"

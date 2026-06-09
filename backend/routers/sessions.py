@@ -17,6 +17,12 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
+from backend.core.compliance_text_export import (
+    USER_EDIT_REJECT,
+    USER_EDIT_USE,
+    build_compliance_export_context,
+    normalize_user_edit_policy,
+)
 from backend.core import db, llm_monitor, llm_trace
 from backend.core.config import settings
 from backend.core.deep_research_cases import (
@@ -25,15 +31,22 @@ from backend.core.deep_research_cases import (
 )
 from backend.core.deep_research_cases_prompt import build_deep_research_cases_prompt
 from backend.core.deep_research_service import DeepResearchError, run_deep_research
+from backend.core.llm_attempts import mark_llm_answer_applied
+from backend.core.llm_service import query_llm
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.core.prompts import PromptId, render_prompt
 from backend.core.request_context import get_request_context
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
     undo_step,
 )
-from backend.routers._llm_router_utils import ensure_session_or_400
+from backend.routers._llm_router_utils import (
+    ensure_session_or_400,
+    query_and_stage_or_http,
+    run_with_answer_apply_guard,
+)
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
@@ -141,6 +154,16 @@ class SessionEditAuditResponse(BaseModel):
     rows: list[SessionEditAuditRow]
 
 
+class SessionEaEditResetRequest(BaseModel):
+    app_session_id: AppSessionId
+
+
+class SessionEaEditResetResponse(BaseModel):
+    app_session_id: str
+    reset_counts: dict[str, int]
+    recomputed_norm_addressees: list[str]
+
+
 class CaseGroupResearchSettingsRequest(BaseModel):
     app_session_id: AppSessionId
     enabled: bool
@@ -157,6 +180,16 @@ class CaseGroupResearchSettingsResponse(BaseModel):
 class SessionExportResponse(BaseModel):
     filename: str
     markdown: str
+
+
+class ComplianceTextExportRequest(BaseModel):
+    app_session_id: AppSessionId
+    model: str | None = None
+    provider: str | None = None
+    user_edit_policy: Literal[
+        "reject_if_user_edits",
+        "use_user_edits",
+    ] = USER_EDIT_REJECT
 
 
 class SessionUndoResponse(BaseModel):
@@ -1114,6 +1147,34 @@ async def session_edit_audit(
     return SessionEditAuditResponse(app_session_id=app_session_id, rows=rows)
 
 
+@router.post("/ea-edits/reset", response_model=SessionEaEditResetResponse)
+async def reset_session_ea_edits(
+    payload: SessionEaEditResetRequest,
+) -> SessionEaEditResetResponse:
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    status = db.get_session_status(payload.app_session_id) or {}
+    ready_by_addressee = status.get("total_cost_ready_by_addressee")
+    if not isinstance(ready_by_addressee, dict):
+        ready_by_addressee = {}
+    reset_counts = db.reset_all_ea_edit_overrides(session_id)
+    recomputed: list[str] = []
+    for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+        if not bool(ready_by_addressee.get(norm_addressee)):
+            continue
+        costs_router.compute_total_cost_for_session(
+            app_session_id=payload.app_session_id,
+            norm_addressee=norm_addressee,
+        )
+        recomputed.append(norm_addressee)
+    return SessionEaEditResetResponse(
+        app_session_id=payload.app_session_id,
+        reset_counts=reset_counts,
+        recomputed_norm_addressees=recomputed,
+    )
+
+
 def _research_settings_response(app_session_id: str) -> CaseGroupResearchSettingsResponse:
     session = db.get_session_by_app_id(app_session_id)
     if not session:
@@ -1238,6 +1299,225 @@ async def export_session(
     return SessionExportResponse(filename=filename, markdown=markdown)
 
 
+def _compliance_export_filename(app_session_id: str, user_edit_policy: str) -> str:
+    suffix = ""
+    if user_edit_policy == USER_EDIT_USE:
+        suffix = "_ea_bearbeitet"
+    return f"ccc_vorblatt_begruendung_{app_session_id}{suffix}.pdf"
+
+
+def _compliance_metadata_for_pdf(
+    *,
+    app_session_id: str,
+    model: str | None,
+    provider: str | None,
+    source_snapshot_sha256: str,
+    used_deep_research: bool,
+    deep_research_excerpt_status: str | None,
+    has_user_edits: bool,
+    used_user_edits: bool,
+    reused: bool,
+    created_at: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    hidden_thinking_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+) -> dict[str, object]:
+    if not has_user_edits:
+        user_edit_status = "Keine bearbeiteten EA-Werte im Quellstand."
+    elif used_user_edits:
+        user_edit_status = "Beteiligte EA-Werte wurden mit Anwenderbearbeitungen exportiert."
+    else:
+        user_edit_status = "Anwenderbearbeitungen waren vorhanden."
+    if used_deep_research:
+        dr_status = (
+            "Verwendet"
+            if deep_research_excerpt_status == "extracted"
+            else "Verwendet; Berichtsteile 1/2 konnten nicht extrahiert werden"
+        )
+    else:
+        dr_status = "Nicht verwendet"
+    return {
+        "app_session_id": app_session_id,
+        "generated_at": created_at or datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "model": model,
+        "provider": provider,
+        "reuse_status": "gespeicherter Export wiederverwendet" if reused else "neu generiert",
+        "deep_research_status": dr_status,
+        "user_edit_status": user_edit_status,
+        "source_snapshot_sha256": source_snapshot_sha256[:12],
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "hidden_thinking_tokens": hidden_thinking_tokens,
+        "estimated_cost_usd": estimated_cost_usd,
+    }
+
+
+@router.post("/compliance-text-export")
+async def export_compliance_text(
+    payload: ComplianceTextExportRequest,
+    api_keys: ApiKeys = Depends(get_api_keys),
+) -> Response:
+    session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
+    status = db.get_session_status(payload.app_session_id)
+    if not status or not bool(status.get("total_cost_ready")):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "session_not_complete",
+                "message": "Vorblatt/Begründung export requires a completed session.",
+            },
+        )
+    user_edit_policy = normalize_user_edit_policy(payload.user_edit_policy)
+    context = build_compliance_export_context(
+        app_session_id=payload.app_session_id,
+        session_id=session_id,
+        user_edit_policy=user_edit_policy,
+    )
+    if context.has_user_edits and user_edit_policy == USER_EDIT_REJECT:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "user_edits_present",
+                "message": "EA values have been edited by the user.",
+                "options": [USER_EDIT_USE],
+            },
+        )
+    cached = db.get_latest_compliance_text_export(
+        session_id,
+        context.snapshot_sha256,
+        user_edit_policy,
+    )
+    if cached:
+        metadata_raw = cached.get("metadata_json")
+        try:
+            stored_metadata = json.loads(metadata_raw) if metadata_raw else {}
+        except (TypeError, json.JSONDecodeError):
+            stored_metadata = {}
+        if not isinstance(stored_metadata, dict):
+            stored_metadata = {}
+        pdf_metadata = _compliance_metadata_for_pdf(
+            app_session_id=payload.app_session_id,
+            model=cached.get("model"),
+            provider=cached.get("provider"),
+            source_snapshot_sha256=str(cached["source_snapshot_sha256"]),
+            used_deep_research=bool(cached.get("used_deep_research")),
+            deep_research_excerpt_status=stored_metadata.get(
+                "deep_research_report_excerpt_status"
+            ),
+            has_user_edits=bool(stored_metadata.get("has_user_edits")),
+            used_user_edits=bool(cached.get("used_user_edits")),
+            reused=True,
+            created_at=cached.get("created_at"),
+            input_tokens=cached.get("input_tokens"),
+            output_tokens=cached.get("output_tokens"),
+            hidden_thinking_tokens=cached.get("hidden_thinking_tokens"),
+            estimated_cost_usd=cached.get("estimated_cost_usd"),
+        )
+        pdf = _render_research_report_pdf(
+            str(cached["generated_markdown"]),
+            f"Vorblatt/Begründung {payload.app_session_id}",
+            metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
+        )
+        filename = _compliance_export_filename(payload.app_session_id, user_edit_policy)
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    example_values = {
+        f"beispiel_{index}": str(example.get("body_md") or "")
+        for index, example in enumerate(context.examples, start=1)
+    }
+    for index in range(len(context.examples) + 1, 4):
+        example_values[f"beispiel_{index}"] = ""
+    prompt = render_prompt(
+        PromptId.COMPLIANCE_TEXT_EXTRACTION,
+        session_id=session_id,
+        consolidated_session_json=json.dumps(
+            context.snapshot,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        optional_deep_research_part_1_2=context.optional_deep_research_part_1_2,
+        **example_values,
+    )
+    answer_id, llm_result = await query_and_stage_or_http(
+        session_id=session_id,
+        prompt_id=PromptId.COMPLIANCE_TEXT_EXTRACTION,
+        prompt=prompt,
+        api_keys=api_keys,
+        model=model,
+        provider=payload.provider,
+        query_fn=query_llm,
+    )
+    metadata = {
+        **context.metadata,
+        "model": model,
+        "provider": payload.provider,
+    }
+
+    def _apply_compliance_export() -> None:
+        with db.transaction():
+            db.insert_compliance_text_export(
+                session_id=session_id,
+                llm_answer_id=answer_id,
+                status="succeeded",
+                model=model,
+                provider=payload.provider,
+                prompt_text=prompt,
+                generated_markdown=llm_result.text,
+                source_snapshot_json=context.snapshot,
+                source_snapshot_sha256=context.snapshot_sha256,
+                used_deep_research=context.used_deep_research,
+                deep_research_run_id=context.deep_research_run_id,
+                used_user_edits=context.used_user_edits,
+                user_edit_policy=user_edit_policy,
+                metadata_json=metadata,
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                hidden_thinking_tokens=llm_result.hidden_thinking_tokens,
+                estimated_cost_usd=llm_result.estimated_cost_usd,
+            )
+            mark_llm_answer_applied(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.COMPLIANCE_TEXT_EXTRACTION,
+            )
+
+    run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply_compliance_export)
+    pdf_metadata = _compliance_metadata_for_pdf(
+        app_session_id=payload.app_session_id,
+        model=model,
+        provider=payload.provider,
+        source_snapshot_sha256=context.snapshot_sha256,
+        used_deep_research=context.used_deep_research,
+        deep_research_excerpt_status=context.deep_research_excerpt_status,
+        has_user_edits=context.has_user_edits,
+        used_user_edits=context.used_user_edits,
+        reused=False,
+        input_tokens=llm_result.input_tokens,
+        output_tokens=llm_result.output_tokens,
+        hidden_thinking_tokens=llm_result.hidden_thinking_tokens,
+        estimated_cost_usd=llm_result.estimated_cost_usd,
+    )
+    pdf = _render_research_report_pdf(
+        llm_result.text,
+        f"Vorblatt/Begründung {payload.app_session_id}",
+        metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
+    )
+    filename = _compliance_export_filename(payload.app_session_id, user_edit_policy)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _split_pipe_table_row(line: str) -> list[str]:
     stripped = line.strip()
     if stripped.startswith("|"):
@@ -1298,6 +1578,17 @@ def _parse_pipe_table(block: str) -> list[list[str]] | None:
     return rows
 
 
+def _should_render_research_pdf_bold(escaped_text: str) -> bool:
+    plain_text = html.unescape(escaped_text).strip()
+    if not plain_text:
+        return False
+    if len(plain_text) > 70:
+        return False
+    if plain_text.lower().startswith("fallgruppe") and len(plain_text) > 40:
+        return False
+    return True
+
+
 def _research_pdf_inline_markup(text: str) -> str:
     escaped = html.escape(text).replace("\n", "<br/>")
     parts = escaped.split("**")
@@ -1306,11 +1597,30 @@ def _research_pdf_inline_markup(text: str) -> str:
     rendered: list[str] = []
     for index, part in enumerate(parts):
         linked_part = _linkify_research_pdf_urls(part)
-        if index % 2 == 1 and part:
+        if index % 2 == 1 and _should_render_research_pdf_bold(part):
             rendered.append(f"<b>{linked_part}</b>")
         else:
             rendered.append(linked_part)
     return "".join(rendered)
+
+
+def _is_research_pdf_heading(text: str) -> bool:
+    heading = text.lstrip("#").strip()
+    if not heading:
+        return False
+    if "\n" in heading:
+        return False
+    if re.match(r"^\d+\.\s+", heading):
+        return False
+    if len(heading) > 85:
+        return False
+    if heading.count(".") > 1 and len(heading) > 60:
+        return False
+    return True
+
+
+def _strip_markdown_heading_prefix(text: str) -> str:
+    return re.sub(r"^#{1,6}\s*", "", text, count=1).strip()
 
 
 def _linkify_research_pdf_urls(escaped_text: str) -> str:
@@ -1365,10 +1675,56 @@ def _format_research_report_metadata_lines(metadata: dict[str, object]) -> list[
     return lines
 
 
+def _format_compliance_export_metadata_lines(metadata: dict[str, object]) -> list[str]:
+    lines = [
+        "<b>Hinweis:</b> Dieser Vorblatt-/Begruendungsentwurf wurde KI-gestuetzt "
+        "erzeugt und muss vor einer offiziellen Verwendung fachlich und rechtlich "
+        "geprueft werden.",
+        "<b>Analyseumfang:</b> Die Darstellung umfasst ausschliesslich jaehrlichen "
+        "Erfuellungsaufwand. Einmaliger Erfuellungsaufwand ist nicht Gegenstand "
+        "dieser Analyse.",
+        "<b>Verwaltung:</b> Fuer die Verwaltung werden ausschliesslich Effekte auf "
+        "die Bundesverwaltung dargestellt; Laender und Kommunen sind nicht "
+        "Gegenstand dieser Analyse.",
+    ]
+    for label, value in (
+        ("Session", metadata.get("app_session_id")),
+        ("Erstellt", metadata.get("generated_at")),
+        ("Modell", metadata.get("model")),
+        ("Provider", metadata.get("provider")),
+        ("Export", metadata.get("reuse_status")),
+        ("Deep Research", metadata.get("deep_research_status")),
+        ("EA-Werte", metadata.get("user_edit_status")),
+        ("Quellstand", metadata.get("source_snapshot_sha256")),
+    ):
+        if value:
+            lines.append(f"<b>{label}:</b> {html.escape(str(value))}")
+    token_parts = [
+        f"in {metadata.get('input_tokens')}" if metadata.get("input_tokens") is not None else None,
+        f"out {metadata.get('output_tokens')}" if metadata.get("output_tokens") is not None else None,
+        (
+            f"thinking {metadata.get('hidden_thinking_tokens')}"
+            if metadata.get("hidden_thinking_tokens") is not None
+            else None
+        ),
+    ]
+    tokens = " / ".join(part for part in token_parts if part)
+    if tokens:
+        lines.append(f"<b>Token:</b> {html.escape(tokens)}")
+    cost = metadata.get("estimated_cost_usd")
+    if cost is not None:
+        try:
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> ${float(cost):.4f}")
+        except (TypeError, ValueError):
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> {html.escape(str(cost))}")
+    return lines
+
+
 def _render_research_report_pdf(
     report_md: str,
     title: str,
     metadata: dict[str, object] | None = None,
+    metadata_lines: list[str] | None = None,
 ) -> bytes:
     try:
         from reportlab.lib import colors
@@ -1403,10 +1759,14 @@ def _render_research_report_pdf(
     )
     available_width = A4[0] - doc.leftMargin - doc.rightMargin
     story = [Paragraph(html.escape(title), styles["Title"]), Spacer(1, 12)]
-    if metadata:
-        metadata_lines = _format_research_report_metadata_lines(metadata)
+    if metadata or metadata_lines:
+        rendered_metadata_lines = (
+            metadata_lines
+            if metadata_lines is not None
+            else _format_research_report_metadata_lines(metadata or {})
+        )
         metadata_box = Table(
-            [[Paragraph("<br/>".join(metadata_lines), styles["BodyText"])]],
+            [[Paragraph("<br/>".join(rendered_metadata_lines), styles["BodyText"])]],
             colWidths=[available_width],
         )
         metadata_box.setStyle(
@@ -1426,7 +1786,7 @@ def _render_research_report_pdf(
         text = block.strip()
         if not text:
             continue
-        if text.startswith("#"):
+        if text.startswith("#") and _is_research_pdf_heading(text):
             heading = text.lstrip("#").strip()
             story.append(Paragraph(html.escape(heading), styles["Heading2"]))
         elif table_rows := _parse_pipe_table(text):
@@ -1458,7 +1818,12 @@ def _render_research_report_pdf(
             )
             story.append(table)
         else:
-            story.append(Paragraph(_research_pdf_inline_markup(text), styles["BodyText"]))
+            story.append(
+                Paragraph(
+                    _research_pdf_inline_markup(_strip_markdown_heading_prefix(text)),
+                    styles["BodyText"],
+                )
+            )
         story.append(Spacer(1, 8))
     try:
         def add_page_number(canvas, document) -> None:

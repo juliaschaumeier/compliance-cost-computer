@@ -40,6 +40,42 @@ def test_research_pdf_inline_markup_renders_bold_and_escapes_text():
     assert rendered.endswith("</link>.")
 
 
+def test_research_pdf_inline_markup_deemphasizes_long_fallgruppe_bold_text():
+    rendered = sessions_router._research_pdf_inline_markup(
+        "**Fallgruppe 1 Unternehmen mit besonders langen Melde- und Nachweispflichten**"
+    )
+
+    assert "<b>" not in rendered
+    assert "Fallgruppe 1 Unternehmen" in rendered
+
+
+def test_research_pdf_heading_detection_rejects_long_heading_like_paragraphs():
+    assert sessions_router._is_research_pdf_heading("# E. Erfüllungsaufwand") is True
+    assert (
+        sessions_router._is_research_pdf_heading(
+            "### 1. Erstanerkennungsverfahren (Fallgruppe 1)"
+        )
+        is False
+    )
+    assert (
+        sessions_router._is_research_pdf_heading(
+            "### Vorgabe 1: Sehr lange Beschreibung der Fallgruppe mit mehreren "
+            "Detailangaben zu Antragsverfahren, Nachweisen, Prüfungen und "
+            "organisatorischen Sonderfällen"
+        )
+        is False
+    )
+
+
+def test_strip_markdown_heading_prefix_for_demoted_body_text():
+    assert (
+        sessions_router._strip_markdown_heading_prefix(
+            "### 1. Erstanerkennungsverfahren (Fallgruppe 1) Die erstmalige Prüfung"
+        )
+        == "1. Erstanerkennungsverfahren (Fallgruppe 1) Die erstmalige Prüfung"
+    )
+
+
 def test_format_research_report_metadata_lines_includes_disclaimer_and_cost():
     lines = sessions_router._format_research_report_metadata_lines(
         {
@@ -61,6 +97,26 @@ def test_format_research_report_metadata_lines_includes_disclaimer_and_cost():
     assert "deep-research-preview-04-2026" in joined
     assert "in 100 / out 200 / thinking 30 / total 330" in joined
     assert "$0.0042" in joined
+
+
+def test_format_compliance_export_metadata_lines_includes_scope_disclaimer():
+    lines = sessions_router._format_compliance_export_metadata_lines(
+        {
+            "app_session_id": "COMP-REPORT",
+            "generated_at": "2026-06-01 12:00",
+            "model": "test-model",
+            "provider": "openai",
+            "reuse_status": "neu generiert",
+            "deep_research_status": "Nicht verwendet",
+            "user_edit_status": "Keine bearbeiteten EA-Werte im Quellstand.",
+            "source_snapshot_sha256": "abcdef123456",
+        }
+    )
+
+    joined = "\n".join(lines)
+    assert "jaehrlichen Erfuellungsaufwand" in joined
+    assert "Einmaliger Erfuellungsaufwand ist nicht Gegenstand" in joined
+    assert "Laender und Kommunen sind nicht Gegenstand" in joined
 
 
 def test_case_group_research_toggle_locks_after_run_started(test_client):
