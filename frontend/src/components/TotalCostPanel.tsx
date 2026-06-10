@@ -121,8 +121,8 @@ export default function TotalCostPanel() {
   return (
     <section className="w-full border-b border-white/60 bg-white/80 px-6 py-4 backdrop-blur">
       <div className="mx-auto max-w-6xl space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <p className="text-xs text-slate-600">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+          <p className="text-xs leading-5 text-slate-600">
             Beim Klick auf „Gesamtkosten berechnen“ werden Schritt-, Fallgruppen-
             und Prozesskosten in einem Durchgang für Verwaltung, Wirtschaft und
             Bürger berechnet, dabei aber je Normadressat eigene Kostensichten
@@ -131,7 +131,7 @@ export default function TotalCostPanel() {
           <button
             onClick={handleCompute}
             disabled={!canRun}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+            className={`justify-self-start whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition sm:justify-self-end ${
               canRun
                 ? "bg-slate-900 text-white"
                 : "cursor-not-allowed bg-slate-200 text-slate-500"

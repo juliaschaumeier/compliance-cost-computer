@@ -362,6 +362,54 @@ async def query_and_stage_llm_answer(
                 **query_kwargs,
             )
         )
+    except asyncio.CancelledError:
+        failure_elapsed_ms = int((time.perf_counter() - started) * 1000)
+        exc = LlmQueryError(
+            provider=provider or "unknown",
+            model=model,
+            reason="cancelled",
+            message="LLM query was cancelled before completion",
+        )
+        llm_trace.record_failure(
+            prompt_id=prompt_id,
+            model=model,
+            provider=provider,
+            attempt_id=attempt_id,
+            prompt=prompt,
+            exc=exc,
+            elapsed_ms=failure_elapsed_ms,
+        )
+        mark_llm_query_failed(
+            session_id=session_id,
+            prompt_id=prompt_id,
+            model=model,
+            provider=provider,
+            prompt=prompt,
+            exc=exc,
+            elapsed_ms=failure_elapsed_ms,
+            attempt_id=attempt_id,
+            request_context=request_ctx,
+            norm_addressee=norm_addressee,
+        )
+        await _publish_monitor_event(
+            app_session_id=app_session_id,
+            event={
+                "event_type": "llm_query_failed",
+                "attempt_id": attempt_id,
+                "session_id": session_id,
+                "prompt_id": prompt_id,
+                "model": model,
+                "provider": provider,
+                "request_id": request_ctx.get("request_id"),
+                "route_method": request_ctx.get("route_method"),
+                "route_path": request_ctx.get("route_path"),
+                "elapsed_ms": failure_elapsed_ms,
+                "error": str(exc),
+                "error_kind": exc.reason,
+                "error_status_code": exc.status_code,
+            },
+        )
+        raise
     except Exception as exc:
         failure_elapsed_ms = int((time.perf_counter() - started) * 1000)
         llm_trace.record_failure(
@@ -480,15 +528,34 @@ async def query_and_stage_llm_answers_parallel(
     pending_answer_ids: dict[str, int] = {}
     query_results: dict[str, LlmResult] = {}
     query_errors: list[str] = []
-    for task in asyncio.as_completed(tasks):
-        spec, answer_id, result, query_error = await task
-        if query_error is not None:
-            query_errors.append(f"{spec.query_label} query failed: {query_error}")
-            continue
-        assert answer_id is not None
-        assert result is not None
-        pending_answer_ids[spec.prompt_id] = answer_id
-        query_results[spec.prompt_id] = result
+    try:
+        for task in asyncio.as_completed(tasks):
+            spec, answer_id, result, query_error = await task
+            if query_error is not None:
+                query_errors.append(f"{spec.query_label} query failed: {query_error}")
+                continue
+            assert answer_id is not None
+            assert result is not None
+            pending_answer_ids[spec.prompt_id] = answer_id
+            query_results[spec.prompt_id] = result
+    except asyncio.CancelledError:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        settled = await asyncio.gather(*tasks, return_exceptions=True)
+        for item in settled:
+            if not isinstance(item, tuple):
+                continue
+            spec, answer_id, _result, _query_error = item
+            if answer_id is None:
+                continue
+            pending_answer_ids[spec.prompt_id] = int(answer_id)
+        for answer_id in pending_answer_ids.values():
+            mark_llm_answer_apply_failed(
+                answer_id=answer_id,
+                exc=RuntimeError("Step execution was cancelled before applying LLM answer"),
+            )
+        raise
     return pending_answer_ids, query_results, query_errors
 
 

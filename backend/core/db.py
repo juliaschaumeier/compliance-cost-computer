@@ -2035,8 +2035,9 @@ def list_recent_deep_research_monitor_rows_for_session(
     for row in rows:
         status = str(row.get("status") or "")
         if status == "running":
-            continue
-        if status == "parsed":
+            answer_state = LLM_ANSWER_STATE_PENDING
+            state_reason = "querying"
+        elif status == "parsed":
             answer_state = LLM_ANSWER_STATE_ACTIVE
             state_reason = "session_updated"
         elif status == "completed":
@@ -2046,6 +2047,11 @@ def list_recent_deep_research_monitor_rows_for_session(
             answer_state = LLM_ANSWER_STATE_INVALID
             state_reason = status or "deep_research_failed"
         completed_at = row.get("parsed_at") or row.get("completed_at")
+        elapsed_ms = (
+            _elapsed_ms_between(row.get("started_at"), completed_at)
+            if completed_at
+            else None
+        )
         normalized.append(
             {
                 "answer_id": None,
@@ -2056,7 +2062,7 @@ def list_recent_deep_research_monitor_rows_for_session(
                 "request_id": None,
                 "route_method": None,
                 "route_path": None,
-                "elapsed_ms": _elapsed_ms_between(row.get("started_at"), completed_at),
+                "elapsed_ms": elapsed_ms,
                 "answer_state": answer_state,
                 "state_reason": state_reason,
                 "input_tokens": row.get("input_tokens"),
@@ -2177,13 +2183,22 @@ def get_session_status(app_session_id: str) -> dict | None:
         or session.get("current_law_id")
         or session.get("proposed_law_id")
     )
-    effort_ready_by_addressee = {
-        addressee: (
-            has_effort_metrics(session_id, addressee)
-            or (regulations_count > 0 and not regulations_present_by_addressee[addressee])
+    case_group_research_enabled = bool(session.get("case_group_research_enabled"))
+    case_group_research_status = get_latest_deep_research_run_status(
+        session_id,
+        "case_group_metrics",
+    )
+    case_group_research_ready = (
+        not case_group_research_enabled or case_group_research_status == "parsed"
+    )
+    effort_ready_by_addressee = {}
+    for addressee in ALL_NORM_ADDRESSEES:
+        addressee_is_skippable = (
+            regulations_count > 0 and not regulations_present_by_addressee[addressee]
         )
-        for addressee in ALL_NORM_ADDRESSEES
-    }
+        effort_ready_by_addressee[addressee] = addressee_is_skippable or (
+            has_effort_metrics(session_id, addressee) and case_group_research_ready
+        )
     total_cost_ready_by_addressee = {
         addressee: (
             has_total_cost_for_addressee(session_id, addressee)
@@ -2220,13 +2235,8 @@ def get_session_status(app_session_id: str) -> dict | None:
         ),
         "effort_ready_by_addressee": effort_ready_by_addressee,
         "total_cost_ready_by_addressee": total_cost_ready_by_addressee,
-        "case_group_research_enabled": bool(
-            session.get("case_group_research_enabled")
-        ),
-        "case_group_research_status": get_latest_deep_research_run_status(
-            session_id,
-            "case_group_metrics",
-        ),
+        "case_group_research_enabled": case_group_research_enabled,
+        "case_group_research_status": case_group_research_status,
         "case_group_research_elapsed_seconds": get_latest_deep_research_run_elapsed_seconds(
             session_id,
             "case_group_metrics",

@@ -406,6 +406,61 @@ export const apiClient = {
     }
     return response.json();
   },
+  async startStepRun(
+    options: {
+      appSessionId: string;
+      stepKey: string;
+      currentFilename?: string;
+      proposedFilename?: string;
+      model?: string;
+      provider?: string;
+      keys?: ApiKeys;
+    }
+  ): Promise<RunAllStartResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/step-runs/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...buildKeyHeaders(options.keys || {}),
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        step_key: options.stepKey,
+        current_filename: options.currentFilename,
+        proposed_filename: options.proposedFilename,
+        model: options.model,
+        provider: options.provider,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to start step");
+    }
+    return response.json();
+  },
+  async getStepRunStatus(runId: string): Promise<RunAllStatusResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load step status");
+    }
+    return response.json();
+  },
+  getStepRunEventsUrl(runId: string): string {
+    return `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}/events`;
+  },
+  async cancelStepRun(runId: string): Promise<RunAllCancelResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}/cancel`,
+      {
+        method: "POST",
+      }
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to cancel step");
+    }
+    return response.json();
+  },
   async getRunAllStatus(runId: string): Promise<RunAllStatusResponse> {
     const response = await fetch(
       `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}`

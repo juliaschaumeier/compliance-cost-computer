@@ -108,13 +108,7 @@ const APP_SESSION_STORAGE_KEY = "app_session_id";
 const LEGACY_SESSION_STORAGE_KEY = "session_id";
 const SELECTED_NORM_ADDRESSEE_STORAGE_KEY = "selected_norm_addressee";
 
-// Lazy-Initializer fuer selectedNormAddressee: liest den zuletzt gewaehlten
-// Adressaten aus SessionStorage, damit nach Reload keine Verwaltung-Flash
-// entsteht und die Anzeige konsistent mit dem vorherigen User-Zustand ist.
 function readStoredNormAddressee(): NormAddressee {
-  if (typeof window === "undefined") {
-    return "administration";
-  }
   try {
     const stored = sessionStorage.getItem(SELECTED_NORM_ADDRESSEE_STORAGE_KEY);
     if (stored === "administration" || stored === "business" || stored === "citizens") {
@@ -149,7 +143,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [appSessionId, setAppSessionIdState] = useState("");
   const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
   const [selectedNormAddressee, setSelectedNormAddresseeState] =
-    useState<NormAddressee>(readStoredNormAddressee);
+    useState<NormAddressee>("administration");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedModelHydrated, setSelectedModelHydrated] = useState(false);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
@@ -285,6 +279,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sessionStorage.setItem(APP_SESSION_STORAGE_KEY, appSessionId);
     sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
   }, [appSessionId, readinessSetters, logDebug]);
+
+  useEffect(() => {
+    const storedNormAddressee = readStoredNormAddressee();
+    if (storedNormAddressee !== selectedNormAddressee) {
+      setSelectedNormAddresseeState(storedNormAddressee);
+    }
+    // Only run after hydration. Reading sessionStorage in the state initializer
+    // makes the first client render differ from the server-rendered header.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     sessionStorage.setItem(

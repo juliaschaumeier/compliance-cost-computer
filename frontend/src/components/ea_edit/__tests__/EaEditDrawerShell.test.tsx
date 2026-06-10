@@ -102,6 +102,7 @@ describe("EaEditDrawerShell", () => {
     mockUseApp.mockReturnValue({
       state: {
         appSessionId: "EA-TEST",
+        selectedNormAddressee: "administration",
       },
     });
   });
@@ -209,7 +210,9 @@ describe("EaEditDrawerShell", () => {
 
     const overlay = document.querySelector("div.pointer-events-none.fixed.inset-0.z-\\[85\\]");
     expect(overlay).toBeTruthy();
-    const panel = screen.getByText("EA bearbeiten").closest("section");
+    const panel = screen
+      .getByText("Erfüllungsaufwand bearbeiten für Verwaltung")
+      .closest("section");
     expect(panel).toHaveClass("pointer-events-auto");
   });
 

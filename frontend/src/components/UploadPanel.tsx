@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
-import { apiClient } from "@/lib/api";
+import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
 import {
   formatSessionStartError,
   logSessionStartError,
-  prepareSessionDocumentsAndStartSummary,
+  prepareSessionDocuments,
 } from "@/lib/sessionStart";
 import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
+import { useCancellableStepRun } from "@/lib/useCancellableStepRun";
 
 type UploadTarget = "current" | "proposed";
 
@@ -38,9 +39,32 @@ export default function UploadPanel() {
     current: false,
     proposed: false,
   });
-  const [isSummarizing, setIsSummarizing] = useState(false);
   const isRunAllBusy = useRunAllStepBusy("summary");
-  const isBusy = isSummarizing || isRunAllBusy;
+  const llm = buildLlmRequestOptions({
+    selectedModel: state.selectedModel,
+    availableModels: state.availableModels,
+  });
+  const stepRun = useCancellableStepRun({
+    appSessionId: state.appSessionId,
+    stepKey: "summary",
+    stepLabel: "CCC starten",
+    model: llm.model,
+    provider: llm.provider,
+    keys: llm.keys,
+    logScope: "UploadPanel.startSummary",
+    onCompleted: () => {
+      window.dispatchEvent(new Event("tiles-updated"));
+      setSummaryReady(true);
+      setRegulationsReady(false);
+      setProcessesReady(false);
+      setCurrentTab(1);
+    },
+    onCancelled: () => {
+      window.dispatchEvent(new Event("tiles-updated"));
+      setSummaryReady(false);
+    },
+  });
+  const isBusy = stepRun.isRunning || isRunAllBusy;
 
   const pendingUploads = useMemo(
     () => ({
@@ -176,9 +200,8 @@ export default function UploadPanel() {
     }
     setStatus(null);
     setSummaryReady(false);
-    setIsSummarizing(true);
     try {
-      await prepareSessionDocumentsAndStartSummary({
+      const { currentFilename, proposedFilename } = await prepareSessionDocuments({
         appSessionId: state.appSessionId,
         selectedModel: state.selectedModel,
         availableModels: state.availableModels,
@@ -194,21 +217,43 @@ export default function UploadPanel() {
         setPendingCurrentUploadName,
         setPendingProposedUploadName,
         setAvailableRegulations,
-        setSummaryReady,
-        setRegulationsReady,
-        setProcessesReady,
-        setCurrentTab,
       });
+      await stepRun.start({ currentFilename, proposedFilename });
     } catch (error) {
       logSessionStartError("UploadPanel.handleStart", error, {
         appSessionId: state.appSessionId,
       });
       setStatus(formatSessionStartError(error));
       setSummaryReady(false);
-    } finally {
-      setIsSummarizing(false);
     }
   };
+
+  const handleStartButton = async () => {
+    if (stepRun.isRunning) {
+      await stepRun.cancel();
+      return;
+    }
+    await handleStart();
+  };
+
+  const startButtonLabel = stepRun.isRunning
+    ? stepRun.isCancelling
+      ? "Abbruch wird ausgeführt..."
+      : "Abbrechen"
+    : isRunAllBusy
+      ? "Abbrechen"
+      : "CCC starten";
+  const startButtonClass =
+    stepRun.isRunning || isRunAllBusy
+      ? stepRun.isCancelling
+        ? "cursor-not-allowed border border-rose-100 bg-rose-100 text-rose-400"
+        : "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+      : canStart
+        ? "bg-slate-900 text-white"
+        : "cursor-not-allowed bg-slate-200 text-slate-500";
+  const startButtonDisabled =
+    isRunAllBusy || stepRun.isCancelling || (!stepRun.isRunning && !canStart);
+  const visibleStepRunStatus = stepRun.isRunning ? null : stepRun.statusText;
 
   return (
     <section className="w-full border-b border-white/60 bg-white/80 px-6 py-4 backdrop-blur">
@@ -419,22 +464,21 @@ export default function UploadPanel() {
           </div>
           <div className="flex items-end justify-start lg:justify-center">
             <button
-              onClick={handleStart}
-              disabled={!canStart}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                canStart
-                  ? "bg-slate-900 text-white"
-                  : "cursor-not-allowed bg-slate-200 text-slate-500"
-              }`}
+              onClick={handleStartButton}
+              disabled={startButtonDisabled}
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${startButtonClass}`}
             >
-              {isBusy ? "Bitte warten..." : "CCC starten"}
+              {(stepRun.isRunning || isRunAllBusy) && (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              )}
+              {startButtonLabel}
             </button>
           </div>
         </div>
 
-        {status && (
+        {(status || visibleStepRunStatus) && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {status}
+            {visibleStepRunStatus || status}
           </div>
         )}
       </div>

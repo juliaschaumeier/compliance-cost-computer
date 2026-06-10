@@ -111,6 +111,10 @@ export interface RunAllStatusResponse {
   ok?: boolean | null;
   steps: RunAllStepResult[];
   final_status?: SessionStatus | null;
+  current_step?: string | null;
+  current_label?: string | null;
+  current_norm_addressee?: string | null;
+  last_error?: string | null;
 }
 
 export interface RunAllCancelResponse {

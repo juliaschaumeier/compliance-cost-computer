@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     deep_research_primary_agent: str = "deep-research-preview-04-2026"
     deep_research_fallback_agent: str = "deep-research-pro-preview-12-2025"
     deep_research_poll_interval_seconds: float = 5.0
+    # 2026-06-10: Gemini docs state Deep Research has a 60-minute server-side max
+    # and most tasks should complete within 20 minutes; keep the local poll cap
+    # explicit so stuck interactions cannot run forever.
+    deep_research_max_poll_seconds: float = 1800.0
+    deep_research_request_timeout_seconds: float = 30.0
     db_path: Path = DEFAULT_DB_PATH
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 

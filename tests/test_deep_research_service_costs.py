@@ -26,13 +26,17 @@ class _FakeInteractions:
 
 
 class _FakeClient:
-    def __init__(self, **_kwargs):
+    seen_http_options = None
+
+    def __init__(self, **kwargs):
+        self.__class__.seen_http_options = kwargs.get("http_options")
         self.interactions = _FakeInteractions()
 
 
 def test_deep_research_result_includes_estimated_cost(monkeypatch):
     monkeypatch.setattr(deep_research_service.genai, "Client", _FakeClient)
     _FakeInteractions.callback_seen_before_get = False
+    _FakeClient.seen_http_options = None
     started = []
 
     def record_start(agent, interaction_id):
@@ -48,6 +52,7 @@ def test_deep_research_result_includes_estimated_cost(monkeypatch):
     )
 
     assert started == [("deep-research-preview-04-2026", "interaction-1")]
+    assert _FakeClient.seen_http_options.timeout == 30_000
     assert result.input_tokens == 1_000_000
     assert result.output_tokens == 2_000_000
     assert result.thought_tokens == 500_000

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
 import { useMounted } from "@/lib/useMounted";
+import type { NormAddressee } from "@/types";
 
 import EaCaseMetricsTab from "./EaCaseMetricsTab";
 import EaEffortMetricsTab from "./EaEffortMetricsTab";
@@ -18,6 +19,12 @@ type EaEditDrawerShellProps = {
 };
 
 type EditorTab = "pay_rates" | "case_metrics" | "effort_metrics";
+
+const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
+  administration: "Verwaltung",
+  business: "Wirtschaft",
+  citizens: "Bürgerinnen und Bürger",
+};
 
 const TAB_COPY: Record<EditorTab, { title: string; hint: string }> = {
   pay_rates: {
@@ -70,6 +77,8 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
     return null;
   }
 
+  const normAddresseeLabel = NORM_ADDRESSEE_LABELS[state.selectedNormAddressee];
+
   const body = (
     <div className="pointer-events-none fixed inset-0 z-[85]">
       <div className="absolute inset-0 bg-slate-900/25" />
@@ -85,7 +94,9 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
         >
           <header className="border-b border-slate-200 bg-slate-50 px-4 py-3">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-900">EA bearbeiten</div>
+              <div className="text-sm font-semibold text-slate-900">
+                Erfüllungsaufwand bearbeiten für {normAddresseeLabel}
+              </div>
               <button
                 onClick={requestClose}
                 className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700"

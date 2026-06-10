@@ -174,6 +174,10 @@ class SessionRunAllRequest(BaseModel):
     provider: str | None = None
 
 
+class SessionStepRunRequest(SessionRunAllRequest):
+    step_key: str
+
+
 class SessionRunStepResult(BaseModel):
     key: str
     label: str
@@ -231,6 +235,7 @@ RUN_ALL_STEPS: tuple[tuple[str, str, str], ...] = (
     ("effort", "Aufwand berechnen", "effort_ready"),
     ("total_cost", "Gesamtkosten berechnen", "total_cost_ready"),
 )
+RUN_ALL_STEP_BY_KEY = {key: (label, status_flag) for key, label, status_flag in RUN_ALL_STEPS}
 
 _RUN_ALL_LOCKS: dict[str, asyncio.Lock] = {}
 
@@ -1034,6 +1039,148 @@ async def _execute_run_all_steps(
     return step_results, final_status, ok
 
 
+async def _execute_single_step(
+    *,
+    step_key: str,
+    payload: SessionRunAllRequest,
+    api_keys: ApiKeys,
+    model: str,
+    event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
+) -> tuple[list[SessionRunStepResult], SessionStatusResponse, bool]:
+    step_definition = RUN_ALL_STEP_BY_KEY.get(step_key)
+    if step_definition is None:
+        raise HTTPException(status_code=400, detail=f"Unknown step: {step_key}")
+    step_label, status_flag = step_definition
+    current_status = db.get_session_status(payload.app_session_id)
+    if not current_status:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if bool(current_status.get(status_flag)):
+        step_result = SessionRunStepResult(
+            key=step_key,
+            label=step_label,
+            status="skipped",
+            message="Step already complete",
+        )
+        final_status = _as_session_status_response(payload.app_session_id)
+        await _emit_event(
+            event_hook,
+            "step_skipped",
+            {
+                "key": step_key,
+                "label": step_label,
+                "step": step_result.model_dump(),
+                "session_status": final_status.model_dump(),
+            },
+        )
+        await _emit_event(
+            event_hook,
+            "run_completed",
+            {
+                "ok": True,
+                "steps": [step_result.model_dump()],
+                "final_status": final_status.model_dump(),
+            },
+        )
+        return [step_result], final_status, True
+
+    await _emit_event(event_hook, "step_started", {"key": step_key, "label": step_label})
+    try:
+        await _run_single_step(
+            step_key,
+            payload,
+            api_keys,
+            model,
+            event_hook=event_hook,
+        )
+    except Exception as exc:
+        step_result = SessionRunStepResult(
+            key=step_key,
+            label=step_label,
+            status="failed",
+            message=_step_error_message(exc),
+        )
+        final_status = _as_session_status_response(payload.app_session_id)
+        await _emit_event(
+            event_hook,
+            "step_failed",
+            {
+                "key": step_key,
+                "label": step_label,
+                "step": step_result.model_dump(),
+                "session_status": final_status.model_dump(),
+            },
+        )
+        await _emit_event(
+            event_hook,
+            "run_failed",
+            {
+                "ok": False,
+                "steps": [step_result.model_dump()],
+                "final_status": final_status.model_dump(),
+                "message": step_result.message,
+            },
+        )
+        return [step_result], final_status, False
+
+    updated_status = db.get_session_status(payload.app_session_id)
+    if updated_status and bool(updated_status.get(status_flag)):
+        step_result = SessionRunStepResult(
+            key=step_key,
+            label=step_label,
+            status="completed",
+        )
+        final_status = _as_session_status_response(payload.app_session_id)
+        await _emit_event(
+            event_hook,
+            "step_completed",
+            {
+                "key": step_key,
+                "label": step_label,
+                "step": step_result.model_dump(),
+                "session_status": final_status.model_dump(),
+            },
+        )
+        await _emit_event(
+            event_hook,
+            "run_completed",
+            {
+                "ok": True,
+                "steps": [step_result.model_dump()],
+                "final_status": final_status.model_dump(),
+            },
+        )
+        return [step_result], final_status, True
+
+    step_result = SessionRunStepResult(
+        key=step_key,
+        label=step_label,
+        status="failed",
+        message="Step did not update session state as expected",
+    )
+    final_status = _as_session_status_response(payload.app_session_id)
+    await _emit_event(
+        event_hook,
+        "step_failed",
+        {
+            "key": step_key,
+            "label": step_label,
+            "step": step_result.model_dump(),
+            "session_status": final_status.model_dump(),
+        },
+    )
+    await _emit_event(
+        event_hook,
+        "run_failed",
+        {
+            "ok": False,
+            "steps": [step_result.model_dump()],
+            "final_status": final_status.model_dump(),
+            "message": step_result.message,
+        },
+    )
+    return [step_result], final_status, False
+
+
 @router.post("", response_model=SessionUpsertResponse)
 async def upsert_session(payload: SessionUpsertRequest) -> SessionUpsertResponse:
     _, created = db.upsert_session(payload.app_session_id, payload.llm_model)
@@ -1120,11 +1267,16 @@ def _research_settings_response(app_session_id: str) -> CaseGroupResearchSetting
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
     status = db.get_latest_deep_research_run_status(session_id, "case_group_metrics")
+    session_status = db.get_session_status(app_session_id) or {}
     return CaseGroupResearchSettingsResponse(
         app_session_id=app_session_id,
         enabled=bool(session.get("case_group_research_enabled")),
         status=status,
-        locked=status not in {"idle", "failed", "cancelled"},
+        locked=(
+            status not in {"idle", "failed", "cancelled"}
+            or bool(session_status.get("effort_ready"))
+            or bool(session_status.get("total_cost_ready"))
+        ),
         elapsed_seconds=db.get_latest_deep_research_run_elapsed_seconds(
             session_id,
             CASE_GROUP_RESEARCH_PURPOSE,
@@ -1147,6 +1299,15 @@ async def case_group_research_settings_update(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
+    current_enabled = bool(session.get("case_group_research_enabled"))
+    if current_enabled == payload.enabled:
+        return _research_settings_response(payload.app_session_id)
+    session_status = db.get_session_status(payload.app_session_id) or {}
+    if bool(session_status.get("effort_ready")) or bool(session_status.get("total_cost_ready")):
+        raise HTTPException(
+            status_code=409,
+            detail="Deep Research mode is locked after effort has been calculated. Revert effort to change it.",
+        )
     status = db.get_latest_deep_research_run_status(session_id, "case_group_metrics")
     if status not in {"idle", "failed", "cancelled"}:
         raise HTTPException(
@@ -1558,6 +1719,46 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     )
 
 
+async def _mark_background_run_terminal(
+    *,
+    run_id: str,
+    app_session_id: str,
+    status: Literal["failed", "cancelled"],
+    event_name: Literal["run_failed", "run_cancelled"],
+    message: str,
+) -> None:
+    final_status: SessionStatusResponse | None = None
+    try:
+        final_status = _as_session_status_response(app_session_id)
+    except HTTPException:
+        final_status = None
+
+    async with _RUN_REGISTRY_LOCK:
+        record = _RUNS_BY_ID.get(run_id)
+        if record is not None:
+            record.status = status
+            record.ok = False
+            record.updated_at = time.time()
+            record.final_status = final_status
+            if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
+                _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
+            steps = [step.model_dump() for step in record.steps]
+        else:
+            steps = []
+
+    await _publish_run_event(
+        run_id,
+        event_name,
+        {
+            "ok": False,
+            "steps": steps,
+            "final_status": final_status.model_dump() if final_status else None,
+            "message": message,
+        },
+    )
+    await _trim_finished_runs()
+
+
 async def _run_all_background(
     run_id: str,
     payload: SessionRunAllRequest,
@@ -1588,41 +1789,13 @@ async def _run_all_background(
                 event_hook=lambda event, data: _publish_run_event(run_id, event, data),
             )
     except asyncio.CancelledError:
-        async with _RUN_REGISTRY_LOCK:
-            record = _RUNS_BY_ID.get(run_id)
-            if record is not None:
-                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-
-        final_status: SessionStatusResponse | None = None
-        try:
-            final_status = _as_session_status_response(payload.app_session_id)
-        except HTTPException:
-            final_status = None
-        async with _RUN_REGISTRY_LOCK:
-            record = _RUNS_BY_ID.get(run_id)
-            if record is not None:
-                record.status = "cancelled"
-                record.ok = False
-                record.updated_at = time.time()
-                record.final_status = final_status
-                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-                steps = [step.model_dump() for step in record.steps]
-            else:
-                steps = []
-
-        await _publish_run_event(
-            run_id,
-            "run_cancelled",
-            {
-                "ok": False,
-                "steps": steps,
-                "final_status": final_status.model_dump() if final_status else None,
-                "message": "Run cancelled by user",
-            },
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="cancelled",
+            event_name="run_cancelled",
+            message="Run cancelled by user",
         )
-        await _trim_finished_runs()
         if trace_token is not None:
             try:
                 llm_trace.flush_run(trace_token, status_code=499)
@@ -1630,34 +1803,13 @@ async def _run_all_background(
                 pass
         return
     except Exception as exc:
-        final_status: SessionStatusResponse | None = None
-        try:
-            final_status = _as_session_status_response(payload.app_session_id)
-        except HTTPException:
-            final_status = None
-        async with _RUN_REGISTRY_LOCK:
-            record = _RUNS_BY_ID.get(run_id)
-            if record is not None:
-                record.status = "failed"
-                record.ok = False
-                record.updated_at = time.time()
-                record.final_status = final_status
-                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-                steps = [step.model_dump() for step in record.steps]
-            else:
-                steps = []
-        await _publish_run_event(
-            run_id,
-            "run_failed",
-            {
-                "ok": False,
-                "steps": steps,
-                "final_status": final_status.model_dump() if final_status else None,
-                "message": _step_error_message(exc),
-            },
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="failed",
+            event_name="run_failed",
+            message=_step_error_message(exc),
         )
-        await _trim_finished_runs()
         if trace_token is not None:
             try:
                 llm_trace.flush_run(trace_token, status_code=500)
@@ -1688,6 +1840,144 @@ async def _run_all_background(
             llm_trace.flush_run(trace_token, status_code=200 if ok else 500)
         except Exception:
             pass
+
+
+async def _run_single_step_background(
+    run_id: str,
+    step_key: str,
+    payload: SessionRunAllRequest,
+    api_keys: ApiKeys,
+    model: str,
+) -> None:
+    lock = _get_run_all_lock(payload.app_session_id)
+    try:
+        start_record = await _get_run_record(run_id)
+        await _publish_run_event(
+            run_id,
+            "snapshot",
+            _run_snapshot_payload(start_record),
+        )
+        async with lock:
+            steps, final_status, ok = await _execute_single_step(
+                step_key=step_key,
+                payload=payload,
+                api_keys=api_keys,
+                model=model,
+                event_hook=lambda event, data: _publish_run_event(run_id, event, data),
+            )
+    except asyncio.CancelledError:
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="cancelled",
+            event_name="run_cancelled",
+            message="Run cancelled by user",
+        )
+        return
+    except Exception as exc:
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="failed",
+            event_name="run_failed",
+            message=_step_error_message(exc),
+        )
+        return
+
+    async with _RUN_REGISTRY_LOCK:
+        record = _RUNS_BY_ID.get(run_id)
+        if record is not None:
+            record.steps = steps
+            record.final_status = final_status
+            record.ok = ok
+            record.status = "completed" if ok else "failed"
+            record.updated_at = time.time()
+            if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
+                _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
+
+    record_after = await _get_run_record(run_id)
+    await _publish_run_event(
+        run_id,
+        "snapshot",
+        _run_snapshot_payload(record_after),
+    )
+    await _trim_finished_runs()
+
+
+@router.post("/step-runs/start", response_model=SessionRunAllStartResponse)
+async def start_step_run(
+    payload: SessionStepRunRequest,
+    api_keys: ApiKeys = Depends(get_api_keys),
+) -> SessionRunAllStartResponse:
+    if payload.step_key not in RUN_ALL_STEP_BY_KEY:
+        raise HTTPException(status_code=400, detail=f"Unknown step: {payload.step_key}")
+    _session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
+
+    async with _RUN_REGISTRY_LOCK:
+        active_run_id = _ACTIVE_RUN_BY_SESSION.get(payload.app_session_id)
+        if active_run_id:
+            active = _RUNS_BY_ID.get(active_run_id)
+            if active and active.status == "running":
+                return SessionRunAllStartResponse(
+                    app_session_id=payload.app_session_id,
+                    run_id=active_run_id,
+                    started=False,
+                    status="running",
+                )
+            _ACTIVE_RUN_BY_SESSION.pop(payload.app_session_id, None)
+
+        run_id = uuid.uuid4().hex
+        record = _RunRecord(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+        )
+        _RUNS_BY_ID[run_id] = record
+        _ACTIVE_RUN_BY_SESSION[payload.app_session_id] = run_id
+
+    run_payload = SessionRunAllRequest(
+        app_session_id=payload.app_session_id,
+        current_filename=payload.current_filename,
+        proposed_filename=payload.proposed_filename,
+        model=payload.model,
+        provider=payload.provider,
+    )
+    task = asyncio.create_task(
+        _run_single_step_background(
+            run_id,
+            payload.step_key,
+            run_payload,
+            api_keys,
+            model,
+        )
+    )
+    async with _RUN_REGISTRY_LOCK:
+        active = _RUNS_BY_ID.get(run_id)
+        if active is not None:
+            active.task = task
+    return SessionRunAllStartResponse(
+        app_session_id=payload.app_session_id,
+        run_id=run_id,
+        started=True,
+        status="running",
+    )
+
+
+@router.get("/step-runs/{run_id}", response_model=SessionRunStatusResponse)
+async def get_step_run_status(run_id: str) -> SessionRunStatusResponse:
+    return await get_run_all_status(run_id)
+
+
+@router.post("/step-runs/{run_id}/cancel", response_model=SessionRunCancelResponse)
+async def cancel_step_run(run_id: str) -> SessionRunCancelResponse:
+    return await cancel_run_all(run_id)
+
+
+@router.get("/step-runs/{run_id}/events")
+async def stream_step_run_events(run_id: str, request: Request) -> StreamingResponse:
+    return await stream_run_all_events(run_id, request)
 
 
 @router.post("/run-all/start", response_model=SessionRunAllStartResponse)

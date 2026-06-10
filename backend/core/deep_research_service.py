@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import threading
+import time
 from typing import Any, Callable
 
 from google import genai
+from google.genai import types
 
 from backend.core.auth import ApiKeys
 from backend.core.config import settings
@@ -120,11 +123,22 @@ def _run_interaction_sync(
     prompt: str,
     agent: str,
     poll_interval_seconds: float,
+    max_poll_seconds: float = 1800.0,
+    request_timeout_seconds: float = 30.0,
+    stop_event: threading.Event | None = None,
     on_interaction_started: Callable[[str, str], None] | None = None,
 ) -> DeepResearchResult:
     if not api_key:
         raise DeepResearchError("Gemini API key is required for Deep Research")
-    client = genai.Client(api_key=api_key)
+    timeout_ms = (
+        int(request_timeout_seconds * 1000)
+        if request_timeout_seconds and request_timeout_seconds > 0
+        else None
+    )
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=timeout_ms),
+    )
     interaction = client.interactions.create(
         agent=agent,
         input=prompt,
@@ -141,7 +155,14 @@ def _run_interaction_sync(
     if on_interaction_started:
         on_interaction_started(agent, interaction_id)
 
+    started = time.monotonic()
     while True:
+        if stop_event is not None and stop_event.is_set():
+            raise DeepResearchError("Gemini Deep Research polling was cancelled")
+        if max_poll_seconds > 0 and time.monotonic() - started >= max_poll_seconds:
+            raise DeepResearchError(
+                f"Gemini Deep Research timed out after {int(max_poll_seconds)} seconds"
+            )
         result = client.interactions.get(id=interaction_id)
         status = str(getattr(result, "status", "") or "").lower()
         if status == "completed":
@@ -177,9 +198,11 @@ def _run_interaction_sync(
             raise DeepResearchError(f"Gemini Deep Research failed: {error or 'unknown error'}")
         if status in {"cancelled", "canceled"}:
             raise DeepResearchError("Gemini Deep Research was cancelled")
-        import time
 
-        time.sleep(poll_interval_seconds)
+        if stop_event is not None:
+            stop_event.wait(poll_interval_seconds)
+        else:
+            time.sleep(poll_interval_seconds)
 
 
 async def run_deep_research(
@@ -192,6 +215,9 @@ async def run_deep_research(
     primary_agent = agent or settings.deep_research_primary_agent
     fallback_agent = settings.deep_research_fallback_agent
     poll_interval = max(float(settings.deep_research_poll_interval_seconds), 1.0)
+    max_poll_seconds = max(float(settings.deep_research_max_poll_seconds), 1.0)
+    request_timeout_seconds = max(float(settings.deep_research_request_timeout_seconds), 1.0)
+    stop_event = threading.Event()
     try:
         return await asyncio.to_thread(
             _run_interaction_sync,
@@ -199,11 +225,18 @@ async def run_deep_research(
             prompt=prompt,
             agent=primary_agent,
             poll_interval_seconds=poll_interval,
+            max_poll_seconds=max_poll_seconds,
+            request_timeout_seconds=request_timeout_seconds,
+            stop_event=stop_event,
             on_interaction_started=on_interaction_started,
         )
+    except asyncio.CancelledError:
+        stop_event.set()
+        raise
     except Exception as exc:
         message = str(exc)
         if fallback_agent and fallback_agent != primary_agent and "agent" in message.lower():
+            fallback_stop_event = threading.Event()
             try:
                 return await asyncio.to_thread(
                     _run_interaction_sync,
@@ -211,8 +244,14 @@ async def run_deep_research(
                     prompt=prompt,
                     agent=fallback_agent,
                     poll_interval_seconds=poll_interval,
+                    max_poll_seconds=max_poll_seconds,
+                    request_timeout_seconds=request_timeout_seconds,
+                    stop_event=fallback_stop_event,
                     on_interaction_started=on_interaction_started,
                 )
+            except asyncio.CancelledError:
+                fallback_stop_event.set()
+                raise
             except Exception as fallback_exc:
                 raise DeepResearchError(
                     "Gemini Deep Research failed with primary and fallback agents: "
