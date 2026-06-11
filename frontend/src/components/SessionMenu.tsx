@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
@@ -10,6 +10,7 @@ import {
   emitRunAllStepCleared,
   emitRunAllStepStarted,
   type RunAllStepKey,
+  useActiveWorkflowRun,
 } from "@/lib/runAllStepEvents";
 import {
   formatSessionStartError,
@@ -17,7 +18,7 @@ import {
   prepareSessionDocuments,
 } from "@/lib/sessionStart";
 import { deriveTabFromStatus } from "@/lib/sessionStatus";
-import { SessionStatus, SessionSummary } from "@/types";
+import { RunAllStatusResponse, SessionStatus, SessionSummary } from "@/types";
 
 type SessionMenuProps = {
   compact?: boolean;
@@ -72,6 +73,9 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setRegulationsReady,
     setLastCompletedStep,
     setLastCompletedLabel,
+    setLastFailedStep,
+    setLastFailedLabel,
+    setLastFailedMessage,
   } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -93,6 +97,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [isCancellingRun, setIsCancellingRun] = useState(false);
+  const isCancellingRunRef = useRef(false);
+  const activeWorkflowRun = useActiveWorkflowRun();
   const runEventSourceRef = useRef<EventSource | null>(null);
   const runPollTimerRef = useRef<number | null>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -105,6 +111,31 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  const refreshResearchSettings = useCallback(
+    async (options: { ignoreCancelled?: () => boolean } = {}) => {
+      try {
+        const research = await apiClient.getCaseGroupResearchSettings(
+          state.appSessionId
+        );
+        if (options.ignoreCancelled?.()) {
+          return;
+        }
+        setResearchEnabled(research.enabled);
+        setResearchStatus(research.status);
+        setResearchLocked(research.locked);
+        setResearchElapsedSeconds(research.elapsed_seconds ?? null);
+        setResearchElapsedLoadedAt(
+          typeof research.elapsed_seconds === "number" ? Date.now() : null
+        );
+      } catch (error) {
+        logClientError("SessionMenu.loadResearchSettings", error, {
+          appSessionId: state.appSessionId,
+        });
+      }
+    },
+    [state.appSessionId]
+  );
 
   useEffect(() => {
     return () => {
@@ -123,6 +154,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     if (!isOpen) {
       return;
     }
+    setSelectedSession(state.appSessionId);
     let cancelled = false;
     const loadSessions = async () => {
       try {
@@ -137,32 +169,12 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         }
       }
     };
-    const loadResearchSettings = async () => {
-      try {
-        const research = await apiClient.getCaseGroupResearchSettings(
-          state.appSessionId
-        );
-        if (!cancelled) {
-          setResearchEnabled(research.enabled);
-          setResearchStatus(research.status);
-          setResearchLocked(research.locked);
-          setResearchElapsedSeconds(research.elapsed_seconds ?? null);
-          setResearchElapsedLoadedAt(
-            typeof research.elapsed_seconds === "number" ? Date.now() : null
-          );
-        }
-      } catch (error) {
-        logClientError("SessionMenu.loadResearchSettings", error, {
-          appSessionId: state.appSessionId,
-        });
-      }
-    };
     loadSessions();
-    loadResearchSettings();
+    void refreshResearchSettings({ ignoreCancelled: () => cancelled });
     return () => {
       cancelled = true;
     };
-  }, [isOpen, state.appSessionId]);
+  }, [isOpen, refreshResearchSettings, state.appSessionId]);
 
   useEffect(() => {
     if (!isOpen || researchStatus !== "running") {
@@ -219,6 +231,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   };
 
   const lastStepLabel = state.lastCompletedLabel;
+  const hasActiveWorkflowRun = activeWorkflowRun.isActive || isRunningAll;
 
   useEffect(() => {
     if (!isOpen) {
@@ -284,7 +297,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   };
 
   const handleUndoLastStep = async () => {
-    if (!lastStepLabel || isUndoing) {
+    if (!lastStepLabel || isUndoing || hasActiveWorkflowRun) {
       return;
     }
     try {
@@ -337,7 +350,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   };
 
   const handleToggleDeepResearch = async () => {
-    if (isUpdatingResearch || researchLocked) {
+    if (isUpdatingResearch || researchLocked || hasActiveWorkflowRun) {
       return;
     }
     try {
@@ -398,6 +411,9 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setRegulationsReady(sessionStatus.regulations_ready);
     setLastCompletedStep(sessionStatus.last_completed_step ?? null);
     setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
+    setLastFailedStep(sessionStatus.last_failed_step ?? null);
+    setLastFailedLabel(sessionStatus.last_failed_label ?? null);
+    setLastFailedMessage(sessionStatus.last_failed_message ?? null);
     setResearchEnabled(Boolean(sessionStatus.case_group_research_enabled));
     setResearchStatus(sessionStatus.case_group_research_status || "idle");
     setResearchElapsedSeconds(
@@ -409,6 +425,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         : null
     );
     setResearchLocked(
+      sessionStatus.effort_ready ||
+        sessionStatus.total_cost_ready ||
       !["idle", "failed", "cancelled"].includes(
         sessionStatus.case_group_research_status || "idle"
       )
@@ -448,6 +466,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     setIsRunningAll(false);
     setCurrentRunId(null);
     setIsCancellingRun(false);
+    isCancellingRunRef.current = false;
     emitRunAllStepCleared();
     stopRunMonitoring();
   };
@@ -481,10 +500,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           applySessionStatus(progress.final_status);
         }
         if (progress.status === "running") {
+          if (progress.current_step) {
+            emitRunAllStepStarted(progress.current_step, runId);
+          }
           pollRunStatus(runId);
           return;
         }
         resetRunUiState();
+        void refreshResearchSettings();
         if (progress.status === "completed" && progress.ok) {
           setStatus("Alle Schritte wurden ausgeführt.");
         } else if (progress.status === "cancelled") {
@@ -515,11 +538,28 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     const source = new EventSource(apiClient.getRunAllEventsUrl(runId));
     runEventSourceRef.current = source;
 
+    source.addEventListener("snapshot", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as RunAllStatusResponse;
+        if (payload.final_status) {
+          applySessionStatus(payload.final_status);
+        }
+        if (payload.status === "running" && payload.current_step) {
+          emitRunAllStepStarted(payload.current_step, runId);
+          if (payload.current_label && !isCancellingRunRef.current) {
+            setStatus(`Läuft: ${payload.current_label}`);
+          }
+        }
+      } catch (error) {
+        logClientError("SessionMenu.snapshotEvent", error, { runId });
+      }
+    });
+
     source.addEventListener("step_started", (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunStepStartedEvent;
-        emitRunAllStepStarted(payload.key);
-        if (payload.label) {
+        emitRunAllStepStarted(payload.key, runId);
+        if (payload.label && !isCancellingRunRef.current) {
           setStatus(`Läuft: ${payload.label}`);
         }
       } catch (error) {
@@ -535,7 +575,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           applySessionStatus(payload.session_status);
           const inferredStep = deriveRunAllStepKeyFromStatus(payload.session_status);
           if (inferredStep) {
-            emitRunAllStepStarted(inferredStep);
+            emitRunAllStepStarted(inferredStep, runId);
           }
         }
       } catch (error) {
@@ -548,6 +588,8 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     source.addEventListener("step_skipped", applyEventStatus);
     source.addEventListener("step_failed", applyEventStatus);
     source.addEventListener("run_cancelling", () => {
+      isCancellingRunRef.current = true;
+      setIsCancellingRun(true);
       setStatus("Abbruch angefordert...");
     });
 
@@ -565,8 +607,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setIsRunningAll(false);
         setCurrentRunId(null);
         setIsCancellingRun(false);
+        isCancellingRunRef.current = false;
         emitRunAllStepCleared();
         stopRunMonitoring();
+        void refreshResearchSettings();
       }
     });
 
@@ -589,8 +633,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setIsRunningAll(false);
         setCurrentRunId(null);
         setIsCancellingRun(false);
+        isCancellingRunRef.current = false;
         emitRunAllStepCleared();
         stopRunMonitoring();
+        void refreshResearchSettings();
       }
     });
     source.addEventListener("run_cancelled", (event) => {
@@ -612,8 +658,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setIsRunningAll(false);
         setCurrentRunId(null);
         setIsCancellingRun(false);
+        isCancellingRunRef.current = false;
         emitRunAllStepCleared();
         stopRunMonitoring();
+        void refreshResearchSettings();
       }
     });
 
@@ -630,11 +678,12 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         setStatus("Lauf läuft bereits.");
         return;
       }
-      if (isCancellingRun) {
+      if (isCancellingRunRef.current) {
         setStatus("Abbruch läuft bereits...");
         return;
       }
       try {
+        isCancellingRunRef.current = true;
         setIsCancellingRun(true);
         setStatus("Abbruch angefordert...");
         await apiClient.cancelRunAll(currentRunId);
@@ -647,6 +696,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           runId: currentRunId,
         });
         const err = error as Error;
+        isCancellingRunRef.current = false;
         setIsCancellingRun(false);
         setStatus(err?.message || "Abbruch konnte nicht angefordert werden.");
       }
@@ -662,6 +712,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     }
     resetStatus();
     setIsRunningAll(true);
+    isCancellingRunRef.current = false;
     setStatus("Schritte werden vorbereitet...");
     emitRunAllStepCleared();
     try {
@@ -713,6 +764,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setIsRunningAll(false);
       setCurrentRunId(null);
       setIsCancellingRun(false);
+      isCancellingRunRef.current = false;
       emitRunAllStepCleared();
       stopRunMonitoring();
     }
@@ -759,9 +811,9 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         </button>
         <button
           onClick={handleUndoLastStep}
-          disabled={!lastStepLabel || isUndoing}
+          disabled={!lastStepLabel || isUndoing || hasActiveWorkflowRun}
           className={`w-full rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
-            lastStepLabel && !isUndoing
+            lastStepLabel && !isUndoing && !hasActiveWorkflowRun
               ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
               : "cursor-not-allowed border border-slate-100 bg-slate-100 text-slate-400"
           }`}
@@ -789,7 +841,9 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             type="button"
             role="switch"
             aria-checked={researchEnabled}
-            disabled={researchLocked || isUpdatingResearch || isRunningAll}
+            disabled={
+              researchLocked || isUpdatingResearch || hasActiveWorkflowRun
+            }
             onClick={handleToggleDeepResearch}
             className={`relative mt-1 h-6 w-14 rounded-full border p-0.5 text-[10px] font-bold leading-none transition disabled:cursor-not-allowed disabled:opacity-50 ${
               researchEnabled

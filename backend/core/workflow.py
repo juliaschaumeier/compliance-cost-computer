@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import Callable
 
 from backend.core import db
-from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
+from backend.core.norm_addressees import ALL_NORM_ADDRESSEES, SUPPORTED_NORM_ADDRESSEES
 from backend.core.prompts import PromptId
+from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
 
 
 @dataclass(frozen=True)
@@ -110,3 +111,11 @@ def undo_step(session_id: int, step_key: str) -> None:
     if handler is None:
         raise ValueError(f"Unknown workflow step: {step_key}")
     handler(session_id)
+    session = db.get_session_by_id(session_id)
+    if session is None:
+        return
+    if step_key == "summary":
+        for addressee in ALL_NORM_ADDRESSEES:
+            db.clear_tiles(session_id=session_id, norm_addressee=addressee)
+        return
+    sync_all_norm_addressee_tile_snapshots(session)

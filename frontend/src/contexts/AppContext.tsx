@@ -76,6 +76,9 @@ interface AppState {
   totalCostReady: boolean;
   lastCompletedStep: string | null;
   lastCompletedLabel: string | null;
+  lastFailedStep: string | null;
+  lastFailedLabel: string | null;
+  lastFailedMessage: string | null;
 }
 
 interface AppContextValue {
@@ -101,6 +104,9 @@ interface AppContextValue {
   setTotalCostReady: (ready: boolean) => void;
   setLastCompletedStep: (step: string | null) => void;
   setLastCompletedLabel: (label: string | null) => void;
+  setLastFailedStep: (step: string | null) => void;
+  setLastFailedLabel: (label: string | null) => void;
+  setLastFailedMessage: (message: string | null) => void;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -166,6 +172,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   >(createDefaultAddresseeReadiness);
   const [lastCompletedStep, setLastCompletedStep] = useState<string | null>(null);
   const [lastCompletedLabel, setLastCompletedLabel] = useState<string | null>(null);
+  const [lastFailedStep, setLastFailedStep] = useState<string | null>(null);
+  const [lastFailedLabel, setLastFailedLabel] = useState<string | null>(null);
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const appSessionIdAttempts = useRef(0);
   const readinessSetters = useMemo<
     Record<ReadinessStorageKey, (value: boolean) => void>
@@ -362,6 +371,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
         setLastCompletedStep(status.last_completed_step ?? null);
         setLastCompletedLabel(status.last_completed_label ?? null);
+        setLastFailedStep(status.last_failed_step ?? null);
+        setLastFailedLabel(status.last_failed_label ?? null);
+        setLastFailedMessage(status.last_failed_message ?? null);
       } catch (error) {
         const status =
           typeof (error as { status?: unknown })?.status === "number"
@@ -576,6 +588,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           totalCostReady,
           lastCompletedStep,
           lastCompletedLabel,
+          lastFailedStep,
+          lastFailedLabel,
+          lastFailedMessage,
         },
         setCurrentTab,
         setAppSessionId,
@@ -696,6 +711,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ),
         setLastCompletedStep,
         setLastCompletedLabel,
+        setLastFailedStep,
+        setLastFailedLabel,
+        setLastFailedMessage,
       }}
     >
       {children}

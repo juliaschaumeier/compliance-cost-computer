@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { apiClient, ApiKeys } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
+import {
+  emitRunAllStepCleared,
+  emitRunAllStepStarted,
+  type RunAllStepKey,
+} from "@/lib/runAllStepEvents";
 import { RunAllStatusResponse, SessionStatus } from "@/types";
 
 type UseCancellableStepRunOptions = {
@@ -64,6 +69,7 @@ export function useCancellableStepRun({
 
   const finish = (status: RunAllStatusResponse) => {
     clearPoll();
+    emitRunAllStepCleared();
     setRunId(null);
     setIsRunning(false);
     setIsCancelling(false);
@@ -107,6 +113,7 @@ export function useCancellableStepRun({
       setRunId(null);
       setIsRunning(false);
       setIsCancelling(false);
+      emitRunAllStepCleared();
       setStatusText("Status konnte nicht aktualisiert werden.");
     }
   };
@@ -133,12 +140,19 @@ export function useCancellableStepRun({
       setRunId(response.run_id);
       setIsCancelling(false);
       setStatusText(`Läuft: ${stepLabel}`);
+      emitRunAllStepStarted(
+        stepKey as RunAllStepKey,
+        response.run_id,
+        "step",
+        stepLabel
+      );
       await loadStatus(response.run_id);
     } catch (error) {
       logClientError(`${logScope}.start`, error, { appSessionId });
       setIsRunning(false);
       setRunId(null);
       setIsCancelling(false);
+      emitRunAllStepCleared();
       throw error;
     }
   };

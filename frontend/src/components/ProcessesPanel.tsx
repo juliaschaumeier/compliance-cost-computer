@@ -4,13 +4,20 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { buildLlmRequestOptions } from "@/lib/api";
-import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
+import { getVisibleFailedStepStatus } from "@/lib/sessionStatus";
 import { useCancellableStepRun } from "@/lib/useCancellableStepRun";
+import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
 
 export default function ProcessesPanel() {
   const { state, setCurrentTab, setProcessesReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
-  const isRunAllBusy = useRunAllStepBusy("processes");
+  const runAllCancel = useRunAllStepCancel({
+    stepKey: "processes",
+    appSessionId: state.appSessionId,
+    setStatus,
+    logScope: "ProcessesPanel.cancelRunAll",
+  });
+  const isRunAllBusy = runAllCancel.isRunAllBusy;
   const llm = buildLlmRequestOptions({
     selectedModel: state.selectedModel,
     availableModels: state.availableModels,
@@ -60,6 +67,10 @@ export default function ProcessesPanel() {
       await stepRun.cancel();
       return;
     }
+    if (isRunAllBusy) {
+      await runAllCancel.cancelRunAllForStep();
+      return;
+    }
     await handleCompile();
   };
   const buttonLabel = stepRun.isRunning
@@ -67,18 +78,29 @@ export default function ProcessesPanel() {
       ? "Abbruch wird ausgeführt..."
       : "Abbrechen"
     : isRunAllBusy
-      ? "Abbrechen"
+      ? runAllCancel.isCancellingRunAll
+        ? "Abbruch wird ausgeführt..."
+        : "Abbrechen"
       : "Prozesse bündeln";
   const buttonClass =
     stepRun.isRunning || isRunAllBusy
-      ? stepRun.isCancelling
+      ? stepRun.isCancelling || runAllCancel.isCancellingRunAll
         ? "cursor-not-allowed border border-rose-100 bg-rose-100 text-rose-400"
         : "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
       : canRun
         ? "bg-slate-900 text-white"
         : "cursor-not-allowed bg-slate-200 text-slate-500";
-  const buttonDisabled = isRunAllBusy || stepRun.isCancelling || (!stepRun.isRunning && !canRun);
+  const buttonDisabled =
+    stepRun.isCancelling ||
+    runAllCancel.isCancellingRunAll ||
+    (isRunAllBusy ? !runAllCancel.runAllRunId : !stepRun.isRunning && !canRun);
   const visibleStepRunStatus = stepRun.isRunning ? null : stepRun.statusText;
+  const failedStepStatus = getVisibleFailedStepStatus(
+    state,
+    "processes",
+    state.processesReady,
+    visibleStepRunStatus
+  );
 
   return (
     <section className="w-full border-b border-white/60 bg-white/80 px-6 py-4 backdrop-blur">
@@ -103,9 +125,9 @@ export default function ProcessesPanel() {
           </button>
         </div>
 
-        {(status || visibleStepRunStatus) && (
+        {(status || visibleStepRunStatus || failedStepStatus) && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {visibleStepRunStatus || status}
+            {visibleStepRunStatus || status || failedStepStatus}
           </div>
         )}
       </div>

@@ -1225,6 +1225,51 @@ def test_single_step_run_executes_shared_step_runner(test_client, monkeypatch):
     assert payload["final_status"]["processes_ready"] is True
 
 
+def test_undo_rejects_while_workflow_run_is_active(test_client, monkeypatch):
+    app_session_id = "UNDO-ACTIVE-RUN"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Beschreibung",
+        applies_to_administration=True,
+        applies_to_business=False,
+        applies_to_citizens=False,
+    )
+
+    async def slow_compile_processes(*_args, **_kwargs):
+        await asyncio.sleep(1.0)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(processes_router, "compile_processes", slow_compile_processes)
+
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "processes",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    run_id = start_response.json()["run_id"]
+
+    undo_response = test_client.post(
+        "/sessions/undo",
+        json={"app_session_id": app_session_id},
+    )
+
+    assert undo_response.status_code == 409
+    assert "lauf zuerst abbrechen" in undo_response.json()["detail"].lower()
+
+    cancel_response = test_client.post(f"/sessions/step-runs/{run_id}/cancel")
+    assert cancel_response.status_code == 200
+    done = _wait_for_run_completion(test_client, run_id, timeout_s=5.0)
+    assert done["status"] == "cancelled"
+
+
 def test_single_step_run_effort_uses_deep_research_when_enabled(
     test_client,
     monkeypatch,

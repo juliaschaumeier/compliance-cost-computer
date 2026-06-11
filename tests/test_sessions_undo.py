@@ -3,6 +3,7 @@ import pytest
 from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
 from backend.core.prompts import PromptId
+from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
 
 
 def _seed_flow(app_session_id: str) -> dict:
@@ -54,6 +55,55 @@ def _seed_flow_for_addressee(app_session_id: str, norm_addressee: str) -> dict:
         "case_group_id": case_group_id,
         "step_id": step_id,
     }
+
+
+def _seed_multi_addressee_process_steps(app_session_id: str) -> dict:
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Beschreibung",
+        applies_to_administration=True,
+        applies_to_business=True,
+        applies_to_citizens=False,
+        is_business_information_obligation=True,
+    )
+    seeded: dict[str, dict] = {"session_id": session_id}
+    for addressee in (ADMINISTRATION, BUSINESS):
+        process_id = db.insert_process(
+            session_id,
+            f"Prozess {addressee}",
+            "Beschreibung Prozess",
+            norm_addressee=addressee,
+        )
+        case_group_id = db.insert_case_group(
+            session_id,
+            process_id,
+            f"Fallgruppe {addressee}",
+            "Beschreibung Fallgruppe",
+            norm_addressee=addressee,
+        )
+        step_id = db.insert_process_step(
+            session_id,
+            case_group_id,
+            f"Schritt {addressee}",
+            "Beschreibung Schritt",
+            norm_addressee=addressee,
+        )
+        seeded[addressee] = {
+            "process_id": process_id,
+            "case_group_id": case_group_id,
+            "step_id": step_id,
+        }
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    sync_all_norm_addressee_tile_snapshots(session)
+    return seeded
+
+
+def _tile_ids(session_id: int, norm_addressee: str) -> set[str]:
+    return {tile.id for tile in db.fetch_tiles(session_id, norm_addressee)}
 
 
 def test_undo_total_cost_clears_costs_only(test_client):
@@ -212,6 +262,39 @@ def test_undo_effort_clears_metrics(test_client):
     assert step["time_required_in_min_a_proposed"] is None
     assert step["expenses_proposed"] is None
     conn.close()
+
+
+def test_undo_rebuilds_tiles_for_all_norm_addressees(test_client):
+    seeded = _seed_multi_addressee_process_steps("UNDO-TILES-ALL-NA")
+    session_id = int(seeded["session_id"])
+
+    for addressee in (ADMINISTRATION, BUSINESS):
+        ids = _tile_ids(session_id, addressee)
+        assert any(tile_id.startswith("case_group_") for tile_id in ids)
+        assert any(tile_id.startswith("step_") for tile_id in ids)
+
+    resp = test_client.post(
+        "/sessions/undo", json={"app_session_id": "UNDO-TILES-ALL-NA"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["undone_step"] == "process_steps"
+
+    for addressee in (ADMINISTRATION, BUSINESS):
+        ids = _tile_ids(session_id, addressee)
+        assert any(tile_id.startswith("case_group_") for tile_id in ids)
+        assert not any(tile_id.startswith("step_") for tile_id in ids)
+
+    resp = test_client.post(
+        "/sessions/undo", json={"app_session_id": "UNDO-TILES-ALL-NA"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["undone_step"] == "case_groups"
+
+    for addressee in (ADMINISTRATION, BUSINESS):
+        ids = _tile_ids(session_id, addressee)
+        assert any(tile_id.startswith("process_") for tile_id in ids)
+        assert not any(tile_id.startswith("case_group_") for tile_id in ids)
+        assert not any(tile_id.startswith("step_") for tile_id in ids)
 
 
 def test_undo_effort_is_atomic_on_failure(test_client, monkeypatch):

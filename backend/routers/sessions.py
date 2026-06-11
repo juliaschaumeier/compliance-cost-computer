@@ -103,6 +103,9 @@ class SessionStatusResponse(BaseModel):
     case_group_research_elapsed_seconds: int | None = None
     last_completed_step: str | None = None
     last_completed_label: str | None = None
+    last_failed_step: str | None = None
+    last_failed_label: str | None = None
+    last_failed_message: str | None = None
 
 
 class SessionPayRatesUpdateRequest(BaseModel):
@@ -384,11 +387,80 @@ def _as_session_status_response(app_session_id: str) -> SessionStatusResponse:
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
     step = get_last_completed_step(status)
+    failed = _get_latest_failed_step_status(app_session_id, status)
     return SessionStatusResponse(
         **status,
         last_completed_step=step.key if step else None,
         last_completed_label=step.label if step else None,
+        last_failed_step=failed["step"] if failed else None,
+        last_failed_label=failed["label"] if failed else None,
+        last_failed_message=failed["message"] if failed else None,
     )
+
+
+_FAILED_PROMPT_STEP: dict[str, tuple[str, str, str]] = {
+    "law_summary": ("summary", "CCC starten", "summary_ready"),
+    "regulations_identification": (
+        "regulations",
+        "Vorgaben bestimmen",
+        "regulations_ready",
+    ),
+    "process_compilation": ("processes", "Prozesse bündeln", "processes_ready"),
+    "case_group_development": (
+        "case_groups",
+        "Fallgruppen entwickeln",
+        "case_groups_ready",
+    ),
+    "process_step_analysis": (
+        "process_steps",
+        "Prozessschritte bestimmen",
+        "process_steps_ready",
+    ),
+    "cases_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
+    "effort_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
+}
+
+
+def _format_failed_answer_message(row: dict) -> str | None:
+    reason = str(row.get("state_reason") or "").strip()
+    error = str(row.get("error") or "").strip()
+    if reason.startswith("session_update_failed:"):
+        return reason.split(":", 1)[1].strip() or None
+    if reason == "query_failed" and error:
+        return error
+    if reason and reason not in {
+        "session_reverted",
+        "superseded_by_new_attempt",
+        "superseded_by_reuse",
+        "session_updated",
+        "waiting_for_session_update",
+        "querying",
+    }:
+        return reason
+    return None
+
+
+def _get_latest_failed_step_status(
+    app_session_id: str,
+    status: dict,
+) -> dict[str, str] | None:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        return None
+    for row in db.list_recent_llm_answers_for_session(session_id, limit=50):
+        if row.get("answer_state") != "invalid":
+            continue
+        mapping = _FAILED_PROMPT_STEP.get(str(row.get("prompt_id") or ""))
+        if mapping is None:
+            continue
+        step_key, label, ready_flag = mapping
+        if bool(status.get(ready_flag)):
+            continue
+        message = _format_failed_answer_message(row)
+        if not message:
+            continue
+        return {"step": step_key, "label": label, "message": message}
+    return None
 
 
 def _as_session_pay_rates_response(
@@ -1200,15 +1272,7 @@ async def list_sessions(limit: int = Query(default=50, ge=1, le=200)) -> Session
 async def session_status(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
 ) -> SessionStatusResponse:
-    status = db.get_session_status(app_session_id)
-    if not status:
-        raise HTTPException(status_code=404, detail="Session not found")
-    step = get_last_completed_step(status)
-    return SessionStatusResponse(
-        **status,
-        last_completed_step=step.key if step else None,
-        last_completed_label=step.label if step else None,
-    )
+    return _as_session_status_response(app_session_id)
 
 
 @router.get("/pay-rates", response_model=SessionPayRatesResponse)
@@ -1704,6 +1768,20 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
+
+    async with _RUN_REGISTRY_LOCK:
+        active_run_id = _ACTIVE_RUN_BY_SESSION.get(payload.app_session_id)
+        if active_run_id:
+            active = _RUNS_BY_ID.get(active_run_id)
+            if active and active.status == "running":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Zurücksetzen ist während einer laufenden Ausführung nicht "
+                        "möglich. Bitte den Lauf zuerst abbrechen."
+                    ),
+                )
+            _ACTIVE_RUN_BY_SESSION.pop(payload.app_session_id, None)
 
     step = get_last_completed_step(status)
     if not step:

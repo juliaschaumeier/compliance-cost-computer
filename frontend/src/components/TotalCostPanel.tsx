@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
-import { useRunAllStepBusy } from "@/lib/runAllStepEvents";
+import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
 
 function formatEuro(value: number | null | undefined): string {
   return typeof value === "number" ? `${value.toFixed(2)} EUR` : "n. v.";
@@ -16,8 +16,20 @@ export default function TotalCostPanel() {
   const [status, setStatus] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"success" | "error">("success");
   const [isRunning, setIsRunning] = useState(false);
-  const isRunAllBusy = useRunAllStepBusy("total_cost");
+  const runAllCancel = useRunAllStepCancel({
+    stepKey: "total_cost",
+    appSessionId: state.appSessionId,
+    setStatus,
+    logScope: "TotalCostPanel.cancelRunAll",
+  });
+  const isRunAllBusy = runAllCancel.isRunAllBusy;
   const isBusy = isRunning || isRunAllBusy;
+
+  useEffect(() => {
+    if (runAllCancel.isCancellingRunAll) {
+      setStatusTone("error");
+    }
+  }, [runAllCancel.isCancellingRunAll]);
 
   const canRun =
     state.processStepsReady &&
@@ -27,11 +39,20 @@ export default function TotalCostPanel() {
 
   const label = state.totalCostReady
     ? "Bereits berechnet"
-    : isBusy
-      ? "Bitte warten..."
+    : isRunAllBusy
+      ? runAllCancel.isCancellingRunAll
+        ? "Abbruch wird ausgeführt..."
+        : "Abbrechen"
+      : isRunning
+        ? "Bitte warten..."
       : "Gesamtkosten berechnen";
 
   const handleCompute = async () => {
+    if (isRunAllBusy) {
+      setStatusTone("error");
+      await runAllCancel.cancelRunAllForStep();
+      return;
+    }
     if (!canRun) {
       return;
     }
@@ -130,13 +151,23 @@ export default function TotalCostPanel() {
           </p>
           <button
             onClick={handleCompute}
-            disabled={!canRun}
-            className={`justify-self-start whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition sm:justify-self-end ${
-              canRun
-                ? "bg-slate-900 text-white"
-                : "cursor-not-allowed bg-slate-200 text-slate-500"
+            disabled={
+              runAllCancel.isCancellingRunAll ||
+              (isRunAllBusy ? !runAllCancel.runAllRunId : !canRun)
+            }
+            className={`inline-flex items-center gap-2 justify-self-start whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition sm:justify-self-end ${
+              isRunAllBusy
+                ? runAllCancel.isCancellingRunAll
+                  ? "cursor-not-allowed border border-rose-100 bg-rose-100 text-rose-400"
+                  : "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                : canRun
+                  ? "bg-slate-900 text-white"
+                  : "cursor-not-allowed bg-slate-200 text-slate-500"
             }`}
           >
+            {isRunAllBusy && (
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            )}
             {label}
           </button>
         </div>

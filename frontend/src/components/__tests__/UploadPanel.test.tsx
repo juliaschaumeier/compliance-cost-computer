@@ -17,6 +17,7 @@ jest.mock("@/lib/api", () => ({
     startStepRun: jest.fn(),
     getStepRunStatus: jest.fn(),
     cancelStepRun: jest.fn(),
+    cancelRunAll: jest.fn(),
   },
   buildLlmRequestOptions: () => ({
     model: "gpt-5.4",
@@ -32,7 +33,11 @@ jest.mock("@/lib/sessionStart", () => ({
 }));
 
 jest.mock("@/lib/runAllStepEvents", () => ({
-  useRunAllStepBusy: jest.fn(() => false),
+  useRunAllStepRun: jest.fn(() => ({
+    isBusy: false,
+    runId: null,
+    runKind: null,
+  })),
 }));
 
 const mockUseApp = useApp as jest.Mock;

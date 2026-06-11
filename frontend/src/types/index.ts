@@ -73,6 +73,9 @@ export interface SessionStatus {
   case_group_research_elapsed_seconds?: number | null;
   last_completed_step?: string | null;
   last_completed_label?: string | null;
+  last_failed_step?: string | null;
+  last_failed_label?: string | null;
+  last_failed_message?: string | null;
 }
 
 export interface CaseGroupResearchSettingsResponse {
