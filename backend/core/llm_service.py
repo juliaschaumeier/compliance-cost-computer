@@ -1483,11 +1483,15 @@ def _estimate_cost_usd(
         return None
 
     # Standard API pricing, USD per 1M tokens.
-    # Sources (checked on 2026-02-27):
+    # Sources (checked on 2026-06-01):
     # - https://openai.com/api/pricing
     # - https://ai.google.dev/gemini-api/docs/pricing
     pricing_per_million: dict[str, dict[str, tuple[float, float]]] = {
         "openai": {
+            "gpt-5.5": (5.00, 30.00),
+            "gpt-5.4-mini": (0.75, 4.50),
+            "gpt-5.4-nano": (0.20, 1.25),
+            "gpt-5.4": (2.50, 15.00),
             "gpt-5.2-pro": (21.00, 168.00),
             "gpt-5.2": (1.75, 14.00),
             "gpt-5-pro": (15.00, 120.00),
@@ -1502,6 +1506,13 @@ def _estimate_cost_usd(
             "gpt-4o": (2.50, 10.00),
         },
         "gemini": {
+            "deep-research-pro-preview": (2.00, 12.00),
+            "deep-research-preview": (2.00, 12.00),
+            "gemini-3.5-flash": (1.50, 9.00),
+            "gemini-3.1-pro-preview": (2.00, 12.00),
+            "gemini-3.1-flash-lite": (0.25, 1.50),
+            "gemini-3-pro-preview": (2.00, 12.00),
+            "gemini-3-flash-preview": (0.50, 3.00),
             "gemini-2.5-pro": (1.25, 10.00),
             "gemini-2.5-flash-lite": (0.10, 0.40),
             "gemini-2.5-flash": (0.30, 2.50),

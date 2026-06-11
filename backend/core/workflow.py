@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import Callable
 
 from backend.core import db
-from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
+from backend.core.norm_addressees import ALL_NORM_ADDRESSEES, SUPPORTED_NORM_ADDRESSEES
 from backend.core.prompts import PromptId
+from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ def _undo_total_cost(session_id: int) -> None:
 def _undo_effort(session_id: int) -> None:
     for addressee in SUPPORTED_NORM_ADDRESSEES:
         db.clear_effort_metrics(session_id, norm_addressee=addressee)
+    db.clear_case_group_research(session_id)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],
@@ -109,3 +111,11 @@ def undo_step(session_id: int, step_key: str) -> None:
     if handler is None:
         raise ValueError(f"Unknown workflow step: {step_key}")
     handler(session_id)
+    session = db.get_session_by_id(session_id)
+    if session is None:
+        return
+    if step_key == "summary":
+        for addressee in ALL_NORM_ADDRESSEES:
+            db.clear_tiles(session_id=session_id, norm_addressee=addressee)
+        return
+    sync_all_norm_addressee_tile_snapshots(session)

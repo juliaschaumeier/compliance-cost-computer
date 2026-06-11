@@ -1,6 +1,47 @@
 from backend.core import db
 
 
+def test_session_status_exposes_latest_failed_step_message(test_client):
+    session_id, _ = db.upsert_session("STATUS-FAILED-STEP", "test-model")
+    db.update_session_summary("STATUS-FAILED-STEP", "Titel", "Zusammenfassung")
+    db.insert_regulation(session_id, "§ 1", "Beschreibung")
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="process_compilation",
+        model="test-model",
+        answer_text="{}",
+        answer_state=db.LLM_ANSWER_STATE_INVALID,
+        state_reason="session_update_failed: Vorgabe 295 linked to multiple processes",
+        norm_addressee="administration",
+    )
+
+    resp = test_client.get(
+        "/sessions/status", params={"app_session_id": "STATUS-FAILED-STEP"}
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["processes_ready"] is False
+    assert payload["last_failed_step"] == "processes"
+    assert payload["last_failed_label"] == "Prozesse bündeln"
+    assert payload["last_failed_message"] == "Vorgabe 295 linked to multiple processes"
+
+    process_id = db.insert_process(
+        session_id,
+        "Prozess A",
+        "Beschreibung Prozess",
+        norm_addressee="administration",
+    )
+    assert process_id is not None
+
+    resp = test_client.get(
+        "/sessions/status", params={"app_session_id": "STATUS-FAILED-STEP"}
+    )
+    payload = resp.json()
+    assert payload["last_failed_step"] is None
+    assert payload["last_failed_message"] is None
+
+
 def test_session_status_progression(test_client):
     """Reflects readiness flags as session data accumulates."""
     session_id, _ = db.upsert_session("STATUS-OK", "test-model")

@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     prompt_audit_enabled: bool = False
     prompt_audit_output_dir: Path = BASE_DIR / "prompt_audits"
     prompt_audit_session_ids: str = ""
+    deep_research_primary_agent: str = "deep-research-preview-04-2026"
+    deep_research_fallback_agent: str = "deep-research-pro-preview-12-2025"
+    deep_research_poll_interval_seconds: float = 5.0
+    # 2026-06-10: Gemini docs state Deep Research has a 60-minute server-side max
+    # and most tasks should complete within 20 minutes; keep the local poll cap
+    # explicit so stuck interactions cannot run forever.
+    deep_research_max_poll_seconds: float = 1800.0
+    deep_research_request_timeout_seconds: float = 30.0
     db_path: Path = DEFAULT_DB_PATH
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 
@@ -40,27 +48,27 @@ class Settings(BaseSettings):
 settings = Settings()
 
 OPENAI_RECOMMENDED = [
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
     "gpt-5.2",
-    "gpt-5.2-pro",
-    "gpt-5.1",
-    "gpt-5",
-    "gpt-5-mini",
 ]
 
 DEEPINFRA_RECOMMENDED = [
-    "anthropic/claude-4-opus",
-    "anthropic/claude-4-sonnet",
-    "deepseek-ai/DeepSeek-R1-0528",
+    "anthropic/claude-sonnet-4-6",
+    "anthropic/claude-opus-4-7",
+    "deepseek-ai/DeepSeek-V3.2",
+    "Qwen/Qwen3.5-397B-A17B",
     "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-    "Qwen/Qwen2.5-72B-Instruct",
 ]
 
 GEMINI_RECOMMENDED = [
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-3-pro-preview",
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite",
     "gemini-3-flash-preview",
+    "gemini-2.5-pro",
     # "gemini-2.0-flash",
     # "gemini-2.0-flash-lite",
 ]

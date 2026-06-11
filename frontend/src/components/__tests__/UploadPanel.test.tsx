@@ -5,7 +5,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import UploadPanel from "@/components/UploadPanel";
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
-import { prepareSessionDocumentsAndStartSummary } from "@/lib/sessionStart";
+import { prepareSessionDocuments } from "@/lib/sessionStart";
 
 jest.mock("@/contexts/AppContext", () => ({
   useApp: jest.fn(),
@@ -14,22 +14,35 @@ jest.mock("@/contexts/AppContext", () => ({
 jest.mock("@/lib/api", () => ({
   apiClient: {
     fetchRegulations: jest.fn(),
+    startStepRun: jest.fn(),
+    getStepRunStatus: jest.fn(),
+    cancelStepRun: jest.fn(),
+    cancelRunAll: jest.fn(),
   },
+  buildLlmRequestOptions: () => ({
+    model: "gpt-5.4",
+    provider: "openai",
+    keys: {},
+  }),
 }));
 
 jest.mock("@/lib/sessionStart", () => ({
-  prepareSessionDocumentsAndStartSummary: jest.fn(),
+  prepareSessionDocuments: jest.fn(),
   formatSessionStartError: jest.fn(() => "Fehler"),
   logSessionStartError: jest.fn(),
 }));
 
 jest.mock("@/lib/runAllStepEvents", () => ({
-  useRunAllStepBusy: jest.fn(() => false),
+  useRunAllStepRun: jest.fn(() => ({
+    isBusy: false,
+    runId: null,
+    runKind: null,
+  })),
 }));
 
 const mockUseApp = useApp as jest.Mock;
 const mockFetchRegulations = apiClient.fetchRegulations as jest.Mock;
-const mockPrepareAndStart = prepareSessionDocumentsAndStartSummary as jest.Mock;
+const mockPrepareSessionDocuments = prepareSessionDocuments as jest.Mock;
 
 function createAppValue(overrides: Record<string, unknown> = {}) {
   return {
@@ -64,7 +77,10 @@ describe("UploadPanel", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFetchRegulations.mockResolvedValue({ files: [] });
-    mockPrepareAndStart.mockResolvedValue(undefined);
+    mockPrepareSessionDocuments.mockResolvedValue({
+      proposedFilename: "proposed.txt",
+      llm: { model: "gpt-5.4", provider: "openai", keys: {} },
+    });
     mockUseApp.mockReturnValue(createAppValue());
   });
 

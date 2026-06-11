@@ -76,6 +76,9 @@ interface AppState {
   totalCostReady: boolean;
   lastCompletedStep: string | null;
   lastCompletedLabel: string | null;
+  lastFailedStep: string | null;
+  lastFailedLabel: string | null;
+  lastFailedMessage: string | null;
 }
 
 interface AppContextValue {
@@ -101,6 +104,9 @@ interface AppContextValue {
   setTotalCostReady: (ready: boolean) => void;
   setLastCompletedStep: (step: string | null) => void;
   setLastCompletedLabel: (label: string | null) => void;
+  setLastFailedStep: (step: string | null) => void;
+  setLastFailedLabel: (label: string | null) => void;
+  setLastFailedMessage: (message: string | null) => void;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -108,13 +114,7 @@ const APP_SESSION_STORAGE_KEY = "app_session_id";
 const LEGACY_SESSION_STORAGE_KEY = "session_id";
 const SELECTED_NORM_ADDRESSEE_STORAGE_KEY = "selected_norm_addressee";
 
-// Lazy-Initializer fuer selectedNormAddressee: liest den zuletzt gewaehlten
-// Adressaten aus SessionStorage, damit nach Reload keine Verwaltung-Flash
-// entsteht und die Anzeige konsistent mit dem vorherigen User-Zustand ist.
 function readStoredNormAddressee(): NormAddressee {
-  if (typeof window === "undefined") {
-    return "administration";
-  }
   try {
     const stored = sessionStorage.getItem(SELECTED_NORM_ADDRESSEE_STORAGE_KEY);
     if (stored === "administration" || stored === "business" || stored === "citizens") {
@@ -149,7 +149,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [appSessionId, setAppSessionIdState] = useState("");
   const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
   const [selectedNormAddressee, setSelectedNormAddresseeState] =
-    useState<NormAddressee>(readStoredNormAddressee);
+    useState<NormAddressee>("administration");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedModelHydrated, setSelectedModelHydrated] = useState(false);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
@@ -172,6 +172,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   >(createDefaultAddresseeReadiness);
   const [lastCompletedStep, setLastCompletedStep] = useState<string | null>(null);
   const [lastCompletedLabel, setLastCompletedLabel] = useState<string | null>(null);
+  const [lastFailedStep, setLastFailedStep] = useState<string | null>(null);
+  const [lastFailedLabel, setLastFailedLabel] = useState<string | null>(null);
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const appSessionIdAttempts = useRef(0);
   const readinessSetters = useMemo<
     Record<ReadinessStorageKey, (value: boolean) => void>
@@ -287,6 +290,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [appSessionId, readinessSetters, logDebug]);
 
   useEffect(() => {
+    const storedNormAddressee = readStoredNormAddressee();
+    if (storedNormAddressee !== selectedNormAddressee) {
+      setSelectedNormAddresseeState(storedNormAddressee);
+    }
+    // Only run after hydration. Reading sessionStorage in the state initializer
+    // makes the first client render differ from the server-rendered header.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     sessionStorage.setItem(
       SELECTED_NORM_ADDRESSEE_STORAGE_KEY,
       selectedNormAddressee
@@ -358,6 +371,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
         setLastCompletedStep(status.last_completed_step ?? null);
         setLastCompletedLabel(status.last_completed_label ?? null);
+        setLastFailedStep(status.last_failed_step ?? null);
+        setLastFailedLabel(status.last_failed_label ?? null);
+        setLastFailedMessage(status.last_failed_message ?? null);
       } catch (error) {
         const status =
           typeof (error as { status?: unknown })?.status === "number"
@@ -572,6 +588,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           totalCostReady,
           lastCompletedStep,
           lastCompletedLabel,
+          lastFailedStep,
+          lastFailedLabel,
+          lastFailedMessage,
         },
         setCurrentTab,
         setAppSessionId,
@@ -692,6 +711,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ),
         setLastCompletedStep,
         setLastCompletedLabel,
+        setLastFailedStep,
+        setLastFailedLabel,
+        setLastFailedMessage,
       }}
     >
       {children}

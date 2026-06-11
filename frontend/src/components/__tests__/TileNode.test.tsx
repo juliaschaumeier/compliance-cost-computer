@@ -32,10 +32,8 @@ function buildTileNodeProps(
     data: {
       title: "Regelung",
       text: "Kurztext",
-      deletable: false,
       onBodyRef: jest.fn(),
       onNodeRef: jest.fn(),
-      onDelete: jest.fn(),
       onToggleExpand: jest.fn(),
       isExpanded: false,
       textHasOverflow: false,
@@ -111,11 +109,10 @@ describe("TileNode", () => {
     expect(bodyNullCall).toBeUndefined();
   });
 
-  it("renders header metrics around the delete action", () => {
+  it("renders header metrics without a delete action", () => {
     render(
       <TileNode
         {...buildTileNodeProps("step_4", {
-          deletable: true,
           headerMetricLeft: "Δ 120 €",
           headerMetricRight: "Δ Fälle/Jahr +5",
         })}
@@ -124,7 +121,7 @@ describe("TileNode", () => {
 
     expect(screen.getByText("Δ 120 €")).toBeInTheDocument();
     expect(screen.getByText("Δ Fälle/Jahr +5")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "×" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "×" })).not.toBeInTheDocument();
   });
 
   it("renders a step matrix as a table", () => {
@@ -149,8 +146,8 @@ describe("TileNode", () => {
       />
     );
 
-    expect(screen.getByRole("columnheader", { name: "Gültig" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Vorschlag" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Aktuell" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Entwurf" })).toBeInTheDocument();
     expect(screen.getByRole("rowheader", { name: "eD/mD" })).toBeInTheDocument();
     expect(screen.getByText("12 min")).toBeInTheDocument();
     expect(screen.getByText("15 min")).toBeInTheDocument();
@@ -204,6 +201,6 @@ describe("TileNode", () => {
     );
 
     expect(screen.getByTitle("Text ausklappen")).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Gültig" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Aktuell" })).not.toBeInTheDocument();
   });
 });

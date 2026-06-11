@@ -1,9 +1,13 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import SessionMenu from "@/components/SessionMenu";
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import {
+  emitRunAllStepCleared,
+  emitRunAllStepStarted,
+} from "@/lib/runAllStepEvents";
 import { prepareSessionDocuments } from "@/lib/sessionStart";
 
 jest.mock("@/contexts/AppContext", () => ({
@@ -17,6 +21,9 @@ jest.mock("@/lib/api", () => ({
     getSessionStatus: jest.fn(),
     undoLastStep: jest.fn(),
     exportSession: jest.fn(),
+    getCaseGroupResearchSettings: jest.fn(),
+    updateCaseGroupResearchSettings: jest.fn(),
+    downloadDeepResearchReport: jest.fn(),
     startRunAllSteps: jest.fn(),
     cancelRunAll: jest.fn(),
     getRunAllStatus: jest.fn(),
@@ -40,6 +47,8 @@ const mockRebuildTiles = apiClient.rebuildTiles as jest.Mock;
 const mockListSessions = apiClient.listSessions as jest.Mock;
 const mockGetSessionStatus = apiClient.getSessionStatus as jest.Mock;
 const mockUndoLastStep = apiClient.undoLastStep as jest.Mock;
+const mockGetCaseGroupResearchSettings =
+  apiClient.getCaseGroupResearchSettings as jest.Mock;
 const mockStartRunAllSteps = apiClient.startRunAllSteps as jest.Mock;
 const mockPrepareSessionDocuments = prepareSessionDocuments as jest.Mock;
 
@@ -57,9 +66,13 @@ describe("SessionMenu", () => {
   const setRegulationsReady = jest.fn();
   const setLastCompletedStep = jest.fn();
   const setLastCompletedLabel = jest.fn();
+  const setLastFailedStep = jest.fn();
+  const setLastFailedLabel = jest.fn();
+  const setLastFailedMessage = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
+    emitRunAllStepCleared();
     mockUseApp.mockReturnValue({
       state: {
         appSessionId: "ABC123",
@@ -96,10 +109,19 @@ describe("SessionMenu", () => {
       setRegulationsReady,
       setLastCompletedStep,
       setLastCompletedLabel,
+      setLastFailedStep,
+      setLastFailedLabel,
+      setLastFailedMessage,
     });
     mockRebuildTiles.mockResolvedValue({ ok: true });
     mockListSessions.mockResolvedValue({
       sessions: [
+        {
+          app_session_id: "ABC123",
+          created_at: "2026-04-14T08:00:00Z",
+          llm_model: "gpt-5.4",
+          used_llm_models: "gpt-5.4",
+        },
         {
           app_session_id: "XYZ789",
           created_at: "2026-04-14T09:00:00Z",
@@ -123,6 +145,13 @@ describe("SessionMenu", () => {
       status: "ok",
       undone_step: "effort",
       undone_label: "Aufwand berechnen",
+    });
+    mockGetCaseGroupResearchSettings.mockResolvedValue({
+      app_session_id: "ABC123",
+      enabled: true,
+      status: "idle",
+      locked: false,
+      elapsed_seconds: null,
     });
     mockStartRunAllSteps.mockResolvedValue({
       run_id: "run-123",
@@ -153,20 +182,6 @@ describe("SessionMenu", () => {
     await screen.findByText("Session Aktionen");
     return user;
   }
-
-  it("rebuilds the currently selected norm addressee", async () => {
-    const user = await openMenu();
-
-    await user.click(
-      screen.getByRole("button", {
-        name: /kacheln dieser session neu laden/i,
-      })
-    );
-
-    await waitFor(() =>
-      expect(mockRebuildTiles).toHaveBeenCalledWith("ABC123", "business")
-    );
-  });
 
   it("rebuilds the selected norm addressee after loading another session", async () => {
     const user = await openMenu();
@@ -235,6 +250,9 @@ describe("SessionMenu", () => {
       setRegulationsReady,
       setLastCompletedStep,
       setLastCompletedLabel,
+      setLastFailedStep,
+      setLastFailedLabel,
+      setLastFailedMessage,
     });
 
     const user = await openMenu();
@@ -263,5 +281,113 @@ describe("SessionMenu", () => {
         keys: { openaiApiKey: "key" },
       })
     );
+  });
+
+  it("shows elapsed Deep Research runtime while running", async () => {
+    mockGetCaseGroupResearchSettings.mockResolvedValue({
+      app_session_id: "ABC123",
+      enabled: true,
+      status: "running",
+      locked: true,
+      elapsed_seconds: 125,
+    });
+
+    await openMenu();
+
+    expect(
+      await screen.findByText(/Status: running · läuft seit 2:05 min/i)
+    ).toBeInTheDocument();
+  });
+
+  it("disables reset while a workflow run is active", async () => {
+    const user = await openMenu();
+
+    act(() => {
+      emitRunAllStepStarted("regulations", "run-1", "run_all");
+    });
+
+    const resetButton = screen.getByRole("button", {
+      name: /aufwand berechnen.*zurücksetzen/i,
+    });
+    expect(resetButton).toBeDisabled();
+
+    await user.click(resetButton);
+
+    expect(mockUndoLastStep).not.toHaveBeenCalled();
+  });
+
+  it("re-enables the Deep Research toggle after a pre-effort run is cleared", async () => {
+    const user = await openMenu();
+    const toggle = await screen.findByRole("switch");
+
+    act(() => {
+      emitRunAllStepStarted("regulations", "run-1", "run_all");
+    });
+    expect(toggle).toBeDisabled();
+
+    act(() => {
+      emitRunAllStepCleared();
+    });
+    expect(toggle).not.toBeDisabled();
+
+    await user.click(toggle);
+
+    expect(apiClient.updateCaseGroupResearchSettings).toHaveBeenCalledWith(
+      "ABC123",
+      false
+    );
+  });
+
+  it("does not toggle Deep Research while run-all is being prepared", async () => {
+    const user = await openMenu();
+
+    await user.click(
+      screen.getByRole("button", { name: /alle schritte ausführen/i })
+    );
+    const toggle = await screen.findByRole("switch");
+    expect(toggle).toBeDisabled();
+
+    await user.click(toggle);
+
+    expect(apiClient.updateCaseGroupResearchSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not load a selected session when the modal is closed before Wechseln", async () => {
+    const user = await openMenu();
+
+    await waitFor(() => expect(mockListSessions).toHaveBeenCalled());
+    const select = screen.getByRole("combobox");
+    expect(select).toHaveValue("ABC123");
+
+    await user.selectOptions(select, "XYZ789");
+    expect(select).toHaveValue("XYZ789");
+    await user.click(screen.getByRole("button", { name: /schließen/i }));
+
+    expect(mockGetSessionStatus).not.toHaveBeenCalledWith("XYZ789");
+    expect(mockRebuildTiles).not.toHaveBeenCalledWith("XYZ789", "business");
+    expect(setAppSessionId).not.toHaveBeenCalledWith("XYZ789");
+
+    await user.click(screen.getByTitle("Session Aktionen"));
+    await screen.findByText("Session Aktionen");
+    expect(screen.getByRole("combobox")).toHaveValue("ABC123");
+  });
+
+  it("sends only one cancellation request when run-all cancel is clicked repeatedly", async () => {
+    const user = await openMenu();
+
+    await user.click(
+      screen.getByRole("button", { name: /alle schritte ausführen/i })
+    );
+    const cancelButton = await screen.findByRole("button", {
+      name: /ausführung abbrechen/i,
+    });
+    fireEvent.click(cancelButton);
+    fireEvent.click(cancelButton);
+    await screen.findByRole("button", {
+      name: /abbruch wird ausgeführt/i,
+    });
+
+    expect(apiClient.cancelRunAll).toHaveBeenCalledTimes(1);
+    expect(apiClient.cancelRunAll).toHaveBeenCalledWith("run-123");
   });
 });

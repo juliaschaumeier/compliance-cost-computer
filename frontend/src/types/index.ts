@@ -48,6 +48,7 @@ export interface SessionSummary {
   created_at: string;
   llm_model: string;
   used_llm_models?: string | null;
+  case_group_research_enabled?: boolean;
 }
 
 export interface SessionsResponse {
@@ -67,8 +68,22 @@ export interface SessionStatus {
   effort_ready_by_addressee?: Record<NormAddressee, boolean>;
   total_cost_ready: boolean;
   total_cost_ready_by_addressee?: Record<NormAddressee, boolean>;
+  case_group_research_enabled?: boolean;
+  case_group_research_status?: string;
+  case_group_research_elapsed_seconds?: number | null;
   last_completed_step?: string | null;
   last_completed_label?: string | null;
+  last_failed_step?: string | null;
+  last_failed_label?: string | null;
+  last_failed_message?: string | null;
+}
+
+export interface CaseGroupResearchSettingsResponse {
+  app_session_id: string;
+  enabled: boolean;
+  status: string;
+  locked: boolean;
+  elapsed_seconds?: number | null;
 }
 
 export interface UndoStepResponse {
@@ -99,6 +114,10 @@ export interface RunAllStatusResponse {
   ok?: boolean | null;
   steps: RunAllStepResult[];
   final_status?: SessionStatus | null;
+  current_step?: string | null;
+  current_label?: string | null;
+  current_norm_addressee?: string | null;
+  last_error?: string | null;
 }
 
 export interface RunAllCancelResponse {
@@ -348,6 +367,7 @@ export interface EditableCaseGroupRow {
   addressees_proposed_effective: number | null;
   annual_frequency_proposed_effective: number | null;
   cases_proposed_effective: number | null;
+  case_metric_research_json?: Record<string, unknown> | unknown[] | string | null;
 }
 
 export interface EditableCaseGroupsResponse {

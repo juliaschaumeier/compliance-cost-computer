@@ -1,15 +1,20 @@
-"use client";
-
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import EffortPanel from "@/components/EffortPanel";
 import { apiClient } from "@/lib/api";
 import { useApp } from "@/contexts/AppContext";
+import {
+  emitRunAllStepCleared,
+  emitRunAllStepStarted,
+} from "@/lib/runAllStepEvents";
 
 jest.mock("@/lib/api", () => ({
   apiClient: {
-    calculateEffort: jest.fn(),
+    startStepRun: jest.fn(),
+    getStepRunStatus: jest.fn(),
+    cancelStepRun: jest.fn(),
+    cancelRunAll: jest.fn(),
   },
   buildLlmRequestOptions: ({
     selectedModel,
@@ -38,7 +43,10 @@ jest.mock("@/contexts/AppContext", () => ({
 }));
 
 const mockUseApp = useApp as jest.Mock;
-const mockCalculateEffort = apiClient.calculateEffort as jest.Mock;
+const mockStartStepRun = apiClient.startStepRun as jest.Mock;
+const mockGetStepRunStatus = apiClient.getStepRunStatus as jest.Mock;
+const mockCancelStepRun = apiClient.cancelStepRun as jest.Mock;
+const mockCancelRunAll = apiClient.cancelRunAll as jest.Mock;
 
 const baseState = {
   currentTab: 5,
@@ -62,7 +70,11 @@ const baseState = {
 
 describe("EffortPanel", () => {
   beforeEach(() => {
-    mockCalculateEffort.mockReset();
+    mockStartStepRun.mockReset();
+    mockGetStepRunStatus.mockReset();
+    mockCancelStepRun.mockReset();
+    mockCancelRunAll.mockReset();
+    emitRunAllStepCleared();
     localStorage.clear();
   });
 
@@ -88,7 +100,20 @@ describe("EffortPanel", () => {
       setEffortReady,
     });
     localStorage.setItem("openai_api_key", "sk-test");
-    mockCalculateEffort.mockResolvedValue({ case_groups_updated: 1, steps_updated: 1 });
+    mockStartStepRun.mockResolvedValue({
+      app_session_id: "ABC123",
+      run_id: "run-1",
+      started: true,
+      status: "running",
+    });
+    mockGetStepRunStatus.mockResolvedValue({
+      run_id: "run-1",
+      app_session_id: "ABC123",
+      status: "completed",
+      ok: true,
+      steps: [{ key: "effort", label: "Aufwand berechnen", status: "completed" }],
+      final_status: { ...baseState, effort_ready: true },
+    });
 
     render(<EffortPanel />);
     const user = userEvent.setup();
@@ -96,11 +121,11 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     await waitFor(() => {
-      expect(mockCalculateEffort).toHaveBeenCalledTimes(3);
+      expect(mockStartStepRun).toHaveBeenCalledTimes(1);
     });
-    expect(mockCalculateEffort).toHaveBeenNthCalledWith(1, {
+    expect(mockStartStepRun).toHaveBeenCalledWith({
       appSessionId: "ABC123",
-      normAddressee: "administration",
+      stepKey: "effort",
       model: "gpt-5",
       provider: "openai",
       keys: {
@@ -109,30 +134,11 @@ describe("EffortPanel", () => {
         geminiApiKey: undefined,
       },
     });
-    expect(mockCalculateEffort).toHaveBeenNthCalledWith(2, {
-      appSessionId: "ABC123",
-      normAddressee: "business",
-      model: "gpt-5",
-      provider: "openai",
-      keys: {
-        openaiApiKey: "sk-test",
-        deepinfraApiKey: undefined,
-        geminiApiKey: undefined,
-      },
+    await waitFor(() => {
+      expect(mockGetStepRunStatus).toHaveBeenCalledWith("run-1");
+      expect(setCurrentTab).toHaveBeenCalledWith(6);
+      expect(setEffortReady).toHaveBeenCalledWith(true);
     });
-    expect(mockCalculateEffort).toHaveBeenNthCalledWith(3, {
-      appSessionId: "ABC123",
-      normAddressee: "citizens",
-      model: "gpt-5",
-      provider: "openai",
-      keys: {
-        openaiApiKey: "sk-test",
-        deepinfraApiKey: undefined,
-        geminiApiKey: undefined,
-      },
-    });
-    expect(setCurrentTab).toHaveBeenCalledWith(6);
-    expect(setEffortReady).toHaveBeenCalledWith(true);
   });
 
   it("shows an error when the API fails", async () => {
@@ -143,7 +149,7 @@ describe("EffortPanel", () => {
       setCurrentTab,
       setEffortReady,
     });
-    mockCalculateEffort.mockRejectedValue(new Error("boom"));
+    mockStartStepRun.mockRejectedValue(new Error("boom"));
 
     render(<EffortPanel />);
     const user = userEvent.setup();
@@ -151,9 +157,7 @@ describe("EffortPanel", () => {
     await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
 
     expect(
-      await screen.findByText(
-        /Aufwand berechnen fehlgeschlagen fuer alle Normadressaten.*Verwaltung.*Wirtschaft.*Buerger/
-      )
+      await screen.findByText("Aufwand konnte nicht gestartet werden.")
     ).toBeInTheDocument();
     expect(setCurrentTab).not.toHaveBeenCalled();
   });
@@ -166,10 +170,26 @@ describe("EffortPanel", () => {
       setCurrentTab,
       setEffortReady,
     });
-    mockCalculateEffort.mockResolvedValue({
-      status: "existing",
-      case_groups_updated: 0,
-      steps_updated: 0,
+    mockStartStepRun.mockResolvedValue({
+      app_session_id: "ABC123",
+      run_id: "run-existing",
+      started: true,
+      status: "running",
+    });
+    mockGetStepRunStatus.mockResolvedValue({
+      run_id: "run-existing",
+      app_session_id: "ABC123",
+      status: "completed",
+      ok: true,
+      steps: [
+        {
+          key: "effort",
+          label: "Aufwand berechnen",
+          status: "skipped",
+          message: "Step already complete",
+        },
+      ],
+      final_status: { ...baseState, effort_ready: true },
     });
 
     render(<EffortPanel />);
@@ -179,11 +199,109 @@ describe("EffortPanel", () => {
 
     expect(
       await screen.findByText(
-        "Aufwand fuer Verwaltung, Wirtschaft und Buerger wurde bereits berechnet."
+        "Aufwand fuer Verwaltung, Wirtschaft und Buerger berechnet.",
+        {},
+        { timeout: 2000 }
       )
     ).toBeInTheDocument();
-    expect(mockCalculateEffort).toHaveBeenCalledTimes(3);
+    expect(mockStartStepRun).toHaveBeenCalledTimes(1);
     expect(setEffortReady).toHaveBeenCalledWith(true);
     expect(setCurrentTab).toHaveBeenCalledWith(6);
+  });
+
+  it("cancels the active run-all when run-all is executing effort", async () => {
+    mockUseApp.mockReturnValue({
+      state: baseState,
+      setCurrentTab: jest.fn(),
+      setEffortReady: jest.fn(),
+    });
+    mockCancelRunAll.mockResolvedValue({
+      run_id: "run-all-1",
+      app_session_id: "ABC123",
+      status: "cancelling",
+      accepted: true,
+      message: "Cancellation requested",
+    });
+
+    render(<EffortPanel />);
+    act(() => {
+      emitRunAllStepStarted("effort", "run-all-1");
+    });
+    const user = userEvent.setup();
+
+    const button = screen.getByRole("button", { name: /abbrechen/i });
+    expect(button).not.toBeDisabled();
+    await user.click(button);
+
+    expect(mockCancelRunAll).toHaveBeenCalledWith("run-all-1");
+    expect(apiClient.cancelStepRun).not.toHaveBeenCalled();
+    expect(await screen.findByText("Abbruch angefordert...")).toBeInTheDocument();
+  });
+
+  it("does not send duplicate run-all cancel requests after cancellation starts", async () => {
+    mockUseApp.mockReturnValue({
+      state: baseState,
+      setCurrentTab: jest.fn(),
+      setEffortReady: jest.fn(),
+    });
+    mockCancelRunAll.mockResolvedValue({
+      run_id: "run-all-1",
+      app_session_id: "ABC123",
+      status: "cancelling",
+      accepted: true,
+      message: "Cancellation requested",
+    });
+
+    render(<EffortPanel />);
+    act(() => {
+      emitRunAllStepStarted("effort", "run-all-1");
+    });
+
+    const button = screen.getByRole("button", { name: /abbrechen/i });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await screen.findByText("Abbruch angefordert...");
+
+    expect(mockCancelRunAll).toHaveBeenCalledTimes(1);
+    expect(mockCancelStepRun).not.toHaveBeenCalled();
+  });
+
+  it("cancels a manual effort run via the step-run endpoint, not run-all", async () => {
+    mockUseApp.mockReturnValue({
+      state: baseState,
+      setCurrentTab: jest.fn(),
+      setEffortReady: jest.fn(),
+    });
+    mockStartStepRun.mockResolvedValue({
+      app_session_id: "ABC123",
+      run_id: "manual-run-1",
+      started: true,
+      status: "running",
+    });
+    mockGetStepRunStatus.mockResolvedValue({
+      run_id: "manual-run-1",
+      app_session_id: "ABC123",
+      status: "running",
+      ok: null,
+      current_label: "Aufwand berechnen",
+      steps: [{ key: "effort", label: "Aufwand berechnen", status: "running" }],
+    });
+    mockCancelStepRun.mockResolvedValue({
+      run_id: "manual-run-1",
+      app_session_id: "ABC123",
+      status: "cancelling",
+      accepted: true,
+      message: "Cancellation requested",
+    });
+
+    render(<EffortPanel />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /aufwand berechnen/i }));
+    const cancelButton = await screen.findByRole("button", { name: /abbrechen/i });
+    await user.click(cancelButton);
+
+    expect(mockCancelStepRun).toHaveBeenCalledWith("manual-run-1");
+    expect(mockCancelRunAll).not.toHaveBeenCalled();
   });
 });

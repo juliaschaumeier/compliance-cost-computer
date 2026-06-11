@@ -23,6 +23,7 @@ import {
   EditableCaseGroupsResponse,
   EditableProcessStepsResponse,
   NormAddressee,
+  CaseGroupResearchSettingsResponse,
 } from "@/types";
 
 const API_BASE_URL =
@@ -243,26 +244,6 @@ export const apiClient = {
     return response.json();
   },
 
-  async deleteTile(
-    tileId: string,
-    appSessionId: string,
-    normAddressee?: NormAddressee
-  ): Promise<void> {
-    const params = new URLSearchParams({
-      app_session_id: appSessionId,
-    });
-    if (normAddressee && normAddressee !== "administration") {
-      params.set("norm_addressee", normAddressee);
-    }
-    const query = `?${params.toString()}`;
-    const response = await fetch(`${API_BASE_URL}/tiles/${tileId}${query}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to delete tile");
-    }
-  },
-
   async rebuildTiles(
     appSessionId: string,
     normAddressee?: NormAddressee
@@ -344,6 +325,58 @@ export const apiClient = {
     }
     return response.json();
   },
+  async getCaseGroupResearchSettings(
+    appSessionId: string
+  ): Promise<CaseGroupResearchSettingsResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/case-group-research?app_session_id=${encodeURIComponent(
+        appSessionId
+      )}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to load Deep Research settings"
+      );
+    }
+    return response.json();
+  },
+  async updateCaseGroupResearchSettings(
+    appSessionId: string,
+    enabled: boolean
+  ): Promise<CaseGroupResearchSettingsResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/case-group-research`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: appSessionId,
+        enabled,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to update Deep Research settings"
+      );
+    }
+    return response.json();
+  },
+  async downloadDeepResearchReport(appSessionId: string): Promise<Blob> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/deep-research-report?app_session_id=${encodeURIComponent(
+        appSessionId
+      )}&format=pdf`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to download Deep Research report"
+      );
+    }
+    return response.blob();
+  },
   async startRunAllSteps(
     options: {
       appSessionId: string;
@@ -370,6 +403,61 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to start run-all steps");
+    }
+    return response.json();
+  },
+  async startStepRun(
+    options: {
+      appSessionId: string;
+      stepKey: string;
+      currentFilename?: string;
+      proposedFilename?: string;
+      model?: string;
+      provider?: string;
+      keys?: ApiKeys;
+    }
+  ): Promise<RunAllStartResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/step-runs/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...buildKeyHeaders(options.keys || {}),
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        step_key: options.stepKey,
+        current_filename: options.currentFilename,
+        proposed_filename: options.proposedFilename,
+        model: options.model,
+        provider: options.provider,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to start step");
+    }
+    return response.json();
+  },
+  async getStepRunStatus(runId: string): Promise<RunAllStatusResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}`
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load step status");
+    }
+    return response.json();
+  },
+  getStepRunEventsUrl(runId: string): string {
+    return `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}/events`;
+  },
+  async cancelStepRun(runId: string): Promise<RunAllCancelResponse> {
+    const response = await fetch(
+      `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}/cancel`,
+      {
+        method: "POST",
+      }
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to cancel step");
     }
     return response.json();
   },

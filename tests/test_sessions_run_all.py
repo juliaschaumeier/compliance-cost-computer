@@ -2,7 +2,10 @@ import json
 import time
 import asyncio
 
-from backend.core import db
+import pytest
+
+from backend.core import db, llm_monitor
+from backend.core.deep_research_service import DeepResearchError, DeepResearchResult
 from backend.routers import (
     case_groups as case_groups_router,
     effort as effort_router,
@@ -53,6 +56,45 @@ def _detect_addressee_from_prompt(prompt: str) -> str:
     ):
         return ADMINISTRATION
     return ADMINISTRATION
+
+
+def _seed_step6_prerequisites(app_session_id: str) -> int:
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    for norm_addressee in (ADMINISTRATION, BUSINESS, CITIZENS):
+        regulation_kwargs = {
+            "applies_to_administration": norm_addressee == ADMINISTRATION,
+            "applies_to_business": norm_addressee == BUSINESS,
+            "applies_to_citizens": norm_addressee == CITIZENS,
+            "is_business_information_obligation": norm_addressee == BUSINESS,
+        }
+        db.insert_regulation(
+            session_id,
+            f"§ {norm_addressee}",
+            f"Vorgabe {norm_addressee}",
+            **regulation_kwargs,
+        )
+        process_id = db.insert_process(
+            session_id,
+            f"Prozess {norm_addressee}",
+            f"Beschreibung Prozess {norm_addressee}",
+            norm_addressee=norm_addressee,
+        )
+        case_group_id = db.insert_case_group(
+            session_id,
+            process_id,
+            f"Fallgruppe {norm_addressee}",
+            f"Beschreibung Fallgruppe {norm_addressee}",
+            norm_addressee=norm_addressee,
+        )
+        db.insert_process_step(
+            session_id,
+            case_group_id,
+            f"Schritt {norm_addressee}",
+            f"Beschreibung Schritt {norm_addressee}",
+            norm_addressee=norm_addressee,
+        )
+    return session_id
 
 
 def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
@@ -696,6 +738,126 @@ def test_run_all_executes_all_addressees_end_to_end(test_client, monkeypatch):
     }
 
 
+def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypatch):
+    app_session_id = "RUNALL-DEEP-RESEARCH"
+    db.insert_law("current_deep.txt", "aktuelles gesetz")
+    db.insert_law("proposed_deep.txt", "neuer entwurf")
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_case_group_research_enabled(session_id, True)
+    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
+
+    async def fake_effort_llm(prompt, *_args, **_kwargs):
+        if not _is_effort_prompt(prompt):
+            raise AssertionError("cases_calculation should be replaced by Deep Research")
+        addressee = _detect_addressee_from_prompt(prompt)
+        sid = db.get_session_id_by_app_id(app_session_id)
+        assert sid is not None
+        processes = db.list_processes_for_session_and_addressee(sid, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(sid, addressee)
+        steps = db.list_process_steps_for_session_and_addressee(sid, addressee)
+        assert len(processes) == 1
+        assert len(case_groups) == 1
+        assert len(steps) == 1
+        if addressee == CITIZENS:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "zeitaufwand_in_min_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        else:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "stundenlohn_satz_a_vorschlag": "60",
+                "zeitaufwand_in_min_a_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "normadressat": addressee,
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    async def fake_run_deep_research(*_args, **_kwargs):
+        sid = db.get_session_id_by_app_id(app_session_id)
+        assert sid is not None
+        processes = []
+        for group in db.list_case_groups_for_session(sid):
+            processes.append(
+                {
+                    "prozess_id": str(group["process_id"]),
+                    "normadressat": group["norm_addressee"],
+                    "fallgruppen": [
+                        {
+                            "fallgruppen_id": str(group["case_group_id"]),
+                            "anzahl_betroffene_gueltig": "10",
+                            "haeufigkeit_pro_jahr_gueltig": "1",
+                            "anzahl_betroffene_vorschlag": "10",
+                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "confidence": {
+                                "anzahl_betroffene_gueltig": "high",
+                                "haeufigkeit_pro_jahr_gueltig": "medium",
+                                "anzahl_betroffene_vorschlag": "high",
+                                "haeufigkeit_pro_jahr_vorschlag": "medium",
+                            },
+                            "erklaerungen": {
+                                "anzahl_betroffene_gueltig": "Deep Research Begründung",
+                                "haeufigkeit_pro_jahr_gueltig": "Deep Research Begründung",
+                                "anzahl_betroffene_vorschlag": "Deep Research Begründung",
+                                "haeufigkeit_pro_jahr_vorschlag": "Deep Research Begründung",
+                            },
+                        }
+                    ],
+                }
+            )
+        report_text = json.dumps({"prozesse": processes})
+        return DeepResearchResult(
+            agent="test-agent",
+            interaction_id="dr-test",
+            report_text=report_text,
+            response_json={"status": "completed"},
+            estimated_cost_usd=0.032,
+        )
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
+    monkeypatch.setattr(sessions_router, "run_deep_research", fake_run_deep_research)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "current_filename": "current_deep.txt",
+            "proposed_filename": "proposed_deep.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["final_status"]["total_cost_ready"] is True
+    run = db.get_latest_deep_research_run(session_id, "case_group_metrics")
+    assert run is not None
+    assert run["status"] == "parsed"
+    assert run["estimated_cost_usd"] == pytest.approx(0.032)
+    assert all(
+        group["case_metric_research_json"]
+        for group in db.list_case_groups_for_session(session_id)
+    )
+
+
 def test_run_all_skips_administration_when_only_business_regulations_exist(
     test_client, monkeypatch
 ):
@@ -1013,6 +1175,321 @@ def test_run_all_events_stream_emits_terminal_event(test_client, monkeypatch):
     assert "snapshot" in seen_events
     assert "addressee_started" in seen_events
     assert "run_completed" in seen_events
+
+
+def test_single_step_run_executes_shared_step_runner(test_client, monkeypatch):
+    app_session_id = "STEP-RUN-PROCESSES"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.insert_regulation(session_id, "§ 1", "Beschreibung")
+
+    async def fake_compile_processes(payload, *_args, **_kwargs):
+        norm_addressee = payload.norm_addressee or ADMINISTRATION
+        db.insert_process(
+            session_id,
+            f"Prozess {norm_addressee}",
+            "Beschreibung",
+            norm_addressee=norm_addressee,
+        )
+        return {"status": "ok"}
+
+    monkeypatch.setattr(processes_router, "compile_processes", fake_compile_processes)
+
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "processes",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    run_id = start_response.json()["run_id"]
+
+    deadline = time.time() + 2.0
+    payload = None
+    while time.time() < deadline:
+        response = test_client.get(f"/sessions/step-runs/{run_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert payload is not None
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["steps"] == [
+        {"key": "processes", "label": "Prozesse bündeln", "status": "completed", "message": None}
+    ]
+    assert payload["final_status"]["processes_ready"] is True
+
+
+def test_undo_rejects_while_workflow_run_is_active(test_client, monkeypatch):
+    app_session_id = "UNDO-ACTIVE-RUN"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Beschreibung",
+        applies_to_administration=True,
+        applies_to_business=False,
+        applies_to_citizens=False,
+    )
+
+    async def slow_compile_processes(*_args, **_kwargs):
+        await asyncio.sleep(1.0)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(processes_router, "compile_processes", slow_compile_processes)
+
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "processes",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    run_id = start_response.json()["run_id"]
+
+    undo_response = test_client.post(
+        "/sessions/undo",
+        json={"app_session_id": app_session_id},
+    )
+
+    assert undo_response.status_code == 409
+    assert "lauf zuerst abbrechen" in undo_response.json()["detail"].lower()
+
+    cancel_response = test_client.post(f"/sessions/step-runs/{run_id}/cancel")
+    assert cancel_response.status_code == 200
+    done = _wait_for_run_completion(test_client, run_id, timeout_s=5.0)
+    assert done["status"] == "cancelled"
+
+
+def test_single_step_run_effort_uses_deep_research_when_enabled(
+    test_client,
+    monkeypatch,
+):
+    app_session_id = "STEP-RUN-EFFORT-DR"
+    session_id = _seed_step6_prerequisites(app_session_id)
+    db.update_case_group_research_enabled(session_id, True)
+    calls = {"cases": 0, "effort": 0}
+
+    async def fake_effort_llm(prompt, *_args, **_kwargs):
+        if not _is_effort_prompt(prompt):
+            calls["cases"] += 1
+            raise AssertionError("cases_calculation should be replaced by Deep Research")
+        calls["effort"] += 1
+        addressee = _detect_addressee_from_prompt(prompt)
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
+        assert len(processes) == 1
+        assert len(case_groups) == 1
+        assert len(steps) == 1
+        if addressee == CITIZENS:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "zeitaufwand_in_min_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        else:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "stundenlohn_satz_a_vorschlag": "60",
+                "zeitaufwand_in_min_a_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "normadressat": addressee,
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    async def fake_run_deep_research(*_args, **_kwargs):
+        processes = []
+        for group in db.list_case_groups_for_session(session_id):
+            processes.append(
+                {
+                    "prozess_id": str(group["process_id"]),
+                    "normadressat": group["norm_addressee"],
+                    "fallgruppen": [
+                        {
+                            "fallgruppen_id": str(group["case_group_id"]),
+                            "anzahl_betroffene_gueltig": "10",
+                            "haeufigkeit_pro_jahr_gueltig": "1",
+                            "anzahl_betroffene_vorschlag": "20",
+                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "confidence": {
+                                "anzahl_betroffene_gueltig": "high",
+                                "haeufigkeit_pro_jahr_gueltig": "high",
+                                "anzahl_betroffene_vorschlag": "medium",
+                                "haeufigkeit_pro_jahr_vorschlag": "medium",
+                            },
+                            "erklaerungen": {
+                                "anzahl_betroffene_gueltig": "Begründung gültig.",
+                                "haeufigkeit_pro_jahr_gueltig": "Begründung Häufigkeit.",
+                                "anzahl_betroffene_vorschlag": "Begründung Entwurf.",
+                                "haeufigkeit_pro_jahr_vorschlag": "Begründung Häufigkeit Entwurf.",
+                            },
+                        }
+                    ],
+                }
+            )
+        report_text = json.dumps({"prozesse": processes})
+        return DeepResearchResult(
+            agent="test-agent",
+            interaction_id="step-dr",
+            report_text=report_text,
+            response_json={"status": "completed"},
+        )
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
+    monkeypatch.setattr(sessions_router, "run_deep_research", fake_run_deep_research)
+
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["final_status"]["effort_ready"] is True
+    assert payload["final_status"]["total_cost_ready"] is False
+    assert calls == {"cases": 0, "effort": 3}
+    assert db.get_latest_deep_research_run(session_id, "case_group_metrics")["status"] == "parsed"
+    assert "cases_calculation" not in {
+        row["prompt_id"] for row in db.list_recent_llm_answers_for_session(session_id)
+    }
+
+
+def test_single_step_run_effort_deep_research_timeout_leaves_step_incomplete(
+    test_client,
+    monkeypatch,
+):
+    app_session_id = "STEP-RUN-EFFORT-DR-TIMEOUT"
+    session_id = _seed_step6_prerequisites(app_session_id)
+    db.update_case_group_research_enabled(session_id, True)
+    calls = {"cases": 0}
+
+    async def fake_effort_llm(prompt, *_args, **_kwargs):
+        if not _is_effort_prompt(prompt):
+            calls["cases"] += 1
+            raise AssertionError("cases_calculation should not run in Deep Research mode")
+        await asyncio.sleep(10.0)
+
+    async def timed_out_deep_research(*_args, **_kwargs):
+        raise DeepResearchError("Gemini Deep Research timed out after 1800 seconds")
+
+    monkeypatch.setattr(effort_router, "query_llm", fake_effort_llm)
+    monkeypatch.setattr(sessions_router, "run_deep_research", timed_out_deep_research)
+
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(
+        test_client,
+        start_response.json()["run_id"],
+        timeout_s=10.0,
+    )
+
+    assert payload["status"] == "failed"
+    assert payload["ok"] is False
+    assert payload["final_status"]["effort_ready"] is False
+    assert payload["final_status"]["case_group_research_status"] == "failed"
+    assert calls == {"cases": 0}
+    run = db.get_latest_deep_research_run(session_id, "case_group_metrics")
+    assert run is not None
+    assert run["status"] == "failed"
+    assert "timed out" in run["error"]
+
+
+def test_single_step_run_effort_cancel_clears_normal_llm_monitor_pending(
+    test_client,
+    monkeypatch,
+):
+    app_session_id = "STEP-RUN-EFFORT-CANCEL"
+    _seed_step6_prerequisites(app_session_id)
+
+    async def slow_effort_llm(*_args, **_kwargs):
+        await asyncio.sleep(10.0)
+
+    monkeypatch.setattr(effort_router, "query_llm", slow_effort_llm)
+
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    run_id = start_response.json()["run_id"]
+
+    deadline = time.time() + 3.0
+    pending = []
+    while time.time() < deadline:
+        pending = asyncio.run(llm_monitor.get_pending(app_session_id))
+        if len(pending) >= 2:
+            break
+        time.sleep(0.05)
+    assert {row["prompt_id"] for row in pending} == {
+        "cases_calculation",
+        "effort_calculation",
+    }
+
+    cancel_response = test_client.post(f"/sessions/step-runs/{run_id}/cancel")
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["accepted"] is True
+
+    payload = _wait_for_run_completion(test_client, run_id, timeout_s=10.0)
+    assert payload["status"] == "cancelled"
+    assert payload["ok"] is False
+    assert payload["final_status"]["effort_ready"] is False
+    assert asyncio.run(llm_monitor.get_pending(app_session_id)) == []
+
+    events = asyncio.run(llm_monitor.get_recent_events(app_session_id, limit=20))
+    cancelled = [
+        event
+        for event in events
+        if event["event_type"] == "llm_query_failed"
+        and event.get("error_kind") == "cancelled"
+    ]
+    assert {event["prompt_id"] for event in cancelled} == {
+        "cases_calculation",
+        "effort_calculation",
+    }
 
 
 def test_run_all_cancel_preserves_completed_steps_and_allows_restart(

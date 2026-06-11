@@ -66,6 +66,8 @@
 
 ## Run-All Rules
 - Run-all executes steps in the defined 7-step order.
+- Run-all is only a sequencer: apart from skipping completed steps, it must have the same effect as the user pressing each step button in order.
+- Run-all must not contain step-specific business logic that differs from manual execution; shared step runners/services should own step behavior.
 - Completed steps are skipped; steps are re-run only after undo (revert/reset) of the corresponding state.
 - Start: `POST /sessions/run-all/start`
 - Observe:

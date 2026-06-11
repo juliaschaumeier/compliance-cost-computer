@@ -12,7 +12,6 @@ jest.mock("@/lib/api", () => ({
   apiClient: {
     fetchTiles: jest.fn(),
     upsertTile: jest.fn(),
-    deleteTile: jest.fn(),
   },
 }));
 

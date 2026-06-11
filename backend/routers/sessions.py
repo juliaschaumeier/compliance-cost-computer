@@ -1,22 +1,33 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
+import html
 import inspect
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Annotated, AsyncGenerator, Awaitable, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
 from backend.core.auth import ApiKeys, get_api_keys
 from backend.core import db, llm_monitor, llm_trace
 from backend.core.config import settings
+from backend.core.deep_research_cases import (
+    CASE_GROUP_RESEARCH_PURPOSE,
+    apply_deep_research_case_metrics,
+)
+from backend.core.deep_research_cases_prompt import build_deep_research_cases_prompt
+from backend.core.deep_research_service import DeepResearchError, run_deep_research
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.core.request_context import get_request_context
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
@@ -39,6 +50,8 @@ from backend.routers import (
 
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+DEEP_RESEARCH_MONITOR_PROMPT_ID = "deep_research_case_group_metrics"
 
 ModelName = Annotated[
     str,
@@ -65,6 +78,7 @@ class SessionSummary(BaseModel):
     created_at: str
     llm_model: str
     used_llm_models: str | None = None
+    case_group_research_enabled: bool = False
 
 
 class SessionListResponse(BaseModel):
@@ -84,8 +98,14 @@ class SessionStatusResponse(BaseModel):
     effort_ready_by_addressee: dict[str, bool] = {}
     total_cost_ready: bool
     total_cost_ready_by_addressee: dict[str, bool] = {}
+    case_group_research_enabled: bool = False
+    case_group_research_status: str = "idle"
+    case_group_research_elapsed_seconds: int | None = None
     last_completed_step: str | None = None
     last_completed_label: str | None = None
+    last_failed_step: str | None = None
+    last_failed_label: str | None = None
+    last_failed_message: str | None = None
 
 
 class SessionPayRatesUpdateRequest(BaseModel):
@@ -124,6 +144,19 @@ class SessionEditAuditResponse(BaseModel):
     rows: list[SessionEditAuditRow]
 
 
+class CaseGroupResearchSettingsRequest(BaseModel):
+    app_session_id: AppSessionId
+    enabled: bool
+
+
+class CaseGroupResearchSettingsResponse(BaseModel):
+    app_session_id: str
+    enabled: bool
+    status: str = "idle"
+    locked: bool = False
+    elapsed_seconds: int | None = None
+
+
 class SessionExportResponse(BaseModel):
     filename: str
     markdown: str
@@ -142,6 +175,10 @@ class SessionRunAllRequest(BaseModel):
     proposed_filename: str | None = None
     model: str | None = None
     provider: str | None = None
+
+
+class SessionStepRunRequest(SessionRunAllRequest):
+    step_key: str
 
 
 class SessionRunStepResult(BaseModel):
@@ -201,6 +238,7 @@ RUN_ALL_STEPS: tuple[tuple[str, str, str], ...] = (
     ("effort", "Aufwand berechnen", "effort_ready"),
     ("total_cost", "Gesamtkosten berechnen", "total_cost_ready"),
 )
+RUN_ALL_STEP_BY_KEY = {key: (label, status_flag) for key, label, status_flag in RUN_ALL_STEPS}
 
 _RUN_ALL_LOCKS: dict[str, asyncio.Lock] = {}
 
@@ -349,11 +387,80 @@ def _as_session_status_response(app_session_id: str) -> SessionStatusResponse:
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
     step = get_last_completed_step(status)
+    failed = _get_latest_failed_step_status(app_session_id, status)
     return SessionStatusResponse(
         **status,
         last_completed_step=step.key if step else None,
         last_completed_label=step.label if step else None,
+        last_failed_step=failed["step"] if failed else None,
+        last_failed_label=failed["label"] if failed else None,
+        last_failed_message=failed["message"] if failed else None,
     )
+
+
+_FAILED_PROMPT_STEP: dict[str, tuple[str, str, str]] = {
+    "law_summary": ("summary", "CCC starten", "summary_ready"),
+    "regulations_identification": (
+        "regulations",
+        "Vorgaben bestimmen",
+        "regulations_ready",
+    ),
+    "process_compilation": ("processes", "Prozesse bündeln", "processes_ready"),
+    "case_group_development": (
+        "case_groups",
+        "Fallgruppen entwickeln",
+        "case_groups_ready",
+    ),
+    "process_step_analysis": (
+        "process_steps",
+        "Prozessschritte bestimmen",
+        "process_steps_ready",
+    ),
+    "cases_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
+    "effort_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
+}
+
+
+def _format_failed_answer_message(row: dict) -> str | None:
+    reason = str(row.get("state_reason") or "").strip()
+    error = str(row.get("error") or "").strip()
+    if reason.startswith("session_update_failed:"):
+        return reason.split(":", 1)[1].strip() or None
+    if reason == "query_failed" and error:
+        return error
+    if reason and reason not in {
+        "session_reverted",
+        "superseded_by_new_attempt",
+        "superseded_by_reuse",
+        "session_updated",
+        "waiting_for_session_update",
+        "querying",
+    }:
+        return reason
+    return None
+
+
+def _get_latest_failed_step_status(
+    app_session_id: str,
+    status: dict,
+) -> dict[str, str] | None:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        return None
+    for row in db.list_recent_llm_answers_for_session(session_id, limit=50):
+        if row.get("answer_state") != "invalid":
+            continue
+        mapping = _FAILED_PROMPT_STEP.get(str(row.get("prompt_id") or ""))
+        if mapping is None:
+            continue
+        step_key, label, ready_flag = mapping
+        if bool(status.get(ready_flag)):
+            continue
+        message = _format_failed_answer_message(row)
+        if not message:
+            continue
+        return {"step": step_key, "label": label, "message": message}
+    return None
 
 
 def _as_session_pay_rates_response(
@@ -458,6 +565,241 @@ def _step_error_message(exc: Exception) -> str:
         return str(detail)
     message = str(exc).strip()
     return message or exc.__class__.__name__
+
+
+def _deep_research_attempt_id(research_run_id: int) -> str:
+    return f"deep_research:{research_run_id}"
+
+
+async def _publish_deep_research_monitor_event(
+    *,
+    app_session_id: str,
+    session_id: int,
+    research_run_id: int,
+    event_type: str,
+    agent: str,
+    request_context: dict[str, str | None],
+    elapsed_ms: int | None = None,
+    prompt_chars: int | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    thought_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
+    error: str | None = None,
+    error_kind: str | None = None,
+    answer_state: str | None = None,
+    state_reason: str | None = None,
+) -> None:
+    event: dict[str, object] = {
+        "event_type": event_type,
+        "attempt_id": _deep_research_attempt_id(research_run_id),
+        "session_id": session_id,
+        "prompt_id": DEEP_RESEARCH_MONITOR_PROMPT_ID,
+        "model": agent,
+        "provider": "gemini",
+        "request_id": request_context.get("request_id"),
+        "route_method": request_context.get("route_method"),
+        "route_path": request_context.get("route_path"),
+        "stream_mode": "non_stream",
+    }
+    for key, value in (
+        ("elapsed_ms", elapsed_ms),
+        ("prompt_chars", prompt_chars),
+        ("input_tokens", input_tokens),
+        ("output_tokens", output_tokens),
+        ("hidden_thinking_tokens", thought_tokens),
+        ("estimated_cost_usd", estimated_cost_usd),
+        ("error", error),
+        ("error_kind", error_kind),
+        ("answer_state", answer_state),
+        ("state_reason", state_reason),
+    ):
+        if value is not None:
+            event[key] = value
+    await llm_monitor.publish_llm_event(app_session_id=app_session_id, event=event)
+
+
+def _recent_monitor_rows(session_id: int, limit: int) -> list[dict]:
+    rows = [
+        *db.list_recent_llm_answers_for_session(session_id, limit=limit),
+        *db.list_recent_deep_research_monitor_rows_for_session(session_id, limit=limit),
+    ]
+    rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    return rows[: max(1, min(limit, 500))]
+
+
+async def _run_case_group_deep_research(
+    *,
+    app_session_id: str,
+    session_id: int,
+    api_keys: ApiKeys,
+) -> None:
+    latest = db.get_latest_deep_research_run(session_id, CASE_GROUP_RESEARCH_PURPOSE)
+    latest_status = str(latest.get("status") or "") if latest else "idle"
+    if latest_status == "parsed":
+        return
+    if latest_status == "completed" and latest and latest.get("report_md"):
+        apply_deep_research_case_metrics(
+            session_id=session_id,
+            report_text=str(latest["report_md"]),
+            research_run_id=int(latest["research_run_id"]),
+        )
+        return
+    if latest_status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="Deep Research for case groups is already running.",
+        )
+
+    prompt = build_deep_research_cases_prompt(app_session_id=app_session_id)
+    research_run_id = db.create_deep_research_run(
+        session_id=session_id,
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent=settings.deep_research_primary_agent,
+        status="running",
+        prompt_text=prompt,
+    )
+    request_context = get_request_context()
+    started = time.perf_counter()
+    await _publish_deep_research_monitor_event(
+        app_session_id=app_session_id,
+        session_id=session_id,
+        research_run_id=research_run_id,
+        event_type="llm_query_started",
+        agent=settings.deep_research_primary_agent,
+        request_context=request_context,
+        prompt_chars=len(prompt),
+    )
+    query_succeeded = False
+    try:
+        result = await run_deep_research(
+            prompt=prompt,
+            api_keys=api_keys,
+            on_interaction_started=lambda agent, interaction_id: db.update_deep_research_run(
+                research_run_id,
+                agent=agent,
+                interaction_id=interaction_id,
+            ),
+        )
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        db.update_deep_research_run(
+            research_run_id,
+            status="completed",
+            agent=result.agent,
+            interaction_id=result.interaction_id,
+            report_md=result.report_text,
+            response_json=result.response_json,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            thought_tokens=result.thought_tokens,
+            total_tokens=result.total_tokens,
+            estimated_cost_usd=result.estimated_cost_usd,
+        )
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            event_type="llm_query_succeeded",
+            agent=result.agent,
+            request_context=request_context,
+            elapsed_ms=elapsed_ms,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            thought_tokens=result.thought_tokens,
+            estimated_cost_usd=result.estimated_cost_usd,
+        )
+        query_succeeded = True
+        try:
+            apply_deep_research_case_metrics(
+                session_id=session_id,
+                report_text=result.report_text,
+                research_run_id=research_run_id,
+            )
+        except Exception as exc:
+            await _publish_deep_research_monitor_event(
+                app_session_id=app_session_id,
+                session_id=session_id,
+                research_run_id=research_run_id,
+                event_type="llm_apply_failed",
+                agent=result.agent,
+                request_context=request_context,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                error=_step_error_message(exc),
+                error_kind="deep_research_apply_failed",
+                answer_state="invalid",
+                state_reason="session_update_failed",
+            )
+            raise
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            event_type="llm_apply_succeeded",
+            agent=result.agent,
+            request_context=request_context,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            thought_tokens=result.thought_tokens,
+            estimated_cost_usd=result.estimated_cost_usd,
+            answer_state="active",
+            state_reason="session_updated",
+        )
+    except asyncio.CancelledError:
+        db.update_deep_research_run(
+            research_run_id,
+            status="cancelled",
+            error="Deep Research was cancelled by the run-all task.",
+        )
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            event_type="llm_query_failed",
+            agent=settings.deep_research_primary_agent,
+            request_context=request_context,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            error="Deep Research was cancelled by the run-all task.",
+            error_kind="cancelled",
+        )
+        raise
+    except DeepResearchError as exc:
+        db.update_deep_research_run(
+            research_run_id,
+            status="failed",
+            error=str(exc),
+        )
+        await _publish_deep_research_monitor_event(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            event_type="llm_query_failed",
+            agent=settings.deep_research_primary_agent,
+            request_context=request_context,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            error=str(exc),
+            error_kind="deep_research_query_failed",
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        db.update_deep_research_run(
+            research_run_id,
+            status="failed",
+            error=_step_error_message(exc),
+        )
+        if not query_succeeded:
+            await _publish_deep_research_monitor_event(
+                app_session_id=app_session_id,
+                session_id=session_id,
+                research_run_id=research_run_id,
+                event_type="llm_query_failed",
+                agent=settings.deep_research_primary_agent,
+                request_context=request_context,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                error=_step_error_message(exc),
+                error_kind="deep_research_failed",
+            )
+        raise
 
 
 async def _run_single_step(
@@ -597,6 +939,11 @@ async def _run_single_step(
         return
 
     if step_key == "effort":
+        session_id = db.get_session_id_by_app_id(payload.app_session_id)
+        if session_id is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        use_deep_research = db.get_case_group_research_enabled(session_id)
+
         async def _run_effort(norm_addressee: str) -> None:
             effort_payload = effort_router.EffortCalculationRequest(
                 app_session_id=payload.app_session_id,
@@ -604,9 +951,23 @@ async def _run_single_step(
                 provider=payload.provider,
                 norm_addressee=norm_addressee,
             )
-            await effort_router.calculate_effort(effort_payload, api_keys)
+            await effort_router._calculate_effort(
+                effort_payload,
+                api_keys,
+                skip_cases_calculation=use_deep_research,
+            )
 
-        await _run_for_supported_addressees(_run_effort)
+        if use_deep_research:
+            await asyncio.gather(
+                _run_case_group_deep_research(
+                    app_session_id=payload.app_session_id,
+                    session_id=session_id,
+                    api_keys=api_keys,
+                ),
+                _run_for_supported_addressees(_run_effort),
+            )
+        else:
+            await _run_for_supported_addressees(_run_effort)
         return
 
     if step_key == "total_cost":
@@ -750,6 +1111,148 @@ async def _execute_run_all_steps(
     return step_results, final_status, ok
 
 
+async def _execute_single_step(
+    *,
+    step_key: str,
+    payload: SessionRunAllRequest,
+    api_keys: ApiKeys,
+    model: str,
+    event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
+) -> tuple[list[SessionRunStepResult], SessionStatusResponse, bool]:
+    step_definition = RUN_ALL_STEP_BY_KEY.get(step_key)
+    if step_definition is None:
+        raise HTTPException(status_code=400, detail=f"Unknown step: {step_key}")
+    step_label, status_flag = step_definition
+    current_status = db.get_session_status(payload.app_session_id)
+    if not current_status:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if bool(current_status.get(status_flag)):
+        step_result = SessionRunStepResult(
+            key=step_key,
+            label=step_label,
+            status="skipped",
+            message="Step already complete",
+        )
+        final_status = _as_session_status_response(payload.app_session_id)
+        await _emit_event(
+            event_hook,
+            "step_skipped",
+            {
+                "key": step_key,
+                "label": step_label,
+                "step": step_result.model_dump(),
+                "session_status": final_status.model_dump(),
+            },
+        )
+        await _emit_event(
+            event_hook,
+            "run_completed",
+            {
+                "ok": True,
+                "steps": [step_result.model_dump()],
+                "final_status": final_status.model_dump(),
+            },
+        )
+        return [step_result], final_status, True
+
+    await _emit_event(event_hook, "step_started", {"key": step_key, "label": step_label})
+    try:
+        await _run_single_step(
+            step_key,
+            payload,
+            api_keys,
+            model,
+            event_hook=event_hook,
+        )
+    except Exception as exc:
+        step_result = SessionRunStepResult(
+            key=step_key,
+            label=step_label,
+            status="failed",
+            message=_step_error_message(exc),
+        )
+        final_status = _as_session_status_response(payload.app_session_id)
+        await _emit_event(
+            event_hook,
+            "step_failed",
+            {
+                "key": step_key,
+                "label": step_label,
+                "step": step_result.model_dump(),
+                "session_status": final_status.model_dump(),
+            },
+        )
+        await _emit_event(
+            event_hook,
+            "run_failed",
+            {
+                "ok": False,
+                "steps": [step_result.model_dump()],
+                "final_status": final_status.model_dump(),
+                "message": step_result.message,
+            },
+        )
+        return [step_result], final_status, False
+
+    updated_status = db.get_session_status(payload.app_session_id)
+    if updated_status and bool(updated_status.get(status_flag)):
+        step_result = SessionRunStepResult(
+            key=step_key,
+            label=step_label,
+            status="completed",
+        )
+        final_status = _as_session_status_response(payload.app_session_id)
+        await _emit_event(
+            event_hook,
+            "step_completed",
+            {
+                "key": step_key,
+                "label": step_label,
+                "step": step_result.model_dump(),
+                "session_status": final_status.model_dump(),
+            },
+        )
+        await _emit_event(
+            event_hook,
+            "run_completed",
+            {
+                "ok": True,
+                "steps": [step_result.model_dump()],
+                "final_status": final_status.model_dump(),
+            },
+        )
+        return [step_result], final_status, True
+
+    step_result = SessionRunStepResult(
+        key=step_key,
+        label=step_label,
+        status="failed",
+        message="Step did not update session state as expected",
+    )
+    final_status = _as_session_status_response(payload.app_session_id)
+    await _emit_event(
+        event_hook,
+        "step_failed",
+        {
+            "key": step_key,
+            "label": step_label,
+            "step": step_result.model_dump(),
+            "session_status": final_status.model_dump(),
+        },
+    )
+    await _emit_event(
+        event_hook,
+        "run_failed",
+        {
+            "ok": False,
+            "steps": [step_result.model_dump()],
+            "final_status": final_status.model_dump(),
+            "message": step_result.message,
+        },
+    )
+    return [step_result], final_status, False
+
+
 @router.post("", response_model=SessionUpsertResponse)
 async def upsert_session(payload: SessionUpsertRequest) -> SessionUpsertResponse:
     _, created = db.upsert_session(payload.app_session_id, payload.llm_model)
@@ -769,15 +1272,7 @@ async def list_sessions(limit: int = Query(default=50, ge=1, le=200)) -> Session
 async def session_status(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
 ) -> SessionStatusResponse:
-    status = db.get_session_status(app_session_id)
-    if not status:
-        raise HTTPException(status_code=404, detail="Session not found")
-    step = get_last_completed_step(status)
-    return SessionStatusResponse(
-        **status,
-        last_completed_step=step.key if step else None,
-        last_completed_label=step.label if step else None,
-    )
+    return _as_session_status_response(app_session_id)
 
 
 @router.get("/pay-rates", response_model=SessionPayRatesResponse)
@@ -828,6 +1323,63 @@ async def session_edit_audit(
         raise HTTPException(status_code=404, detail="Session not found")
     rows = db.list_edit_audit_for_session(session_id=session_id, limit=limit)
     return SessionEditAuditResponse(app_session_id=app_session_id, rows=rows)
+
+
+def _research_settings_response(app_session_id: str) -> CaseGroupResearchSettingsResponse:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    status = db.get_latest_deep_research_run_status(session_id, "case_group_metrics")
+    session_status = db.get_session_status(app_session_id) or {}
+    return CaseGroupResearchSettingsResponse(
+        app_session_id=app_session_id,
+        enabled=bool(session.get("case_group_research_enabled")),
+        status=status,
+        locked=(
+            status not in {"idle", "failed", "cancelled"}
+            or bool(session_status.get("effort_ready"))
+            or bool(session_status.get("total_cost_ready"))
+        ),
+        elapsed_seconds=db.get_latest_deep_research_run_elapsed_seconds(
+            session_id,
+            CASE_GROUP_RESEARCH_PURPOSE,
+        ),
+    )
+
+
+@router.get("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+async def case_group_research_settings(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+) -> CaseGroupResearchSettingsResponse:
+    return _research_settings_response(app_session_id)
+
+
+@router.post("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+async def case_group_research_settings_update(
+    payload: CaseGroupResearchSettingsRequest,
+) -> CaseGroupResearchSettingsResponse:
+    session = db.get_session_by_app_id(payload.app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    current_enabled = bool(session.get("case_group_research_enabled"))
+    if current_enabled == payload.enabled:
+        return _research_settings_response(payload.app_session_id)
+    session_status = db.get_session_status(payload.app_session_id) or {}
+    if bool(session_status.get("effort_ready")) or bool(session_status.get("total_cost_ready")):
+        raise HTTPException(
+            status_code=409,
+            detail="Deep Research mode is locked after effort has been calculated. Revert effort to change it.",
+        )
+    status = db.get_latest_deep_research_run_status(session_id, "case_group_metrics")
+    if status not in {"idle", "failed", "cancelled"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Deep Research mode is locked after a research run has started. Revert effort to change it.",
+        )
+    db.update_case_group_research_enabled(session_id, payload.enabled)
+    return _research_settings_response(payload.app_session_id)
 
 
 @router.get("/export", response_model=SessionExportResponse)
@@ -911,6 +1463,302 @@ async def export_session(
     return SessionExportResponse(filename=filename, markdown=markdown)
 
 
+def _split_pipe_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for char in stripped:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    if escaped:
+        current.append("\\")
+    cells.append("".join(current).strip())
+    return cells
+
+
+def _is_pipe_table_separator(line: str) -> bool:
+    cells = _split_pipe_table_row(line)
+    if len(cells) < 2:
+        return False
+    for cell in cells:
+        marker = cell.strip()
+        if len(marker) < 3:
+            return False
+        marker = marker.strip(":")
+        if not marker or any(char != "-" for char in marker):
+            return False
+    return True
+
+
+def _parse_pipe_table(block: str) -> list[list[str]] | None:
+    lines = [line.strip() for line in block.splitlines() if line.strip()]
+    if len(lines) < 3 or "|" not in lines[0] or not _is_pipe_table_separator(lines[1]):
+        return None
+    rows = [_split_pipe_table_row(lines[0])]
+    expected_columns = len(rows[0])
+    if expected_columns < 2:
+        return None
+    body_rows = [_split_pipe_table_row(line) for line in lines[2:]]
+    if not body_rows:
+        return None
+    for row in body_rows:
+        if len(row) != expected_columns:
+            return None
+    rows.extend(body_rows)
+    return rows
+
+
+def _research_pdf_inline_markup(text: str) -> str:
+    escaped = html.escape(text).replace("\n", "<br/>")
+    parts = escaped.split("**")
+    if len(parts) == 1:
+        return _linkify_research_pdf_urls(escaped)
+    rendered: list[str] = []
+    for index, part in enumerate(parts):
+        linked_part = _linkify_research_pdf_urls(part)
+        if index % 2 == 1 and part:
+            rendered.append(f"<b>{linked_part}</b>")
+        else:
+            rendered.append(linked_part)
+    return "".join(rendered)
+
+
+def _linkify_research_pdf_urls(escaped_text: str) -> str:
+    url_pattern = re.compile(r"https?://[^\s<]+")
+
+    def replace(match: re.Match[str]) -> str:
+        url = match.group(0)
+        trailing = ""
+        while url and url[-1] in ".,;:)]]":
+            trailing = f"{url[-1]}{trailing}"
+            url = url[:-1]
+        if not url:
+            return match.group(0)
+        return f'<link href="{url}"><font color="blue">{url}</font></link>{trailing}'
+
+    return url_pattern.sub(replace, escaped_text)
+
+
+def _format_research_report_metadata_lines(metadata: dict[str, object]) -> list[str]:
+    lines = [
+        "<b>Hinweis:</b> Dieser Deep-Research-Bericht wurde KI-gestuetzt erzeugt. "
+        "Die genannten Zahlen, Quellen und Schlussfolgerungen sollten vor einer offiziellen "
+        "Verwendung fachlich geprueft werden.",
+    ]
+    for label, value in (
+        ("Session", metadata.get("app_session_id")),
+        ("Erstellt", metadata.get("generated_at")),
+        ("Agent", metadata.get("agent")),
+        ("Status", metadata.get("status")),
+    ):
+        if value:
+            lines.append(f"<b>{label}:</b> {html.escape(str(value))}")
+    token_parts = [
+        f"in {metadata.get('input_tokens')}" if metadata.get("input_tokens") is not None else None,
+        f"out {metadata.get('output_tokens')}" if metadata.get("output_tokens") is not None else None,
+        (
+            f"thinking {metadata.get('thought_tokens')}"
+            if metadata.get("thought_tokens") is not None
+            else None
+        ),
+        f"total {metadata.get('total_tokens')}" if metadata.get("total_tokens") is not None else None,
+    ]
+    tokens = " / ".join(part for part in token_parts if part)
+    if tokens:
+        lines.append(f"<b>Token:</b> {html.escape(tokens)}")
+    cost = metadata.get("estimated_cost_usd")
+    if cost is not None:
+        try:
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> ${float(cost):.4f}")
+        except (TypeError, ValueError):
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> {html.escape(str(cost))}")
+    return lines
+
+
+def _render_research_report_pdf(
+    report_md: str,
+    title: str,
+    metadata: dict[str, object] | None = None,
+) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except Exception as exc:  # pragma: no cover - exercised only without optional dep.
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "render_failed",
+                "message": "PDF rendering requires reportlab. Please install project requirements.",
+            },
+        ) from exc
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36,
+        title=title,
+    )
+    styles = getSampleStyleSheet()
+    table_cell_style = ParagraphStyle(
+        "ResearchTableCell",
+        parent=styles["BodyText"],
+        fontSize=8,
+        leading=10,
+    )
+    available_width = A4[0] - doc.leftMargin - doc.rightMargin
+    story = [Paragraph(html.escape(title), styles["Title"]), Spacer(1, 12)]
+    if metadata:
+        metadata_lines = _format_research_report_metadata_lines(metadata)
+        metadata_box = Table(
+            [[Paragraph("<br/>".join(metadata_lines), styles["BodyText"])]],
+            colWidths=[available_width],
+        )
+        metadata_box.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.extend([metadata_box, Spacer(1, 12)])
+    for block in report_md.split("\n\n"):
+        text = block.strip()
+        if not text:
+            continue
+        if text.startswith("#"):
+            heading = text.lstrip("#").strip()
+            story.append(Paragraph(html.escape(heading), styles["Heading2"]))
+        elif table_rows := _parse_pipe_table(text):
+            column_count = len(table_rows[0])
+            table_data = [
+                [
+                    Paragraph(_research_pdf_inline_markup(cell), table_cell_style)
+                    for cell in row
+                ]
+                for row in table_rows
+            ]
+            table = Table(
+                table_data,
+                colWidths=[available_width / column_count] * column_count,
+                repeatRows=1,
+            )
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+                        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#cbd5e1")),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ]
+                )
+            )
+            story.append(table)
+        else:
+            story.append(Paragraph(_research_pdf_inline_markup(text), styles["BodyText"]))
+        story.append(Spacer(1, 8))
+    try:
+        def add_page_number(canvas, document) -> None:
+            canvas.saveState()
+            canvas.setFont("Helvetica", 8)
+            canvas.setFillColor(colors.HexColor("#64748b"))
+            canvas.drawRightString(
+                document.pagesize[0] - document.rightMargin,
+                18,
+                f"Seite {document.page}",
+            )
+            canvas.restoreState()
+
+        doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
+    except Exception as exc:  # pragma: no cover - reportlab internals.
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "render_failed", "message": str(exc)},
+        ) from exc
+    return buffer.getvalue()
+
+
+@router.get("/deep-research-report")
+async def download_deep_research_report(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    format: Literal["pdf", "md"] = "pdf",
+) -> Response:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    run = db.get_latest_deep_research_run(
+        int(session["session_id"]),
+        CASE_GROUP_RESEARCH_PURPOSE,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="No Deep Research report for session")
+    status = str(run.get("status") or "")
+    if status not in {"completed", "parsed"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Deep Research report is not ready yet (status: {status or 'idle'}).",
+        )
+    report_md = str(run.get("report_md") or "").strip()
+    if not report_md:
+        raise HTTPException(status_code=404, detail="Deep Research report is empty")
+
+    base_filename = f"ccc_deep_research_{app_session_id}"
+    if format == "md":
+        return Response(
+            content=report_md,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
+        )
+    pdf = _render_research_report_pdf(
+        report_md,
+        f"Deep Research Report {app_session_id}",
+        metadata={
+            "app_session_id": app_session_id,
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "agent": run.get("agent"),
+            "status": status,
+            "input_tokens": run.get("input_tokens"),
+            "output_tokens": run.get("output_tokens"),
+            "thought_tokens": run.get("thought_tokens"),
+            "total_tokens": run.get("total_tokens"),
+            "estimated_cost_usd": run.get("estimated_cost_usd"),
+        },
+    )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.pdf"'},
+    )
+
+
 @router.post("/undo", response_model=SessionUndoResponse)
 async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     session = db.get_session_by_app_id(payload.app_session_id)
@@ -920,6 +1768,20 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
+
+    async with _RUN_REGISTRY_LOCK:
+        active_run_id = _ACTIVE_RUN_BY_SESSION.get(payload.app_session_id)
+        if active_run_id:
+            active = _RUNS_BY_ID.get(active_run_id)
+            if active and active.status == "running":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Zurücksetzen ist während einer laufenden Ausführung nicht "
+                        "möglich. Bitte den Lauf zuerst abbrechen."
+                    ),
+                )
+            _ACTIVE_RUN_BY_SESSION.pop(payload.app_session_id, None)
 
     step = get_last_completed_step(status)
     if not step:
@@ -933,6 +1795,46 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
         undone_step=step.key,
         undone_label=step.label,
     )
+
+
+async def _mark_background_run_terminal(
+    *,
+    run_id: str,
+    app_session_id: str,
+    status: Literal["failed", "cancelled"],
+    event_name: Literal["run_failed", "run_cancelled"],
+    message: str,
+) -> None:
+    final_status: SessionStatusResponse | None = None
+    try:
+        final_status = _as_session_status_response(app_session_id)
+    except HTTPException:
+        final_status = None
+
+    async with _RUN_REGISTRY_LOCK:
+        record = _RUNS_BY_ID.get(run_id)
+        if record is not None:
+            record.status = status
+            record.ok = False
+            record.updated_at = time.time()
+            record.final_status = final_status
+            if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
+                _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
+            steps = [step.model_dump() for step in record.steps]
+        else:
+            steps = []
+
+    await _publish_run_event(
+        run_id,
+        event_name,
+        {
+            "ok": False,
+            "steps": steps,
+            "final_status": final_status.model_dump() if final_status else None,
+            "message": message,
+        },
+    )
+    await _trim_finished_runs()
 
 
 async def _run_all_background(
@@ -965,41 +1867,13 @@ async def _run_all_background(
                 event_hook=lambda event, data: _publish_run_event(run_id, event, data),
             )
     except asyncio.CancelledError:
-        async with _RUN_REGISTRY_LOCK:
-            record = _RUNS_BY_ID.get(run_id)
-            if record is not None:
-                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-
-        final_status: SessionStatusResponse | None = None
-        try:
-            final_status = _as_session_status_response(payload.app_session_id)
-        except HTTPException:
-            final_status = None
-        async with _RUN_REGISTRY_LOCK:
-            record = _RUNS_BY_ID.get(run_id)
-            if record is not None:
-                record.status = "cancelled"
-                record.ok = False
-                record.updated_at = time.time()
-                record.final_status = final_status
-                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-                steps = [step.model_dump() for step in record.steps]
-            else:
-                steps = []
-
-        await _publish_run_event(
-            run_id,
-            "run_cancelled",
-            {
-                "ok": False,
-                "steps": steps,
-                "final_status": final_status.model_dump() if final_status else None,
-                "message": "Run cancelled by user",
-            },
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="cancelled",
+            event_name="run_cancelled",
+            message="Run cancelled by user",
         )
-        await _trim_finished_runs()
         if trace_token is not None:
             try:
                 llm_trace.flush_run(trace_token, status_code=499)
@@ -1007,34 +1881,13 @@ async def _run_all_background(
                 pass
         return
     except Exception as exc:
-        final_status: SessionStatusResponse | None = None
-        try:
-            final_status = _as_session_status_response(payload.app_session_id)
-        except HTTPException:
-            final_status = None
-        async with _RUN_REGISTRY_LOCK:
-            record = _RUNS_BY_ID.get(run_id)
-            if record is not None:
-                record.status = "failed"
-                record.ok = False
-                record.updated_at = time.time()
-                record.final_status = final_status
-                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-                steps = [step.model_dump() for step in record.steps]
-            else:
-                steps = []
-        await _publish_run_event(
-            run_id,
-            "run_failed",
-            {
-                "ok": False,
-                "steps": steps,
-                "final_status": final_status.model_dump() if final_status else None,
-                "message": _step_error_message(exc),
-            },
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="failed",
+            event_name="run_failed",
+            message=_step_error_message(exc),
         )
-        await _trim_finished_runs()
         if trace_token is not None:
             try:
                 llm_trace.flush_run(trace_token, status_code=500)
@@ -1065,6 +1918,144 @@ async def _run_all_background(
             llm_trace.flush_run(trace_token, status_code=200 if ok else 500)
         except Exception:
             pass
+
+
+async def _run_single_step_background(
+    run_id: str,
+    step_key: str,
+    payload: SessionRunAllRequest,
+    api_keys: ApiKeys,
+    model: str,
+) -> None:
+    lock = _get_run_all_lock(payload.app_session_id)
+    try:
+        start_record = await _get_run_record(run_id)
+        await _publish_run_event(
+            run_id,
+            "snapshot",
+            _run_snapshot_payload(start_record),
+        )
+        async with lock:
+            steps, final_status, ok = await _execute_single_step(
+                step_key=step_key,
+                payload=payload,
+                api_keys=api_keys,
+                model=model,
+                event_hook=lambda event, data: _publish_run_event(run_id, event, data),
+            )
+    except asyncio.CancelledError:
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="cancelled",
+            event_name="run_cancelled",
+            message="Run cancelled by user",
+        )
+        return
+    except Exception as exc:
+        await _mark_background_run_terminal(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+            status="failed",
+            event_name="run_failed",
+            message=_step_error_message(exc),
+        )
+        return
+
+    async with _RUN_REGISTRY_LOCK:
+        record = _RUNS_BY_ID.get(run_id)
+        if record is not None:
+            record.steps = steps
+            record.final_status = final_status
+            record.ok = ok
+            record.status = "completed" if ok else "failed"
+            record.updated_at = time.time()
+            if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
+                _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
+
+    record_after = await _get_run_record(run_id)
+    await _publish_run_event(
+        run_id,
+        "snapshot",
+        _run_snapshot_payload(record_after),
+    )
+    await _trim_finished_runs()
+
+
+@router.post("/step-runs/start", response_model=SessionRunAllStartResponse)
+async def start_step_run(
+    payload: SessionStepRunRequest,
+    api_keys: ApiKeys = Depends(get_api_keys),
+) -> SessionRunAllStartResponse:
+    if payload.step_key not in RUN_ALL_STEP_BY_KEY:
+        raise HTTPException(status_code=400, detail=f"Unknown step: {payload.step_key}")
+    _session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+    )
+
+    async with _RUN_REGISTRY_LOCK:
+        active_run_id = _ACTIVE_RUN_BY_SESSION.get(payload.app_session_id)
+        if active_run_id:
+            active = _RUNS_BY_ID.get(active_run_id)
+            if active and active.status == "running":
+                return SessionRunAllStartResponse(
+                    app_session_id=payload.app_session_id,
+                    run_id=active_run_id,
+                    started=False,
+                    status="running",
+                )
+            _ACTIVE_RUN_BY_SESSION.pop(payload.app_session_id, None)
+
+        run_id = uuid.uuid4().hex
+        record = _RunRecord(
+            run_id=run_id,
+            app_session_id=payload.app_session_id,
+        )
+        _RUNS_BY_ID[run_id] = record
+        _ACTIVE_RUN_BY_SESSION[payload.app_session_id] = run_id
+
+    run_payload = SessionRunAllRequest(
+        app_session_id=payload.app_session_id,
+        current_filename=payload.current_filename,
+        proposed_filename=payload.proposed_filename,
+        model=payload.model,
+        provider=payload.provider,
+    )
+    task = asyncio.create_task(
+        _run_single_step_background(
+            run_id,
+            payload.step_key,
+            run_payload,
+            api_keys,
+            model,
+        )
+    )
+    async with _RUN_REGISTRY_LOCK:
+        active = _RUNS_BY_ID.get(run_id)
+        if active is not None:
+            active.task = task
+    return SessionRunAllStartResponse(
+        app_session_id=payload.app_session_id,
+        run_id=run_id,
+        started=True,
+        status="running",
+    )
+
+
+@router.get("/step-runs/{run_id}", response_model=SessionRunStatusResponse)
+async def get_step_run_status(run_id: str) -> SessionRunStatusResponse:
+    return await get_run_all_status(run_id)
+
+
+@router.post("/step-runs/{run_id}/cancel", response_model=SessionRunCancelResponse)
+async def cancel_step_run(run_id: str) -> SessionRunCancelResponse:
+    return await cancel_run_all(run_id)
+
+
+@router.get("/step-runs/{run_id}/events")
+async def stream_step_run_events(run_id: str, request: Request) -> StreamingResponse:
+    return await stream_run_all_events(run_id, request)
 
 
 @router.post("/run-all/start", response_model=SessionRunAllStartResponse)
@@ -1227,7 +2218,7 @@ async def get_llm_monitor_snapshot(
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
     pending = await llm_monitor.get_pending(app_session_id)
-    recent = db.list_recent_llm_answers_for_session(session_id, limit=limit)
+    recent = _recent_monitor_rows(session_id, limit)
     events = await llm_monitor.get_recent_events(app_session_id, limit=limit)
     stream_attempts = await llm_monitor.get_stream_attempts(
         app_session_id,
@@ -1265,10 +2256,7 @@ async def stream_llm_monitor_events(
                     "pending": monitor_snapshot["pending"],
                     "events": monitor_snapshot["events"],
                     "stream_attempts": monitor_snapshot["stream_attempts"],
-                    "recent": db.list_recent_llm_answers_for_session(
-                        session_id,
-                        limit=limit,
-                    ),
+                    "recent": _recent_monitor_rows(session_id, limit),
                 },
             )
             if once:

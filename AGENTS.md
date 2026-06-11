@@ -29,6 +29,8 @@ This project defines Codex role specifications in `.codex/agents/` and shared sk
 ## Critical Invariants (Quick Reference)
 
 - Workflow is the 7-step pipeline (`summary` -> `total_cost`); EA editing is post-step (outside run-all).
+- Run-all is only a sequencer: apart from skipping completed steps, it must have the same effect as pressing each step button in order.
+- Run-all must not contain step-specific business logic that differs from manual execution.
 - Run-all skips completed steps and only re-runs them after `undo` (revert/reset) of state.
 - Step 6 (`effort`) performs paired parallel prompt calls (`cases_calculation` + `effort_calculation`).
 - Keep layering boundaries:
