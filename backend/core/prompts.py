@@ -1473,10 +1473,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Stelle, Vorgabenart oder Sachkostenart, darf die Tabelle entsprechend angepasst werden. Die Tabelle muss aber weiterhin die
         Berechnung nachvollziehbar machen.
 
-        Danach ist eine Summenzeile aufzunehmen:
+        Danach ist die Gesamtsumme als fett gesetzter Satz aufzunehmen:
 
-        | Änderung des jährlichen Erfüllungsaufwands in Tsd. Euro | [Wert] |
-        |---|---:|
+        **Änderung des jährlichen Erfüllungsaufwands in Tsd. Euro: [Wert]**
 
         Nach der Tabelle sind die zentralen Annahmen knapp zu erläutern:
 
