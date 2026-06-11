@@ -139,6 +139,10 @@ describe("ModelSelector", () => {
         screen.getByRole("button", { name: /GPT-5 \(OpenAI\)/i })
       ).toBeInTheDocument()
     );
+    const visibleLabel = screen.getByText("GPT-5");
+    expect(visibleLabel).toBeInTheDocument();
+    expect(visibleLabel).toHaveClass("sm:[display:-webkit-box]");
+    expect(visibleLabel).not.toHaveClass("sm:inline-block");
     expect(setSelectedModel).not.toHaveBeenCalledWith("");
     expect(setAvailableModels).toHaveBeenCalled();
   });

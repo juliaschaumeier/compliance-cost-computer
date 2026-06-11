@@ -79,6 +79,7 @@ interface AppState {
   lastFailedStep: string | null;
   lastFailedLabel: string | null;
   lastFailedMessage: string | null;
+  isComplianceExportRunning: boolean;
 }
 
 interface AppContextValue {
@@ -107,6 +108,7 @@ interface AppContextValue {
   setLastFailedStep: (step: string | null) => void;
   setLastFailedLabel: (label: string | null) => void;
   setLastFailedMessage: (message: string | null) => void;
+  setIsComplianceExportRunning: (running: boolean) => void;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -175,6 +177,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastFailedStep, setLastFailedStep] = useState<string | null>(null);
   const [lastFailedLabel, setLastFailedLabel] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
+  const [isComplianceExportRunning, setIsComplianceExportRunning] = useState(false);
   const appSessionIdAttempts = useRef(0);
   const readinessSetters = useMemo<
     Record<ReadinessStorageKey, (value: boolean) => void>
@@ -591,6 +594,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           lastFailedStep,
           lastFailedLabel,
           lastFailedMessage,
+          isComplianceExportRunning,
         },
         setCurrentTab,
         setAppSessionId,
@@ -714,6 +718,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLastFailedStep,
         setLastFailedLabel,
         setLastFailedMessage,
+        setIsComplianceExportRunning,
       }}
     >
       {children}

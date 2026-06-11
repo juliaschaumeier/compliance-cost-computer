@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { OrganizedModels, ProviderModels } from "@/types";
+import { Model, OrganizedModels, ProviderModels } from "@/types";
 
 const emptyProvider: ProviderModels = { recommended: [], additional: [] };
 const isLikelyValidApiKey = (value: string) => value.trim().length > 10;
@@ -18,6 +18,38 @@ const flattenModels = (organized: OrganizedModels) => [
   ...organized.gemini.recommended,
   ...organized.gemini.additional,
 ];
+const compactModelName = (value: string) =>
+  value
+    .replace(/^.+\//, "")
+    .replace(/^gemini-/i, "g-")
+    .replace(/^deep-research-/i, "dr-");
+
+const buildSelectedModelLabels = (
+  selectedModel: string,
+  organizedModels: OrganizedModels,
+  availableModels: Model[]
+) => {
+  if (!selectedModel) {
+    return {
+      button: "LLM",
+      full: "Modell wählen",
+    };
+  }
+  const knownModels = flattenModels(organizedModels);
+  const model =
+    knownModels.find((item) => item.id === selectedModel) ||
+    availableModels.find((item) => item.id === selectedModel);
+  if (!model) {
+    return {
+      button: `LLM: ${compactModelName(selectedModel)}`,
+      full: selectedModel,
+    };
+  }
+  return {
+    button: compactModelName(model.name),
+    full: `${model.name} (${model.provider})`,
+  };
+};
 
 export default function ModelSelector() {
   const { state, setAvailableModels, setSelectedModel } = useApp();
@@ -144,17 +176,12 @@ export default function ModelSelector() {
     }
   };
 
-  const selectedModelLabel = useMemo(() => {
-    if (!state.selectedModel) {
-      return "Model wählen";
-    }
-    const knownModels = flattenModels(organizedModels);
-    const model =
-      knownModels.find((item) => item.id === state.selectedModel) ||
-      state.availableModels.find((item) => item.id === state.selectedModel);
-    return model
-      ? `${model.name} (${model.provider})`
-      : state.selectedModel;
+  const selectedModelLabels = useMemo(() => {
+    return buildSelectedModelLabels(
+      state.selectedModel,
+      organizedModels,
+      state.availableModels
+    );
   }, [organizedModels, state.availableModels, state.selectedModel]);
 
   useEffect(() => {
@@ -308,10 +335,14 @@ export default function ModelSelector() {
     <div ref={triggerRef} className="relative">
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
+        className="flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
+        title={selectedModelLabels.full}
+        aria-label={`LLM-Auswahl öffnen: ${selectedModelLabels.full}`}
       >
         <span className="text-lg">🤖</span>
-        <span className="hidden sm:inline">{selectedModelLabel}</span>
+        <span className="hidden max-w-32 overflow-hidden text-left leading-tight text-ellipsis [-webkit-box-orient:vertical] [-webkit-line-clamp:2] sm:[display:-webkit-box]">
+          {selectedModelLabels.button}
+        </span>
         <span className="sm:hidden">Modell</span>
       </button>
       {open && isMounted ? createPortal(menuContent, document.body) : null}

@@ -63,6 +63,33 @@ describe("EaPayRatesTab", () => {
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
 
+  it("clears a previous save status when the user edits again", async () => {
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+    );
+
+    const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
+    const tr = row.closest("tr");
+    expect(tr).toBeTruthy();
+    const input = within(tr as HTMLElement).getByRole("textbox");
+    const user = userEvent.setup();
+
+    await user.clear(input);
+    await user.type(input, "99");
+    await user.click(screen.getByRole("button", { name: /lohnsätze speichern/i }));
+
+    expect(
+      await screen.findByText(/lohnsaetze gespeichert|lohnsätze gespeichert/i)
+    ).toBeInTheDocument();
+
+    await user.type(input, "1");
+
+    expect(
+      screen.queryByText(/lohnsaetze gespeichert|lohnsätze gespeichert/i)
+    ).not.toBeInTheDocument();
+  });
+
   it("emits tiles-updated only once on save via recompute", async () => {
     const onTilesUpdated = jest.fn();
     window.addEventListener("tiles-updated", onTilesUpdated);
