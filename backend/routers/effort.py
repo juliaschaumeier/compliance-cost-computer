@@ -140,6 +140,13 @@ def _parse_cases_payload(
             and annual_frequency_proposed is None
         ):
             continue
+        metadata: dict[str, object] = {}
+        confidence = fallgruppe.get("confidence")
+        if isinstance(confidence, dict):
+            metadata["confidence"] = confidence
+        explanations = fallgruppe.get("erklaerungen")
+        if isinstance(explanations, dict):
+            metadata["erklaerungen"] = explanations
         parsed.append(
             {
                 "case_group_id": case_group_id,
@@ -148,6 +155,7 @@ def _parse_cases_payload(
                 "addressees_proposed": addressees_proposed,
                 "annual_frequency_proposed": annual_frequency_proposed,
                 "aenderungsstatus": extract_change_status(fallgruppe),
+                "case_metric_research_json": metadata or None,
             }
         )
     return parsed, fallback_kinds
@@ -765,6 +773,9 @@ async def _calculate_effort(
                         annual_frequency_proposed=annual_frequency_proposed,
                         cases_current=cases_current,
                         cases_proposed=cases_proposed,
+                        case_metric_research_json=entry.get(
+                            "case_metric_research_json"
+                        ),
                     )
 
             for entry in parsed_effort:
