@@ -84,6 +84,63 @@ NORM_ADDRESSEE_CHECK_SQL = "CHECK (norm_addressee IN ({values}))".format(
     values=", ".join(f"'{na}'" for na in SUPPORTED_NORM_ADDRESSEES)
 )
 
+# Canonical machine names for the qualification dimension of the row-based
+# personnel-effort model (process_step_personnel_effort). The four slots a/b/c/d
+# of the legacy fixed-column model map 1:1 onto these names per norm addressee.
+PERSONNEL_QUALIFICATION_BY_SLOT: dict[str, dict[str, str]] = {
+    ADMINISTRATION: {
+        "a": "einfacher_und_mittlerer_dienst",
+        "b": "gehobener_dienst",
+        "c": "hoeherer_dienst",
+        "d": "durchschnitt",
+    },
+    BUSINESS: {
+        "a": "niedrig",
+        "b": "mittel",
+        "c": "hoch",
+        "d": "durchschnitt",
+    },
+}
+PERSONNEL_SLOT_BY_QUALIFICATION: dict[str, dict[str, str]] = {
+    addressee: {name: slot for slot, name in slots.items()}
+    for addressee, slots in PERSONNEL_QUALIFICATION_BY_SLOT.items()
+}
+# Wage-source kind is derivable from the norm addressee.
+WAGE_SOURCE_KIND_BY_ADDRESSEE: dict[str, str] = {
+    ADMINISTRATION: "verwaltungsebene",
+    BUSINESS: "wirtschaftsabschnitt",
+}
+
+
+def get_model_hourly_rate(
+    norm_addressee: str,
+    wage_source_value: str,
+    qualification: str,
+) -> float | None:
+    """Resolve the model hourly wage rate from the reference constants.
+
+    This is the single seam between the row-based model and the wage reference
+    data. Today it reads the in-code constants (PAY_RATE_*_DEFAULTS); promoting
+    them to a DB table later only changes this function. Returns None when the
+    (addressee, source, qualification) combination is unknown so callers can
+    decide how to react; citizens have no monetised personnel rate (0.0).
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == CITIZENS:
+        return 0.0
+    slot = PERSONNEL_SLOT_BY_QUALIFICATION.get(resolved, {}).get(qualification)
+    if slot is None:
+        return None
+    if resolved == ADMINISTRATION:
+        table = PAY_RATE_LEVEL_DEFAULTS.get(wage_source_value)
+    elif resolved == BUSINESS:
+        table = PAY_RATE_BUSINESS_SECTION_DEFAULTS.get(wage_source_value)
+    else:
+        return None
+    if table is None:
+        return None
+    return table.get(slot)
+
 
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -872,6 +929,90 @@ def _create_session_pay_rate_overrides_by_addressee_table(
     )
 
 
+def _create_process_step_personnel_effort_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "process_step_personnel_effort",
+) -> None:
+    """Row-based personnel effort (child of process_steps).
+
+    One row per (step, period, qualification, wage source). Replaces the fixed
+    a/b/c/d wage/time columns on process_steps so that mixed wage sources for the
+    same qualification (e.g. Bund and Laender gehobener Dienst in one step) no
+    longer overwrite each other.
+    """
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            effort_id                    INTEGER PRIMARY KEY,
+            session_id                   INTEGER NOT NULL,
+            norm_addressee               TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            step_id                      INTEGER NOT NULL,
+            period                       TEXT NOT NULL CHECK (period IN ('current', 'proposed')),
+            qualification                TEXT NOT NULL,
+            wage_source_kind             TEXT NOT NULL,
+            wage_source_value            TEXT NOT NULL,
+            time_required_in_min         REAL,
+            time_required_in_min_edited  REAL,
+            model_hourly_rate            REAL NOT NULL,
+            computed_cost                REAL,
+            last_edited_at               TEXT,
+            UNIQUE (
+                session_id,
+                norm_addressee,
+                step_id,
+                period,
+                qualification,
+                wage_source_kind,
+                wage_source_value
+            ),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (step_id)
+            REFERENCES process_steps (step_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_session_wage_rate_overrides_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "session_wage_rate_overrides",
+) -> None:
+    """Row-keyed session wage overrides (created now, used from Phase B/C).
+
+    Keyed by (source, qualification) so a manual rate edit applies precisely to
+    matching personnel-effort rows, unlike the legacy slot-based overrides.
+    """
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id           INTEGER NOT NULL,
+            norm_addressee       TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            wage_source_kind     TEXT NOT NULL,
+            wage_source_value    TEXT NOT NULL,
+            qualification        TEXT NOT NULL,
+            hourly_rate_edited   REAL,
+            last_edited_at       TEXT,
+            PRIMARY KEY (
+                session_id,
+                norm_addressee,
+                wage_source_kind,
+                wage_source_value,
+                qualification
+            ),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
 def _create_parent_composite_indexes(cur: sqlite3.Cursor) -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_processes_session_addressee_process_id ON processes(session_id, norm_addressee, process_id)"
@@ -1546,6 +1687,10 @@ def init_db() -> None:
     # TODO: Handle list insertion, possibly change to position list instead of linked list? Does it need to be doubly linked? Single just seems easier.
     # TODO: Change prozessschritt mit tätigkeiten?
     _create_process_steps_table(cur)
+    # Row-based personnel-effort child table + row-keyed session wage overrides.
+    # Created after process_steps so the step_id foreign key resolves.
+    _create_process_step_personnel_effort_table(cur)
+    _create_session_wage_rate_overrides_table(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_process_steps (
@@ -4800,6 +4945,92 @@ def clear_session_summary(session_id: int) -> None:
     _maybe_close(conn)
 
 
+def replace_process_step_personnel_effort(
+    session_id: int,
+    norm_addressee: str,
+    step_id: int,
+    rows: list[dict],
+) -> None:
+    """Replace all personnel-effort rows for one step (fresh effort calc).
+
+    `rows` items carry: period ('current'|'proposed'), qualification,
+    wage_source_kind, wage_source_value, time_required_in_min (optional) and
+    model_hourly_rate. Replace semantics keep re-runs idempotent.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM process_step_personnel_effort
+        WHERE session_id = ? AND norm_addressee = ? AND step_id = ?
+        """,
+        (session_id, resolved, step_id),
+    )
+    for row in rows:
+        cur.execute(
+            """
+            INSERT INTO process_step_personnel_effort (
+                session_id,
+                norm_addressee,
+                step_id,
+                period,
+                qualification,
+                wage_source_kind,
+                wage_source_value,
+                time_required_in_min,
+                model_hourly_rate
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                resolved,
+                step_id,
+                row["period"],
+                row["qualification"],
+                row["wage_source_kind"],
+                row["wage_source_value"],
+                row.get("time_required_in_min"),
+                row["model_hourly_rate"],
+            ),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def list_process_step_personnel_effort(
+    session_id: int,
+    norm_addressee: str,
+    step_id: int | None = None,
+) -> list[dict]:
+    """Read personnel-effort rows for a session+addressee (optionally one step)."""
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    if step_id is None:
+        cur.execute(
+            """
+            SELECT * FROM process_step_personnel_effort
+            WHERE session_id = ? AND norm_addressee = ?
+            ORDER BY step_id, period, qualification, wage_source_value
+            """,
+            (session_id, resolved),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT * FROM process_step_personnel_effort
+            WHERE session_id = ? AND norm_addressee = ? AND step_id = ?
+            ORDER BY period, qualification, wage_source_value
+            """,
+            (session_id, resolved, step_id),
+        )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
 def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
     # Effort undo clears the step `_edited` times and role_sources, but intentionally
     # NOT the manual pay-rate overrides (sessions.pay_rate_edited_* /
@@ -4863,6 +5094,16 @@ def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) 
             last_edited_at = NULL,
             role_sources_current_json = NULL,
             role_sources_proposed_json = NULL
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    # Row-based effort rows are an effort result, so undo clears them too
+    # (mirrors the slot columns above). Session wage overrides are a standalone
+    # user setting and intentionally survive, like the legacy pay-rate edits.
+    cur.execute(
+        """
+        DELETE FROM process_step_personnel_effort
         WHERE session_id = ? AND norm_addressee = ?
         """,
         (session_id, resolved),
