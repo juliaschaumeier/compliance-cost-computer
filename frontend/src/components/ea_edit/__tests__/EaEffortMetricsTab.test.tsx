@@ -80,6 +80,87 @@ describe("EaEffortMetricsTab", () => {
     mockUpdatePersonnelEffortTime.mockResolvedValue({ updated: 1 });
   });
 
+  // A business step whose only personnel row is "hoch" (slot c) under one WZ
+  // section, with the dual-write slot mirror filled.
+  function businessHochStep(stepId: number, stepLabel: string, section: string, rate: number) {
+    return {
+      step_id: stepId,
+      case_group_id: 22,
+      norm_addressee: "business",
+      step: stepLabel,
+      description: "Beschreibung",
+      change_status: "geaendert",
+      time_required_in_min_a_current: null,
+      time_required_in_min_b_current: null,
+      time_required_in_min_c_current: 30,
+      time_required_in_min_d_current: null,
+      expenses_current: 0,
+      time_required_in_min_a_current_edited: null,
+      time_required_in_min_b_current_edited: null,
+      time_required_in_min_c_current_edited: null,
+      time_required_in_min_d_current_edited: null,
+      expenses_current_edited: null,
+      time_required_in_min_a_proposed: null,
+      time_required_in_min_b_proposed: null,
+      time_required_in_min_c_proposed: null,
+      time_required_in_min_d_proposed: null,
+      expenses_proposed: 0,
+      time_required_in_min_a_proposed_edited: null,
+      time_required_in_min_b_proposed_edited: null,
+      time_required_in_min_c_proposed_edited: null,
+      time_required_in_min_d_proposed_edited: null,
+      expenses_proposed_edited: null,
+      time_required_in_min_a_current_effective: null,
+      time_required_in_min_b_current_effective: null,
+      time_required_in_min_c_current_effective: 30,
+      time_required_in_min_d_current_effective: null,
+      expenses_current_effective: 0,
+      time_required_in_min_a_proposed_effective: null,
+      time_required_in_min_b_proposed_effective: null,
+      time_required_in_min_c_proposed_effective: null,
+      time_required_in_min_d_proposed_effective: null,
+      expenses_proposed_effective: 0,
+      personnel_effort_current: [
+        {
+          qualification: "hoch",
+          wage_source_kind: "wirtschaftsabschnitt",
+          wage_source_value: section,
+          model_hourly_rate: rate,
+          time_required_in_min: 30,
+          time_required_in_min_edited: null,
+        },
+      ],
+      personnel_effort_proposed: [],
+    };
+  }
+
+  it("shows different WZ sections per step in the same case group", async () => {
+    // Validates: a case group CAN contain steps with different economic sectors
+    // (the prompt/model do not force one per case group), and the table then
+    // labels each step with its own letter -- both fully editable.
+    mockGetEditableCaseGroups.mockResolvedValue({
+      rows: [{ case_group_id: 22, norm_addressee: "business", process_id: 1, case_group: "FG" }],
+    });
+    mockGetEditableProcessSteps.mockResolvedValue({
+      rows: [
+        businessHochStep(301, "Schritt Kunst", "R", 51.0),
+        businessHochStep(302, "Schritt Finanz", "K", 93.1),
+      ],
+    });
+    render(
+      <EaEffortMetricsTab normAddressee="business" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    const trR = (await screen.findByText("Schritt Kunst")).closest("tr") as HTMLElement;
+    const trK = screen.getByText("Schritt Finanz").closest("tr") as HTMLElement;
+    // Each step row shows its own WZ section letter.
+    expect(within(trR).getByText("· R")).toBeInTheDocument();
+    expect(within(trK).getByText("· K")).toBeInTheDocument();
+    // Both steps are fully editable (4 qualifications + expenses per side = 10).
+    expect(within(trR).getAllByRole("textbox")).toHaveLength(10);
+    expect(within(trK).getAllByRole("textbox")).toHaveLength(10);
+  });
+
   function seedPersonnelStep(overrides: Record<string, unknown> = {}) {
     mockGetEditableProcessSteps.mockResolvedValue({
       rows: [
