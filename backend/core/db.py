@@ -5048,6 +5048,36 @@ def list_process_step_personnel_effort(
     return rows
 
 
+def get_session_wage_rate_overrides(
+    session_id: int,
+    norm_addressee: str,
+) -> dict[tuple[str, str, str], float]:
+    """Row-keyed session wage overrides as {(kind, value, qualification): rate}.
+
+    Only rows with a non-null hourly_rate_edited are returned. Empty until the
+    Phase C editing UI writes to session_wage_rate_overrides; the cost engine
+    already reads it so no further cost change is needed when that UI lands.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT wage_source_kind, wage_source_value, qualification, hourly_rate_edited
+        FROM session_wage_rate_overrides
+        WHERE session_id = ? AND norm_addressee = ? AND hourly_rate_edited IS NOT NULL
+        """,
+        (session_id, resolved),
+    )
+    overrides = {
+        (row["wage_source_kind"], row["wage_source_value"], row["qualification"]):
+            float(row["hourly_rate_edited"])
+        for row in cur.fetchall()
+    }
+    _maybe_close(conn)
+    return overrides
+
+
 def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
     # Effort undo clears the step `_edited` times and role_sources, but intentionally
     # NOT the manual pay-rate overrides (sessions.pay_rate_edited_* /

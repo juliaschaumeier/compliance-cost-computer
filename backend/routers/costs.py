@@ -80,6 +80,28 @@ def _compute_step_cost(
     return total
 
 
+def _resolve_personnel_rate(row: dict, wage_overrides: dict) -> float:
+    """Row rate: a session wage override (by source+qualification) wins over the
+    model rate stored on the row."""
+    key = (row["wage_source_kind"], row["wage_source_value"], row["qualification"])
+    override = wage_overrides.get(key)
+    if override is not None:
+        return float(override)
+    return _safe_number(row.get("model_hourly_rate"))
+
+
+def _compute_step_personnel_cost_from_rows(
+    period_rows: list[dict], wage_overrides: dict
+) -> float:
+    """Personnel cost for one period from the row-based model (excl. expenses)."""
+    total = 0.0
+    for row in period_rows:
+        edited = row.get("time_required_in_min_edited")
+        minutes = edited if edited is not None else row.get("time_required_in_min")
+        total += _resolve_personnel_rate(row, wage_overrides) * (_safe_number(minutes) / 60.0)
+    return total
+
+
 def _compute_step_time_minutes(step: dict, suffix: str) -> float:
     total = 0.0
     for key in ["a", "b", "c", "d"]:
@@ -295,6 +317,8 @@ def _compute_step_metrics(
     norm_addressee: str,
     default_rates: dict[str, float],
     edited_rates: dict[str, float | None],
+    personnel_rows_by_step: dict[int, list[dict]],
+    wage_overrides: dict,
     business_information_fractions: dict[int, float],
 ) -> tuple[
     dict[int, float],
@@ -319,12 +343,25 @@ def _compute_step_metrics(
             cost_current = _safe_number(step.get("expenses_current_effective"))
             cost_proposed = _safe_number(step.get("expenses_proposed_effective"))
         else:
-            cost_current = _compute_step_cost(
-                step, "current", norm_addressee, default_rates, edited_rates
-            )
-            cost_proposed = _compute_step_cost(
-                step, "proposed", norm_addressee, default_rates, edited_rates
-            )
+            step_rows = personnel_rows_by_step.get(step_id, [])
+            if step_rows:
+                # Row-based model: authoritative once the step has child rows.
+                current_rows = [r for r in step_rows if r["period"] == "current"]
+                proposed_rows = [r for r in step_rows if r["period"] == "proposed"]
+                cost_current = _compute_step_personnel_cost_from_rows(
+                    current_rows, wage_overrides
+                ) + _safe_number(step.get("expenses_current_effective"))
+                cost_proposed = _compute_step_personnel_cost_from_rows(
+                    proposed_rows, wage_overrides
+                ) + _safe_number(step.get("expenses_proposed_effective"))
+            else:
+                # Legacy fallback (old sessions without child rows / migration).
+                cost_current = _compute_step_cost(
+                    step, "current", norm_addressee, default_rates, edited_rates
+                )
+                cost_proposed = _compute_step_cost(
+                    step, "proposed", norm_addressee, default_rates, edited_rates
+                )
         time_current = _compute_step_time_minutes(step, "current")
         time_proposed = _compute_step_time_minutes(step, "proposed")
         bureaucracy_fraction = (
@@ -590,6 +627,10 @@ def compute_total_cost_for_session(
         raise HTTPException(status_code=404, detail="Session pay rates not found")
     default_rates = pay_rates["defaults"]
     edited_rates = pay_rates["edited"]
+    personnel_rows_by_step: dict[int, list[dict]] = {}
+    for row in db.list_process_step_personnel_effort(session_id, norm_addressee):
+        personnel_rows_by_step.setdefault(int(row["step_id"]), []).append(row)
+    wage_overrides = db.get_session_wage_rate_overrides(session_id, norm_addressee)
     effective_case_groups = [
         db.resolve_effective_case_group_metrics(group) for group in case_groups
     ]
@@ -649,6 +690,8 @@ def compute_total_cost_for_session(
             norm_addressee=norm_addressee,
             default_rates=default_rates,
             edited_rates=edited_rates,
+            personnel_rows_by_step=personnel_rows_by_step,
+            wage_overrides=wage_overrides,
             business_information_fractions=business_information_fractions,
         )
         _persist_step_costs(

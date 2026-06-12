@@ -1365,3 +1365,115 @@ def test_manual_business_pay_rate_override_beats_per_step_rate(test_client):
     )
     assert resp_override.status_code == 200
     assert resp_override.json()["total_cost"] == pytest.approx(80.0)
+
+
+def _seed_proposed_cases(session_id, case_group_id):
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+
+
+def test_compute_costs_row_model_sums_mixed_sources(test_client):
+    # Bund and Laender (same qualification) in one step are summed per row -- the
+    # legacy slot model could only keep one rate for that qualification.
+    session_id, _ = db.upsert_session("COST-ROWS-MIXED", "test-model")
+    seeded = _seed_flow(session_id)
+    _seed_proposed_cases(session_id, seeded["case_group_id"])
+    step_one, step_two = seeded["step_one"], seeded["step_two"]
+
+    # Dual-write reality: slot carries the aggregated time (passes cost-input
+    # validation); child rows carry the per-source detail and drive the cost.
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_one,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 42.0, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    db.replace_process_step_personnel_effort(
+        session_id, ADMINISTRATION, step_one,
+        [
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
+             "time_required_in_min": 30, "model_hourly_rate": 40.4},
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "laender",
+             "time_required_in_min": 30, "model_hourly_rate": 43.2},
+        ],
+    )
+    # step_two stays on the legacy slot fallback (no child rows) in the same run.
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_two,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": 60.0, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    resp = test_client.post("/costs/compute", json={"app_session_id": "COST-ROWS-MIXED"})
+    assert resp.status_code == 200
+
+    conn = db.get_conn()
+    c1 = conn.execute("SELECT cost_proposed FROM process_steps WHERE step_id=?", (step_one,)).fetchone()["cost_proposed"]
+    c2 = conn.execute("SELECT cost_proposed FROM process_steps WHERE step_id=?", (step_two,)).fetchone()["cost_proposed"]
+    # Row model: 40.4*30/60 + 43.2*30/60 = 20.2 + 21.6 = 41.8 (not 42*60/60=42)
+    assert c1 == pytest.approx(41.8)
+    # Legacy fallback still works in the same session: 60*30/60 = 30
+    assert c2 == pytest.approx(30.0)
+
+
+def test_compute_costs_row_model_override_wins_and_expenses_once(test_client):
+    # A session wage override beats the model rate; step expenses are added once
+    # per step, not per personnel row.
+    session_id, _ = db.upsert_session("COST-ROWS-OVR", "test-model")
+    seeded = _seed_flow(session_id)
+    _seed_proposed_cases(session_id, seeded["case_group_id"])
+    step_one, step_two = seeded["step_one"], seeded["step_two"]
+
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_one,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 40.4, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=10,
+    )
+    db.replace_process_step_personnel_effort(
+        session_id, ADMINISTRATION, step_one,
+        [
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
+             "time_required_in_min": 60, "model_hourly_rate": 40.4},
+        ],
+    )
+    # Override for (verwaltungsebene, bund, gehobener_dienst) -> 50.0
+    conn = db.get_conn()
+    conn.execute(
+        """
+        INSERT INTO session_wage_rate_overrides (
+            session_id, norm_addressee, wage_source_kind, wage_source_value,
+            qualification, hourly_rate_edited, last_edited_at
+        ) VALUES (?, 'administration', 'verwaltungsebene', 'bund',
+                  'gehobener_dienst', 50.0, current_timestamp)
+        """,
+        (session_id,),
+    )
+    conn.commit()
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_two,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": 60.0, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 10, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    resp = test_client.post("/costs/compute", json={"app_session_id": "COST-ROWS-OVR"})
+    assert resp.status_code == 200
+
+    cost = db.get_conn().execute(
+        "SELECT cost_proposed FROM process_steps WHERE step_id=?", (step_one,)
+    ).fetchone()["cost_proposed"]
+    # Override 50.0 * 60/60 + expenses 10 (once) = 60.0  (model 40.4 would give 50.4)
+    assert cost == pytest.approx(60.0)
