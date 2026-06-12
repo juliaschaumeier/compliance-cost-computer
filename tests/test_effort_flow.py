@@ -1511,9 +1511,10 @@ def test_personnel_effort_invalid_lohnquelle_rejected(test_client, monkeypatch):
     assert "lohnquelle" in resp.json()["detail"].lower()
 
 
-def test_personnel_effort_missing_lohnquelle_falls_back_to_default(test_client, monkeypatch):
-    # K5: a row without `lohnquelle` is accepted and falls back to the addressee
-    # default source (admin -> durchschnitt), since the backend must resolve a rate.
+def test_personnel_effort_missing_lohnquelle_rejected(test_client, monkeypatch):
+    # A row without `lohnquelle` is rejected (422), not silently defaulted: every
+    # row must name its source so the wage stays verifiable (#23), and "forgot" is
+    # kept distinct from an explicit durchschnitt/gesamtwirtschaft choice.
     app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
     effort_response = f"""
     {{
@@ -1547,13 +1548,132 @@ def test_personnel_effort_missing_lohnquelle_falls_back_to_default(test_client, 
         "/effort/calculate",
         json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 422
+    assert "lohnquelle" in resp.json()["detail"].lower()
+    assert "fehlende" in resp.json()["detail"].lower()
 
-    rows = db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
-    assert len(rows) == 1
-    assert rows[0]["wage_source_value"] == "durchschnitt"
-    assert rows[0]["qualification"] == "gehobener_dienst"
-    assert rows[0]["model_hourly_rate"] == 42.9  # durchschnitt, slot b
+
+def test_personnel_effort_duplicate_combination_rejected(test_client, monkeypatch):
+    # Two rows with the same (qualifikation, lohnquelle) in one period -> 422
+    # (end-to-end over the route; the parser unit + DB constraint are covered
+    # separately).
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [
+              {{"qualifikation": "gehobener_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "30"}},
+              {{"qualifikation": "gehobener_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+            ],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "doppelte" in resp.json()["detail"].lower()
+
+
+def test_personnel_effort_bare_slot_letter_rejected(test_client, monkeypatch):
+    # `qualifikation: "a"` is old-slot-model leakage and must be rejected (422).
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "a",
+              "lohnquelle": "bund",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "qualifikation" in resp.json()["detail"].lower()
+
+
+def test_personnel_effort_mixed_with_legacy_flat_wage_rejected(test_client, monkeypatch):
+    # A step that uses the row model in one period must not smuggle LLM wages via
+    # the legacy flat format (stundenlohn_satz_*) in the other period -> 422.
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "gehobener_dienst",
+              "lohnquelle": "bund",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "stundenlohn_satz_a_vorschlag": "45",
+            "zeitaufwand_in_min_a_vorschlag": "20"
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "stundenlohn_satz" in resp.json()["detail"].lower()
 
 
 def test_role_wage_source_cleared_on_undo(test_client, monkeypatch):

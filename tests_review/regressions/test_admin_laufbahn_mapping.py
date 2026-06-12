@@ -57,9 +57,13 @@ def test_empty_input_returns_none():
     assert _resolve_qualification_slot({"qualifikation": "   "}, ADMINISTRATION) is None
 
 
-def test_canonical_slot_letter_resolves_directly():
-    assert _resolve_qualification_slot({"qualifikation": "a"}, ADMINISTRATION) == "a"
-    assert _resolve_qualification_slot({"qualifikation": "D"}, ADMINISTRATION) == "d"
+def test_bare_slot_letters_are_rejected():
+    # a/b/c/d are old-slot-model leakage; the prompt never emits them, so they
+    # must not be accepted as a `qualifikation`.
+    for letter in ("a", "b", "c", "d", "A", "D"):
+        with pytest.raises(HTTPException) as excinfo:
+            _resolve_qualification_slot({"qualifikation": letter}, ADMINISTRATION)
+        assert excinfo.value.status_code == 422
 
 
 @pytest.mark.parametrize(

@@ -271,16 +271,17 @@ def _normalize_role_wage_source(raw_role: dict, norm_addressee: str) -> str | No
 def _resolve_qualification_slot(item: dict, norm_addressee: str) -> str | None:
     """Map a `qualifikation` value (row-based model) to the a/b/c/d slot.
 
-    Reuses the existing laufbahn/level aliases; underscores in the canonical
-    machine names (e.g. ``gehobener_dienst``) are normalised to spaces first.
-    Raises 422 on an unrecognised qualification.
+    Maps via the laufbahn/level aliases only (underscores in canonical machine
+    names like ``gehobener_dienst`` are normalised to spaces first). The bare
+    slot letters a/b/c/d are intentionally NOT accepted: the prompt never emits
+    them, so they would be old-slot-model leakage. The semantic aliases
+    (``gehobener dienst``, ``gd``, ``niedrig``/``low`` …) are kept on purpose as
+    LLM robustness. Raises 422 on an unrecognised qualification.
     """
     raw = str(item.get("qualifikation") or item.get("qualification") or "").strip()
     if not raw:
         return None
     normalized = raw.lower().replace("_", " ")
-    if normalized in {"a", "b", "c", "d"}:
-        return normalized
     aliases = (
         _ADMIN_LAUFBAHN_ALIASES
         if norm_addressee == ADMINISTRATION
@@ -355,9 +356,17 @@ def _parse_personnel_effort_entries(
                         f"{norm_addressee!r}. Erwartet: {source_kind}."
                     ),
                 )
-            # K5: missing source falls back to the addressee default row.
-            source_value = (
-                "durchschnitt" if norm_addressee == ADMINISTRATION else "gesamtwirtschaft"
+            # Missing source is rejected (not silently defaulted): every row must
+            # name its lohnquelle, otherwise the wage row is not verifiable (#23)
+            # and "forgot" would be indistinguishable from an explicit durchschnitt/
+            # gesamtwirtschaft choice.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"effort_calculation: Fehlende `lohnquelle` fuer Normadressat "
+                    f"{norm_addressee!r}. Jeder Personalaufwand-Eintrag muss eine "
+                    f"`lohnquelle` angeben ({source_kind})."
+                ),
             )
 
         duration = parse_optional_number(
@@ -496,6 +505,23 @@ def _parse_org_effort_entry(
         rows_proposed,
         uses_personnel_proposed,
     ) = _parse_personnel_effort_entries(entry, "vorschlag", norm_addressee)
+    # Once a step uses the row model in either period, the legacy flat format is
+    # off-limits for the whole step (decision per step, not per period). This
+    # closes the gap where the other period could still smuggle LLM wages via
+    # `stundenlohn_satz_*` (Julia: "stop accepting stundenlohn from new-format").
+    uses_row_model = uses_personnel_current or uses_personnel_proposed
+    if uses_row_model and any(
+        isinstance(key, str) and key.lower().startswith("stundenlohn_satz")
+        for key in entry
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "effort_calculation: Eine Taetigkeit nutzt das Personalaufwand-"
+                "Zeilenmodell und liefert zugleich `stundenlohn_satz_*` (KI-Loehne). "
+                "Im Zeilenmodell werden keine Stundenloehne akzeptiert."
+            ),
+        )
     business_aliases = {
         "a": ["niedrig", "low"],
         "b": ["mittel", "medium"],
@@ -503,7 +529,7 @@ def _parse_org_effort_entry(
         "d": ["durchschnitt", "average", "avg"],
     }
     for key in ["a", "b", "c", "d"]:
-        if not uses_personnel_current:
+        if not uses_row_model:
             hourly_rates_current_raw, current_rate_alias = _value_from_keys(
                 entry,
                 f"stundenlohn_satz_{key}_gueltig",
@@ -535,7 +561,7 @@ def _parse_org_effort_entry(
             hourly_rates_current[key] = parse_optional_number(hourly_rates_current_raw)
             time_required_current[key] = parse_optional_number(time_required_current_raw)
 
-        if not uses_personnel_proposed:
+        if not uses_row_model:
             hourly_rates_proposed_raw, proposed_rate_alias = _value_from_keys(
                 entry,
                 f"stundenlohn_satz_{key}_vorschlag",
