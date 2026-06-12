@@ -83,8 +83,8 @@ describe("tileMetrics", () => {
       id: "step_55",
       meta_information: {
         personnel_rows: [
-          { label: "Laender - Gehobener Dienst", current_min: 12, proposed_min: 8 },
-          { label: "Bund - Hoeherer Dienst", current_min: 5, proposed_min: null },
+          { label: "Länder - gD", current_min: 12, proposed_min: 8 },
+          { label: "Bund - hD", current_min: 5, proposed_min: null },
         ],
         cost_current: 100,
         cost_proposed: 80,
@@ -93,8 +93,8 @@ describe("tileMetrics", () => {
 
     const table = buildTileMetricTable(tile);
     expect(table?.rows.map((row) => row.label)).toEqual([
-      "Laender - Gehobener Dienst",
-      "Bund - Hoeherer Dienst",
+      "Länder - gD",
+      "Bund - hD",
       "Kosten/Jahr",
     ]);
   });

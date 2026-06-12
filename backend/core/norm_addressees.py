@@ -51,26 +51,29 @@ EFFORT_GROUP_LABELS: dict[str, dict[str, str]] = {
 # and fall back to the bare section letter.
 WAGE_SOURCE_TAGS: dict[str, str] = {
     "bund": "Bund",
-    "laender": "Laender",
+    "laender": "Länder",
     "kommunen": "Kommunen",
     "sozialversicherung": "SV",
-    "durchschnitt": "Durchschnitt",
-    "gesamtwirtschaft": "Gesamtwirtschaft",
+    "durchschnitt": "Ø",
+    "gesamtwirtschaft": "Gesamt",
 }
 
-# Human labels for the row-model qualification dimension, by norm addressee.
+# Compact qualification labels for the row-model provenance, mirroring the
+# frontend column labels (effortLabels.ts) so tile and editor read identically:
+# administration is abbreviated (eD/mD, gD, hD, Ø), the wage source stays spelled
+# out (Bund, Länder, ...) -> e.g. "Bund - gD", "Länder - hD", "R - Mittel".
 PERSONNEL_QUALIFICATION_LABELS: dict[str, dict[str, str]] = {
     ADMINISTRATION: {
-        "einfacher_und_mittlerer_dienst": "Einfacher und mittlerer Dienst",
-        "gehobener_dienst": "Gehobener Dienst",
-        "hoeherer_dienst": "Hoeherer Dienst",
-        "durchschnitt": "Durchschnitt",
+        "einfacher_und_mittlerer_dienst": "eD/mD",
+        "gehobener_dienst": "gD",
+        "hoeherer_dienst": "hD",
+        "durchschnitt": "Ø",
     },
     BUSINESS: {
         "niedrig": "Niedrig",
         "mittel": "Mittel",
         "hoch": "Hoch",
-        "durchschnitt": "Durchschnitt",
+        "durchschnitt": "Ø",
     },
 }
 

@@ -1,7 +1,7 @@
 """Phase D2d: wage provenance in step tiles (Julia Comment 2).
 
 Step tiles for the row-based model show the wage source + qualification per
-personnel row (e.g. "Bund - Gehobener Dienst", "R - Mittel") and use the
+personnel row (e.g. "Bund - gD", "R - Mittel") and use the
 effective rate/time, so a row edit is reflected instead of stale slot data.
 """
 
@@ -24,7 +24,7 @@ def _row(period, qualification, kind, value, *, base=None, edited=None, rate=0.0
 
 
 def test_provenance_label_admin_and_business():
-    assert personnel_provenance_label(ADMINISTRATION, "bund", "gehobener_dienst") == "Bund - Gehobener Dienst"
+    assert personnel_provenance_label(ADMINISTRATION, "bund", "gehobener_dienst") == "Bund - gD"
     assert personnel_provenance_label(BUSINESS, "R", "mittel") == "R - Mittel"
     # Unknown source falls back to the bare value (business WZ letters).
     assert personnel_provenance_label(BUSINESS, "K", "hoch") == "K - Hoch"
@@ -42,7 +42,7 @@ def test_tile_text_from_rows_shows_provenance():
         cost_proposed=None,
         execution_per_case=None,
     )
-    assert "Aktuell: Bund - Gehobener Dienst: 30 Min." in text
+    assert "Aktuell: Bund - gD: 30 Min." in text
     assert "Std." in text
 
 
@@ -95,7 +95,7 @@ def test_build_step_tile_text_uses_rows_when_present(test_client):
     )
     step = next(s for s in db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION) if s["step_id"] == step_id)
     text = build_step_tile_text(session_id, step, ADMINISTRATION)
-    assert "Bund - Gehobener Dienst" in text
+    assert "Bund - gD" in text
 
 
 def test_build_step_tile_text_citizens_falls_back_to_slots(test_client):
