@@ -962,7 +962,7 @@ export default function EaEffortMetricsTab({
                 const draftRow = draft[row.step_id] || buildStepDraftRow(row);
                 const changedKeys = changedByStepId.get(row.step_id);
                 const inputClass = (value: string) =>
-                  `w-16 rounded px-1 py-1 ${
+                  `w-14 rounded px-1 py-1 ${
                     isValidNullableNumberInput(value)
                       ? `border border-slate-300 ${
                           isZeroInputValue(value) ? "text-slate-400" : "text-slate-900"
