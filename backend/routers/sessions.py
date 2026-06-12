@@ -142,6 +142,29 @@ class SessionPayRatesResponse(BaseModel):
     active: dict[str, float]
 
 
+class SessionWageRateRow(BaseModel):
+    wage_source_kind: str
+    wage_source_value: str
+    qualification: str
+    model_hourly_rate: float
+    hourly_rate_edited: float | None = None
+
+
+class SessionWageRatesResponse(BaseModel):
+    app_session_id: str
+    norm_addressee: str = ADMINISTRATION
+    rows: list[SessionWageRateRow]
+
+
+class SessionWageRateUpdateRequest(BaseModel):
+    app_session_id: AppSessionId
+    norm_addressee: str | None = None
+    wage_source_kind: str
+    wage_source_value: str
+    qualification: str
+    hourly_rate_edited: float | None = None
+
+
 class SessionEditAuditRow(BaseModel):
     audit_id: int
     session_id: int
@@ -1350,6 +1373,68 @@ async def session_pay_rates_update(
         payload.app_session_id,
         norm_addressee=payload.norm_addressee,
     )
+
+
+def _as_session_wage_rates_response(
+    app_session_id: str, session_id: int, resolved: str
+) -> SessionWageRatesResponse:
+    rows = db.list_session_wage_rate_rows(session_id, resolved)
+    return SessionWageRatesResponse(
+        app_session_id=app_session_id,
+        norm_addressee=resolved,
+        rows=[SessionWageRateRow(**row) for row in rows],
+    )
+
+
+@router.get("/wage-rates", response_model=SessionWageRatesResponse)
+async def session_wage_rates(
+    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    norm_addressee: str | None = None,
+) -> SessionWageRatesResponse:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    resolved = normalize_norm_addressee_or_422(norm_addressee)
+    return _as_session_wage_rates_response(app_session_id, session_id, resolved)
+
+
+@router.post("/wage-rates", response_model=SessionWageRatesResponse)
+async def session_wage_rates_update(
+    payload: SessionWageRateUpdateRequest,
+) -> SessionWageRatesResponse:
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    resolved = normalize_norm_addressee_or_422(payload.norm_addressee)
+    if resolved == CITIZENS:
+        raise HTTPException(status_code=422, detail="Citizens wage rates are not editable")
+    if payload.wage_source_kind != db.WAGE_SOURCE_KIND_BY_ADDRESSEE.get(resolved):
+        raise HTTPException(
+            status_code=422,
+            detail=f"wage_source_kind {payload.wage_source_kind!r} does not match {resolved!r}",
+        )
+    if payload.hourly_rate_edited is not None:
+        if payload.hourly_rate_edited < 0:
+            raise HTTPException(status_code=422, detail="hourly_rate_edited must not be negative")
+        if db.get_model_hourly_rate(
+            resolved, payload.wage_source_value, payload.qualification
+        ) is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Unknown wage combination: {payload.wage_source_value!r} / "
+                    f"{payload.qualification!r} for {resolved!r}"
+                ),
+            )
+    db.upsert_session_wage_rate_override(
+        session_id=session_id,
+        norm_addressee=resolved,
+        wage_source_kind=payload.wage_source_kind,
+        wage_source_value=payload.wage_source_value,
+        qualification=payload.qualification,
+        hourly_rate_edited=payload.hourly_rate_edited,
+    )
+    return _as_session_wage_rates_response(payload.app_session_id, session_id, resolved)
 
 
 @router.get("/edit-audit", response_model=SessionEditAuditResponse)

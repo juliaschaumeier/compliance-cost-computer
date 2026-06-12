@@ -5078,6 +5078,114 @@ def get_session_wage_rate_overrides(
     return overrides
 
 
+def list_session_wage_rate_rows(
+    session_id: int,
+    norm_addressee: str,
+) -> list[dict]:
+    """Editable wage rows for the session: for each wage source actually used in
+    the session, every qualification of the addressee with its model rate and the
+    current override (if any). Drives the row-based "Globale Loehnsaetze" tab.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == CITIZENS:
+        return []
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT DISTINCT wage_source_kind, wage_source_value
+        FROM process_step_personnel_effort
+        WHERE session_id = ? AND norm_addressee = ?
+        ORDER BY wage_source_kind, wage_source_value
+        """,
+        (session_id, resolved),
+    )
+    used_sources = [(r["wage_source_kind"], r["wage_source_value"]) for r in cur.fetchall()]
+    cur.execute(
+        """
+        SELECT wage_source_kind, wage_source_value, qualification, hourly_rate_edited
+        FROM session_wage_rate_overrides
+        WHERE session_id = ? AND norm_addressee = ? AND hourly_rate_edited IS NOT NULL
+        """,
+        (session_id, resolved),
+    )
+    overrides = {
+        (r["wage_source_kind"], r["wage_source_value"], r["qualification"]):
+            float(r["hourly_rate_edited"])
+        for r in cur.fetchall()
+    }
+    _maybe_close(conn)
+
+    qualifications = PERSONNEL_QUALIFICATION_BY_SLOT.get(resolved, {})
+    rows: list[dict] = []
+    for kind, value in used_sources:
+        for slot in PAY_RATE_KEYS:
+            qualification = qualifications.get(slot)
+            if qualification is None:
+                continue
+            model = get_model_hourly_rate(resolved, value, qualification)
+            if model is None:
+                continue
+            rows.append(
+                {
+                    "wage_source_kind": kind,
+                    "wage_source_value": value,
+                    "qualification": qualification,
+                    "model_hourly_rate": model,
+                    "hourly_rate_edited": overrides.get((kind, value, qualification)),
+                }
+            )
+    return rows
+
+
+def upsert_session_wage_rate_override(
+    session_id: int,
+    norm_addressee: str,
+    wage_source_kind: str,
+    wage_source_value: str,
+    qualification: str,
+    hourly_rate_edited: float | None,
+) -> None:
+    """Set (or clear, when hourly_rate_edited is None) one row-keyed wage override."""
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    if hourly_rate_edited is None:
+        cur.execute(
+            """
+            DELETE FROM session_wage_rate_overrides
+            WHERE session_id = ? AND norm_addressee = ? AND wage_source_kind = ?
+                AND wage_source_value = ? AND qualification = ?
+            """,
+            (session_id, resolved, wage_source_kind, wage_source_value, qualification),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO session_wage_rate_overrides (
+                session_id, norm_addressee, wage_source_kind, wage_source_value,
+                qualification, hourly_rate_edited, last_edited_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, current_timestamp)
+            ON CONFLICT(session_id, norm_addressee, wage_source_kind,
+                        wage_source_value, qualification)
+            DO UPDATE SET
+                hourly_rate_edited = excluded.hourly_rate_edited,
+                last_edited_at = current_timestamp
+            """,
+            (
+                session_id,
+                resolved,
+                wage_source_kind,
+                wage_source_value,
+                qualification,
+                float(hourly_rate_edited),
+            ),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
 def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
     # Effort undo clears the step `_edited` times and role_sources, but intentionally
     # NOT the manual pay-rate overrides (sessions.pay_rate_edited_* /
