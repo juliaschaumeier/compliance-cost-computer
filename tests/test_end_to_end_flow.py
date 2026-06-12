@@ -1,6 +1,7 @@
 import json
 
 from backend.core import db
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
 from backend.routers import (
     regulations as regulations_router,
     processes as processes_router,
@@ -12,6 +13,27 @@ from backend.routers import (
 
 def _is_effort_prompt(prompt: str) -> bool:
     return "prozessschritte differenziert werden" in prompt.lower()
+
+
+def _personalaufwand_row(addressee: str, minutes: str) -> dict:
+    """Build a single row-based personnel-effort entry for org addressees.
+
+    The LLM contract is row-only (`personalaufwand_*`); the backend resolves the
+    wage from the wage table, so no `stundenlohn_satz_*` is emitted. Business and
+    administration require addressee-appropriate qualifikation/lohnquelle, else
+    the parser raises 422.
+    """
+    if addressee == BUSINESS:
+        return {
+            "qualifikation": "niedrig",
+            "lohnquelle": "gesamtwirtschaft",
+            "zeitaufwand_in_min": minutes,
+        }
+    return {
+        "qualifikation": "einfacher_und_mittlerer_dienst",
+        "lohnquelle": "bund",
+        "zeitaufwand_in_min": minutes,
+    }
 
 
 def test_end_to_end_flow_and_undo(test_client, monkeypatch):
@@ -236,8 +258,11 @@ def test_end_to_end_flow_and_undo(test_client, monkeypatch):
                 "taetigkeiten_id": str(step["step_id"]),
                 "taetigkeit": step["step"],
                 "beschreibung": step["description"],
-                "stundenlohn_satz_a_vorschlag": "50",
-                "zeitaufwand_in_min_a_vorschlag": "10",
+                # Processes/steps here are seeded without an explicit addressee, so
+                # `/effort/calculate` runs under the ADMINISTRATION default.
+                "personalaufwand_vorschlag": [
+                    _personalaufwand_row(ADMINISTRATION, "10")
+                ],
                 "sachaufwand_vorschlag": "5",
             }
             for step in steps_by_group.get(group_id, [])

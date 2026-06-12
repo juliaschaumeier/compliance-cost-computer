@@ -179,12 +179,26 @@ def _run_addressee_flow(test_client, monkeypatch, app_session_id: str, addressee
                 "sachaufwand_vorschlag": "10",
             }
         else:
+            # Row-based contract: the LLM returns only qualifikation + lohnquelle +
+            # time; the backend resolves the wage from the table
+            # (admin/bund/einfacher_und_mittlerer_dienst = 33.8,
+            # business/gesamtwirtschaft/niedrig = 26.1).
+            qualifikation, lohnquelle = (
+                ("niedrig", "gesamtwirtschaft")
+                if addressee == BUSINESS
+                else ("einfacher_und_mittlerer_dienst", "bund")
+            )
             effort_entry = {
                 "taetigkeiten_id": str(step["step_id"]),
                 "taetigkeit": step["step"],
                 "beschreibung": step["description"],
-                "stundenlohn_satz_a_vorschlag": "60",
-                "zeitaufwand_in_min_a_vorschlag": "30",
+                "personalaufwand_vorschlag": [
+                    {
+                        "qualifikation": qualifikation,
+                        "lohnquelle": lohnquelle,
+                        "zeitaufwand_in_min": "30",
+                    }
+                ],
                 "sachaufwand_vorschlag": "10",
             }
         return json.dumps(
@@ -226,12 +240,14 @@ def _run_addressee_flow(test_client, monkeypatch, app_session_id: str, addressee
     cost_payload = cost_resp.json()
 
     if addressee == ADMINISTRATION:
-        assert cost_payload["total_cost"] == 800.0
+        # (33.8 * 30/60 + 10 Sachaufwand) * (10 * 2 Faelle) = 26.9 * 20 = 538.0
+        assert cost_payload["total_cost"] == 538.0
         assert cost_payload["bureaucracy_cost"] is None
         assert cost_payload["total_time_minutes"] is None
     elif addressee == BUSINESS:
-        assert cost_payload["total_cost"] == 800.0
-        assert cost_payload["bureaucracy_cost"] == 800.0
+        # (26.1 * 30/60 + 10 Sachaufwand) * (10 * 2 Faelle) = 23.05 * 20 = 461.0
+        assert cost_payload["total_cost"] == 461.0
+        assert cost_payload["bureaucracy_cost"] == 461.0
         assert cost_payload["other_cost"] == 0.0
     else:
         assert cost_payload["total_cost"] is None

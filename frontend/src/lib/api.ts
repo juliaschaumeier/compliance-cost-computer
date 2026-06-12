@@ -18,7 +18,6 @@ import {
   Model,
   LlmMonitorSnapshotResponse,
   LlmMonitorStreamAttemptResponse,
-  SessionPayRatesResponse,
   SessionWageRatesResponse,
   SessionEditAuditResponse,
   EditableCaseGroupsResponse,
@@ -768,52 +767,6 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to compute total cost");
-    }
-    return response.json();
-  },
-
-  async getSessionPayRates(options: {
-    appSessionId: string;
-    normAddressee?: NormAddressee;
-  }): Promise<SessionPayRatesResponse> {
-    const params = new URLSearchParams();
-    params.set("app_session_id", options.appSessionId);
-    if (options.normAddressee) {
-      params.set("norm_addressee", options.normAddressee);
-    }
-    const response = await fetch(`${API_BASE_URL}/sessions/pay-rates?${params.toString()}`);
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to load session pay rates");
-    }
-    return response.json();
-  },
-
-  async updateSessionPayRates(options: {
-    appSessionId: string;
-    normAddressee?: NormAddressee;
-    administrationLevel?: string;
-    editedA: number | null;
-    editedB: number | null;
-    editedC: number | null;
-    editedD: number | null;
-  }): Promise<SessionPayRatesResponse> {
-    const response = await fetch(`${API_BASE_URL}/sessions/pay-rates`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        app_session_id: options.appSessionId,
-        norm_addressee: options.normAddressee,
-        administration_level: options.administrationLevel,
-        edited_a: options.editedA,
-        edited_b: options.editedB,
-        edited_c: options.editedC,
-        edited_d: options.editedD,
-      }),
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to update session pay rates");
     }
     return response.json();
   },

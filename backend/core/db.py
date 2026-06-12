@@ -939,6 +939,10 @@ def _create_process_step_personnel_effort_table(
     a/b/c/d wage/time columns on process_steps so that mixed wage sources for the
     same qualification (e.g. Bund and Laender gehobener Dienst in one step) no
     longer overwrite each other.
+
+    The per-row cost is recomputed on demand from rate * time and deliberately not
+    cached here (no ``computed_cost`` column): it is cheap to derive and a cache
+    would only risk drifting from the authoritative rate/time/override inputs.
     """
     cur.execute(
         f"""
@@ -954,7 +958,6 @@ def _create_process_step_personnel_effort_table(
             time_required_in_min         REAL,
             time_required_in_min_edited  REAL,
             model_hourly_rate            REAL NOT NULL,
-            computed_cost                REAL,
             last_edited_at               TEXT,
             UNIQUE (
                 session_id,

@@ -58,6 +58,27 @@ def _detect_addressee_from_prompt(prompt: str) -> str:
     return ADMINISTRATION
 
 
+def _personalaufwand_row(addressee: str, minutes: str) -> dict:
+    """Build a single row-based personnel-effort entry for org addressees.
+
+    The LLM contract is row-only (`personalaufwand_*`); the backend resolves the
+    wage from the wage table, so no `stundenlohn_satz_*` is emitted. Business and
+    administration require addressee-appropriate qualifikation/lohnquelle, else
+    the parser raises 422.
+    """
+    if addressee == BUSINESS:
+        return {
+            "qualifikation": "niedrig",
+            "lohnquelle": "gesamtwirtschaft",
+            "zeitaufwand_in_min": minutes,
+        }
+    return {
+        "qualifikation": "einfacher_und_mittlerer_dienst",
+        "lohnquelle": "bund",
+        "zeitaufwand_in_min": minutes,
+    }
+
+
 def _seed_step6_prerequisites(app_session_id: str) -> int:
     session_id, _ = db.upsert_session(app_session_id, "test-model")
     db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
@@ -256,6 +277,7 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
                     ]
                 }
             )
+        addressee = _detect_addressee_from_prompt(prompt)
         effort_fallgruppen = []
         for group in case_groups:
             group_id = int(group["case_group_id"])
@@ -264,8 +286,9 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
                     "taetigkeiten_id": str(step["step_id"]),
                     "taetigkeit": step["step"],
                     "beschreibung": step["description"],
-                    "stundenlohn_satz_a_vorschlag": "50",
-                    "zeitaufwand_in_min_a_vorschlag": "10",
+                    "personalaufwand_vorschlag": [
+                        _personalaufwand_row(addressee, "10")
+                    ],
                     "sachaufwand_vorschlag": "5",
                 }
                 for step in steps_by_group.get(group_id, [])
@@ -446,8 +469,9 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
                 "taetigkeiten_id": str(steps[0]["step_id"]),
                 "taetigkeit": steps[0]["step"],
                 "beschreibung": steps[0]["description"],
-                "stundenlohn_satz_a_vorschlag": "60",
-                "zeitaufwand_in_min_a_vorschlag": "30",
+                "personalaufwand_vorschlag": [
+                    _personalaufwand_row(addressee, "30")
+                ],
                 "sachaufwand_vorschlag": "10",
             }
         return json.dumps(
@@ -609,8 +633,9 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
                                         "taetigkeiten_id": str(steps[0]["step_id"]),
                                         "taetigkeit": steps[0]["step"],
                                         "beschreibung": steps[0]["description"],
-                                        "stundenlohn_satz_a_vorschlag": "60",
-                                        "zeitaufwand_in_min_a_vorschlag": "30",
+                                        "personalaufwand_vorschlag": [
+                                            _personalaufwand_row(addressee, "30")
+                                        ],
                                         "sachaufwand_vorschlag": "10",
                                     }
                                 ],
@@ -767,8 +792,9 @@ def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypa
         else:
             effort_entry = {
                 "taetigkeiten_id": str(steps[0]["step_id"]),
-                "stundenlohn_satz_a_vorschlag": "60",
-                "zeitaufwand_in_min_a_vorschlag": "30",
+                "personalaufwand_vorschlag": [
+                    _personalaufwand_row(addressee, "30")
+                ],
                 "sachaufwand_vorschlag": "10",
             }
         return json.dumps(
@@ -1300,8 +1326,9 @@ def test_single_step_run_effort_uses_deep_research_when_enabled(
         else:
             effort_entry = {
                 "taetigkeiten_id": str(steps[0]["step_id"]),
-                "stundenlohn_satz_a_vorschlag": "60",
-                "zeitaufwand_in_min_a_vorschlag": "30",
+                "personalaufwand_vorschlag": [
+                    _personalaufwand_row(addressee, "30")
+                ],
                 "sachaufwand_vorschlag": "10",
             }
         return json.dumps(

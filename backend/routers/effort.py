@@ -496,102 +496,33 @@ def _parse_org_effort_entry(
         time_required_current,
         role_sources_current,
         rows_current,
-        uses_personnel_current,
+        _uses_personnel_current,
     ) = _parse_personnel_effort_entries(entry, "gueltig", norm_addressee)
     (
         hourly_rates_proposed,
         time_required_proposed,
         role_sources_proposed,
         rows_proposed,
-        uses_personnel_proposed,
+        _uses_personnel_proposed,
     ) = _parse_personnel_effort_entries(entry, "vorschlag", norm_addressee)
-    # Once a step uses the row model in either period, the legacy flat format is
-    # off-limits for the whole step (decision per step, not per period). This
-    # closes the gap where the other period could still smuggle LLM wages via
-    # `stundenlohn_satz_*` (Julia: "stop accepting stundenlohn from new-format").
-    uses_row_model = uses_personnel_current or uses_personnel_proposed
-    if uses_row_model and any(
+    # The LLM contract is row-only (`personalaufwand_*`); it must never return
+    # wages. Any `stundenlohn_satz_*` (the old AI-wage slot format) is rejected
+    # outright (Julia: "stop accepting stundenlohn"). The backend resolves the
+    # hourly rate from the wage table. The slot columns are still written, but
+    # only as a dual-write aggregation of the row model (see
+    # `_parse_personnel_effort_entries`), not from flat LLM keys.
+    if any(
         isinstance(key, str) and key.lower().startswith("stundenlohn_satz")
         for key in entry
     ):
         raise HTTPException(
             status_code=422,
             detail=(
-                "effort_calculation: Eine Taetigkeit nutzt das Personalaufwand-"
-                "Zeilenmodell und liefert zugleich `stundenlohn_satz_*` (KI-Loehne). "
-                "Im Zeilenmodell werden keine Stundenloehne akzeptiert."
+                "effort_calculation: `stundenlohn_satz_*` (KI-Loehne) werden nicht "
+                "mehr akzeptiert. Der Backend-Dienst ermittelt den Stundenlohn aus "
+                "der Lohnkostentabelle; geben Sie nur `personalaufwand_*` aus."
             ),
         )
-    business_aliases = {
-        "a": ["niedrig", "low"],
-        "b": ["mittel", "medium"],
-        "c": ["hoch", "high"],
-        "d": ["durchschnitt", "average", "avg"],
-    }
-    for key in ["a", "b", "c", "d"]:
-        if not uses_row_model:
-            hourly_rates_current_raw, current_rate_alias = _value_from_keys(
-                entry,
-                f"stundenlohn_satz_{key}_gueltig",
-                (
-                    f"stundenlohn_satz_{key}_current",
-                    f"stundenlohn_satz_{key.upper()}_gueltig",
-                    f"stundenlohn_satz_{key.upper()}_current",
-                    *(f"stundenlohn_satz_{alias}_gueltig" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias}_current" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_gueltig" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_current" for alias in business_aliases[key]),
-                ),
-            )
-            time_required_current_raw, current_time_alias = _value_from_keys(
-                entry,
-                f"zeitaufwand_in_min_{key}_gueltig",
-                (
-                    f"zeitaufwand_in_min_{key}_current",
-                    f"zeitaufwand_in_min_{key.upper()}_gueltig",
-                    f"zeitaufwand_in_min_{key.upper()}_current",
-                    *(f"zeitaufwand_in_min_{alias}_gueltig" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias}_current" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_gueltig" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_current" for alias in business_aliases[key]),
-                ),
-            )
-            if current_rate_alias is not None or current_time_alias is not None:
-                fallback_kinds.add("effort_legacy_english_alias")
-            hourly_rates_current[key] = parse_optional_number(hourly_rates_current_raw)
-            time_required_current[key] = parse_optional_number(time_required_current_raw)
-
-        if not uses_row_model:
-            hourly_rates_proposed_raw, proposed_rate_alias = _value_from_keys(
-                entry,
-                f"stundenlohn_satz_{key}_vorschlag",
-                (
-                    f"stundenlohn_satz_{key}_proposed",
-                    f"stundenlohn_satz_{key.upper()}_vorschlag",
-                    f"stundenlohn_satz_{key.upper()}_proposed",
-                    *(f"stundenlohn_satz_{alias}_vorschlag" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias}_proposed" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_proposed" for alias in business_aliases[key]),
-                ),
-            )
-            time_required_proposed_raw, proposed_time_alias = _value_from_keys(
-                entry,
-                f"zeitaufwand_in_min_{key}_vorschlag",
-                (
-                    f"zeitaufwand_in_min_{key}_proposed",
-                    f"zeitaufwand_in_min_{key.upper()}_vorschlag",
-                    f"zeitaufwand_in_min_{key.upper()}_proposed",
-                    *(f"zeitaufwand_in_min_{alias}_vorschlag" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias}_proposed" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_proposed" for alias in business_aliases[key]),
-                ),
-            )
-            if proposed_rate_alias is not None or proposed_time_alias is not None:
-                fallback_kinds.add("effort_legacy_english_alias")
-            hourly_rates_proposed[key] = parse_optional_number(hourly_rates_proposed_raw)
-            time_required_proposed[key] = parse_optional_number(time_required_proposed_raw)
 
     expenses_current_raw, expenses_current_alias = _value_from_keys(
         entry,

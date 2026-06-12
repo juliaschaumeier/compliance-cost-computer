@@ -132,11 +132,15 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
                   "taetigkeiten_id": "{step_one}",
                   "taetigkeit": "Schritt 1",
                   "beschreibung": "Beschreibung Schritt 1",
-                  "stundenlohn_satz_a_gueltig": "40",
-                  "zeitaufwand_in_min_a_gueltig": "1",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1"}}
+                  ],
                   "sachaufwand_gueltig": "10",
-                  "stundenlohn_satz_a_vorschlag": "45",
-                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1.5"}}
+                  ],
                   "sachaufwand_vorschlag": "12"
                 }}
               ]
@@ -191,10 +195,12 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     }
 
     steps = db.list_process_steps_for_session(session_id)
-    assert steps[0]["hourly_rate_a_current"] == 40
+    # Hourly rate now comes from the wage table (administration/bund/einfacher_und_
+    # mittlerer_dienst = 33.8), not from the LLM, which no longer returns wages.
+    assert steps[0]["hourly_rate_a_current"] == 33.8
     assert steps[0]["time_required_in_min_a_current"] == 1
     assert steps[0]["expenses_current"] == 10
-    assert steps[0]["hourly_rate_a_proposed"] == 45
+    assert steps[0]["hourly_rate_a_proposed"] == 33.8
     assert steps[0]["time_required_in_min_a_proposed"] == 1.5
     assert steps[0]["expenses_proposed"] == 12
 
@@ -278,11 +284,15 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_current": "99",
-                  "zeitaufwand_in_min_a_current": "9",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "9"}}
+                  ],
                   "sachaufwand_current": "11",
-                  "stundenlohn_satz_a_proposed": "44",
-                  "zeitaufwand_in_min_a_proposed": "6",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "6"}}
+                  ],
                   "sachaufwand_proposed": "8"
                 }}
               ]
@@ -321,10 +331,12 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     assert case_group["annual_frequency_proposed"] == 4
 
     step = db.list_process_steps_for_session(session_id)[0]
-    assert step["hourly_rate_a_current"] == 99
+    # Hourly rate is resolved from the wage table (administration/bund/eD = 33.8),
+    # not from the LLM; only time and expenses come from the answer.
+    assert step["hourly_rate_a_current"] == 33.8
     assert step["time_required_in_min_a_current"] == 9
     assert step["expenses_current"] == 11
-    assert step["hourly_rate_a_proposed"] == 44
+    assert step["hourly_rate_a_proposed"] == 33.8
     assert step["time_required_in_min_a_proposed"] == 6
     assert step["expenses_proposed"] == 8
 
@@ -436,16 +448,20 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
                   "taetigkeiten_id": "{step_one}",
                   "taetigkeit": "Schritt 1",
                   "beschreibung": "Beschreibung Schritt 1",
-                  "stundenlohn_satz_a_vorschlag": "45",
-                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1.5"}}
+                  ],
                   "sachaufwand_vorschlag": "12"
                 }},
                 {{
                   "taetigkeiten_id": "{step_two}",
                   "taetigkeit": "Schritt 2",
                   "beschreibung": "Beschreibung Schritt 2",
-                  "stundenlohn_satz_a_vorschlag": "45",
-                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1.5"}}
+                  ],
                   "sachaufwand_vorschlag": "12"
                 }}
               ]
@@ -526,8 +542,10 @@ def test_public_calculate_effort_ignores_skip_cases_calculation(test_client, mon
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_gueltig": "40",
-                  "zeitaufwand_in_min_a_gueltig": "5",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "5"}}
+                  ],
                   "sachaufwand_gueltig": "1"
                 }}
               ]
@@ -742,11 +760,15 @@ def test_calculate_effort_logs_parse_fallback_for_alias_keys(test_client, monkey
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_current": "20",
-                  "zeitaufwand_in_min_a_current": "15",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "15"}}
+                  ],
                   "sachaufwand_current": "5",
-                  "stundenlohn_satz_a_proposed": "25",
-                  "zeitaufwand_in_min_a_proposed": "10",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ],
                   "sachaufwand_proposed": "6"
                 }}
               ]
@@ -819,8 +841,10 @@ def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):
               "taetigkeiten": [
                 {
                   "taetigkeiten_id": "1",
-                  "stundenlohn_satz_a_vorschlag": "10",
-                  "zeitaufwand_in_min_a_vorschlag": "1",
+                  "personalaufwand_vorschlag": [
+                    {"qualifikation": "einfacher_und_mittlerer_dienst",
+                     "lohnquelle": "bund", "zeitaufwand_in_min": "1"}
+                  ],
                   "sachaufwand_vorschlag": "1"
                 }
               ]
@@ -990,8 +1014,10 @@ def test_calculate_effort_rejects_unknown_step(test_client, monkeypatch):
               "taetigkeiten": [
                 {
                   "taetigkeiten_id": "999",
-                  "stundenlohn_satz_a_vorschlag": "10",
-                  "zeitaufwand_in_min_a_vorschlag": "1",
+                  "personalaufwand_vorschlag": [
+                    {"qualifikation": "einfacher_und_mittlerer_dienst",
+                     "lohnquelle": "bund", "zeitaufwand_in_min": "1"}
+                  ],
                   "sachaufwand_vorschlag": "1"
                 }
               ]
@@ -1115,8 +1141,10 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_vorschlag": "10",
-                  "zeitaufwand_in_min_a_vorschlag": "6",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "6"}}
+                  ],
                   "sachaufwand_vorschlag": "2"
                 }}
               ]
@@ -1731,8 +1759,11 @@ def test_role_wage_source_decoded_in_editable_api(test_client, monkeypatch):
     ]
 
 
-def test_role_wage_source_legacy_flat_format_has_no_role_sources(test_client, monkeypatch):
-    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+def test_legacy_flat_format_rejected(test_client, monkeypatch):
+    # The legacy flat effort format (stundenlohn_satz_* / zeitaufwand_in_min_<slot>_*)
+    # is no longer accepted: the LLM contract is row-only (personalaufwand_*) and the
+    # backend never takes wages from the answer.
+    app_id, _session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
     effort_response = f"""
     {{
       "normadressat": "administration",
@@ -1764,10 +1795,7 @@ def test_role_wage_source_legacy_flat_format_has_no_role_sources(test_client, mo
         "/effort/calculate",
         json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
     )
-    assert resp.status_code == 200
-
-    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
-    assert steps[0]["role_sources_current_json"] is None
-    assert steps[0]["role_sources_proposed_json"] is None
+    assert resp.status_code == 422
+    assert "stundenlohn_satz" in resp.json()["detail"].lower()
 
 
