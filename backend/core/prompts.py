@@ -315,12 +315,12 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "werden. Zudem kann die Tabelle zu Wegezeiten und -sachkosten genutzt werden, "
         "wenn persoenliche Termine bei anderen Stellen oder Behoerden erforderlich sind. "
         "Zur Ermittlung des Personalaufwands werden die Bearbeitungszeiten mit den "
-        "laufbahnspezifischen Lohnsaetzen der Verwaltung verknuepft. Die festen "
-        "Lohngruppen sind A=Einfacher und mittlerer Dienst, B=Gehobener Dienst, "
-        "C=Hoeherer Dienst, D=Durchschnitt. Ordnen Sie jede benoetigte "
-        "Bearbeitungsstufe genau einer dieser Gruppen zu. Eine einzige Lohngruppe ist "
-        "der Regelfall; mehrere Lohngruppen sind nur bei klar getrennten "
-        "Bearbeitungsstufen zulaessig, etwa Bearbeitung und anschliessende Freigabe. "
+        "laufbahnspezifischen Lohnsaetzen der Verwaltung verknuepft. Tragen Sie im "
+        "Feld `qualifikation` genau einen dieser Werte ein: "
+        "`einfacher_und_mittlerer_dienst`, `gehobener_dienst`, `hoeherer_dienst` oder "
+        "`durchschnitt`. Eine einzige Qualifikation ist der Regelfall; mehrere "
+        "Eintraege sind nur bei klar getrennten Bearbeitungsstufen zulaessig, etwa "
+        "Bearbeitung und anschliessende Freigabe. "
         "Vermeiden Sie schematische Mehrfachbefuellung. Wenn der zu erfuellende Prozess "
         "nicht in Einzeltaetigkeiten zerlegt wurde, koennen gesicherte Erfahrungswerte "
         "in Personentagen oder Personenmonaten genutzt und anschliessend umgerechnet "
@@ -339,9 +339,15 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "• Aufwand fuer die Nachruestung von Anlagen,\n"
         "• Sachaufwand fuer Wege zu anderen Behoerden oder Stellen "
         "(siehe Anhang 5: Wegezeiten und -sachkosten).\n\n"
-        "Tragen Sie im Feld `lohnquelle` die Verwaltungsebene ein, aus der der "
-        "Stundenlohn entnommen wurde: `bund`, `laender`, `kommunen`, "
-        "`sozialversicherung` oder `durchschnitt`."
+        "Tragen Sie im Feld `lohnquelle` die Verwaltungsebene ein, auf der die "
+        "Bearbeitung erfolgt: `bund`, `laender`, `kommunen`, `sozialversicherung` "
+        "oder `durchschnitt`. Geben Sie keine einzelnen Rollen oder Personen aus. "
+        "Fassen Sie je Taetigkeit alle Zeiten mit derselben Kombination aus "
+        "`qualifikation` und `lohnquelle` zu genau einem Eintrag zusammen; jede "
+        "Kombination darf je Liste (`personalaufwand_gueltig` bzw. "
+        "`personalaufwand_vorschlag`) nur einmal vorkommen. Geben Sie keinen "
+        "Stundenlohn aus - die Backend-Anwendung ermittelt den Stundenlohn aus der "
+        "Lohnkostentabelle."
     ),
     BUSINESS: (
         "Sofern keine spezifischen Daten ueber "
@@ -351,10 +357,10 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "erforderlich sind. Orientieren Sie sich fuer Standardaktivitaeten zusaetzlich "
         "am Standardkostenmodell und den Methodenhinweisen in Anhang 8. Zur Ermittlung "
         "des Personalaufwands werden die Bearbeitungszeiten mit den einschlaegigen "
-        "Lohnsaetzen der Wirtschaft verknuepft. Die festen Lohngruppen sind "
-        "A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt. Ordnen Sie jede benoetigte "
-        "Bearbeitungsstufe genau einer dieser Gruppen zu. Eine einzige Lohngruppe ist "
-        "der Regelfall; mehrere Lohngruppen sind nur bei klar getrennten "
+        "Lohnsaetzen der Wirtschaft verknuepft. Tragen Sie im Feld `qualifikation` "
+        "genau einen dieser Werte ein: `niedrig`, `mittel`, `hoch` oder "
+        "`durchschnitt`. Eine einzige Qualifikation ist "
+        "der Regelfall; mehrere Eintraege sind nur bei klar getrennten "
         "Bearbeitungsstufen zulaessig, etwa operative Bearbeitung und anschliessende "
         "Freigabe. Vermeiden Sie schematische Mehrfachbefuellung. Buerokratiekosten der "
         "Wirtschaft sind spaeter getrennt auszuweisen. Ersatzinvestitionen sind nur zur "
@@ -375,7 +381,13 @@ EFFORT_METHOD_GUIDANCE: Dict[str, str] = {
         "Tragen Sie im Feld `lohnquelle` den Buchstaben des Wirtschaftsabschnitts "
         "aus der Lohnkostentabelle ein (z.B. `I` fuer Gastgewerbe, `K` fuer "
         "Finanz- und Versicherungsdienstleistungen). Fuer den Gesamtwirtschaftswert "
-        "(letzte Tabellenzeile) verwenden Sie `gesamtwirtschaft`."
+        "(letzte Tabellenzeile) verwenden Sie `gesamtwirtschaft`. Geben Sie keine "
+        "einzelnen Rollen oder Personen aus. Fassen Sie je Taetigkeit alle Zeiten mit "
+        "derselben Kombination aus `qualifikation` und `lohnquelle` zu genau einem "
+        "Eintrag zusammen; jede Kombination darf je Liste (`personalaufwand_gueltig` "
+        "bzw. `personalaufwand_vorschlag`) nur einmal vorkommen. Geben Sie keinen "
+        "Stundenlohn aus - die Backend-Anwendung ermittelt den Stundenlohn aus der "
+        "Lohnkostentabelle."
     ),
     CITIZENS: (
         "Ermitteln Sie fuer jede Taetigkeit "
@@ -456,25 +468,19 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
                     "taetigkeit": "",
                     "beschreibung": "",
                     "aenderungsstatus": "",
-                    "rollen_gueltig": [
+                    "personalaufwand_gueltig": [
                         {
-                            "rolle": "",
-                            "lohngruppe": "A | B | C | D",
-                            "schwierigkeitsgrad": "",
-                            "stundenlohn": "",
-                            "zeitaufwand_in_min": "",
-                            "lohnquelle": ""
+                            "qualifikation": "",
+                            "lohnquelle": "",
+                            "zeitaufwand_in_min": ""
                         }
                     ],
                     "sachaufwand_gueltig": "",
-                    "rollen_vorschlag": [
+                    "personalaufwand_vorschlag": [
                         {
-                            "rolle": "",
-                            "lohngruppe": "A | B | C | D",
-                            "schwierigkeitsgrad": "",
-                            "stundenlohn": "",
-                            "zeitaufwand_in_min": "",
-                            "lohnquelle": ""
+                            "qualifikation": "",
+                            "lohnquelle": "",
+                            "zeitaufwand_in_min": ""
                         }
                     ],
                     "sachaufwand_vorschlag": "",
