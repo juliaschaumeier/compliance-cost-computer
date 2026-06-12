@@ -9,12 +9,14 @@ jest.mock("@/lib/api", () => ({
     getEditableCaseGroups: jest.fn(),
     getEditableProcessSteps: jest.fn(),
     bulkUpdateProcessSteps: jest.fn(),
+    updatePersonnelEffortTime: jest.fn(),
   },
 }));
 
 const mockGetEditableCaseGroups = apiClient.getEditableCaseGroups as jest.Mock;
 const mockGetEditableProcessSteps = apiClient.getEditableProcessSteps as jest.Mock;
 const mockBulkUpdateProcessSteps = apiClient.bulkUpdateProcessSteps as jest.Mock;
+const mockUpdatePersonnelEffortTime = apiClient.updatePersonnelEffortTime as jest.Mock;
 
 describe("EaEffortMetricsTab", () => {
   beforeEach(() => {
@@ -74,6 +76,158 @@ describe("EaEffortMetricsTab", () => {
       ],
     });
     mockBulkUpdateProcessSteps.mockResolvedValue({ updated: 1 });
+    mockUpdatePersonnelEffortTime.mockReset();
+    mockUpdatePersonnelEffortTime.mockResolvedValue({ updated: 1 });
+  });
+
+  function seedPersonnelStep(overrides: Record<string, unknown> = {}) {
+    mockGetEditableProcessSteps.mockResolvedValue({
+      rows: [
+        {
+          step_id: 201,
+          case_group_id: 22,
+          norm_addressee: "administration",
+          step: "Schritt R",
+          description: "Beschreibung",
+          change_status: "geaendert",
+          // Dual-write mirror in the slot columns (slot b = gehobener Dienst).
+          time_required_in_min_a_current: null,
+          time_required_in_min_b_current: 10,
+          time_required_in_min_c_current: null,
+          time_required_in_min_d_current: null,
+          expenses_current: 0,
+          time_required_in_min_a_current_edited: null,
+          time_required_in_min_b_current_edited: null,
+          time_required_in_min_c_current_edited: null,
+          time_required_in_min_d_current_edited: null,
+          expenses_current_edited: null,
+          time_required_in_min_a_proposed: null,
+          time_required_in_min_b_proposed: 8,
+          time_required_in_min_c_proposed: null,
+          time_required_in_min_d_proposed: null,
+          expenses_proposed: 0,
+          time_required_in_min_a_proposed_edited: null,
+          time_required_in_min_b_proposed_edited: null,
+          time_required_in_min_c_proposed_edited: null,
+          time_required_in_min_d_proposed_edited: null,
+          expenses_proposed_edited: null,
+          time_required_in_min_a_current_effective: null,
+          time_required_in_min_b_current_effective: 10,
+          time_required_in_min_c_current_effective: null,
+          time_required_in_min_d_current_effective: null,
+          expenses_current_effective: 0,
+          time_required_in_min_a_proposed_effective: null,
+          time_required_in_min_b_proposed_effective: 8,
+          time_required_in_min_c_proposed_effective: null,
+          time_required_in_min_d_proposed_effective: null,
+          expenses_proposed_effective: 0,
+          personnel_effort_current: [
+            {
+              qualification: "gehobener_dienst",
+              wage_source_kind: "verwaltungsebene",
+              wage_source_value: "laender",
+              model_hourly_rate: 43.2,
+              time_required_in_min: 10,
+              time_required_in_min_edited: null,
+            },
+          ],
+          personnel_effort_proposed: [
+            {
+              qualification: "gehobener_dienst",
+              wage_source_kind: "verwaltungsebene",
+              wage_source_value: "laender",
+              model_hourly_rate: 43.2,
+              time_required_in_min: 8,
+              time_required_in_min_edited: null,
+            },
+          ],
+          ...overrides,
+        },
+      ],
+    });
+  }
+
+  it("renders personnel rows with source tags and dashes for unused columns", async () => {
+    seedPersonnelStep();
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    const row = await screen.findByText("Schritt R");
+    const tr = row.closest("tr") as HTMLElement;
+    // Only the two personnel time inputs + two expenses inputs remain editable.
+    expect(within(tr).getAllByRole("textbox")).toHaveLength(4);
+    expect(within(tr).getAllByText("Länder")).toHaveLength(2);
+    // Unused qualification columns render as dashes (3 per side: eD/mD, hD, Ø).
+    expect(within(tr).getAllByText("–")).toHaveLength(6);
+  });
+
+  it("saves a personnel time edit via the row endpoint, not bulk-update", async () => {
+    seedPersonnelStep();
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={runAutoRecompute} />
+    );
+
+    const row = await screen.findByText("Schritt R");
+    const tr = row.closest("tr") as HTMLElement;
+    const inputs = within(tr).getAllByRole("textbox");
+    // Order: current gD time, current expenses, proposed gD time, proposed expenses.
+    const user = userEvent.setup();
+    await user.clear(inputs[0]);
+    await user.type(inputs[0], "5");
+    await user.click(screen.getByRole("button", { name: /prüfen/i }));
+    expect(screen.getByText(/Aktuelles Gesetz Zeit gD · Länder/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /änderungen speichern/i }));
+
+    await waitFor(() => expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledTimes(1));
+    expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledWith({
+      appSessionId: "STEP-TAB",
+      normAddressee: "administration",
+      stepId: 201,
+      period: "current",
+      qualification: "gehobener_dienst",
+      wageSourceKind: "verwaltungsebene",
+      wageSourceValue: "laender",
+      timeRequiredInMinEdited: 5,
+    });
+    expect(mockBulkUpdateProcessSteps).not.toHaveBeenCalled();
+    expect(runAutoRecompute).toHaveBeenCalledTimes(1);
+  });
+
+  it("reset clears personnel time edits via the row endpoint", async () => {
+    seedPersonnelStep({
+      personnel_effort_current: [
+        {
+          qualification: "gehobener_dienst",
+          wage_source_kind: "verwaltungsebene",
+          wage_source_value: "laender",
+          model_hourly_rate: 43.2,
+          time_required_in_min: 10,
+          time_required_in_min_edited: 99,
+        },
+      ],
+    });
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={runAutoRecompute} />
+    );
+
+    await screen.findByText("Schritt R");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /auf modellwerte zurücksetzen/i }));
+
+    await waitFor(() => expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledTimes(1));
+    expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stepId: 201,
+        period: "current",
+        timeRequiredInMinEdited: null,
+      })
+    );
+    // No step-level edits exist, so the slot bulk-update is skipped entirely.
+    expect(mockBulkUpdateProcessSteps).not.toHaveBeenCalled();
+    expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
 
   it("loads case groups/steps and saves reviewed step edits", async () => {

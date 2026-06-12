@@ -10,7 +10,12 @@ import {
   getColumnLabel as sharedGetColumnLabel,
 } from "@/lib/effortLabels";
 import { logClientError } from "@/lib/errorFeedback";
-import { EditableCaseGroupRow, EditableProcessStepRow, NormAddressee } from "@/types";
+import {
+  EditableCaseGroupRow,
+  EditableProcessStepRow,
+  NormAddressee,
+  PersonnelEffortEntry,
+} from "@/types";
 
 import {
   isValidNullableNumberInput,
@@ -122,10 +127,118 @@ function getReviewLabel(
 
 type StepField = (typeof STEP_FIELDS)[number];
 type StepFieldKey = StepField["key"];
-type StepDraftRow = Record<StepFieldKey, string>;
+type StepDraftRow = Record<string, string>;
 type StepDraft = Record<number, StepDraftRow>;
-type StepParsedValues = Record<StepFieldKey, number | null>;
-type StepChangedCells = Record<StepFieldKey, boolean>;
+
+// One editable value in the step table. Steps WITH personnel rows edit times on
+// the row-based model (saved via /process-steps/personnel-effort-edit); steps
+// without (legacy/old sessions, citizens) keep the slot-based fields. Expenses
+// stay step-level for both. Mirrors the cost engine's "rows authoritative when
+// present" rule.
+type EditableCell = {
+  key: string;
+  side: "current" | "proposed";
+  slot: PayGradeSlot;
+  model: number | null;
+  edited: number | null;
+  effective: number | null;
+  sourceTag?: string;
+  save:
+    | { type: "bulk"; fieldKey: StepFieldKey }
+    | {
+        type: "personnel";
+        period: "current" | "proposed";
+        qualification: string;
+        wageSourceKind: string;
+        wageSourceValue: string;
+      };
+};
+
+// Qualification -> table column (Julia's qualification order = slot order a..d).
+const QUALIFICATION_SLOT: Record<string, Exclude<PayGradeSlot, "expenses">> = {
+  einfacher_und_mittlerer_dienst: "a",
+  gehobener_dienst: "b",
+  hoeherer_dienst: "c",
+  niedrig: "a",
+  mittel: "b",
+  hoch: "c",
+  durchschnitt: "d",
+};
+
+const SOURCE_TAGS: Record<string, string> = {
+  bund: "Bund",
+  laender: "Länder",
+  kommunen: "Kommunen",
+  sozialversicherung: "SV",
+  durchschnitt: "Ø",
+  gesamtwirtschaft: "Gesamt",
+};
+
+function formatSourceTag(entry: PersonnelEffortEntry): string {
+  return SOURCE_TAGS[entry.wage_source_value] ?? entry.wage_source_value;
+}
+
+function stepUsesPersonnelRows(row: EditableProcessStepRow): boolean {
+  return (
+    (row.personnel_effort_current?.length ?? 0) +
+      (row.personnel_effort_proposed?.length ?? 0) >
+    0
+  );
+}
+
+function buildStepCells(row: EditableProcessStepRow): EditableCell[] {
+  const personnel = stepUsesPersonnelRows(row);
+  const cells: EditableCell[] = [];
+  for (const field of STEP_FIELDS) {
+    if (personnel && field.slot !== "expenses") {
+      continue;
+    }
+    cells.push({
+      key: field.key,
+      side: field.side,
+      slot: field.slot,
+      model: row[field.key],
+      edited: row[field.editedKey],
+      effective: row[field.effectiveKey],
+      save: { type: "bulk", fieldKey: field.key },
+    });
+  }
+  if (!personnel) {
+    return cells;
+  }
+  for (const side of ["current", "proposed"] as const) {
+    const entries =
+      (side === "current" ? row.personnel_effort_current : row.personnel_effort_proposed) ?? [];
+    // Julia's sort: period (table side) -> qualification order -> wage source.
+    const sorted = [...entries].sort((x, y) => {
+      const sx = QUALIFICATION_SLOT[x.qualification] ?? "d";
+      const sy = QUALIFICATION_SLOT[y.qualification] ?? "d";
+      if (sx !== sy) {
+        return sx < sy ? -1 : 1;
+      }
+      return x.wage_source_value.localeCompare(y.wage_source_value);
+    });
+    for (const entry of sorted) {
+      cells.push({
+        key: `pe:${side}:${entry.qualification}:${entry.wage_source_kind}:${entry.wage_source_value}`,
+        side,
+        slot: QUALIFICATION_SLOT[entry.qualification] ?? "d",
+        model: entry.time_required_in_min,
+        edited: entry.time_required_in_min_edited,
+        effective: entry.time_required_in_min_edited ?? entry.time_required_in_min,
+        sourceTag: formatSourceTag(entry),
+        save: {
+          type: "personnel",
+          period: side,
+          qualification: entry.qualification,
+          wageSourceKind: entry.wage_source_kind,
+          wageSourceValue: entry.wage_source_value,
+        },
+      });
+    }
+  }
+  return cells;
+}
 
 function toCaseGroupOptionLabel(label: string, maxChars = 50): string {
   const compact = label.trim().replace(/\s+/g, " ");
@@ -139,19 +252,11 @@ function toCaseGroupOptionLabel(label: string, maxChars = 50): string {
 }
 
 function buildStepDraftRow(row: EditableProcessStepRow): StepDraftRow {
-  const draft = {} as StepDraftRow;
-  for (const field of STEP_FIELDS) {
-    draft[field.key] = toLocalizedInputString(row[field.effectiveKey]);
+  const draft: StepDraftRow = {};
+  for (const cell of buildStepCells(row)) {
+    draft[cell.key] = toLocalizedInputString(cell.effective);
   }
   return draft;
-}
-
-function normalizeStepDraftRow(draftRow: StepDraftRow, row: EditableProcessStepRow): StepParsedValues {
-  const parsed = {} as StepParsedValues;
-  for (const field of STEP_FIELDS) {
-    parsed[field.key] = normalizeEditedNumericInput(draftRow[field.key], row[field.key]);
-  }
-  return parsed;
 }
 
 export default function EaEffortMetricsTab({
@@ -460,31 +565,27 @@ export default function EaEffortMetricsTab({
   const changes = useMemo(() => {
     const changedRows: Array<{
       row: EditableProcessStepRow;
-      next: StepParsedValues;
-      changedCellsByField: StepChangedCells;
-      changedCells: number;
+      items: Array<{ cell: EditableCell; next: number | null }>;
     }> = [];
     for (const row of stepRowsForChanges) {
       const draftRow = draft[row.step_id] || buildStepDraftRow(row);
-      const next = normalizeStepDraftRow(draftRow, row);
-      const changedCellsByField = {} as StepChangedCells;
-      let changedCells = 0;
-      for (const field of STEP_FIELDS) {
-        const changed = numberChanged(next[field.key], row[field.editedKey]);
-        changedCellsByField[field.key] = changed;
-        if (changed) {
-          changedCells += 1;
+      const items: Array<{ cell: EditableCell; next: number | null }> = [];
+      for (const cell of buildStepCells(row)) {
+        const input = draftRow[cell.key] ?? toLocalizedInputString(cell.effective);
+        const next = normalizeEditedNumericInput(input, cell.model);
+        if (numberChanged(next, cell.edited)) {
+          items.push({ cell, next });
         }
       }
-      if (changedCells > 0) {
-        changedRows.push({ row, next, changedCellsByField, changedCells });
+      if (items.length > 0) {
+        changedRows.push({ row, items });
       }
     }
     return changedRows;
   }, [stepRowsForChanges, draft]);
 
   const changedCellCount = useMemo(
-    () => changes.reduce((acc, item) => acc + item.changedCells, 0),
+    () => changes.reduce((acc, item) => acc + item.items.length, 0),
     [changes]
   );
   const changedStepCount = changes.length;
@@ -493,30 +594,34 @@ export default function EaEffortMetricsTab({
     [changes]
   );
   const changedByStepId = useMemo(
-    () => new Map(changes.map((item) => [item.row.step_id, item.changedCellsByField])),
+    () =>
+      new Map(
+        changes.map((item) => [
+          item.row.step_id,
+          new Set(item.items.map(({ cell }) => cell.key)),
+        ])
+      ),
     [changes]
   );
   const reviewRows = useMemo<ReviewDiffRow[]>(() => {
     const result: ReviewDiffRow[] = [];
     for (const item of changes) {
-      for (const field of STEP_FIELDS) {
-        if (!item.changedCellsByField[field.key]) {
-          continue;
-        }
-        const modelValue = item.row[field.key];
-        const caseGroupLabel =
-          caseGroupLabelById.get(item.row.case_group_id) ||
-          `Fallgruppe ${item.row.case_group_id}`;
+      const caseGroupLabel =
+        caseGroupLabelById.get(item.row.case_group_id) ||
+        `Fallgruppe ${item.row.case_group_id}`;
+      for (const { cell, next } of item.items) {
         result.push({
           entityId: item.row.step_id,
           entityLabel: item.row.step,
           groupId: item.row.case_group_id,
           groupLabel: caseGroupLabel,
-          fieldKey: field.key,
-          fieldLabel: getReviewLabel(normAddressee, field.slot, field.side),
-          modelValue,
-          activeValue: resolveEffectiveValue(modelValue, item.row[field.editedKey]),
-          newValue: resolveEffectiveValue(modelValue, item.next[field.key]),
+          fieldKey: cell.key,
+          fieldLabel:
+            getReviewLabel(normAddressee, cell.slot, cell.side) +
+            (cell.sourceTag ? ` · ${cell.sourceTag}` : ""),
+          modelValue: cell.model,
+          activeValue: resolveEffectiveValue(cell.model, cell.edited),
+          newValue: resolveEffectiveValue(cell.model, next),
         });
       }
     }
@@ -527,7 +632,7 @@ export default function EaEffortMetricsTab({
       Object.values(draft).reduce((count, rowDraft) => {
         return (
           count +
-          STEP_FIELDS.filter((field) => !isValidNullableNumberInput(rowDraft[field.key])).length
+          Object.values(rowDraft).filter((value) => !isValidNullableNumberInput(value)).length
         );
       }, 0),
     [draft]
@@ -535,7 +640,7 @@ export default function EaEffortMetricsTab({
   const hasEditedOverrides = useMemo(
     () =>
       stepRowsForChanges.some((row) =>
-        STEP_FIELDS.some((field) => row[field.editedKey] !== null)
+        buildStepCells(row).some((cell) => cell.edited !== null)
       ),
     [stepRowsForChanges]
   );
@@ -548,16 +653,51 @@ export default function EaEffortMetricsTab({
     try {
       await runSave(
         async () => {
-          await apiClient.bulkUpdateProcessSteps({
-            appSessionId,
-            rows: changes.map((item) => {
-              const payloadRow = { step_id: item.row.step_id } as { step_id: number } & StepParsedValues;
-              for (const field of STEP_FIELDS) {
-                payloadRow[field.key] = item.next[field.key];
+          // Step-level changes (slot times for legacy steps, expenses for all)
+          // go through the bulk update; personnel time changes go per row to the
+          // row-based endpoint.
+          const bulkRows: Array<{ step_id: number } & Record<StepFieldKey, number | null>> = [];
+          const personnelEdits: Array<{
+            row: EditableProcessStepRow;
+            save: Extract<EditableCell["save"], { type: "personnel" }>;
+            next: number | null;
+          }> = [];
+          for (const item of changes) {
+            const bulkChanged = new Map<StepFieldKey, number | null>();
+            for (const { cell, next } of item.items) {
+              if (cell.save.type === "bulk") {
+                bulkChanged.set(cell.save.fieldKey, next);
+              } else {
+                personnelEdits.push({ row: item.row, save: cell.save, next });
               }
-              return payloadRow;
-            }),
-          });
+            }
+            if (bulkChanged.size > 0) {
+              const payloadRow = { step_id: item.row.step_id } as {
+                step_id: number;
+              } & Record<StepFieldKey, number | null>;
+              for (const field of STEP_FIELDS) {
+                payloadRow[field.key] = bulkChanged.has(field.key)
+                  ? bulkChanged.get(field.key) ?? null
+                  : item.row[field.editedKey];
+              }
+              bulkRows.push(payloadRow);
+            }
+          }
+          if (bulkRows.length > 0) {
+            await apiClient.bulkUpdateProcessSteps({ appSessionId, rows: bulkRows });
+          }
+          for (const edit of personnelEdits) {
+            await apiClient.updatePersonnelEffortTime({
+              appSessionId,
+              normAddressee: edit.row.norm_addressee,
+              stepId: edit.row.step_id,
+              period: edit.save.period,
+              qualification: edit.save.qualification,
+              wageSourceKind: edit.save.wageSourceKind,
+              wageSourceValue: edit.save.wageSourceValue,
+              timeRequiredInMinEdited: edit.next,
+            });
+          }
           await runAutoRecompute();
           setDraft({});
           setCachedStepRowsById({});
@@ -582,16 +722,40 @@ export default function EaEffortMetricsTab({
     try {
       await runSave(
         async () => {
-          await apiClient.bulkUpdateProcessSteps({
-            appSessionId,
-            rows: stepRowsForChanges.map((row) => {
-              const payloadRow = { step_id: row.step_id } as { step_id: number } & StepParsedValues;
-              for (const field of STEP_FIELDS) {
-                payloadRow[field.key] = null;
+          const hasBulkEdited = stepRowsForChanges.some((row) =>
+            STEP_FIELDS.some((field) => row[field.editedKey] !== null)
+          );
+          if (hasBulkEdited) {
+            await apiClient.bulkUpdateProcessSteps({
+              appSessionId,
+              rows: stepRowsForChanges.map((row) => {
+                const payloadRow = { step_id: row.step_id } as {
+                  step_id: number;
+                } & Record<StepFieldKey, number | null>;
+                for (const field of STEP_FIELDS) {
+                  payloadRow[field.key] = null;
+                }
+                return payloadRow;
+              }),
+            });
+          }
+          for (const row of stepRowsForChanges) {
+            for (const cell of buildStepCells(row)) {
+              if (cell.save.type !== "personnel" || cell.edited === null) {
+                continue;
               }
-              return payloadRow;
-            }),
-          });
+              await apiClient.updatePersonnelEffortTime({
+                appSessionId,
+                normAddressee: row.norm_addressee,
+                stepId: row.step_id,
+                period: cell.save.period,
+                qualification: cell.save.qualification,
+                wageSourceKind: cell.save.wageSourceKind,
+                wageSourceValue: cell.save.wageSourceValue,
+                timeRequiredInMinEdited: null,
+              });
+            }
+          }
           await runAutoRecompute();
           setDraft({});
           setCachedStepRowsById({});
@@ -720,8 +884,9 @@ export default function EaEffortMetricsTab({
             </thead>
             <tbody>
               {stepRows.map((row) => {
+                const cells = buildStepCells(row);
                 const draftRow = draft[row.step_id] || buildStepDraftRow(row);
-                const changedCellsByField = changedByStepId.get(row.step_id);
+                const changedKeys = changedByStepId.get(row.step_id);
                 const inputClass = (value: string) =>
                   `w-16 rounded px-1 py-1 ${
                     isValidNullableNumberInput(value)
@@ -730,44 +895,56 @@ export default function EaEffortMetricsTab({
                         }`
                       : "border border-red-400 bg-red-50"
                   }`;
-                const updateField = (fieldKey: StepFieldKey, value: string) => {
+                const updateField = (cellKey: string, value: string) => {
                   setStatus(null);
                   setDraft((prev) => ({
                     ...prev,
-                    [row.step_id]: { ...draftRow, [fieldKey]: value },
+                    [row.step_id]: { ...draftRow, [cellKey]: value },
                   }));
+                };
+                const renderColumn = (field: StepField, extraClass: string) => {
+                  const columnCells = cells.filter(
+                    (cell) => cell.side === field.side && cell.slot === field.slot
+                  );
+                  const changed = columnCells.some((cell) => changedKeys?.has(cell.key));
+                  return (
+                    <td
+                      key={`${row.step_id}-${field.key}`}
+                      className={`px-2 py-2 ${changed ? "bg-amber-50" : ""} ${extraClass}`}
+                    >
+                      {columnCells.length === 0 ? (
+                        <span className="text-slate-300">–</span>
+                      ) : (
+                        <div className="space-y-1">
+                          {columnCells.map((cell) => (
+                            <div key={cell.key} className="flex items-center gap-1">
+                              <input
+                                value={draftRow[cell.key] ?? ""}
+                                onChange={(event) => updateField(cell.key, event.target.value)}
+                                className={inputClass(draftRow[cell.key] ?? "")}
+                              />
+                              {cell.sourceTag && (
+                                <span className="whitespace-nowrap text-[10px] text-slate-500">
+                                  {cell.sourceTag}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  );
                 };
                 return (
                   <tr key={row.step_id} className="border-b border-slate-100">
                     <td className="px-2 py-2 font-semibold text-slate-800">{row.step}</td>
-                    {currentFields.map((field) => (
-                      <td
-                        key={`${row.step_id}-${field.key}`}
-                        className={`px-2 py-2 ${
-                          changedCellsByField?.[field.key] ? "bg-amber-50" : ""
-                        }`}
-                      >
-                        <input
-                          value={draftRow[field.key]}
-                          onChange={(event) => updateField(field.key, event.target.value)}
-                          className={inputClass(draftRow[field.key])}
-                        />
-                      </td>
-                    ))}
-                    {proposedFields.map((field) => (
-                      <td
-                        key={`${row.step_id}-${field.key}`}
-                        className={`px-2 py-2 ${
-                          changedCellsByField?.[field.key] ? "bg-amber-50" : ""
-                        } ${field === proposedFields[0] ? "border-l border-slate-200" : ""}`}
-                      >
-                        <input
-                          value={draftRow[field.key]}
-                          onChange={(event) => updateField(field.key, event.target.value)}
-                          className={inputClass(draftRow[field.key])}
-                        />
-                      </td>
-                    ))}
+                    {currentFields.map((field) => renderColumn(field, ""))}
+                    {proposedFields.map((field) =>
+                      renderColumn(
+                        field,
+                        field === proposedFields[0] ? "border-l border-slate-200" : ""
+                      )
+                    )}
                   </tr>
                 );
               })}

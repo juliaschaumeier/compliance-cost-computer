@@ -987,4 +987,36 @@ export const apiClient = {
     }
     return response.json();
   },
+
+  async updatePersonnelEffortTime(options: {
+    appSessionId: string;
+    normAddressee: NormAddressee;
+    stepId: number;
+    period: "current" | "proposed";
+    qualification: string;
+    wageSourceKind: string;
+    wageSourceValue: string;
+    timeRequiredInMinEdited: number | null;
+  }): Promise<{ updated: number }> {
+    const response = await fetch(`${API_BASE_URL}/process-steps/personnel-effort-edit`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
+        step_id: options.stepId,
+        period: options.period,
+        qualification: options.qualification,
+        wage_source_kind: options.wageSourceKind,
+        wage_source_value: options.wageSourceValue,
+        time_required_in_min_edited: options.timeRequiredInMinEdited,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update personnel effort time");
+    }
+    return response.json();
+  },
 };

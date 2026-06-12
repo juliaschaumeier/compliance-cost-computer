@@ -430,6 +430,8 @@ export interface EditableProcessStepRow {
   expenses_proposed_effective: number | null;
   role_sources_current: RoleSourceEntry[] | null;
   role_sources_proposed: RoleSourceEntry[] | null;
+  personnel_effort_current?: PersonnelEffortEntry[] | null;
+  personnel_effort_proposed?: PersonnelEffortEntry[] | null;
 }
 
 export interface RoleSourceEntry {
@@ -437,6 +439,15 @@ export interface RoleSourceEntry {
   role: string;
   source_kind: string;
   source_value: string;
+}
+
+export interface PersonnelEffortEntry {
+  qualification: string;
+  wage_source_kind: string;
+  wage_source_value: string;
+  model_hourly_rate: number;
+  time_required_in_min: number | null;
+  time_required_in_min_edited: number | null;
 }
 
 export interface EditableProcessStepsResponse {
