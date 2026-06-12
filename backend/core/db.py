@@ -1016,6 +1016,127 @@ def _create_session_wage_rate_overrides_table(
     )
 
 
+def _decode_role_sources_by_slot(raw_json: str | None) -> dict[str, str]:
+    """Decode role_sources_*_json into ``{slot: source_value}`` (best effort)."""
+    if not raw_json:
+        return {}
+    try:
+        entries = json.loads(raw_json)
+    except (TypeError, ValueError):
+        return {}
+    result: dict[str, str] = {}
+    if isinstance(entries, list):
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("slot") and entry.get("source_value"):
+                result[str(entry["slot"])] = str(entry["source_value"])
+    return result
+
+
+def _recover_backfill_wage_source(
+    norm_addressee: str,
+    slot: str,
+    stored_rate: float | None,
+    recorded_source: str | None,
+) -> str | None:
+    """Resolve the wage source for a legacy slot cell during backfill.
+
+    Priority: (1) the source the parser recorded in role_sources_*_json, else
+    (2) reverse-lookup by the stored slot rate -> the table source carrying that
+    rate, else (3) when several sources share that rate, the aggregate label
+    (durchschnitt / gesamtwirtschaft) if it is among them, otherwise the first
+    candidate alphabetically. Every equal-rate candidate yields the same cost, so
+    only the source *label* of an ambiguous cell is a best-effort guess.
+    """
+    if recorded_source:
+        return recorded_source
+    if norm_addressee == ADMINISTRATION:
+        table = PAY_RATE_LEVEL_DEFAULTS
+        default = "durchschnitt"
+    elif norm_addressee == BUSINESS:
+        table = PAY_RATE_BUSINESS_SECTION_DEFAULTS
+        default = "gesamtwirtschaft"
+    else:
+        return None
+    if stored_rate is None:
+        return default
+    candidates = sorted(
+        source
+        for source, col in table.items()
+        if slot in col and abs(col[slot] - float(stored_rate)) < 0.005
+    )
+    if not candidates:
+        return default
+    if default in candidates:
+        return default
+    return candidates[0]
+
+
+def _backfill_process_step_personnel_effort(cur: sqlite3.Cursor) -> int:
+    """One-time, idempotent migration of legacy slot effort into child rows.
+
+    For every org step (administration/business) that still has slot-based time
+    but no child rows yet, create the equivalent process_step_personnel_effort
+    rows. The wage source is recovered from role_sources_*_json or, when missing,
+    reverse-looked-up from the stored slot rate (see
+    `_recover_backfill_wage_source`). The model_hourly_rate is taken from the wage
+    table, which equals the stored slot rate for legacy data, so per-step costs
+    are preserved. Citizens carry no monetised personnel rows and are skipped.
+
+    Returns the number of child rows inserted (0 on an already-migrated or empty
+    database).
+    """
+    existing = {
+        row["step_id"]
+        for row in cur.execute(
+            "SELECT DISTINCT step_id FROM process_step_personnel_effort"
+        ).fetchall()
+    }
+    steps = cur.execute(
+        "SELECT * FROM process_steps WHERE norm_addressee IN (?, ?)",
+        (ADMINISTRATION, BUSINESS),
+    ).fetchall()
+    inserted = 0
+    for step in steps:
+        step_id = step["step_id"]
+        if step_id in existing:
+            continue
+        addr = step["norm_addressee"]
+        kind = WAGE_SOURCE_KIND_BY_ADDRESSEE.get(addr)
+        for period in ("current", "proposed"):
+            recorded = _decode_role_sources_by_slot(step[f"role_sources_{period}_json"])
+            for slot in PAY_RATE_KEYS:
+                base = step[f"time_required_in_min_{slot}_{period}"]
+                edited = step[f"time_required_in_min_{slot}_{period}_edited"]
+                if base is None and edited is None:
+                    continue
+                qualification = PERSONNEL_QUALIFICATION_BY_SLOT[addr][slot]
+                source_value = _recover_backfill_wage_source(
+                    addr, slot, step[f"hourly_rate_{slot}_{period}"], recorded.get(slot)
+                )
+                if source_value is None:
+                    continue
+                model_rate = get_model_hourly_rate(addr, source_value, qualification)
+                if model_rate is None:
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO process_step_personnel_effort (
+                        session_id, norm_addressee, step_id, period,
+                        qualification, wage_source_kind, wage_source_value,
+                        time_required_in_min, time_required_in_min_edited,
+                        model_hourly_rate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        step["session_id"], addr, step_id, period,
+                        qualification, kind, source_value,
+                        base, edited, model_rate,
+                    ),
+                )
+                inserted += 1
+    return inserted
+
+
 def _create_parent_composite_indexes(cur: sqlite3.Cursor) -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_processes_session_addressee_process_id ON processes(session_id, norm_addressee, process_id)"
@@ -1825,6 +1946,10 @@ def init_db() -> None:
     _create_used_models_triggers(cur)
     _create_citizens_hourly_rate_triggers(cur)
     _create_session_cc_cost_triggers(cur)
+    # One-time, idempotent backfill of legacy slot effort into the row model so
+    # the cost engine can stop reading slot columns (Phase D2). Runs after all
+    # schema is ensured; a no-op on fresh/already-migrated databases.
+    _backfill_process_step_personnel_effort(cur)
     _maybe_commit(conn)
     _maybe_close(conn)
 
