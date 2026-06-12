@@ -6,7 +6,8 @@ Variante, Abkuerzungen wie 'md', 'hd' etc.) wurden stumm zu None aufgeloest,
 die jeweilige Rolle wurde verworfen, der Aufwand fehlte in der
 Kostenberechnung.
 
-Jetzt:
+Jetzt (row-based Modell): das `qualifikation`-Feld wird ueber dieselben Aliase
+auf den Slot a/b/c/d abgebildet.
 - Erweitertes Alias-Mapping deckt die haeufigsten Varianten ab.
 - Nicht-leerer aber unbekannter Input wirft HTTPException(422).
 - Leerer Input bleibt None (natuerliches Fehlen).
@@ -14,8 +15,8 @@ Jetzt:
 import pytest
 from fastapi import HTTPException
 
-from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
-from backend.routers.effort import _resolve_effort_group
+from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
+from backend.routers.effort import _resolve_qualification_slot
 
 
 @pytest.mark.parametrize(
@@ -26,43 +27,39 @@ from backend.routers.effort import _resolve_effort_group
         ("m.d.", "a"),
         ("MD", "a"),
         ("einfacher Dienst", "a"),
+        ("einfacher_und_mittlerer_dienst", "a"),
         ("gehobener Dienst", "b"),
+        ("gehobener_dienst", "b"),
         ("g. d.", "b"),
         ("GD", "b"),
         ("hoeherer Dienst", "c"),
         ("höherer Dienst", "c"),
+        ("hoeherer_dienst", "c"),
         ("h. d.", "c"),
         ("HD", "c"),
         ("Durchschnitt", "d"),
     ],
 )
-def test_admin_laufbahn_aliases_resolve(raw_value, expected_slot):
-    assert _resolve_effort_group({"rolle": raw_value}, ADMINISTRATION) == expected_slot
+def test_admin_qualifikation_aliases_resolve(raw_value, expected_slot):
+    assert _resolve_qualification_slot({"qualifikation": raw_value}, ADMINISTRATION) == expected_slot
 
 
-def test_admin_unknown_laufbahn_raises_422():
+def test_admin_unknown_qualifikation_raises_422():
     with pytest.raises(HTTPException) as excinfo:
-        _resolve_effort_group({"rolle": "beliebiger Quark"}, ADMINISTRATION)
+        _resolve_qualification_slot({"qualifikation": "beliebiger Quark"}, ADMINISTRATION)
     assert excinfo.value.status_code == 422
-    assert "Unbekannte Laufbahn" in excinfo.value.detail
-
-
-def test_unknown_lohngruppe_letter_raises_422():
-    with pytest.raises(HTTPException) as excinfo:
-        _resolve_effort_group({"lohngruppe": "e"}, ADMINISTRATION)
-    assert excinfo.value.status_code == 422
-    assert "Unbekannte Lohngruppe" in excinfo.value.detail
+    assert "qualifikation" in excinfo.value.detail.lower()
 
 
 def test_empty_input_returns_none():
-    assert _resolve_effort_group({}, ADMINISTRATION) is None
-    assert _resolve_effort_group({"rolle": ""}, ADMINISTRATION) is None
-    assert _resolve_effort_group({"rolle": "   "}, ADMINISTRATION) is None
+    assert _resolve_qualification_slot({}, ADMINISTRATION) is None
+    assert _resolve_qualification_slot({"qualifikation": ""}, ADMINISTRATION) is None
+    assert _resolve_qualification_slot({"qualifikation": "   "}, ADMINISTRATION) is None
 
 
-def test_valid_lohngruppe_letter_resolves_directly():
-    assert _resolve_effort_group({"lohngruppe": "a"}, ADMINISTRATION) == "a"
-    assert _resolve_effort_group({"lohngruppe": "D"}, ADMINISTRATION) == "d"
+def test_canonical_slot_letter_resolves_directly():
+    assert _resolve_qualification_slot({"qualifikation": "a"}, ADMINISTRATION) == "a"
+    assert _resolve_qualification_slot({"qualifikation": "D"}, ADMINISTRATION) == "d"
 
 
 @pytest.mark.parametrize(
@@ -70,10 +67,10 @@ def test_valid_lohngruppe_letter_resolves_directly():
     [("niedrig", "a"), ("low", "a"), ("mittel", "b"), ("medium", "b"), ("hoch", "c"), ("high", "c")],
 )
 def test_business_level_aliases_resolve(raw_value, expected_slot):
-    assert _resolve_effort_group({"niveau": raw_value}, BUSINESS) == expected_slot
+    assert _resolve_qualification_slot({"qualifikation": raw_value}, BUSINESS) == expected_slot
 
 
 def test_business_unknown_level_raises_422():
     with pytest.raises(HTTPException) as excinfo:
-        _resolve_effort_group({"niveau": "extrem"}, BUSINESS)
+        _resolve_qualification_slot({"qualifikation": "extrem"}, BUSINESS)
     assert excinfo.value.status_code == 422

@@ -1349,11 +1349,11 @@ def test_calculate_effort_rejects_invalid_norm_addressee(test_client):
 
 def _build_org_effort_response_with_roles(case_group_id, step_id, norm_addressee):
     if norm_addressee == ADMINISTRATION:
-        lohnquelle_gueltig = "bund"
-        lohnquelle_vorschlag = "laender"
+        qual_gueltig, lohnquelle_gueltig = "einfacher_und_mittlerer_dienst", "bund"
+        qual_vorschlag, lohnquelle_vorschlag = "gehobener_dienst", "laender"
     else:
-        lohnquelle_gueltig = "I"
-        lohnquelle_vorschlag = "K"
+        qual_gueltig, lohnquelle_gueltig = "niedrig", "I"
+        qual_vorschlag, lohnquelle_vorschlag = "mittel", "K"
     return f"""
     {{
       "normadressat": "{norm_addressee}",
@@ -1369,20 +1369,18 @@ def _build_org_effort_response_with_roles(case_group_id, step_id, norm_addressee
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_id}",
-                  "rollen_gueltig": [
+                  "personalaufwand_gueltig": [
                     {{
-                      "lohngruppe": "a",
-                      "stundenlohn": "40",
-                      "zeitaufwand_in_min": "30",
-                      "lohnquelle": "{lohnquelle_gueltig}"
+                      "qualifikation": "{qual_gueltig}",
+                      "lohnquelle": "{lohnquelle_gueltig}",
+                      "zeitaufwand_in_min": "30"
                     }}
                   ],
-                  "rollen_vorschlag": [
+                  "personalaufwand_vorschlag": [
                     {{
-                      "lohngruppe": "b",
-                      "stundenlohn": "45",
-                      "zeitaufwand_in_min": "20",
-                      "lohnquelle": "{lohnquelle_vorschlag}"
+                      "qualifikation": "{qual_vorschlag}",
+                      "lohnquelle": "{lohnquelle_vorschlag}",
+                      "zeitaufwand_in_min": "20"
                     }}
                   ]
                 }}
@@ -1439,6 +1437,17 @@ def test_role_wage_source_persisted_for_administration(test_client, monkeypatch)
         {"slot": "b", "role": "", "source_kind": "verwaltungsebene", "source_value": "laender"}
     ]
 
+    # Dual-write: the authoritative child-table rows carry source + model rate.
+    rows = db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
+    assert len(rows) == 2
+    by_period = {row["period"]: row for row in rows}
+    assert by_period["current"]["wage_source_value"] == "bund"
+    assert by_period["current"]["qualification"] == "einfacher_und_mittlerer_dienst"
+    assert by_period["current"]["model_hourly_rate"] == 33.8  # bund, slot a
+    assert by_period["current"]["time_required_in_min"] == 30
+    assert by_period["proposed"]["wage_source_value"] == "laender"
+    assert by_period["proposed"]["model_hourly_rate"] == 43.2  # laender, slot b
+
 
 def test_role_wage_source_persisted_for_business(test_client, monkeypatch):
     app_id, session_id, case_group_id, step_id = _seed_org_session(BUSINESS)
@@ -1463,7 +1472,7 @@ def test_role_wage_source_persisted_for_business(test_client, monkeypatch):
     ]
 
 
-def test_role_wage_source_missing_lohnquelle_with_hourly_rate_rejected(test_client, monkeypatch):
+def test_personnel_effort_invalid_lohnquelle_rejected(test_client, monkeypatch):
     app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
     effort_response = f"""
     {{
@@ -1477,12 +1486,12 @@ def test_role_wage_source_missing_lohnquelle_with_hourly_rate_rejected(test_clie
           "haeufigkeit_pro_jahr_vorschlag": "1",
           "taetigkeiten": [{{
             "taetigkeiten_id": "{step_id}",
-            "rollen_gueltig": [{{
-              "lohngruppe": "a",
-              "stundenlohn": "40",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "gehobener_dienst",
+              "lohnquelle": "voellig_ungueltig",
               "zeitaufwand_in_min": "30"
             }}],
-            "rollen_vorschlag": []
+            "personalaufwand_vorschlag": []
           }}]
         }}]
       }}]
@@ -1502,7 +1511,9 @@ def test_role_wage_source_missing_lohnquelle_with_hourly_rate_rejected(test_clie
     assert "lohnquelle" in resp.json()["detail"].lower()
 
 
-def test_role_wage_source_only_zeitaufwand_no_lohnquelle_accepted(test_client, monkeypatch):
+def test_personnel_effort_missing_lohnquelle_falls_back_to_default(test_client, monkeypatch):
+    # K5: a row without `lohnquelle` is accepted and falls back to the addressee
+    # default source (admin -> durchschnitt), since the backend must resolve a rate.
     app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
     effort_response = f"""
     {{
@@ -1516,11 +1527,11 @@ def test_role_wage_source_only_zeitaufwand_no_lohnquelle_accepted(test_client, m
           "haeufigkeit_pro_jahr_vorschlag": "1",
           "taetigkeiten": [{{
             "taetigkeiten_id": "{step_id}",
-            "rollen_gueltig": [{{
-              "lohngruppe": "a",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "gehobener_dienst",
               "zeitaufwand_in_min": "30"
             }}],
-            "rollen_vorschlag": []
+            "personalaufwand_vorschlag": []
           }}]
         }}]
       }}]
@@ -1538,8 +1549,11 @@ def test_role_wage_source_only_zeitaufwand_no_lohnquelle_accepted(test_client, m
     )
     assert resp.status_code == 200
 
-    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
-    assert steps[0]["role_sources_current_json"] is None
+    rows = db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
+    assert len(rows) == 1
+    assert rows[0]["wage_source_value"] == "durchschnitt"
+    assert rows[0]["qualification"] == "gehobener_dienst"
+    assert rows[0]["model_hourly_rate"] == 42.9  # durchschnitt, slot b
 
 
 def test_role_wage_source_cleared_on_undo(test_client, monkeypatch):
@@ -1559,11 +1573,15 @@ def test_role_wage_source_cleared_on_undo(test_client, monkeypatch):
     steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
     assert steps[0]["role_sources_current_json"] is not None
 
+    assert db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
+
     db.clear_effort_metrics(session_id, ADMINISTRATION)
 
     steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
     assert steps[0]["role_sources_current_json"] is None
     assert steps[0]["role_sources_proposed_json"] is None
+    # Undo also clears the authoritative child rows.
+    assert db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id) == []
 
 
 def test_role_wage_source_decoded_in_editable_api(test_client, monkeypatch):
