@@ -78,6 +78,8 @@ class EditableProcessStepRow(BaseModel):
     expenses_proposed_effective: float | None = None
     role_sources_current: list[dict] | None = None
     role_sources_proposed: list[dict] | None = None
+    personnel_effort_current: list[dict] | None = None
+    personnel_effort_proposed: list[dict] | None = None
 
 
 class EditableProcessStepsResponse(BaseModel):

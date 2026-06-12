@@ -69,6 +69,17 @@ class ProcessStepBulkUpdateRequest(BaseModel):
     rows: list[ProcessStepEditRow]
 
 
+class PersonnelEffortTimeEditRequest(BaseModel):
+    app_session_id: AppSessionId
+    norm_addressee: str
+    step_id: int
+    period: str
+    qualification: str
+    wage_source_kind: str
+    wage_source_value: str
+    time_required_in_min_edited: float | None = None
+
+
 @router.get("/editable", response_model=EditableProcessStepsResponse)
 async def list_editable_process_steps(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
@@ -78,6 +89,28 @@ async def list_editable_process_steps(
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
     rows = db.list_editable_process_steps(session_id, case_group_id=case_group_id)
+    # Attach the authoritative row-based personnel effort per step (step_id is a
+    # global PK, so grouping by step_id is unambiguous across addressees).
+    personnel_by_step: dict[int, dict[str, list[dict]]] = {}
+    for row in db.list_session_personnel_effort(session_id):
+        bucket = personnel_by_step.setdefault(
+            int(row["step_id"]), {"current": [], "proposed": []}
+        )
+        bucket[row["period"]].append(
+            {
+                "qualification": row["qualification"],
+                "wage_source_kind": row["wage_source_kind"],
+                "wage_source_value": row["wage_source_value"],
+                "model_hourly_rate": row["model_hourly_rate"],
+                "time_required_in_min": row["time_required_in_min"],
+                "time_required_in_min_edited": row["time_required_in_min_edited"],
+            }
+        )
+    for row in rows:
+        bucket = personnel_by_step.get(int(row["step_id"]))
+        if bucket is not None:
+            row["personnel_effort_current"] = bucket["current"]
+            row["personnel_effort_proposed"] = bucket["proposed"]
     return EditableProcessStepsResponse(rows=rows)
 
 
@@ -126,6 +159,40 @@ async def bulk_update_process_steps(
             )
         validate_non_noop_update_count(updated)
         refresh_step_tiles(session_id, db.list_process_steps_for_session(session_id))
+    return BulkUpdateResponse(updated=updated)
+
+
+@router.post("/personnel-effort-edit", response_model=BulkUpdateResponse)
+async def edit_personnel_effort_time(
+    payload: PersonnelEffortTimeEditRequest,
+) -> BulkUpdateResponse:
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    resolved = normalize_norm_addressee_or_422(payload.norm_addressee)
+    if payload.period not in ("current", "proposed"):
+        raise HTTPException(status_code=422, detail="period must be 'current' or 'proposed'")
+    if (
+        payload.time_required_in_min_edited is not None
+        and payload.time_required_in_min_edited < 0
+    ):
+        raise HTTPException(
+            status_code=422, detail="time_required_in_min_edited must not be negative"
+        )
+    updated = db.update_personnel_effort_time_edit(
+        session_id=session_id,
+        norm_addressee=resolved,
+        step_id=payload.step_id,
+        period=payload.period,
+        qualification=payload.qualification,
+        wage_source_kind=payload.wage_source_kind,
+        wage_source_value=payload.wage_source_value,
+        time_required_in_min_edited=payload.time_required_in_min_edited,
+    )
+    if updated == 0:
+        raise HTTPException(
+            status_code=422, detail="No matching personnel-effort row for this identity"
+        )
     return BulkUpdateResponse(updated=updated)
 
 

@@ -5048,6 +5048,63 @@ def list_process_step_personnel_effort(
     return rows
 
 
+def list_session_personnel_effort(session_id: int) -> list[dict]:
+    """All personnel-effort rows of a session across norm addressees (step_id is a
+    global PK, so callers can group by step_id)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT * FROM process_step_personnel_effort
+        WHERE session_id = ?
+        ORDER BY step_id, period, qualification, wage_source_value
+        """,
+        (session_id,),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
+def update_personnel_effort_time_edit(
+    session_id: int,
+    norm_addressee: str,
+    step_id: int,
+    period: str,
+    qualification: str,
+    wage_source_kind: str,
+    wage_source_value: str,
+    time_required_in_min_edited: float | None,
+) -> int:
+    """Set (or clear, when None) the edited time of one personnel-effort row by its
+    identity. Returns the number of rows updated (0 when no row matches)."""
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE process_step_personnel_effort
+        SET time_required_in_min_edited = ?, last_edited_at = current_timestamp
+        WHERE session_id = ? AND norm_addressee = ? AND step_id = ? AND period = ?
+            AND qualification = ? AND wage_source_kind = ? AND wage_source_value = ?
+        """,
+        (
+            time_required_in_min_edited,
+            session_id,
+            resolved,
+            step_id,
+            period,
+            qualification,
+            wage_source_kind,
+            wage_source_value,
+        ),
+    )
+    updated = cur.rowcount
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return updated
+
+
 def get_session_wage_rate_overrides(
     session_id: int,
     norm_addressee: str,
