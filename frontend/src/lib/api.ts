@@ -19,6 +19,7 @@ import {
   LlmMonitorSnapshotResponse,
   LlmMonitorStreamAttemptResponse,
   SessionPayRatesResponse,
+  SessionWageRatesResponse,
   SessionEditAuditResponse,
   EditableCaseGroupsResponse,
   EditableProcessStepsResponse,
@@ -835,6 +836,50 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to reset EA edits");
+    }
+    return response.json();
+  },
+
+  async getSessionWageRates(options: {
+    appSessionId: string;
+    normAddressee?: NormAddressee;
+  }): Promise<SessionWageRatesResponse> {
+    const params = new URLSearchParams();
+    params.set("app_session_id", options.appSessionId);
+    if (options.normAddressee) {
+      params.set("norm_addressee", options.normAddressee);
+    }
+    const response = await fetch(`${API_BASE_URL}/sessions/wage-rates?${params.toString()}`);
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load session wage rates");
+    }
+    return response.json();
+  },
+
+  async updateSessionWageRate(options: {
+    appSessionId: string;
+    normAddressee?: NormAddressee;
+    wageSourceKind: string;
+    wageSourceValue: string;
+    qualification: string;
+    hourlyRateEdited: number | null;
+  }): Promise<SessionWageRatesResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/wage-rates`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
+        wage_source_kind: options.wageSourceKind,
+        wage_source_value: options.wageSourceValue,
+        qualification: options.qualification,
+        hourly_rate_edited: options.hourlyRateEdited,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update session wage rate");
     }
     return response.json();
   },

@@ -6,59 +6,85 @@ import { apiClient } from "@/lib/api";
 
 jest.mock("@/lib/api", () => ({
   apiClient: {
-    getSessionPayRates: jest.fn(),
-    updateSessionPayRates: jest.fn(),
+    getSessionWageRates: jest.fn(),
+    updateSessionWageRate: jest.fn(),
   },
 }));
 
-const mockGetSessionPayRates = apiClient.getSessionPayRates as jest.Mock;
-const mockUpdateSessionPayRates = apiClient.updateSessionPayRates as jest.Mock;
+const mockGetSessionWageRates = apiClient.getSessionWageRates as jest.Mock;
+const mockUpdateSessionWageRate = apiClient.updateSessionWageRate as jest.Mock;
+
+const ADMIN_ROWS = [
+  {
+    wage_source_kind: "verwaltungsebene",
+    wage_source_value: "bund",
+    qualification: "einfacher_und_mittlerer_dienst",
+    model_hourly_rate: 10,
+    hourly_rate_edited: null,
+  },
+  {
+    wage_source_kind: "verwaltungsebene",
+    wage_source_value: "bund",
+    qualification: "gehobener_dienst",
+    model_hourly_rate: 20,
+    hourly_rate_edited: null,
+  },
+  {
+    wage_source_kind: "verwaltungsebene",
+    wage_source_value: "bund",
+    qualification: "hoeherer_dienst",
+    model_hourly_rate: 30,
+    hourly_rate_edited: null,
+  },
+  {
+    wage_source_kind: "verwaltungsebene",
+    wage_source_value: "bund",
+    qualification: "durchschnitt",
+    model_hourly_rate: 40,
+    hourly_rate_edited: null,
+  },
+];
+
+function eDmDInput(): HTMLElement {
+  const label = screen.getByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
+  const tr = label.closest("tr") as HTMLElement;
+  return within(tr).getByRole("textbox");
+}
 
 describe("EaPayRatesTab", () => {
   beforeEach(() => {
-    mockGetSessionPayRates.mockReset();
-    mockUpdateSessionPayRates.mockReset();
-    mockGetSessionPayRates.mockResolvedValue({
-      app_session_id: "PAY-TAB",
-      administration_level: "bund",
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: null, b: null, c: null, d: null },
-      active: { a: 10, b: 20, c: 30, d: 40 },
-    });
-    mockUpdateSessionPayRates.mockResolvedValue({
-      app_session_id: "PAY-TAB",
-      administration_level: "bund",
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: 99, b: null, c: null, d: null },
-      active: { a: 99, b: 20, c: 30, d: 40 },
-    });
+    mockGetSessionWageRates.mockReset();
+    mockUpdateSessionWageRate.mockReset();
+    mockGetSessionWageRates.mockResolvedValue({ app_session_id: "PAY-TAB", rows: ADMIN_ROWS });
+    mockUpdateSessionWageRate.mockResolvedValue({ app_session_id: "PAY-TAB", rows: ADMIN_ROWS });
   });
 
-  it("loads and saves pay-rate edited values", async () => {
+  it("groups rows under their wage source", async () => {
+    render(
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+    );
+    expect(await screen.findByText("Bund")).toBeInTheDocument();
+    expect(screen.getByText(/Gehobener Dienst \(gD\)/i)).toBeInTheDocument();
+  });
+
+  it("saves a single (source, qualification) override and recomputes", async () => {
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
       <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
     );
-
-    const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    const tr = row.closest("tr");
-    expect(tr).toBeTruthy();
-    const input = within(tr as HTMLElement).getByRole("textbox");
+    await screen.findByText("Bund");
     const user = userEvent.setup();
-
-    await user.clear(input);
-    await user.type(input, "99");
+    await user.type(eDmDInput(), "99");
     await user.click(screen.getByRole("button", { name: /lohnsätze speichern/i }));
 
-    await waitFor(() => expect(mockUpdateSessionPayRates).toHaveBeenCalledTimes(1));
-    expect(mockUpdateSessionPayRates).toHaveBeenCalledWith({
+    await waitFor(() => expect(mockUpdateSessionWageRate).toHaveBeenCalledTimes(1));
+    expect(mockUpdateSessionWageRate).toHaveBeenCalledWith({
       appSessionId: "PAY-TAB",
       normAddressee: "administration",
-      administrationLevel: "bund",
-      editedA: 99,
-      editedB: null,
-      editedC: null,
-      editedD: null,
+      wageSourceKind: "verwaltungsebene",
+      wageSourceValue: "bund",
+      qualification: "einfacher_und_mittlerer_dienst",
+      hourlyRateEdited: 99,
     });
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
@@ -122,265 +148,75 @@ describe("EaPayRatesTab", () => {
     render(
       <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
-
-    const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    const tr = row.closest("tr");
-    expect(tr).toBeTruthy();
-    const input = within(tr as HTMLElement).getByRole("textbox");
+    await screen.findByText("Bund");
     const user = userEvent.setup();
-
-    await user.clear(input);
-    await user.type(input, "abc");
-
-    expect(
-      screen.getByRole("button", { name: /lohnsätze speichern/i })
-    ).toBeDisabled();
-    expect(
-      screen.getByText(/bitte ungültige zahlenformate korrigieren/i)
-    ).toBeInTheDocument();
+    await user.type(eDmDInput(), "abc");
+    expect(screen.getByRole("button", { name: /lohnsätze speichern/i })).toBeDisabled();
+    expect(screen.getByText(/bitte ungültige zahlenformate korrigieren/i)).toBeInTheDocument();
   });
 
   it("disables save when there are no changes", async () => {
     render(
       <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
-    await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    expect(
-      screen.getByRole("button", { name: /lohnsätze speichern/i })
-    ).toBeDisabled();
+    await screen.findByText("Bund");
+    expect(screen.getByRole("button", { name: /lohnsätze speichern/i })).toBeDisabled();
   });
 
-  it("resets values to model values", async () => {
-    mockGetSessionPayRates.mockResolvedValueOnce({
+  it("resets active overrides to model values", async () => {
+    mockGetSessionWageRates.mockResolvedValueOnce({
       app_session_id: "PAY-TAB",
-      administration_level: "bund",
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: 77, b: null, c: null, d: null },
-      active: { a: 77, b: 20, c: 30, d: 40 },
-    });
-    mockUpdateSessionPayRates.mockResolvedValueOnce({
-      app_session_id: "PAY-TAB",
-      administration_level: "bund",
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: null, b: null, c: null, d: null },
-      active: { a: 10, b: 20, c: 30, d: 40 },
+      rows: [{ ...ADMIN_ROWS[0], hourly_rate_edited: 77 }, ...ADMIN_ROWS.slice(1)],
     });
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
       <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
     );
-    await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
+    await screen.findByText("Bund");
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /auf modellwerte zurücksetzen/i }));
 
-    await user.click(
-      screen.getByRole("button", { name: /auf modellwerte zurücksetzen/i })
-    );
-
-    await waitFor(() => expect(mockUpdateSessionPayRates).toHaveBeenCalledTimes(1));
-    expect(mockUpdateSessionPayRates).toHaveBeenCalledWith({
+    await waitFor(() => expect(mockUpdateSessionWageRate).toHaveBeenCalledTimes(1));
+    expect(mockUpdateSessionWageRate).toHaveBeenCalledWith({
       appSessionId: "PAY-TAB",
       normAddressee: "administration",
-      administrationLevel: "bund",
-      editedA: null,
-      editedB: null,
-      editedC: null,
-      editedD: null,
+      wageSourceKind: "verwaltungsebene",
+      wageSourceValue: "bund",
+      qualification: "einfacher_und_mittlerer_dienst",
+      hourlyRateEdited: null,
     });
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
 
-  it("disables reset when no saved edited value is active", async () => {
-    render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
-    );
-    await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    expect(
-      screen.getByRole("button", { name: /auf modellwerte zurücksetzen/i })
-    ).toBeDisabled();
-  });
-
-  it("keeps unsaved edited values across tab deactivate/reactivate", async () => {
-    const onDirtyChange = jest.fn();
-    const { rerender } = render(
-      <EaPayRatesTab normAddressee="administration"
-        open
-        active
-        appSessionId="PAY-TAB"
-        runAutoRecompute={jest.fn()}
-        onDirtyChange={onDirtyChange}
-      />
-    );
-
-    const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    const tr = row.closest("tr");
-    expect(tr).toBeTruthy();
-    const input = within(tr as HTMLElement).getByRole("textbox");
-    const user = userEvent.setup();
-
-    await user.clear(input);
-    await user.type(input, "88");
-    expect(input).toHaveValue("88");
-    expect(
-      screen.getByRole("button", { name: /lohnsätze speichern/i })
-    ).toBeEnabled();
-
-    rerender(
-      <EaPayRatesTab normAddressee="administration"
-        open
-        active={false}
-        appSessionId="PAY-TAB"
-        runAutoRecompute={jest.fn()}
-        onDirtyChange={onDirtyChange}
-      />
-    );
-
-    rerender(
-      <EaPayRatesTab normAddressee="administration"
-        open
-        active
-        appSessionId="PAY-TAB"
-        runAutoRecompute={jest.fn()}
-        onDirtyChange={onDirtyChange}
-      />
-    );
-
-    const rowAfter = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    const trAfter = rowAfter.closest("tr");
-    expect(trAfter).toBeTruthy();
-    const inputAfter = within(trAfter as HTMLElement).getByRole("textbox");
-    expect(inputAfter).toHaveValue("88");
-    expect(mockGetSessionPayRates).toHaveBeenCalledTimes(1);
-    expect(onDirtyChange.mock.calls.some(([dirty]) => dirty === true)).toBe(true);
-  });
-
-  it("keeps active values stable while unsaved input changes", async () => {
-    render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
-    );
-
-    const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    const tr = row.closest("tr");
-    expect(tr).toBeTruthy();
-    const user = userEvent.setup();
-    const rowScope = within(tr as HTMLElement);
-    const input = rowScope.getByRole("textbox");
-
-    expect(rowScope.getAllByText("10 €")).toHaveLength(2);
-
-    await user.clear(input);
-    await user.type(input, "99");
-
-    expect(rowScope.getAllByText("10 €")).toHaveLength(2);
-    expect(input).toHaveValue("99");
-  });
-
-  it("shows the used economic section badge for business when wage_source_label is present", async () => {
-    mockGetSessionPayRates.mockResolvedValueOnce({
+  it("labels a business economic section with its WZ detail", async () => {
+    mockGetSessionWageRates.mockResolvedValueOnce({
       app_session_id: "PAY-TAB",
-      norm_addressee: "business",
-      administration_level: null,
-      wage_source_label: "K",
-      defaults: { a: 10, b: 20, c: 51, d: 40 },
-      edited: { a: null, b: null, c: null, d: null },
-      active: { a: 10, b: 20, c: 51, d: 40 },
+      rows: [
+        {
+          wage_source_kind: "wirtschaftsabschnitt",
+          wage_source_value: "K",
+          qualification: "hoch",
+          model_hourly_rate: 51,
+          hourly_rate_edited: null,
+        },
+      ],
     });
     render(
       <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
-
-    await screen.findByText(/Niedrig/i);
-    expect(screen.getByText(/Wirtschaftsabschnitt:/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/K · Finanz- und Versicherungsdienstleistungen/i)
+      await screen.findByText(/K · Finanz- und Versicherungsdienstleistungen/i)
     ).toBeInTheDocument();
+    expect(screen.getByText(/^Hoch$/i)).toBeInTheDocument();
   });
 
-  it("renders no economic section badge for business when wage_source_label is absent", async () => {
-    mockGetSessionPayRates.mockResolvedValueOnce({
-      app_session_id: "PAY-TAB",
-      norm_addressee: "business",
-      administration_level: null,
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: null, b: null, c: null, d: null },
-      active: { a: 10, b: 20, c: 30, d: 40 },
-    });
+  it("shows the citizens note instead of a table", async () => {
     render(
-      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="citizens" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
     );
-
-    await screen.findByText(/Niedrig/i);
-    expect(screen.queryByText(/Wirtschaftsabschnitt:/i)).not.toBeInTheDocument();
-  });
-
-  it("does not send administrationLevel when saving business pay rates", async () => {
-    mockGetSessionPayRates.mockResolvedValueOnce({
-      app_session_id: "PAY-TAB",
-      norm_addressee: "business",
-      administration_level: null,
-      wage_source_label: "K",
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: null, b: null, c: null, d: null },
-      active: { a: 10, b: 20, c: 30, d: 40 },
-    });
-    mockUpdateSessionPayRates.mockResolvedValueOnce({
-      app_session_id: "PAY-TAB",
-      norm_addressee: "business",
-      administration_level: null,
-      wage_source_label: "K",
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: 99, b: null, c: null, d: null },
-      active: { a: 99, b: 20, c: 30, d: 40 },
-    });
-    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
-    render(
-      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
-    );
-
-    const row = await screen.findByText(/Niedrig/i);
-    const tr = row.closest("tr");
-    expect(tr).toBeTruthy();
-    const input = within(tr as HTMLElement).getByRole("textbox");
-    const user = userEvent.setup();
-
-    await user.clear(input);
-    await user.type(input, "99");
-    await user.click(screen.getByRole("button", { name: /lohnsätze speichern/i }));
-
-    await waitFor(() => expect(mockUpdateSessionPayRates).toHaveBeenCalledTimes(1));
-    expect(mockUpdateSessionPayRates).toHaveBeenCalledWith({
-      appSessionId: "PAY-TAB",
-      normAddressee: "business",
-      administrationLevel: undefined,
-      editedA: 99,
-      editedB: null,
-      editedC: null,
-      editedD: null,
-    });
-  });
-
-  it("does not prefill 'Neu' from saved edited values and stays clean by default", async () => {
-    mockGetSessionPayRates.mockResolvedValueOnce({
-      app_session_id: "PAY-TAB",
-      administration_level: "bund",
-      defaults: { a: 10, b: 20, c: 30, d: 40 },
-      edited: { a: 77, b: null, c: null, d: null },
-      active: { a: 77, b: 20, c: 30, d: 40 },
-    });
-    render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
-    );
-
-    const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
-    const tr = row.closest("tr");
-    expect(tr).toBeTruthy();
-    const rowScope = within(tr as HTMLElement);
-    const input = rowScope.getByRole("textbox");
-
-    expect(input).toHaveValue("");
-    expect(rowScope.getByText("10 €")).toBeInTheDocument();
-    expect(rowScope.getByText("77 €")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /lohnsätze speichern/i })
-    ).toBeDisabled();
+      screen.getByText(/Lohnsätze sind für Bürgerinnen und Bürger nicht anwendbar/i)
+    ).toBeInTheDocument();
+    expect(mockGetSessionWageRates).not.toHaveBeenCalled();
   });
 });

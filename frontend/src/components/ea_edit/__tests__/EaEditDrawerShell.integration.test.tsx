@@ -16,17 +16,24 @@ jest.mock("@/lib/useMounted", () => ({
 jest.mock("@/lib/api", () => ({
   apiClient: {
     computeTotalCost: jest.fn(),
-    getSessionPayRates: jest.fn(),
-    updateSessionPayRates: jest.fn(),
+    getSessionWageRates: jest.fn(),
+    updateSessionWageRate: jest.fn(),
     getEditableCaseGroups: jest.fn(),
     getEditableProcessSteps: jest.fn(),
   },
 }));
 
 const mockUseApp = useApp as jest.Mock;
-const mockGetSessionPayRates = apiClient.getSessionPayRates as jest.Mock;
-const mockUpdateSessionPayRates = apiClient.updateSessionPayRates as jest.Mock;
+const mockGetSessionWageRates = apiClient.getSessionWageRates as jest.Mock;
+const mockUpdateSessionWageRate = apiClient.updateSessionWageRate as jest.Mock;
 const mockComputeTotalCost = apiClient.computeTotalCost as jest.Mock;
+
+const ADMIN_WAGE_ROWS = [
+  { wage_source_kind: "verwaltungsebene", wage_source_value: "bund", qualification: "einfacher_und_mittlerer_dienst", model_hourly_rate: 42, hourly_rate_edited: null },
+  { wage_source_kind: "verwaltungsebene", wage_source_value: "bund", qualification: "gehobener_dienst", model_hourly_rate: 52, hourly_rate_edited: null },
+  { wage_source_kind: "verwaltungsebene", wage_source_value: "bund", qualification: "hoeherer_dienst", model_hourly_rate: 62, hourly_rate_edited: null },
+  { wage_source_kind: "verwaltungsebene", wage_source_value: "bund", qualification: "durchschnitt", model_hourly_rate: 57, hourly_rate_edited: null },
+];
 
 describe("EaEditDrawerShell integration", () => {
   beforeEach(() => {
@@ -36,12 +43,9 @@ describe("EaEditDrawerShell integration", () => {
         selectedNormAddressee: "administration",
       },
     });
-    mockGetSessionPayRates.mockResolvedValue({
+    mockGetSessionWageRates.mockResolvedValue({
       app_session_id: "EA-INTEGRATION",
-      administration_level: "bund",
-      defaults: { a: 42, b: 52, c: 62, d: 57 },
-      edited: { a: null, b: null, c: null, d: null },
-      active: { a: 42, b: 52, c: 62, d: 57 },
+      rows: ADMIN_WAGE_ROWS,
     });
   });
 
@@ -71,21 +75,21 @@ describe("EaEditDrawerShell integration", () => {
         selectedNormAddressee: "business",
       },
     });
-    const businessRates = {
+    const businessRows = [
+      { wage_source_kind: "wirtschaftsabschnitt", wage_source_value: "K", qualification: "niedrig", model_hourly_rate: 29, hourly_rate_edited: null },
+      { wage_source_kind: "wirtschaftsabschnitt", wage_source_value: "K", qualification: "mittel", model_hourly_rate: 54.4, hourly_rate_edited: null },
+      { wage_source_kind: "wirtschaftsabschnitt", wage_source_value: "K", qualification: "hoch", model_hourly_rate: 93.1, hourly_rate_edited: null },
+      { wage_source_kind: "wirtschaftsabschnitt", wage_source_value: "K", qualification: "durchschnitt", model_hourly_rate: 57.9, hourly_rate_edited: null },
+    ];
+    mockGetSessionWageRates.mockResolvedValue({
       app_session_id: "EA-INTEGRATION",
       norm_addressee: "business",
-      editable: true,
-      administration_level: null,
-      wage_source_label: "K",
-      defaults: { a: 29, b: 54.4, c: 93.1, d: 57.9 },
-      edited: { a: null, b: null, c: null, d: null },
-      active: { a: 29, b: 54.4, c: 93.1, d: 57.9 },
-    };
-    mockGetSessionPayRates.mockResolvedValue(businessRates);
-    mockUpdateSessionPayRates.mockResolvedValue({
-      ...businessRates,
-      edited: { a: 80, b: null, c: null, d: null },
-      active: { a: 80, b: 54.4, c: 93.1, d: 57.9 },
+      rows: businessRows,
+    });
+    mockUpdateSessionWageRate.mockResolvedValue({
+      app_session_id: "EA-INTEGRATION",
+      norm_addressee: "business",
+      rows: businessRows,
     });
     mockComputeTotalCost.mockResolvedValue({ total_cost: 80 });
 

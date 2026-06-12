@@ -329,6 +329,20 @@ export interface SessionPayRatesResponse {
   active: Record<string, number>;
 }
 
+export interface SessionWageRateRow {
+  wage_source_kind: string;
+  wage_source_value: string;
+  qualification: string;
+  model_hourly_rate: number;
+  hourly_rate_edited: number | null;
+}
+
+export interface SessionWageRatesResponse {
+  app_session_id: string;
+  norm_addressee?: NormAddressee;
+  rows: SessionWageRateRow[];
+}
+
 export interface SessionEditAuditRow {
   audit_id: number;
   session_id: number;

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { NormAddressee, SessionPayRatesResponse } from "@/types";
+import { NormAddressee, SessionWageRateRow } from "@/types";
 
 import { useEaReviewSave } from "./useEaReviewSave";
 import {
@@ -28,8 +28,8 @@ const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
   citizens: "Bürgerinnen und Bürger",
 };
 
-// Short labels for the used economic-section source (wage_source_label).
-// Source: Lohnkostentabelle Wirtschaft (WZ sections A-S + gesamtwirtschaft).
+// Short labels for the economic-section source (Lohnkostentabelle Wirtschaft,
+// WZ sections A-S + gesamtwirtschaft).
 const WZ_SECTION_LABELS: Record<string, string> = {
   A: "Land- und Forstwirtschaft, Fischerei",
   B: "Bergbau",
@@ -52,46 +52,46 @@ const WZ_SECTION_LABELS: Record<string, string> = {
   gesamtwirtschaft: "Gesamtwirtschaft (A-S ohne O)",
 };
 
-function formatWageSourceLabel(value: string): string {
-  const detail = WZ_SECTION_LABELS[value];
-  if (!detail) {
-    return value;
+const VERWALTUNGSEBENE_LABELS: Record<string, string> = {
+  bund: "Bund",
+  laender: "Länder",
+  kommunen: "Kommunen",
+  sozialversicherung: "Sozialversicherung",
+  durchschnitt: "Durchschnitt über Verwaltungsebenen",
+};
+
+const QUALIFICATION_LABELS: Record<string, string> = {
+  einfacher_und_mittlerer_dienst: "Einfacher/Mittlerer Dienst (eD/mD)",
+  gehobener_dienst: "Gehobener Dienst (gD)",
+  hoeherer_dienst: "Höherer Dienst (hD)",
+  niedrig: "Niedrig",
+  mittel: "Mittel",
+  hoch: "Hoch",
+  durchschnitt: "Durchschnitt (Ø)",
+};
+
+function sourceLabel(kind: string, value: string): string {
+  if (kind === "wirtschaftsabschnitt") {
+    const detail = WZ_SECTION_LABELS[value];
+    if (!detail) {
+      return value;
+    }
+    return value === "gesamtwirtschaft" ? detail : `${value} · ${detail}`;
   }
-  return value === "gesamtwirtschaft" ? detail : `${value} · ${detail}`;
+  return VERWALTUNGSEBENE_LABELS[value] ?? value;
 }
 
-type PayGradeKey = "a" | "b" | "c" | "d";
+function qualificationLabel(qualification: string): string {
+  return QUALIFICATION_LABELS[qualification] ?? qualification;
+}
 
-const PAY_GRADE_ROWS_BY_ADDRESSEE: Record<
-  NormAddressee,
-  Array<{ key: PayGradeKey; label: string }>
-> = {
-  administration: [
-    { key: "a", label: "Einfacher/Mittlerer Dienst (eD/mD)" },
-    { key: "b", label: "Gehobener Dienst (gD)" },
-    { key: "c", label: "Höherer Dienst (hD)" },
-    { key: "d", label: "Durchschnitt über Laufbahnen (Ø)" },
-  ],
-  business: [
-    { key: "a", label: "Niedrig" },
-    { key: "b", label: "Mittel" },
-    { key: "c", label: "Hoch" },
-    { key: "d", label: "Durchschnitt (Ø)" },
-  ],
-  citizens: [
-    { key: "a", label: "Zeit" },
-    { key: "b", label: "Reserve B" },
-    { key: "c", label: "Reserve C" },
-    { key: "d", label: "Reserve D" },
-  ],
-};
-
-const EMPTY_EDITED_INPUTS: Record<PayGradeKey, string> = {
-  a: "",
-  b: "",
-  c: "",
-  d: "",
-};
+function rowKey(row: {
+  wage_source_kind: string;
+  wage_source_value: string;
+  qualification: string;
+}): string {
+  return `${row.wage_source_kind}|${row.wage_source_value}|${row.qualification}`;
+}
 
 export default function EaPayRatesTab({
   open,
@@ -102,85 +102,52 @@ export default function EaPayRatesTab({
   onDirtyChange,
 }: EaPayRatesTabProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [payRates, setPayRates] = useState<SessionPayRatesResponse | null>(null);
-  const [payEditedInputs, setPayEditedInputs] =
-    useState<Record<PayGradeKey, string>>(EMPTY_EDITED_INPUTS);
-  const [loadedSessionKey, setLoadedSessionKey] = useState<string | null>(null);
+  const [rows, setRows] = useState<SessionWageRateRow[]>([]);
+  const [editedInputs, setEditedInputs] = useState<Record<string, string>>({});
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const { isSaving, status, setStatus, runSave } = useEaReviewSave({
     logLabel: "EaPayRatesTab.save",
     logContext: { appSessionId },
   });
-  const hasInvalidInput = Object.values(payEditedInputs).some(
-    (value) => !isValidNullableNumberInput(value)
-  );
-  const parsedEdited = useMemo<Record<PayGradeKey, number | null>>(
-    () => ({
-      a: parseNullableNumber(payEditedInputs.a),
-      b: parseNullableNumber(payEditedInputs.b),
-      c: parseNullableNumber(payEditedInputs.c),
-      d: parseNullableNumber(payEditedInputs.d),
-    }),
-    [payEditedInputs]
-  );
-  const nextEdited = useMemo<Record<PayGradeKey, number | null>>(() => {
-    if (!payRates) {
-      return { a: null, b: null, c: null, d: null };
-    }
-    return {
-      a:
-        payEditedInputs.a.trim() === ""
-          ? payRates.edited.a
-          : parsedEdited.a,
-      b:
-        payEditedInputs.b.trim() === ""
-          ? payRates.edited.b
-          : parsedEdited.b,
-      c:
-        payEditedInputs.c.trim() === ""
-          ? payRates.edited.c
-          : parsedEdited.c,
-      d:
-        payEditedInputs.d.trim() === ""
-          ? payRates.edited.d
-          : parsedEdited.d,
-    };
-  }, [payRates, payEditedInputs, parsedEdited]);
-
-  const hasDirtyEdited = useMemo(() => {
-    if (!payRates || hasInvalidInput) {
-      return false;
-    }
-    return (
-      nextEdited.a !== payRates.edited.a ||
-      nextEdited.b !== payRates.edited.b ||
-      nextEdited.c !== payRates.edited.c ||
-      nextEdited.d !== payRates.edited.d
-    );
-  }, [hasInvalidInput, nextEdited, payRates]);
-  const hasActiveEdited = useMemo(() => {
-    if (!payRates) {
-      return false;
-    }
-    return Object.values(payRates.edited).some((value) => value !== null);
-  }, [payRates]);
-
-  useEffect(() => {
-    onDirtyChange?.(hasDirtyEdited);
-  }, [hasDirtyEdited, onDirtyChange]);
 
   const loadKey = `${appSessionId}::${normAddressee}`;
 
-  const loadPayRates = useCallback(async () => {
+  const hasInvalidInput = Object.values(editedInputs).some(
+    (value) => !isValidNullableNumberInput(value)
+  );
+
+  // A row is dirty when its "Neu" input is non-empty and differs from the stored
+  // override. An empty input keeps the current override (cleared via reset).
+  const dirtyRows = useMemo(() => {
+    if (hasInvalidInput) {
+      return [];
+    }
+    return rows.filter((row) => {
+      const input = editedInputs[rowKey(row)] ?? "";
+      if (input.trim() === "") {
+        return false;
+      }
+      return parseNullableNumber(input) !== row.hourly_rate_edited;
+    });
+  }, [rows, editedInputs, hasInvalidInput]);
+
+  const hasActiveEdited = useMemo(
+    () => rows.some((row) => row.hourly_rate_edited !== null),
+    [rows]
+  );
+
+  useEffect(() => {
+    onDirtyChange?.(dirtyRows.length > 0);
+  }, [dirtyRows, onDirtyChange]);
+
+  const loadRows = useCallback(async () => {
     setIsLoading(true);
     setStatus(null);
     try {
-      const payload = await apiClient.getSessionPayRates({
-        appSessionId,
-        normAddressee,
-      });
-      setPayRates(payload);
-      setLoadedSessionKey(loadKey);
-      setPayEditedInputs(EMPTY_EDITED_INPUTS);
+      const payload = await apiClient.getSessionWageRates({ appSessionId, normAddressee });
+      setRows(payload.rows);
+      setEditedInputs({});
+      setLoadedKey(loadKey);
     } catch (error) {
       logClientError("EaPayRatesTab.load", error, { appSessionId, normAddressee });
       setStatus("Lohnsätze konnten nicht geladen werden.");
@@ -190,9 +157,9 @@ export default function EaPayRatesTab({
   }, [appSessionId, normAddressee, loadKey, setStatus]);
 
   useEffect(() => {
-    setPayRates(null);
-    setPayEditedInputs(EMPTY_EDITED_INPUTS);
-    setLoadedSessionKey(null);
+    setRows([]);
+    setEditedInputs({});
+    setLoadedKey(null);
     setStatus(null);
   }, [appSessionId, normAddressee, setStatus]);
 
@@ -200,44 +167,38 @@ export default function EaPayRatesTab({
     if (!open || !active) {
       return;
     }
-    // Citizens haben keine Lohnsaetze - API-Call und ggf. 422 wegen
-    // fehlendem Support vermeiden.
     if (normAddressee === "citizens") {
       return;
     }
-    if (loadedSessionKey === loadKey && payRates) {
+    if (loadedKey === loadKey) {
       return;
     }
-    loadPayRates();
-  }, [open, active, normAddressee, loadPayRates, loadedSessionKey, loadKey, payRates]);
+    loadRows();
+  }, [open, active, normAddressee, loadRows, loadedKey, loadKey]);
 
   const handleSave = async () => {
-    if (!payRates || !hasDirtyEdited || hasInvalidInput) {
+    if (dirtyRows.length === 0 || hasInvalidInput) {
       return;
     }
     try {
       await runSave(
         async () => {
-          const response = await apiClient.updateSessionPayRates({
-            appSessionId,
-            normAddressee,
-            // administration_level is only supported for administration; sending it
-            // for business would raise 422.
-            administrationLevel:
-              normAddressee === "administration"
-                ? payRates.administration_level || "bund"
-                : undefined,
-            editedA: nextEdited.a,
-            editedB: nextEdited.b,
-            editedC: nextEdited.c,
-            editedD: nextEdited.d,
-          });
+          for (const row of dirtyRows) {
+            await apiClient.updateSessionWageRate({
+              appSessionId,
+              normAddressee,
+              wageSourceKind: row.wage_source_kind,
+              wageSourceValue: row.wage_source_value,
+              qualification: row.qualification,
+              hourlyRateEdited: parseNullableNumber(editedInputs[rowKey(row)] ?? ""),
+            });
+          }
           await runAutoRecompute();
-          setPayRates(response);
-          setPayEditedInputs(EMPTY_EDITED_INPUTS);
+          await loadRows();
         },
         {
-          successMessage: "Lohnsätze gespeichert. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage:
+            "Lohnsätze gespeichert. Gesamtkosten wurden automatisch neu berechnet.",
           errorMessage: "Speichern fehlgeschlagen. Bitte Eingaben prüfen und erneut versuchen.",
         }
       );
@@ -247,29 +208,24 @@ export default function EaPayRatesTab({
   };
 
   const handleResetEdited = async () => {
-    if (!payRates || !hasActiveEdited) {
+    if (!hasActiveEdited) {
       return;
     }
     try {
       await runSave(
         async () => {
-          const response = await apiClient.updateSessionPayRates({
-            appSessionId,
-            normAddressee,
-            // administration_level is only supported for administration; sending it
-            // for business would raise 422.
-            administrationLevel:
-              normAddressee === "administration"
-                ? payRates.administration_level || "bund"
-                : undefined,
-            editedA: null,
-            editedB: null,
-            editedC: null,
-            editedD: null,
-          });
+          for (const row of rows.filter((r) => r.hourly_rate_edited !== null)) {
+            await apiClient.updateSessionWageRate({
+              appSessionId,
+              normAddressee,
+              wageSourceKind: row.wage_source_kind,
+              wageSourceValue: row.wage_source_value,
+              qualification: row.qualification,
+              hourlyRateEdited: null,
+            });
+          }
           await runAutoRecompute();
-          setPayRates(response);
-          setPayEditedInputs(EMPTY_EDITED_INPUTS);
+          await loadRows();
         },
         {
           successMessage:
@@ -282,23 +238,11 @@ export default function EaPayRatesTab({
     }
   };
 
-  const handlePayInputChange = (key: PayGradeKey, value: string) => {
-    setStatus(null);
-    setPayEditedInputs((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
   if (!active) {
     return null;
   }
 
   if (normAddressee === "citizens") {
-    // Bürgerinnen und Bürger haben methodisch keine Lohnsätze (nur Zeit-
-    // und Sachaufwand). Der Tab zeigt deshalb einen klaren Hinweis
-    // statt Pseudo-Eingabefelder ("Zeit", "Reserve B/C/D"), die vom
-    // Backend ohnehin ignoriert werden.
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
         <p className="font-semibold text-slate-800">
@@ -321,6 +265,19 @@ export default function EaPayRatesTab({
     );
   }
 
+  const groups: Array<{ kind: string; value: string; rows: SessionWageRateRow[] }> = [];
+  const groupIndex = new Map<string, number>();
+  for (const row of rows) {
+    const gk = `${row.wage_source_kind}|${row.wage_source_value}`;
+    let idx = groupIndex.get(gk);
+    if (idx === undefined) {
+      idx = groups.length;
+      groupIndex.set(gk, idx);
+      groups.push({ kind: row.wage_source_kind, value: row.wage_source_value, rows: [] });
+    }
+    groups[idx].rows.push(row);
+  }
+
   const inputClass = (value: string) =>
     `w-24 rounded px-2 py-1 ${
       isValidNullableNumberInput(value)
@@ -332,73 +289,75 @@ export default function EaPayRatesTab({
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
         Normadressat:{" "}
-        <span className="font-semibold">
-          {NORM_ADDRESSEE_LABELS[normAddressee]}
-        </span>
-        {normAddressee === "administration" && (
-          <>
-            {" · Verwaltungsebene: "}
-            <span className="font-semibold uppercase">
-              {payRates?.administration_level || "bund"}
-            </span>
-          </>
-        )}
-        {normAddressee === "business" && payRates?.wage_source_label && (
-          <>
-            {" · Wirtschaftsabschnitt: "}
-            <span className="font-semibold">
-              {formatWageSourceLabel(payRates.wage_source_label)}
-            </span>
-          </>
-        )}
-      </div>
-      <div className="text-[11px] text-slate-500">
-        Zahlenformat: z. B. 1.234,56 (de-DE).
+        <span className="font-semibold">{NORM_ADDRESSEE_LABELS[normAddressee]}</span>
       </div>
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-        Die Spalte „Lohnkostentabelle“ zeigt den Standardlohnsatz aus der
-        Lohnkostentabelle. Die Berechnung nutzt pro Schritt den vom Modell
-        ermittelten Satz, sofern dieser nicht über „Neu“ überschrieben wird.
+        Je genutzter Lohnquelle eine Tabelle mit allen Qualifikationen. „Lohn­kosten­tabelle“
+        zeigt den Modell-Standardsatz; überschreiben Sie ihn pro Quelle und Qualifikation
+        unter „Neu“. Zahlenformat: z. B. 1.234,56 (de-DE).
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse text-xs">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-600">
-              <th className="px-2 py-2">Qualifikation</th>
-              <th className="px-2 py-2">Lohnkostentabelle</th>
-              <th className="px-2 py-2">Aktiv</th>
-              <th className="px-2 py-2">Neu</th>
-            </tr>
-          </thead>
-          <tbody>
-            {PAY_GRADE_ROWS_BY_ADDRESSEE[normAddressee].map((row) => (
-              <tr key={row.key} className="border-b border-slate-100">
-                <td className="px-2 py-2 font-semibold text-slate-800">{row.label}</td>
-                <td className="px-2 py-2">
-                  {formatNumber(payRates?.defaults?.[row.key] ?? null)} €
-                </td>
-                <td className="px-2 py-2 font-semibold text-slate-900">
-                  {formatNumber(
-                    payRates?.active?.[row.key] ??
-                      payRates?.defaults?.[row.key] ??
-                      null
-                  )}{" "}
-                  €
-                </td>
-                <td className="px-2 py-2">
-                  <input
-                    value={payEditedInputs[row.key] ?? ""}
-                    onChange={(event) =>
-                      handlePayInputChange(row.key, event.target.value)
-                    }
-                    className={inputClass(payEditedInputs[row.key] ?? "")}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {groups.length === 0 && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          Noch keine genutzten Lohnquellen in dieser Session.
+        </div>
+      )}
+      {groups.map((group) => (
+        <div
+          key={`${group.kind}|${group.value}`}
+          className="overflow-hidden rounded-lg border border-slate-200"
+        >
+          <div className="bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+            {sourceLabel(group.kind, group.value)}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-600">
+                  <th className="px-2 py-2">Qualifikation</th>
+                  <th className="px-2 py-2">Lohnkostentabelle</th>
+                  <th className="px-2 py-2">Aktiv</th>
+                  <th className="px-2 py-2">Neu</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.rows.map((row) => {
+                  const key = rowKey(row);
+                  const activeRate = row.hourly_rate_edited ?? row.model_hourly_rate;
+                  return (
+                    <tr key={key} className="border-b border-slate-100">
+                      <td className="px-2 py-2 font-semibold text-slate-800">
+                        {qualificationLabel(row.qualification)}
+                      </td>
+                      <td className="px-2 py-2">{formatNumber(row.model_hourly_rate)} €</td>
+                      <td className="px-2 py-2 font-semibold text-slate-900">
+                        {formatNumber(activeRate)} €
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          value={editedInputs[key] ?? ""}
+                          placeholder={
+                            row.hourly_rate_edited !== null
+                              ? formatNumber(row.hourly_rate_edited)
+                              : ""
+                          }
+                          onChange={(event) => {
+                            setStatus(null);
+                            setEditedInputs((prev) => ({
+                              ...prev,
+                              [key]: event.target.value,
+                            }));
+                          }}
+                          className={inputClass(editedInputs[key] ?? "")}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
       <div className="flex justify-end gap-2">
         <button
           onClick={handleResetEdited}
@@ -409,7 +368,7 @@ export default function EaPayRatesTab({
         </button>
         <button
           onClick={handleSave}
-          disabled={isSaving || hasInvalidInput || !hasDirtyEdited}
+          disabled={isSaving || hasInvalidInput || dirtyRows.length === 0}
           className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           {isSaving ? "Speichert..." : "Lohnsätze speichern"}
