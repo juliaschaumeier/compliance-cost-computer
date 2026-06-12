@@ -11,6 +11,7 @@ from backend.core.session_graph import (
     build_session_tiles_snapshot,
     persist_session_tiles_snapshot,
 )
+from backend.core.tile_refresh import refresh_step_tiles
 from backend.core.models import Tile, TilesResponse
 from backend.core.norm_addressees import ADMINISTRATION
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
@@ -110,6 +111,18 @@ def _tiles_need_missing_structure_rebuild(
     return expected_ids.issuperset(current_ids) and bool(expected_ids - current_ids)
 
 
+def _step_tiles_predate_personnel_rows(tiles: list[Tile]) -> bool:
+    """True when step tiles were generated before the ``personnel_rows`` meta
+    field, so their text/table still lack the wage provenance (Comment 2). Newly
+    generated step tiles always carry the key, so this self-terminates after one
+    in-place refresh."""
+    return any(
+        tile.id.startswith("step_")
+        and "personnel_rows" not in (tile.meta_information or {})
+        for tile in tiles
+    )
+
+
 def _rebuild_tiles_for_session(
     session: dict,
     norm_addressee: str = ADMINISTRATION,
@@ -174,6 +187,15 @@ async def list_tiles(
         )
         if has_process_steps or has_case_groups or resolved != ADMINISTRATION:
             _rebuild_tiles_for_session(session, resolved)
+            tiles = db.fetch_tiles(session_id=session_id, norm_addressee=resolved)
+    # Self-healing: step tiles persisted before the row-based provenance field are
+    # refreshed in place (text + meta) the first time the session is viewed, so old
+    # sessions show the wage provenance without a manual recompute. refresh_step_tiles
+    # preserves tile positions; the check stops firing once the tiles carry the key.
+    if tiles and _step_tiles_predate_personnel_rows(tiles):
+        steps = db.list_process_steps_for_session_and_addressee(session_id, resolved)
+        if steps and db.list_process_step_personnel_effort(session_id, resolved):
+            refresh_step_tiles(session_id, steps, norm_addressee=resolved)
             tiles = db.fetch_tiles(session_id=session_id, norm_addressee=resolved)
     return TilesResponse(tiles=tiles)
 

@@ -7,6 +7,7 @@ effective rate/time, so a row edit is reflected instead of stale slot data.
 
 from backend.core import db
 from backend.core.db_formatting import build_process_step_tile_text_from_rows
+from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS, personnel_provenance_label
 from backend.core.tile_refresh import build_step_tile_text
 
@@ -122,3 +123,44 @@ def test_build_step_tile_text_citizens_falls_back_to_slots(test_client):
     text = build_step_tile_text(session_id, step, CITIZENS)
     assert "20 Min." in text
     assert " - " not in text  # no provenance label for citizens
+
+
+def test_get_tiles_self_heals_pre_provenance_step_tiles(test_client):
+    # A step tile persisted before the personnel_rows field (no provenance) is
+    # refreshed in place on the next GET, so old sessions show provenance without
+    # a manual recompute.
+    app_id = "TILE-SELFHEAL"
+    session_id, _ = db.upsert_session(app_id, "test-model")
+    process_id = db.insert_process(session_id, "Prozess", "Beschreibung", norm_addressee=ADMINISTRATION)
+    case_group_id = db.insert_case_group(session_id, process_id, "FG", "Beschreibung", norm_addressee=ADMINISTRATION)
+    step_id = db.insert_process_step(session_id, case_group_id, "Schritt", "Beschreibung Schritt", norm_addressee=ADMINISTRATION)
+    db.replace_process_step_personnel_effort(
+        session_id, ADMINISTRATION, step_id,
+        [
+            {"period": "current", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "laender",
+             "time_required_in_min": 12, "model_hourly_rate": 43.2},
+        ],
+    )
+    # Old-format tile: meta WITHOUT personnel_rows, qualification-only text.
+    db.upsert_tile(
+        Tile(
+            id=f"step_{step_id}",
+            title="Schritt",
+            text="Beschreibung Schritt\nAktuell: Gehobener Dienst: 12 Min., 43.20 €/Std.",
+            meta_information={"step_id": step_id, "case_group_id": case_group_id},
+            column=4,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+    )
+
+    resp = test_client.get("/tiles", params={"app_session_id": app_id, "norm_addressee": ADMINISTRATION})
+    assert resp.status_code == 200
+    step_tile = next(t for t in resp.json()["tiles"] if t["id"] == f"step_{step_id}")
+    assert step_tile["meta_information"].get("personnel_rows") == [
+        {"label": "Länder - gD", "current_min": 12.0, "proposed_min": None}
+    ]
+    assert "Länder - gD" in step_tile["text"]
