@@ -9,7 +9,7 @@ from backend.core.norm_addressees import (
     DISPLAY_LABELS,
     normalize_norm_addressee,
 )
-from backend.core.tile_refresh import build_step_tile_text
+from backend.core.tile_refresh import build_step_tile_text, step_personnel_meta_rows
 
 
 def _ordered_step_ids(step_map: dict[int, dict]) -> list[int]:
@@ -231,6 +231,9 @@ def build_session_tiles_snapshot(
                         "change_status": step.get("change_status"),
                         "time_required_current": time_required_current,
                         "time_required_proposed": time_required_proposed,
+                        "personnel_rows": step_personnel_meta_rows(
+                            session_id, resolved, step_id
+                        ),
                         "expenses_current": effective_step.get("expenses_current_effective"),
                         "expenses_proposed": effective_step.get("expenses_proposed_effective"),
                         "cost_current": step.get("cost_current"),

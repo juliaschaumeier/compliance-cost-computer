@@ -395,29 +395,53 @@ export function buildTileMetricTable(
   }
 
   if (tile.id.startsWith("step_")) {
-    const timeCurrent =
-      (meta.time_required_current as Record<string, unknown> | undefined) || {};
-    const timeProposed =
-      (meta.time_required_proposed as Record<string, unknown> | undefined) || {};
-    const rowDefs: Array<{ key: "a" | "b" | "c" | "d"; label: string }> = [
-      { key: "a", label: getColumnLabel(normAddressee, "a") },
-      { key: "b", label: getColumnLabel(normAddressee, "b") },
-      { key: "c", label: getColumnLabel(normAddressee, "c") },
-      { key: "d", label: getColumnLabel(normAddressee, "d") },
-    ];
+    // Row-based model: personnel rows carry their wage provenance as the label
+    // (e.g. "Laender - Gehobener Dienst") and the effective minutes per period.
+    // The slot-based path stays as the fallback for citizens / legacy steps.
+    const personnelRows = meta.personnel_rows;
+    const usePersonnel = Array.isArray(personnelRows) && personnelRows.length > 0;
+
     const rows: TileTableRow[] = [];
-    rowDefs.forEach(({ key, label }) => {
-      const current = toFiniteNumber(timeCurrent[key]);
-      const proposed = toFiniteNumber(timeProposed[key]);
-      if (current === null && proposed === null) {
-        return;
-      }
-      rows.push({
-        label,
-        current: formatMinutes(current),
-        proposed: formatMinutes(proposed),
+    let timeLabels: string[];
+    if (usePersonnel) {
+      (personnelRows as Array<Record<string, unknown>>).forEach((entry) => {
+        const current = toFiniteNumber(entry.current_min);
+        const proposed = toFiniteNumber(entry.proposed_min);
+        if (current === null && proposed === null) {
+          return;
+        }
+        rows.push({
+          label: typeof entry.label === "string" ? entry.label : "",
+          current: formatMinutes(current),
+          proposed: formatMinutes(proposed),
+        });
       });
-    });
+      timeLabels = rows.map((row) => row.label);
+    } else {
+      const timeCurrent =
+        (meta.time_required_current as Record<string, unknown> | undefined) || {};
+      const timeProposed =
+        (meta.time_required_proposed as Record<string, unknown> | undefined) || {};
+      const rowDefs: Array<{ key: "a" | "b" | "c" | "d"; label: string }> = [
+        { key: "a", label: getColumnLabel(normAddressee, "a") },
+        { key: "b", label: getColumnLabel(normAddressee, "b") },
+        { key: "c", label: getColumnLabel(normAddressee, "c") },
+        { key: "d", label: getColumnLabel(normAddressee, "d") },
+      ];
+      rowDefs.forEach(({ key, label }) => {
+        const current = toFiniteNumber(timeCurrent[key]);
+        const proposed = toFiniteNumber(timeProposed[key]);
+        if (current === null && proposed === null) {
+          return;
+        }
+        rows.push({
+          label,
+          current: formatMinutes(current),
+          proposed: formatMinutes(proposed),
+        });
+      });
+      timeLabels = rowDefs.map((row) => row.label);
+    }
 
     const expensesCurrent = toFiniteNumber(meta.expenses_current);
     const expensesProposed = toFiniteNumber(meta.expenses_proposed);
@@ -439,11 +463,15 @@ export function buildTileMetricTable(
         emphasizeTop: true,
       });
     }
+
+    const order = [...timeLabels, "Sachaufwand", "Kosten/Jahr"];
+    if (usePersonnel) {
+      // Meta is authoritative here; do not merge the free-text fallback.
+      const orderedRows = orderRows(rows, order);
+      return orderedRows.length > 0 ? { rows: orderedRows } : null;
+    }
     const fallbackRows = parseLegacyStepText(tile.text || "").rows;
-    const mergedRows = orderRows(
-      mergeRows(rows, fallbackRows),
-      [...rowDefs.map((r) => r.label), "Sachaufwand", "Kosten/Jahr"]
-    );
+    const mergedRows = orderRows(mergeRows(rows, fallbackRows), order);
     return mergedRows.length > 0 ? { rows: mergedRows } : null;
   }
 

@@ -7,7 +7,11 @@ from backend.core.db_formatting import (
     build_process_step_tile_text_from_rows,
 )
 from backend.core.models import Tile
-from backend.core.norm_addressees import ADMINISTRATION, EFFORT_GROUP_LABELS
+from backend.core.norm_addressees import (
+    ADMINISTRATION,
+    EFFORT_GROUP_LABELS,
+    personnel_provenance_label,
+)
 
 
 def _case_group_text(group: dict) -> str:
@@ -77,6 +81,38 @@ def build_step_tile_text(session_id: int, step: dict, norm_addressee: str) -> st
     )
 
 
+def step_personnel_meta_rows(
+    session_id: int, norm_addressee: str, step_id: int
+) -> list[dict] | None:
+    """Per-(qualification, source) personnel rows for the step tile metric table,
+    labelled with the wage provenance and the effective minutes per period.
+
+    Returns None when the step has no row-model data (citizens, legacy steps), so
+    the tile keeps the slot-based table.
+    """
+    rows = db.list_process_step_personnel_effort(session_id, norm_addressee, step_id)
+    if not rows:
+        return None
+    grouped: dict[tuple[str, str], dict] = {}
+    order: list[tuple[str, str]] = []
+    for row in rows:
+        key = (row["qualification"], row["wage_source_value"])
+        if key not in grouped:
+            grouped[key] = {
+                "label": personnel_provenance_label(
+                    norm_addressee, row["wage_source_value"], row["qualification"]
+                ),
+                "current_min": None,
+                "proposed_min": None,
+            }
+            order.append(key)
+        edited = row.get("time_required_in_min_edited")
+        minutes = edited if edited is not None else row.get("time_required_in_min")
+        field = "current_min" if row["period"] == "current" else "proposed_min"
+        grouped[key][field] = minutes
+    return [grouped[key] for key in order]
+
+
 def _apply_change_status(tile: Tile, change_status: object) -> dict:
     meta_information = dict(tile.meta_information or {})
     if change_status:
@@ -97,10 +133,15 @@ def _with_case_group_metrics(meta_information: dict, group: dict) -> dict:
     return updated
 
 
-def _with_step_metrics(meta_information: dict, step: dict) -> dict:
+def _with_step_metrics(
+    meta_information: dict, step: dict, session_id: int, norm_addressee: str
+) -> dict:
     effective = db.resolve_effective_process_step_metrics(step)
     updated = dict(meta_information)
     updated["description"] = effective.get("description")
+    updated["personnel_rows"] = step_personnel_meta_rows(
+        session_id, norm_addressee, step["step_id"]
+    )
     updated["time_required_current"] = {
         "a": effective.get("time_required_in_min_a_current_effective"),
         "b": effective.get("time_required_in_min_b_current_effective"),
@@ -184,6 +225,8 @@ def refresh_step_tiles(
                 meta_information=_with_step_metrics(
                     _apply_change_status(tile, step.get("change_status")),
                     step,
+                    session_id,
+                    addressee,
                 ),
                 column=tile.column,
                 row=tile.row,
