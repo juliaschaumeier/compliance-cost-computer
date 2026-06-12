@@ -11,14 +11,20 @@ import pytest
 from backend.core import db
 
 
-def _seed_step(app_session_id: str = "PERSONNEL-EFFORT") -> tuple[int, int]:
+def _seed_step(
+    app_session_id: str = "PERSONNEL-EFFORT",
+    norm_addressee: str = "administration",
+) -> tuple[int, int]:
     session_id, _ = db.upsert_session(app_session_id, "test-model")
-    process_id = db.insert_process(session_id, "Prozess", "Beschreibung")
+    process_id = db.insert_process(
+        session_id, "Prozess", "Beschreibung", norm_addressee=norm_addressee
+    )
     case_group_id = db.insert_case_group(
-        session_id, process_id, "Fallgruppe", "Beschreibung"
+        session_id, process_id, "Fallgruppe", "Beschreibung", norm_addressee=norm_addressee
     )
     step_id = db.insert_process_step(
-        session_id, case_group_id, "Schritt 1", "Beschreibung Schritt 1"
+        session_id, case_group_id, "Schritt 1", "Beschreibung Schritt 1",
+        norm_addressee=norm_addressee,
     )
     return session_id, step_id
 
@@ -67,7 +73,7 @@ def test_replace_and_list_round_trip_keeps_mixed_sources_separate():
 
 
 def test_replace_is_idempotent_per_step():
-    session_id, step_id = _seed_step()
+    session_id, step_id = _seed_step("PERSONNEL-EFFORT-BIZ", "business")
     row = {
         "period": "proposed",
         "qualification": "mittel",
@@ -138,3 +144,22 @@ def test_undo_clears_personnel_rows_but_keeps_wage_overrides():
         (session_id,),
     ).fetchone()[0]
     assert surviving == 1
+
+
+def test_replace_rejects_step_from_other_session():
+    # Integrity guard: writing rows for a step_id that belongs to a different
+    # session must be rejected at the DB layer (not silently inserted).
+    session_a, step_a = _seed_step("PERSONNEL-A")
+    session_b, _step_b = _seed_step("PERSONNEL-B")
+    row = {
+        "period": "current",
+        "qualification": "gehobener_dienst",
+        "wage_source_kind": "verwaltungsebene",
+        "wage_source_value": "bund",
+        "time_required_in_min": 30,
+        "model_hourly_rate": 40.4,
+    }
+    with pytest.raises(ValueError):
+        db.replace_process_step_personnel_effort(session_b, "administration", step_a, [row])
+    # Nothing was written under the wrong session.
+    assert db.list_process_step_personnel_effort(session_b, "administration", step_a) == []

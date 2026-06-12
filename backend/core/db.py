@@ -4960,6 +4960,23 @@ def replace_process_step_personnel_effort(
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
+    # Integrity guard at the DB layer: the two foreign keys (session_id, step_id)
+    # are independent, so enforce that the step actually belongs to this
+    # session+addressee instead of relying on every caller to pass a matching
+    # combination.
+    belongs = cur.execute(
+        """
+        SELECT 1 FROM process_steps
+        WHERE step_id = ? AND session_id = ? AND norm_addressee = ?
+        """,
+        (step_id, session_id, resolved),
+    ).fetchone()
+    if belongs is None:
+        _maybe_close(conn)
+        raise ValueError(
+            f"process_step {step_id} does not belong to session {session_id} "
+            f"/ norm_addressee {resolved!r}"
+        )
     cur.execute(
         """
         DELETE FROM process_step_personnel_effort
