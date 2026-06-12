@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 from backend.core import db
-from backend.core.db_formatting import (
-    build_case_group_tile_text,
-    build_process_step_tile_text,
-)
+from backend.core.db_formatting import build_case_group_tile_text
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
     ALL_NORM_ADDRESSEES,
     DISPLAY_LABELS,
-    EFFORT_GROUP_LABELS,
     normalize_norm_addressee,
 )
+from backend.core.tile_refresh import build_step_tile_text
 
 
 def _ordered_step_ids(step_map: dict[int, dict]) -> list[int]:
@@ -225,29 +222,7 @@ def build_session_tiles_snapshot(
                 Tile(
                     id=f"step_{step_id}",
                     title=step["step"],
-                    text=build_process_step_tile_text(
-                        description=effective_step.get("description") or "",
-                        hourly_rates_current={
-                            "a": effective_step.get("hourly_rate_a_current"),
-                            "b": effective_step.get("hourly_rate_b_current"),
-                            "c": effective_step.get("hourly_rate_c_current"),
-                            "d": effective_step.get("hourly_rate_d_current"),
-                        },
-                        time_required_current=time_required_current,
-                        expenses_current=effective_step.get("expenses_current_effective"),
-                        cost_current=step.get("cost_current"),
-                        hourly_rates_proposed={
-                            "a": effective_step.get("hourly_rate_a_proposed"),
-                            "b": effective_step.get("hourly_rate_b_proposed"),
-                            "c": effective_step.get("hourly_rate_c_proposed"),
-                            "d": effective_step.get("hourly_rate_d_proposed"),
-                        },
-                        time_required_proposed=time_required_proposed,
-                        expenses_proposed=effective_step.get("expenses_proposed_effective"),
-                        cost_proposed=step.get("cost_proposed"),
-                        execution_per_case=step.get("execution_per_case"),
-                        group_labels=EFFORT_GROUP_LABELS.get(resolved),
-                    ),
+                    text=build_step_tile_text(session_id, step, resolved),
                     meta_information={
                         "step_id": step_id,
                         "case_group_id": case_group_id,

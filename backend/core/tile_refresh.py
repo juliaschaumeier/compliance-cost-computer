@@ -4,6 +4,7 @@ from backend.core import db
 from backend.core.db_formatting import (
     build_case_group_tile_text,
     build_process_step_tile_text,
+    build_process_step_tile_text_from_rows,
 )
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, EFFORT_GROUP_LABELS
@@ -22,8 +23,25 @@ def _case_group_text(group: dict) -> str:
     )
 
 
-def _step_text(step: dict, norm_addressee: str) -> str:
+def build_step_tile_text(session_id: int, step: dict, norm_addressee: str) -> str:
+    """Step tile text, row-based when personnel rows exist (org steps with the
+    redesigned model), else the legacy slot-based path (citizens, empty steps)."""
     effective = db.resolve_effective_process_step_metrics(step)
+    rows = db.list_process_step_personnel_effort(session_id, norm_addressee, step["step_id"])
+    if rows:
+        overrides = db.get_session_wage_rate_overrides(session_id, norm_addressee)
+        return build_process_step_tile_text_from_rows(
+            description=effective.get("description") or "",
+            norm_addressee=norm_addressee,
+            current_rows=[r for r in rows if r["period"] == "current"],
+            proposed_rows=[r for r in rows if r["period"] == "proposed"],
+            expenses_current=effective.get("expenses_current_effective"),
+            cost_current=step.get("cost_current"),
+            expenses_proposed=effective.get("expenses_proposed_effective"),
+            cost_proposed=step.get("cost_proposed"),
+            execution_per_case=step.get("execution_per_case"),
+            wage_overrides=overrides,
+        )
     return build_process_step_tile_text(
         description=effective.get("description") or "",
         hourly_rates_current={
@@ -162,7 +180,7 @@ def refresh_step_tiles(
             updated = Tile(
                 id=tile.id,
                 title=tile.title,
-                text=_step_text(step, addressee),
+                text=build_step_tile_text(session_id, step, addressee),
                 meta_information=_with_step_metrics(
                     _apply_change_status(tile, step.get("change_status")),
                     step,

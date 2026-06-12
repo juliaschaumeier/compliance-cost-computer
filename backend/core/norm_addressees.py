@@ -46,6 +46,46 @@ EFFORT_GROUP_LABELS: dict[str, dict[str, str]] = {
     },
 }
 
+# Compact wage-source tags for the row-based provenance shown in tiles, mirroring
+# the EA editor (frontend SOURCE_TAGS). Business WZ sections (A..S) have no entry
+# and fall back to the bare section letter.
+WAGE_SOURCE_TAGS: dict[str, str] = {
+    "bund": "Bund",
+    "laender": "Laender",
+    "kommunen": "Kommunen",
+    "sozialversicherung": "SV",
+    "durchschnitt": "Durchschnitt",
+    "gesamtwirtschaft": "Gesamtwirtschaft",
+}
+
+# Human labels for the row-model qualification dimension, by norm addressee.
+PERSONNEL_QUALIFICATION_LABELS: dict[str, dict[str, str]] = {
+    ADMINISTRATION: {
+        "einfacher_und_mittlerer_dienst": "Einfacher und mittlerer Dienst",
+        "gehobener_dienst": "Gehobener Dienst",
+        "hoeherer_dienst": "Hoeherer Dienst",
+        "durchschnitt": "Durchschnitt",
+    },
+    BUSINESS: {
+        "niedrig": "Niedrig",
+        "mittel": "Mittel",
+        "hoch": "Hoch",
+        "durchschnitt": "Durchschnitt",
+    },
+}
+
+
+def personnel_provenance_label(
+    norm_addressee: str, wage_source_value: str, qualification: str
+) -> str:
+    """Compact wage provenance for a personnel-effort row, e.g. ``Bund -
+    Gehobener Dienst`` or ``R - Mittel`` (Comment 2)."""
+    source = WAGE_SOURCE_TAGS.get(wage_source_value, wage_source_value)
+    qualification_label = PERSONNEL_QUALIFICATION_LABELS.get(norm_addressee, {}).get(
+        qualification, qualification
+    )
+    return f"{source} - {qualification_label}"
+
 
 def normalize_norm_addressee(value: str | None) -> str:
     if value is None:
