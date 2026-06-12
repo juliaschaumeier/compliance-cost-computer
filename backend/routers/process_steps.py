@@ -179,20 +179,19 @@ async def edit_personnel_effort_time(
         raise HTTPException(
             status_code=422, detail="time_required_in_min_edited must not be negative"
         )
-    updated = db.update_personnel_effort_time_edit(
-        session_id=session_id,
-        norm_addressee=resolved,
-        step_id=payload.step_id,
-        period=payload.period,
-        qualification=payload.qualification,
-        wage_source_kind=payload.wage_source_kind,
-        wage_source_value=payload.wage_source_value,
-        time_required_in_min_edited=payload.time_required_in_min_edited,
-    )
-    if updated == 0:
-        raise HTTPException(
-            status_code=422, detail="No matching personnel-effort row for this identity"
+    try:
+        updated = db.upsert_personnel_effort_time_edit(
+            session_id=session_id,
+            norm_addressee=resolved,
+            step_id=payload.step_id,
+            period=payload.period,
+            qualification=payload.qualification,
+            wage_source_kind=payload.wage_source_kind,
+            wage_source_value=payload.wage_source_value,
+            time_required_in_min_edited=payload.time_required_in_min_edited,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return BulkUpdateResponse(updated=updated)
 
 

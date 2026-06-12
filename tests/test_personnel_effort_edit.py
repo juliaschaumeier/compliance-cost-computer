@@ -79,10 +79,47 @@ def test_personnel_effort_time_edit_clear(test_client):
     assert rows[0]["time_required_in_min_edited"] is None
 
 
-def test_personnel_effort_time_edit_no_match_rejected(test_client):
+def test_personnel_effort_invalid_combination_rejected(test_client):
+    # An unknown wage source has no model rate -> the row cannot be created (422).
     app_id, _session_id, step_id = _seed("C2-EDIT-NOMATCH")
     resp = test_client.post(
         "/process-steps/personnel-effort-edit",
-        json=_edit_payload(app_id, step_id, wage_source_value="laender"),
+        json=_edit_payload(app_id, step_id, wage_source_value="voellig_ungueltig"),
     )
     assert resp.status_code == 422
+
+
+def test_personnel_effort_upsert_creates_row_for_unassigned_qualification(test_client):
+    # The LLM only assigned gehobener_dienst; the user adds time for hoeherer_dienst
+    # under the step's source (laender) -> a new row is created (model rate from the
+    # wage table, no model time, the entry stored as the edited time).
+    app_id, session_id, step_id = _seed("C2-EDIT-UPSERT")
+    resp = test_client.post(
+        "/process-steps/personnel-effort-edit",
+        json=_edit_payload(
+            app_id, step_id, qualification="hoeherer_dienst",
+            wage_source_value="bund", time_required_in_min_edited=15.0,
+        ),
+    )
+    assert resp.status_code == 200
+    rows = db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
+    created = next(r for r in rows if r["qualification"] == "hoeherer_dienst")
+    assert created["time_required_in_min"] is None
+    assert created["time_required_in_min_edited"] == 15.0
+    assert created["model_hourly_rate"] == 67.6  # bund, slot c
+
+
+def test_personnel_effort_clear_removes_user_created_row(test_client):
+    app_id, session_id, step_id = _seed("C2-EDIT-UPSERT-CLEAR")
+    payload = _edit_payload(
+        app_id, step_id, qualification="hoeherer_dienst",
+        wage_source_value="bund", time_required_in_min_edited=15.0,
+    )
+    test_client.post("/process-steps/personnel-effort-edit", json=payload)
+    # Clearing a user-created row removes it entirely.
+    test_client.post(
+        "/process-steps/personnel-effort-edit",
+        json={**payload, "time_required_in_min_edited": None},
+    )
+    rows = db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
+    assert all(r["qualification"] != "hoeherer_dienst" for r in rows)

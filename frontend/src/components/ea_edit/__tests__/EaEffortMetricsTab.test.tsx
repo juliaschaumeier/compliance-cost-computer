@@ -147,7 +147,7 @@ describe("EaEffortMetricsTab", () => {
     });
   }
 
-  it("renders personnel rows with source tags and dashes for unused columns", async () => {
+  it("renders all qualifications editable under the step's single source", async () => {
     seedPersonnelStep();
     render(
       <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
@@ -155,14 +155,19 @@ describe("EaEffortMetricsTab", () => {
 
     const row = await screen.findByText("Schritt R");
     const tr = row.closest("tr") as HTMLElement;
-    // Only the two personnel time inputs + two expenses inputs remain editable.
-    expect(within(tr).getAllByRole("textbox")).toHaveLength(4);
-    expect(within(tr).getAllByText("Länder")).toHaveLength(2);
-    // Unused qualification columns render as dashes (3 per side: eD/mD, hD, Ø).
-    expect(within(tr).getAllByText("–")).toHaveLength(6);
+    // 4 qualifications x 2 periods + 2 expenses = 10 editable inputs (like before
+    // the redesign): empty qualifications are editable, not dashes.
+    const inputs = within(tr).getAllByRole("textbox");
+    expect(inputs).toHaveLength(10);
+    expect(within(tr).queryByText("–")).not.toBeInTheDocument();
+    // The source is shown once on the step, not on every cell.
+    expect(within(tr).getAllByText(/Länder/)).toHaveLength(1);
+    // Order per period: eD/mD, gD, hD, Ø, expenses. gD is prefilled, eD/mD empty.
+    expect(inputs[0]).toHaveValue("");
+    expect(inputs[1]).toHaveValue("10");
   });
 
-  it("saves a personnel time edit via the row endpoint, not bulk-update", async () => {
+  it("edits an existing qualification via the row endpoint, not bulk-update", async () => {
     seedPersonnelStep();
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
@@ -172,12 +177,11 @@ describe("EaEffortMetricsTab", () => {
     const row = await screen.findByText("Schritt R");
     const tr = row.closest("tr") as HTMLElement;
     const inputs = within(tr).getAllByRole("textbox");
-    // Order: current gD time, current expenses, proposed gD time, proposed expenses.
     const user = userEvent.setup();
-    await user.clear(inputs[0]);
-    await user.type(inputs[0], "5");
+    // inputs[1] = current gD (prefilled 10).
+    await user.clear(inputs[1]);
+    await user.type(inputs[1], "5");
     await user.click(screen.getByRole("button", { name: /prüfen/i }));
-    expect(screen.getByText(/Aktuelles Gesetz Zeit gD · Länder/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /änderungen speichern/i }));
 
     await waitFor(() => expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledTimes(1));
@@ -193,6 +197,36 @@ describe("EaEffortMetricsTab", () => {
     });
     expect(mockBulkUpdateProcessSteps).not.toHaveBeenCalled();
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates a row when adding time for an unassigned qualification", async () => {
+    // Julia: move minutes to a qualification the LLM did not assign. Editing the
+    // empty hD column upserts a row under the step's source.
+    seedPersonnelStep();
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    const row = await screen.findByText("Schritt R");
+    const tr = row.closest("tr") as HTMLElement;
+    const inputs = within(tr).getAllByRole("textbox");
+    const user = userEvent.setup();
+    // inputs[2] = current hD (empty, LLM did not assign it).
+    await user.type(inputs[2], "20");
+    await user.click(screen.getByRole("button", { name: /prüfen/i }));
+    await user.click(screen.getByRole("button", { name: /änderungen speichern/i }));
+
+    await waitFor(() => expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledTimes(1));
+    expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledWith({
+      appSessionId: "STEP-TAB",
+      normAddressee: "administration",
+      stepId: 201,
+      period: "current",
+      qualification: "hoeherer_dienst",
+      wageSourceKind: "verwaltungsebene",
+      wageSourceValue: "laender",
+      timeRequiredInMinEdited: 20,
+    });
   });
 
   it("reset clears personnel time edits via the row endpoint", async () => {

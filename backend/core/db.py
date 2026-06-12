@@ -5066,7 +5066,7 @@ def list_session_personnel_effort(session_id: int) -> list[dict]:
     return rows
 
 
-def update_personnel_effort_time_edit(
+def upsert_personnel_effort_time_edit(
     session_id: int,
     norm_addressee: str,
     step_id: int,
@@ -5076,33 +5076,97 @@ def update_personnel_effort_time_edit(
     wage_source_value: str,
     time_required_in_min_edited: float | None,
 ) -> int:
-    """Set (or clear, when None) the edited time of one personnel-effort row by its
-    identity. Returns the number of rows updated (0 when no row matches)."""
+    """Set or clear the edited time of one personnel-effort row.
+
+    Creates the row when the user adds time for a (qualification, source) the LLM
+    did not assign (model_hourly_rate from the wage table, model time NULL); and
+    removes a user-created row when its edit is cleared (an LLM row keeps its model
+    time and only clears the edit). Returns 1 when something changed, else 0.
+    Raises ValueError on an unknown combination or a step not owned by the session.
+    """
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
+    existing = cur.execute(
         """
-        UPDATE process_step_personnel_effort
-        SET time_required_in_min_edited = ?, last_edited_at = current_timestamp
+        SELECT effort_id, time_required_in_min FROM process_step_personnel_effort
         WHERE session_id = ? AND norm_addressee = ? AND step_id = ? AND period = ?
             AND qualification = ? AND wage_source_kind = ? AND wage_source_value = ?
         """,
+        (session_id, resolved, step_id, period, qualification, wage_source_kind, wage_source_value),
+    ).fetchone()
+
+    if time_required_in_min_edited is None:
+        if existing is None:
+            _maybe_close(conn)
+            return 0
+        if existing["time_required_in_min"] is None:
+            # User-created row (no model time): clearing removes it entirely.
+            cur.execute(
+                "DELETE FROM process_step_personnel_effort WHERE effort_id = ?",
+                (existing["effort_id"],),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE process_step_personnel_effort
+                SET time_required_in_min_edited = NULL, last_edited_at = current_timestamp
+                WHERE effort_id = ?
+                """,
+                (existing["effort_id"],),
+            )
+        _maybe_commit(conn)
+        _maybe_close(conn)
+        return 1
+
+    if existing is not None:
+        cur.execute(
+            """
+            UPDATE process_step_personnel_effort
+            SET time_required_in_min_edited = ?, last_edited_at = current_timestamp
+            WHERE effort_id = ?
+            """,
+            (float(time_required_in_min_edited), existing["effort_id"]),
+        )
+        _maybe_commit(conn)
+        _maybe_close(conn)
+        return 1
+
+    # No row yet: create one for the LLM-unassigned (qualification, source).
+    model_rate = get_model_hourly_rate(resolved, wage_source_value, qualification)
+    if model_rate is None:
+        _maybe_close(conn)
+        raise ValueError(
+            f"Unknown wage combination: {wage_source_value!r} / {qualification!r} "
+            f"for {resolved!r}"
+        )
+    belongs = cur.execute(
+        "SELECT 1 FROM process_steps WHERE step_id = ? AND session_id = ? AND norm_addressee = ?",
+        (step_id, session_id, resolved),
+    ).fetchone()
+    if belongs is None:
+        _maybe_close(conn)
+        raise ValueError(
+            f"process_step {step_id} does not belong to session {session_id} / {resolved!r}"
+        )
+    cur.execute(
+        """
+        INSERT INTO process_step_personnel_effort (
+            session_id, norm_addressee, step_id, period, qualification,
+            wage_source_kind, wage_source_value, time_required_in_min,
+            time_required_in_min_edited, model_hourly_rate, last_edited_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, current_timestamp)
+        """,
         (
-            time_required_in_min_edited,
-            session_id,
-            resolved,
-            step_id,
-            period,
-            qualification,
-            wage_source_kind,
-            wage_source_value,
+            session_id, resolved, step_id, period, qualification,
+            wage_source_kind, wage_source_value,
+            float(time_required_in_min_edited), model_rate,
         ),
     )
-    updated = cur.rowcount
     _maybe_commit(conn)
     _maybe_close(conn)
-    return updated
+    return 1
 
 
 def get_session_wage_rate_overrides(

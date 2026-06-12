@@ -174,8 +174,59 @@ const SOURCE_TAGS: Record<string, string> = {
   gesamtwirtschaft: "Gesamt",
 };
 
-function formatSourceTag(entry: PersonnelEffortEntry): string {
-  return SOURCE_TAGS[entry.wage_source_value] ?? entry.wage_source_value;
+function sourceTagOf(value: string): string {
+  return SOURCE_TAGS[value] ?? value;
+}
+
+// All qualifications of an addressee in canonical (slot) order. Lets the user add
+// effort for a qualification the LLM did not assign (Julia: move minutes between
+// qualifications), matching the pre-redesign editor.
+const QUALIFICATIONS_BY_ADDRESSEE: Record<string, string[]> = {
+  administration: [
+    "einfacher_und_mittlerer_dienst",
+    "gehobener_dienst",
+    "hoeherer_dienst",
+    "durchschnitt",
+  ],
+  business: ["niedrig", "mittel", "hoch", "durchschnitt"],
+};
+
+function distinctSources(
+  entries: PersonnelEffortEntry[]
+): Array<{ kind: string; value: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ kind: string; value: string }> = [];
+  for (const entry of entries) {
+    const key = `${entry.wage_source_kind}|${entry.wage_source_value}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ kind: entry.wage_source_kind, value: entry.wage_source_value });
+    }
+  }
+  return out;
+}
+
+// The wage source under which empty qualification cells of a period are editable:
+// the period's single source, or (when the period has no rows yet) the other
+// period's single source. Null when ambiguous (mixed sources) -> only existing
+// rows are shown.
+function fillSourceForPeriod(
+  row: EditableProcessStepRow,
+  period: "current" | "proposed"
+): { kind: string; value: string } | null {
+  const here =
+    (period === "current" ? row.personnel_effort_current : row.personnel_effort_proposed) ?? [];
+  const hereSources = distinctSources(here);
+  if (hereSources.length === 1) {
+    return hereSources[0];
+  }
+  if (hereSources.length > 1) {
+    return null;
+  }
+  const other =
+    (period === "current" ? row.personnel_effort_proposed : row.personnel_effort_current) ?? [];
+  const otherSources = distinctSources(other);
+  return otherSources.length === 1 ? otherSources[0] : null;
 }
 
 function stepUsesPersonnelRows(row: EditableProcessStepRow): boolean {
@@ -206,19 +257,42 @@ function buildStepCells(row: EditableProcessStepRow): EditableCell[] {
   if (!personnel) {
     return cells;
   }
+  const qualifications = QUALIFICATIONS_BY_ADDRESSEE[row.norm_addressee] ?? [];
   for (const side of ["current", "proposed"] as const) {
     const entries =
       (side === "current" ? row.personnel_effort_current : row.personnel_effort_proposed) ?? [];
-    // Julia's sort: period (table side) -> qualification order -> wage source.
-    const sorted = [...entries].sort((x, y) => {
-      const sx = QUALIFICATION_SLOT[x.qualification] ?? "d";
-      const sy = QUALIFICATION_SLOT[y.qualification] ?? "d";
-      if (sx !== sy) {
-        return sx < sy ? -1 : 1;
+    const source = fillSourceForPeriod(row, side);
+    if (source && qualifications.length > 0) {
+      // Render every qualification under the step's source (Julia's order =
+      // slot order); empty ones are blank and create a row on edit.
+      for (const qualification of qualifications) {
+        const entry = entries.find(
+          (e) =>
+            e.qualification === qualification &&
+            e.wage_source_kind === source.kind &&
+            e.wage_source_value === source.value
+        );
+        cells.push({
+          key: `pe:${side}:${qualification}:${source.kind}:${source.value}`,
+          side,
+          slot: QUALIFICATION_SLOT[qualification] ?? "d",
+          model: entry?.time_required_in_min ?? null,
+          edited: entry?.time_required_in_min_edited ?? null,
+          effective: entry?.time_required_in_min_edited ?? entry?.time_required_in_min ?? null,
+          sourceTag: sourceTagOf(source.value),
+          save: {
+            type: "personnel",
+            period: side,
+            qualification,
+            wageSourceKind: source.kind,
+            wageSourceValue: source.value,
+          },
+        });
       }
-      return x.wage_source_value.localeCompare(y.wage_source_value);
-    });
-    for (const entry of sorted) {
+      continue;
+    }
+    // Ambiguous (mixed sources): conservatively edit only existing rows.
+    for (const entry of entries) {
       cells.push({
         key: `pe:${side}:${entry.qualification}:${entry.wage_source_kind}:${entry.wage_source_value}`,
         side,
@@ -226,7 +300,7 @@ function buildStepCells(row: EditableProcessStepRow): EditableCell[] {
         model: entry.time_required_in_min,
         edited: entry.time_required_in_min_edited,
         effective: entry.time_required_in_min_edited ?? entry.time_required_in_min,
-        sourceTag: formatSourceTag(entry),
+        sourceTag: sourceTagOf(entry.wage_source_value),
         save: {
           type: "personnel",
           period: side,
@@ -923,7 +997,7 @@ export default function EaEffortMetricsTab({
                                 onChange={(event) => updateField(cell.key, event.target.value)}
                                 className={inputClass(draftRow[cell.key] ?? "")}
                               />
-                              {cell.sourceTag && (
+                              {columnCells.length > 1 && cell.sourceTag && (
                                 <span className="whitespace-nowrap text-[10px] text-slate-500">
                                   {cell.sourceTag}
                                 </span>
@@ -935,9 +1009,20 @@ export default function EaEffortMetricsTab({
                     </td>
                   );
                 };
+                const stepSources = distinctSources([
+                  ...(row.personnel_effort_current ?? []),
+                  ...(row.personnel_effort_proposed ?? []),
+                ]);
                 return (
                   <tr key={row.step_id} className="border-b border-slate-100">
-                    <td className="px-2 py-2 font-semibold text-slate-800">{row.step}</td>
+                    <td className="px-2 py-2 font-semibold text-slate-800">
+                      {row.step}
+                      {stepSources.length === 1 && (
+                        <span className="ml-1 font-normal text-[10px] text-slate-500">
+                          · {sourceTagOf(stepSources[0].value)}
+                        </span>
+                      )}
+                    </td>
                     {currentFields.map((field) => renderColumn(field, ""))}
                     {proposedFields.map((field) =>
                       renderColumn(
