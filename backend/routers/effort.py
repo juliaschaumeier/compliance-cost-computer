@@ -339,12 +339,33 @@ def _parse_personnel_effort_entries(
     for raw_item in raw_items:
         if not isinstance(raw_item, dict):
             continue
-        slot = _resolve_qualification_slot(raw_item, norm_addressee)
-        if slot is None:
+        raw_qualification = str(
+            raw_item.get("qualifikation") or raw_item.get("qualification") or ""
+        ).strip()
+        raw_source = str(raw_item.get("lohnquelle") or "").strip()
+        duration = parse_optional_number(
+            raw_item.get("zeitaufwand_in_min")
+            or raw_item.get("zeitaufwand")
+            or raw_item.get("time_required_in_min")
+        )
+        if not raw_qualification:
+            # Fully empty placeholder rows (prompt template) are skipped; a row that
+            # carries a `lohnquelle` or a time but no `qualifikation` is rejected, so
+            # a partially-filled entry is never silently dropped (symmetric with the
+            # missing-`lohnquelle` rule below).
+            if raw_source or duration is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "effort_calculation: Personalaufwand-Eintrag ohne "
+                        "`qualifikation`, aber mit `lohnquelle`/`zeitaufwand`. Jeder "
+                        "Eintrag mit Daten muss eine `qualifikation` angeben."
+                    ),
+                )
             continue
+        slot = _resolve_qualification_slot(raw_item, norm_addressee)
         qualification = db.PERSONNEL_QUALIFICATION_BY_SLOT[norm_addressee][slot]
 
-        raw_source = str(raw_item.get("lohnquelle") or "").strip()
         source_value = _normalize_role_wage_source(raw_item, norm_addressee)
         if source_value is None:
             if raw_source:
@@ -369,11 +390,6 @@ def _parse_personnel_effort_entries(
                 ),
             )
 
-        duration = parse_optional_number(
-            raw_item.get("zeitaufwand_in_min")
-            or raw_item.get("zeitaufwand")
-            or raw_item.get("time_required_in_min")
-        )
         if duration is None:
             continue
 

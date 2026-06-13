@@ -1581,6 +1581,48 @@ def test_personnel_effort_missing_lohnquelle_rejected(test_client, monkeypatch):
     assert "fehlende" in resp.json()["detail"].lower()
 
 
+def test_personnel_effort_missing_qualifikation_rejected(test_client, monkeypatch):
+    # Symmetric to the missing-`lohnquelle` rule: a row carrying a `lohnquelle`
+    # (and/or a time) but no `qualifikation` is rejected (422) instead of silently
+    # dropped, so a partially-filled entry can never under-count the effort.
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "",
+              "lohnquelle": "bund",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "qualifikation" in resp.json()["detail"].lower()
+
+
 def test_personnel_effort_duplicate_combination_rejected(test_client, monkeypatch):
     # Two rows with the same (qualifikation, lohnquelle) in one period -> 422
     # (end-to-end over the route; the parser unit + DB constraint are covered

@@ -611,30 +611,60 @@ def _aggregate_process_costs(
     )
 
 
-def compute_total_cost_for_session(
-    app_session_id: str,
-    norm_addressee: str | None = None,
-) -> dict:
-    session = db.get_session_by_app_id(app_session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    session_id = int(session["session_id"])
-    norm_addressee = normalize_norm_addressee_or_422(norm_addressee)
+def _without_edits(row: dict) -> dict:
+    """Return a copy of ``row`` with every ``*_edited`` overlay nulled.
 
+    Used to derive the model-only (pre user-edit) view of steps, case groups and
+    personnel rows for the compliance export's "reject user edits" policy.
+    """
+    return {
+        key: (None if isinstance(key, str) and key.endswith("_edited") else value)
+        for key, value in row.items()
+    }
+
+
+def aggregate_addressee_costs(
+    session_id: int,
+    norm_addressee: str,
+    *,
+    apply_user_edits: bool = True,
+) -> dict:
+    """Read-only cost aggregation for one norm addressee (no persistence).
+
+    With ``apply_user_edits=True`` (default) this is the exact computation the
+    live recompute uses; ``compute_total_cost_for_session`` wraps it and persists.
+    With ``apply_user_edits=False`` all user edits are stripped first (row wage
+    overrides ignored, ``*_edited`` overlays nulled), so the result is the pure
+    model cost the compliance export needs for ``reject_if_user_edits``. Returning
+    both the totals and the per-step cost maps keeps the export and the app on one
+    cost source, so they can never drift.
+    """
     processes, case_groups, steps = _load_structure_rows(session_id, norm_addressee)
     pay_rates = db.get_session_pay_rates_for_addressee(session_id, norm_addressee)
     if not pay_rates:
         raise HTTPException(status_code=404, detail="Session pay rates not found")
     default_rates = pay_rates["defaults"]
-    edited_rates = pay_rates["edited"]
+    edited_rates = pay_rates["edited"] if apply_user_edits else {}
     personnel_rows_by_step: dict[int, list[dict]] = {}
     for row in db.list_process_step_personnel_effort(session_id, norm_addressee):
+        if not apply_user_edits:
+            row = _without_edits(row)
         personnel_rows_by_step.setdefault(int(row["step_id"]), []).append(row)
-    wage_overrides = db.get_session_wage_rate_overrides(session_id, norm_addressee)
+    wage_overrides = (
+        db.get_session_wage_rate_overrides(session_id, norm_addressee)
+        if apply_user_edits
+        else {}
+    )
+    metric_case_groups = (
+        case_groups if apply_user_edits else [_without_edits(g) for g in case_groups]
+    )
+    metric_steps = steps if apply_user_edits else [_without_edits(s) for s in steps]
     effective_case_groups = [
-        db.resolve_effective_case_group_metrics(group) for group in case_groups
+        db.resolve_effective_case_group_metrics(group) for group in metric_case_groups
     ]
-    effective_steps = [db.resolve_effective_process_step_metrics(step) for step in steps]
+    effective_steps = [
+        db.resolve_effective_process_step_metrics(step) for step in metric_steps
+    ]
     skipped_response = _ensure_structure_or_skip(
         session_id=session_id,
         norm_addressee=norm_addressee,
@@ -643,7 +673,7 @@ def compute_total_cost_for_session(
         steps=steps,
     )
     if skipped_response is not None:
-        return skipped_response
+        return {"skipped": skipped_response}
 
     missing_case_groups = [
         str(group["case_group_id"])
@@ -670,88 +700,130 @@ def compute_total_cost_for_session(
             detail="Missing step cost metrics for step_id: " + ", ".join(missing_steps),
         )
 
+    business_information_fractions = (
+        _compute_step_bureaucracy_fractions(session_id, norm_addressee)
+        if norm_addressee == BUSINESS
+        else {}
+    )
+    (
+        step_costs_current,
+        step_costs_proposed,
+        step_time_current,
+        step_time_proposed,
+        step_bureaucracy_current,
+        step_bureaucracy_proposed,
+        per_case_flags,
+    ) = _compute_step_metrics(
+        steps=effective_steps,
+        case_groups=effective_case_groups,
+        norm_addressee=norm_addressee,
+        default_rates=default_rates,
+        edited_rates=edited_rates,
+        personnel_rows_by_step=personnel_rows_by_step,
+        wage_overrides=wage_overrides,
+        business_information_fractions=business_information_fractions,
+    )
+    steps_by_group = _build_steps_by_group(effective_steps)
+    effective_steps_by_id = {int(step["step_id"]): step for step in effective_steps}
+    (
+        case_group_costs,
+        case_group_bureaucracy_costs,
+        case_group_time_deltas,
+        case_group_expense_deltas,
+    ) = _aggregate_case_group_costs(
+        session_id=session_id,
+        effective_case_groups=effective_case_groups,
+        case_groups=metric_case_groups,
+        effective_steps_by_id=effective_steps_by_id,
+        steps_by_group=steps_by_group,
+        step_costs_current=step_costs_current,
+        step_costs_proposed=step_costs_proposed,
+        step_time_current=step_time_current,
+        step_time_proposed=step_time_proposed,
+        step_bureaucracy_current=step_bureaucracy_current,
+        step_bureaucracy_proposed=step_bureaucracy_proposed,
+        per_case_flags=per_case_flags,
+        norm_addressee=norm_addressee,
+    )
+    (
+        process_costs,
+        process_bureaucracy_costs,
+        process_time_deltas,
+        process_expense_deltas,
+    ) = _aggregate_process_costs(
+        session_id=session_id,
+        processes=processes,
+        case_groups=metric_case_groups,
+        case_group_costs=case_group_costs,
+        case_group_bureaucracy_costs=case_group_bureaucracy_costs,
+        case_group_time_deltas=case_group_time_deltas,
+        case_group_expense_deltas=case_group_expense_deltas,
+    )
+
+    total_cost = sum(process_costs.values())
+    bureaucracy_cost = (
+        sum(process_bureaucracy_costs.values()) if norm_addressee == BUSINESS else None
+    )
+    total_time_minutes = (
+        sum(process_time_deltas.values()) if norm_addressee == CITIZENS else None
+    )
+    total_expenses = (
+        sum(process_expense_deltas.values()) if norm_addressee == CITIZENS else None
+    )
+    if norm_addressee == CITIZENS:
+        total_cost = None
+    return {
+        "skipped": None,
+        "processes": processes,
+        "case_groups": case_groups,
+        "steps": steps,
+        "step_costs_current": step_costs_current,
+        "step_costs_proposed": step_costs_proposed,
+        "step_bureaucracy_current": step_bureaucracy_current,
+        "step_bureaucracy_proposed": step_bureaucracy_proposed,
+        "case_group_costs": case_group_costs,
+        "process_costs": process_costs,
+        "total_cost": total_cost,
+        "bureaucracy_cost": bureaucracy_cost,
+        "total_time_minutes": total_time_minutes,
+        "total_expenses": total_expenses,
+    }
+
+
+def compute_total_cost_for_session(
+    app_session_id: str,
+    norm_addressee: str | None = None,
+) -> dict:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    norm_addressee = normalize_norm_addressee_or_422(norm_addressee)
+
+    agg = aggregate_addressee_costs(session_id, norm_addressee, apply_user_edits=True)
+    skipped_response = agg.get("skipped")
+    if skipped_response is not None:
+        return skipped_response
+
+    processes = agg["processes"]
+    case_groups = agg["case_groups"]
+    steps = agg["steps"]
+    process_costs = agg["process_costs"]
+    total_cost = agg["total_cost"]
+    bureaucracy_cost = agg["bureaucracy_cost"]
+    total_time_minutes = agg["total_time_minutes"]
+    total_expenses = agg["total_expenses"]
+
     with db.transaction():
-        business_information_fractions = (
-            _compute_step_bureaucracy_fractions(session_id, norm_addressee)
-            if norm_addressee == BUSINESS
-            else {}
-        )
-        (
-            step_costs_current,
-            step_costs_proposed,
-            step_time_current,
-            step_time_proposed,
-            step_bureaucracy_current,
-            step_bureaucracy_proposed,
-            per_case_flags,
-        ) = _compute_step_metrics(
-            steps=effective_steps,
-            case_groups=effective_case_groups,
-            norm_addressee=norm_addressee,
-            default_rates=default_rates,
-            edited_rates=edited_rates,
-            personnel_rows_by_step=personnel_rows_by_step,
-            wage_overrides=wage_overrides,
-            business_information_fractions=business_information_fractions,
-        )
         _persist_step_costs(
             session_id=session_id,
             steps=steps,
             norm_addressee=norm_addressee,
-            step_costs_current=step_costs_current,
-            step_costs_proposed=step_costs_proposed,
-            step_bureaucracy_current=step_bureaucracy_current,
-            step_bureaucracy_proposed=step_bureaucracy_proposed,
+            step_costs_current=agg["step_costs_current"],
+            step_costs_proposed=agg["step_costs_proposed"],
+            step_bureaucracy_current=agg["step_bureaucracy_current"],
+            step_bureaucracy_proposed=agg["step_bureaucracy_proposed"],
         )
-
-        steps_by_group = _build_steps_by_group(effective_steps)
-        effective_steps_by_id = {int(step["step_id"]): step for step in effective_steps}
-        (
-            case_group_costs,
-            case_group_bureaucracy_costs,
-            case_group_time_deltas,
-            case_group_expense_deltas,
-        ) = _aggregate_case_group_costs(
-            session_id=session_id,
-            effective_case_groups=effective_case_groups,
-            case_groups=case_groups,
-            effective_steps_by_id=effective_steps_by_id,
-            steps_by_group=steps_by_group,
-            step_costs_current=step_costs_current,
-            step_costs_proposed=step_costs_proposed,
-            step_time_current=step_time_current,
-            step_time_proposed=step_time_proposed,
-            step_bureaucracy_current=step_bureaucracy_current,
-            step_bureaucracy_proposed=step_bureaucracy_proposed,
-            per_case_flags=per_case_flags,
-            norm_addressee=norm_addressee,
-        )
-
-        (
-            process_costs,
-            process_bureaucracy_costs,
-            process_time_deltas,
-            process_expense_deltas,
-        ) = _aggregate_process_costs(
-            session_id=session_id,
-            processes=processes,
-            case_groups=case_groups,
-            case_group_costs=case_group_costs,
-            case_group_bureaucracy_costs=case_group_bureaucracy_costs,
-            case_group_time_deltas=case_group_time_deltas,
-            case_group_expense_deltas=case_group_expense_deltas,
-        )
-
-        total_cost = sum(process_costs.values())
-        bureaucracy_cost = sum(process_bureaucracy_costs.values()) if norm_addressee == BUSINESS else None
-        total_time_minutes = (
-            sum(process_time_deltas.values()) if norm_addressee == CITIZENS else None
-        )
-        total_expenses = (
-            sum(process_expense_deltas.values()) if norm_addressee == CITIZENS else None
-        )
-        if norm_addressee == CITIZENS:
-            total_cost = None
         db.upsert_session_total_costs_by_addressee(
             session_id=session_id,
             norm_addressee=norm_addressee,

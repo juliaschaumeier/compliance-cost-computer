@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from fastapi import HTTPException
+
 from backend.core import db
 from backend.core.deep_research_cases import CASE_GROUP_RESEARCH_PURPOSE
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
@@ -43,6 +45,9 @@ _STEP_EDITABLE_KEYS = (
     "time_required_in_min_c_proposed",
     "time_required_in_min_d_proposed",
     "expenses_proposed",
+)
+_STEP_TIME_KEYS = tuple(
+    key for key in _STEP_EDITABLE_KEYS if not key.startswith("expenses")
 )
 _PAY_RATE_KEYS = ("a", "b", "c", "d")
 
@@ -145,28 +150,73 @@ def _build_addressee_payload(
     norm_addressee: str,
     policy: UserEditPolicy,
 ) -> tuple[dict[str, Any], bool]:
+    # Lazy import keeps the core -> router dependency one-directional at import time.
+    from backend.routers import costs
+
     regulations = db.list_regulations_for_session_and_addressee(session_id, norm_addressee)
     processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
     case_groups = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
     steps = db.list_process_steps_for_session_and_addressee(session_id, norm_addressee)
-    totals = db.get_session_total_costs_by_addressee(session_id, norm_addressee)
-    pay_rates = db.get_session_pay_rates_for_addressee(session_id, norm_addressee)
+
+    # One cost source for the export and the app: the cost engine under the same
+    # policy (use vs reject), so the totals and every per-step/-group/-process cost
+    # cannot drift from what the user sees. Missing inputs (engine 404/422) degrade
+    # to "no cost data" rather than crashing the export.
+    apply_edits = policy == USER_EDIT_USE
+    try:
+        cost = costs.aggregate_addressee_costs(
+            session_id, norm_addressee, apply_user_edits=apply_edits
+        )
+        if cost.get("skipped") is not None:
+            cost = None
+    except HTTPException:
+        cost = None
+    step_costs_current = (cost or {}).get("step_costs_current") or {}
+    step_costs_proposed = (cost or {}).get("step_costs_proposed") or {}
+    case_group_costs = (cost or {}).get("case_group_costs") or {}
+    process_costs = (cost or {}).get("process_costs") or {}
+    totals = (
+        {
+            "session_id": session_id,
+            "norm_addressee": norm_addressee,
+            "total_cost": cost["total_cost"],
+            "bureaucracy_cost": cost["bureaucracy_cost"],
+            "total_time_minutes": cost["total_time_minutes"],
+            "total_expenses": cost["total_expenses"],
+        }
+        if cost
+        else {}
+    )
+
+    wage_overrides = db.get_session_wage_rate_overrides(session_id, norm_addressee)
+    personnel_by_step: dict[int, list[dict[str, Any]]] = {}
+    for row in db.list_process_step_personnel_effort(session_id, norm_addressee):
+        personnel_by_step.setdefault(int(row["step_id"]), []).append(row)
 
     groups_by_process: dict[int, list[dict[str, Any]]] = {}
     has_user_edits = False
     serialized_pay_rates, pay_rates_have_edits = _serialize_pay_rates(
-        pay_rates,
-        policy,
+        session_id, norm_addressee, policy
     )
     has_user_edits = has_user_edits or pay_rates_have_edits
     for group in case_groups:
-        serialized, group_has_edits = _serialize_case_group(group, policy)
+        serialized, group_has_edits = _serialize_case_group(
+            group, policy, case_group_costs.get(int(group["case_group_id"]))
+        )
         has_user_edits = has_user_edits or group_has_edits
         groups_by_process.setdefault(int(group["process_id"]), []).append(serialized)
 
     steps_by_group: dict[int, list[dict[str, Any]]] = {}
     for step in steps:
-        serialized, step_has_edits = _serialize_process_step(step, policy)
+        step_id = int(step["step_id"])
+        serialized, step_has_edits = _serialize_process_step(
+            step,
+            policy,
+            personnel_rows=personnel_by_step.get(step_id, []),
+            wage_overrides=wage_overrides,
+            step_cost_current=step_costs_current.get(step_id),
+            step_cost_proposed=step_costs_proposed.get(step_id),
+        )
         has_user_edits = has_user_edits or step_has_edits
         steps_by_group.setdefault(int(step["case_group_id"]), []).append(serialized)
 
@@ -184,42 +234,191 @@ def _build_addressee_payload(
                 "prozess_bezeichnung": process.get("process"),
                 "prozess_beschreibung": process.get("description"),
                 "aenderungsstatus": process.get("change_status"),
-                "kosten": process.get("cost"),
+                "kosten": process_costs.get(
+                    int(process["process_id"]), process.get("cost")
+                ),
                 "fallgruppen": groups_by_process.get(int(process["process_id"]), []),
             }
             for process in processes
         ],
-        "summen": totals or {},
+        "summen": totals,
     }, has_user_edits
 
 
+def _value_cell(base: Any, edited: Any, policy: UserEditPolicy) -> dict[str, Any]:
+    """One base/edited value under the user-edit policy (shared snapshot shape)."""
+    use_edit = policy == USER_EDIT_USE and edited is not None
+    return {
+        "wert": edited if use_edit else base,
+        "originalwert": base if use_edit else None,
+        "edited_value_available": edited is not None,
+        "value_source": "user_edited" if use_edit else "generated",
+    }
+
+
 def _serialize_pay_rates(
-    pay_rates: dict[str, Any] | None,
+    session_id: int,
+    norm_addressee: str,
     policy: UserEditPolicy,
 ) -> tuple[dict[str, Any], bool]:
+    """Wage rates from the row-based store (session_wage_rate_overrides), mapped
+    onto the a/b/c/d slot shape the export prompt expects.
+
+    Reads the same override store the cost engine uses, so the displayed rate
+    matches the rate the cost was computed with. ``hourly_rate_edited`` counts as a
+    user edit. One source per session is the regular case; with mixed sources the
+    first source per qualification is shown (the cost stays exact via the engine).
+    """
+    resolved = db.normalize_norm_addressee(norm_addressee)
+    slot_by_qualification = db.PERSONNEL_SLOT_BY_QUALIFICATION.get(resolved, {})
+    wage_rows = db.list_session_wage_rate_rows(session_id, resolved)
+    if not wage_rows:
+        # No personnel rows (legacy / citizens): fall back to the legacy slot
+        # pay-rate store so old sessions still show their wage rates.
+        return _serialize_pay_rates_slots(session_id, norm_addressee, policy)
+    has_edits = any(row.get("hourly_rate_edited") is not None for row in wage_rows)
+    werte: dict[str, Any] = {}
+    sources: list[str] = []
+    for row in wage_rows:
+        slot = slot_by_qualification.get(row["qualification"])
+        if slot is None or slot in werte:
+            continue
+        sources.append(row["wage_source_value"])
+        edited = row.get("hourly_rate_edited")
+        model = row.get("model_hourly_rate")
+        use_edit = policy == USER_EDIT_USE and edited is not None
+        werte[slot] = {
+            "wert": edited if use_edit else model,
+            "originalwert": model if use_edit else None,
+            "active_session_value": edited if edited is not None else model,
+            "edited_value_available": edited is not None,
+            "value_source": "user_edited" if use_edit else "generated",
+            "lohnquelle": row["wage_source_value"],
+        }
+    primary_source = max(set(sources), key=sources.count) if sources else None
+    return {
+        "normadressat": norm_addressee,
+        "editable": True,
+        "verwaltungsebene": primary_source,
+        "werte": werte,
+    }, has_edits
+
+
+def _serialize_pay_rates_slots(
+    session_id: int,
+    norm_addressee: str,
+    policy: UserEditPolicy,
+) -> tuple[dict[str, Any], bool]:
+    """Legacy slot-based pay rates for sessions without personnel rows."""
+    pay_rates = db.get_session_pay_rates_for_addressee(session_id, norm_addressee)
     if not pay_rates:
         return {}, False
     defaults = pay_rates.get("defaults") or {}
     edited = pay_rates.get("edited") or {}
     active = pay_rates.get("active") or {}
-    serialized = {
-        "normadressat": pay_rates.get("norm_addressee"),
-        "editable": bool(pay_rates.get("editable")),
-        "verwaltungsebene": pay_rates.get("administration_level"),
-        "werte": {},
-    }
     has_edits = any(edited.get(key) is not None for key in _PAY_RATE_KEYS)
+    werte: dict[str, Any] = {}
     for key in _PAY_RATE_KEYS:
         edited_value = edited.get(key)
         use_edit = policy == USER_EDIT_USE and edited_value is not None
-        serialized["werte"][key] = {
+        werte[key] = {
             "wert": edited_value if use_edit else defaults.get(key),
             "originalwert": defaults.get(key) if use_edit else None,
             "active_session_value": active.get(key),
             "edited_value_available": edited_value is not None,
             "value_source": "user_edited" if use_edit else "generated",
         }
-    return serialized, has_edits
+    return {
+        "normadressat": pay_rates.get("norm_addressee"),
+        "editable": bool(pay_rates.get("editable")),
+        "verwaltungsebene": pay_rates.get("administration_level"),
+        "werte": werte,
+    }, has_edits
+
+
+def _row_based_step_metrics(
+    personnel_rows: list[dict[str, Any]],
+    wage_overrides: dict,
+    policy: UserEditPolicy,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Per-slot hourly rates and time cells derived from the personnel rows.
+
+    Mirrors the cost engine under the same policy: time is ``edited ?? base``,
+    rate is ``override ?? model``. Rows of one qualification/period are summed into
+    their slot; the dominant (max-base-time) row supplies the displayed rate.
+    """
+    aggregated: dict[tuple[str, str], dict[str, Any]] = {}
+    has_edits = False
+    for row in personnel_rows:
+        resolved = db.normalize_norm_addressee(row["norm_addressee"])
+        slot = db.PERSONNEL_SLOT_BY_QUALIFICATION.get(resolved, {}).get(
+            row["qualification"]
+        )
+        if slot is None:
+            continue
+        suffix = "current" if row["period"] == "current" else "proposed"
+        base_time = row.get("time_required_in_min") or 0.0
+        edited_time = row.get("time_required_in_min_edited")
+        override = wage_overrides.get(
+            (row["wage_source_kind"], row["wage_source_value"], row["qualification"])
+        )
+        if edited_time is not None or override is not None:
+            has_edits = True
+        cell = aggregated.setdefault(
+            (slot, suffix),
+            {
+                "base": 0.0,
+                "effective": 0.0,
+                "any_edit": False,
+                "rate_model": row.get("model_hourly_rate"),
+                "rate_override": override,
+                "dominant": -1.0,
+            },
+        )
+        cell["base"] += base_time
+        cell["effective"] += edited_time if edited_time is not None else base_time
+        if edited_time is not None:
+            cell["any_edit"] = True
+        if base_time > cell["dominant"]:
+            cell["dominant"] = base_time
+            cell["rate_model"] = row.get("model_hourly_rate")
+            cell["rate_override"] = override
+
+    stundenloehne: dict[str, Any] = {}
+    time_cells: dict[str, Any] = {}
+    for (slot, suffix), cell in aggregated.items():
+        use_time_edit = policy == USER_EDIT_USE and cell["any_edit"]
+        time_cells[f"time_required_in_min_{slot}_{suffix}"] = {
+            "wert": cell["effective"] if use_time_edit else cell["base"],
+            "originalwert": cell["base"] if use_time_edit else None,
+            "edited_value_available": cell["any_edit"],
+            "value_source": "user_edited" if use_time_edit else "generated",
+        }
+        use_rate_edit = policy == USER_EDIT_USE and cell["rate_override"] is not None
+        stundenloehne[f"{slot}_{suffix}"] = (
+            cell["rate_override"] if use_rate_edit else cell["rate_model"]
+        )
+    return stundenloehne, time_cells, has_edits
+
+
+def _slot_based_step_metrics(
+    step: dict[str, Any],
+    policy: UserEditPolicy,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Legacy slot path for steps without personnel rows (citizens / old sessions)."""
+    stundenloehne = {
+        f"{slot}_{suffix}": step.get(f"hourly_rate_{slot}_{suffix}")
+        for suffix in ("current", "proposed")
+        for slot in ("a", "b", "c", "d")
+    }
+    time_cells: dict[str, Any] = {}
+    has_edits = False
+    for key in _STEP_TIME_KEYS:
+        edited = step.get(f"{key}_edited")
+        if edited is not None:
+            has_edits = True
+        time_cells[key] = _value_cell(step.get(key), edited, policy)
+    return stundenloehne, time_cells, has_edits
 
 
 def _serialize_regulation(row: dict[str, Any]) -> dict[str, Any]:
@@ -246,6 +445,7 @@ def _serialize_regulation(row: dict[str, Any]) -> dict[str, Any]:
 def _serialize_case_group(
     group: dict[str, Any],
     policy: UserEditPolicy,
+    case_cost: float | None = None,
 ) -> tuple[dict[str, Any], bool]:
     evidence = _parse_json_object(group.get("case_metric_research_json"))
     serialized = {
@@ -253,7 +453,7 @@ def _serialize_case_group(
         "fallgruppe_bezeichnung": group.get("case_group"),
         "fallgruppe_beschreibung": group.get("description"),
         "aenderungsstatus": group.get("change_status"),
-        "kosten": group.get("cost"),
+        "kosten": case_cost if case_cost is not None else group.get("cost"),
         "kennzahlen": {},
         "taetigkeiten": [],
     }
@@ -335,18 +535,27 @@ def _metric_value(
 def _serialize_process_step(
     step: dict[str, Any],
     policy: UserEditPolicy,
+    *,
+    personnel_rows: list[dict[str, Any]],
+    wage_overrides: dict,
+    step_cost_current: float | None,
+    step_cost_proposed: float | None,
 ) -> tuple[dict[str, Any], bool]:
-    has_edits = any(step.get(f"{key}_edited") is not None for key in _STEP_EDITABLE_KEYS)
-    metrics: dict[str, Any] = {}
-    for key in _STEP_EDITABLE_KEYS:
-        edited_value = step.get(f"{key}_edited")
-        use_edit = policy == USER_EDIT_USE and edited_value is not None
-        metrics[key] = {
-            "wert": edited_value if use_edit else step.get(key),
-            "originalwert": step.get(key) if use_edit else None,
-            "edited_value_available": edited_value is not None,
-            "value_source": "user_edited" if use_edit else "generated",
-        }
+    """Serialize one step. Rates and times come from the personnel rows (row
+    model) when present, else the legacy slots; the cost comes from the cost
+    engine under the same policy, so rate x time and the cost never disagree."""
+    if personnel_rows:
+        stundenloehne, time_cells, has_edits = _row_based_step_metrics(
+            personnel_rows, wage_overrides, policy
+        )
+    else:
+        stundenloehne, time_cells, has_edits = _slot_based_step_metrics(step, policy)
+    metrics: dict[str, Any] = dict(time_cells)
+    for key in ("expenses_current", "expenses_proposed"):
+        edited = step.get(f"{key}_edited")
+        if edited is not None:
+            has_edits = True
+        metrics[key] = _value_cell(step.get(key), edited, policy)
     return {
         "taetigkeiten_id": int(step["step_id"]),
         "taetigkeit": step.get("step"),
@@ -354,15 +563,11 @@ def _serialize_process_step(
         "aenderungsstatus": step.get("change_status"),
         "vorgaben_ids": step.get("regulation_ids") or [],
         "execution_per_case": step.get("execution_per_case"),
-        "stundenloehne": {
-            f"{slot}_{suffix}": step.get(f"hourly_rate_{slot}_{suffix}")
-            for suffix in ("current", "proposed")
-            for slot in ("a", "b", "c", "d")
-        },
+        "stundenloehne": stundenloehne,
         "kennzahlen": metrics,
         "kosten": {
-            "gueltig": step.get("cost_current"),
-            "vorschlag": step.get("cost_proposed"),
+            "gueltig": step_cost_current,
+            "vorschlag": step_cost_proposed,
         },
     }, has_edits
 
