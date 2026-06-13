@@ -4202,10 +4202,18 @@ def reset_all_ea_edit_overrides(session_id: int) -> dict[str, int]:
             ):
                 updated_pay_rates += 1
 
+        # NEU stores (Dual-Write phase): clear the row-based wage overrides and the
+        # effort-time edit overlay session-wide so a global reset yields pure model
+        # costs. ALT pay_rates reset above is left untouched (Phase-4 teardown).
+        cleared_wage_overrides = clear_session_wage_rate_overrides(session_id)
+        cleared_effort_time_edits = clear_personnel_effort_time_edits(session_id)
+
         return {
             "pay_rates": updated_pay_rates,
             "case_groups": updated_case_groups,
             "process_steps": updated_process_steps,
+            "wage_overrides": cleared_wage_overrides,
+            "effort_time_edits": cleared_effort_time_edits,
         }
 
 
@@ -5297,6 +5305,46 @@ def upsert_personnel_effort_time_edit(
     return 1
 
 
+def clear_personnel_effort_time_edits(session_id: int) -> int:
+    """Reset all personnel-effort time edits of a session to their model state.
+
+    Mirrors the per-row clear in `upsert_personnel_effort_time_edit(..., None)` so a
+    global reset yields the exact same DB state as N per-row resets:
+    - user-created rows (no model time, `time_required_in_min IS NULL`) are DELETED,
+      because there is no model value to fall back to; this also clears any leftover
+      NULL/NULL zombie rows.
+    - model (LLM) rows keep their `time_required_in_min` and only have their
+      `time_required_in_min_edited` overlay nulled.
+
+    Invariant after reset: every surviving row is a model row; user-created rows
+    without a model time are removed (analogous to the per-row clear path). DELETE
+    runs before UPDATE. Returns the total number of affected rows. Transaction-safe:
+    inside an open transaction() block _maybe_commit / _maybe_close are no-ops.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM process_step_personnel_effort
+        WHERE session_id = ? AND time_required_in_min IS NULL
+        """,
+        (session_id,),
+    )
+    deleted = cur.rowcount
+    cur.execute(
+        """
+        UPDATE process_step_personnel_effort
+        SET time_required_in_min_edited = NULL, last_edited_at = current_timestamp
+        WHERE session_id = ? AND time_required_in_min_edited IS NOT NULL
+        """,
+        (session_id,),
+    )
+    updated = cur.rowcount
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return deleted + updated
+
+
 def get_session_wage_rate_overrides(
     session_id: int,
     norm_addressee: str,
@@ -5433,6 +5481,27 @@ def upsert_session_wage_rate_override(
         )
     _maybe_commit(conn)
     _maybe_close(conn)
+
+
+def clear_session_wage_rate_overrides(session_id: int) -> int:
+    """Delete all row-keyed wage overrides of a session (all norm addressees).
+
+    Mirrors upsert_session_wage_rate_override(..., hourly_rate_edited=None), which
+    deletes a single override row; model rates are constants from the wage table, so
+    deleting the override rows loses no model value. Returns the number of deleted
+    rows. Transaction-safe: inside an open transaction() block _maybe_commit /
+    _maybe_close are no-ops, so this runs in the caller's transaction.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM session_wage_rate_overrides WHERE session_id = ?",
+        (session_id,),
+    )
+    deleted = cur.rowcount
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return deleted
 
 
 def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:

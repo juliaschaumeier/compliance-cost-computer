@@ -405,6 +405,9 @@ def test_reset_session_ea_edits_clears_overrides_for_export(test_client):
         "pay_rates": 1,
         "case_groups": 1,
         "process_steps": 1,
+        # NEU stores: none set in this session, so the global reset clears 0 of each.
+        "wage_overrides": 0,
+        "effort_time_edits": 0,
     }
     after = build_compliance_export_context(
         app_session_id="COMP-RESET-EA",

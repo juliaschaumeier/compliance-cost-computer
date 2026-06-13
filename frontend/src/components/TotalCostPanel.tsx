@@ -99,9 +99,7 @@ export default function TotalCostPanel() {
       if (failures.length === 0) {
         setTotalCostReady(true);
         setStatusTone("success");
-        setStatus(
-          `Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.${successLines.join("")}`
-        );
+        setStatus("Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.");
         setCurrentTab(6);
       } else if (successes.length === 0) {
         setStatusTone("error");
