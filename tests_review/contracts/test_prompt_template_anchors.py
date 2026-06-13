@@ -148,6 +148,13 @@ class TestRecurringOnlyContract:
         assert "Nur jaehrlich wiederkehrender Erfuellungsaufwand" in t
         assert "Nicht zulaessig als Fallgruppe" in t
 
+    def test_process_compilation_demands_recurring_only(self):
+        t = PROMPT_TEMPLATES[PromptId.PROCESS_COMPILATION]
+        assert "Nur jaehrlich wiederkehrender Erfuellungsaufwand" in t
+        assert "Nicht zulaessig als Prozess" in t
+        # Status-Klarstellung: ein neu eingefuehrter, aber wiederkehrender Prozess bleibt zulaessig.
+        assert "ist hingegen zulaessig" in t
+
     def test_process_step_analysis_demands_recurring_only(self):
         t = PROMPT_TEMPLATES[PromptId.PROCESS_STEP_ANALYSIS]
         assert "Nur jaehrlich wiederkehrender Erfuellungsaufwand" in t
@@ -177,3 +184,13 @@ class TestRecurringOnlyContract:
         assert "ausfuehrung_pro_einzelfall" not in EFFORT_JSON_SCHEMA_DEFAULT
         for schema in EFFORT_JSON_SCHEMA_BY_ADDRESSEE.values():
             assert "ausfuehrung_pro_einzelfall" not in schema
+
+    def test_one_off_lists_avoid_status_ambiguous_einfuehrung(self):
+        # "Einfuehrung" als nacktes Listenbeispiel kollidiert mit dem aenderungsstatus
+        # "eingefuehrt"; die Negativlisten beginnen daher mit "Implementierung".
+        for pid in (
+            PromptId.PROCESS_COMPILATION,
+            PromptId.CASE_GROUP_DEVELOPMENT,
+            PromptId.PROCESS_STEP_ANALYSIS,
+        ):
+            assert "z.B. Einfuehrung, Implementierung" not in PROMPT_TEMPLATES[pid]

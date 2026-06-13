@@ -211,7 +211,7 @@ Was Sie nicht tun sollen
 - Nicht automatisch annehmen, dass geltendes Recht exakt 0 Faelle hat.
 - Nicht automatisch annehmen, dass der Gesetzesvorschlag sehr hohe Fallzahlen erzeugt.
 - Keine Software-, App- oder Datenbankimplementierung beschreiben.
-- Keine einmaligen Vorgaenge, die nur bei Einfuehrung der Regelung anfallen (z.B. interne Umstellung, Erstschulung, Einarbeitung), als jaehrliche Fallzahl ansetzen.
+- Keine einmaligen Vorgaenge, die nur bei Einfuehrung der Regelung anfallen (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung), als jaehrliche Fallzahl ansetzen.
 
 Verbindliche Ausgabeanforderungen
 

@@ -150,8 +150,8 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
     ) in prompt
-    # Recurring-only-Rahmung der (verbatim unveraenderten) Beispiel-Ueberschrift (#13/#25).
-    assert "Bilden Sie nur Prozesse fuer jaehrlich wiederkehrenden Aufwand" in prompt
+    # Beispielgebundener Einmalposten-Hinweis an der (verbatim unveraenderten) Ueberschrift (#13/#25).
+    assert "Die im Beispiel genannten einmaligen Posten" in prompt
     assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" in prompt
     assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
     assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
@@ -169,6 +169,21 @@ def test_process_compilation_prompt_does_not_require_placeholder_for_no_own_acti
     assert "Platzhalter-Prozess" not in prompt
     assert "Keine eigenstaendige Buergerpflicht oder Handlung" not in prompt
     assert "Verknuepfen Sie darin die betroffene `vorgaben_id`" not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_compilation_prompt_demands_recurring_only_for_all_addressees(norm_addressee):
+    # #13/#25: Die "nur wiederkehrend"-Regel muss in der Prozessbildung fuer ALLE
+    # Normadressaten erscheinen (frueher nur im business-only-Beispielheading).
+    prompt = render_prompt(
+        PromptId.PROCESS_COMPILATION,
+        law_summary="Kurzfassung",
+        vorgaben_json="[]",
+        norm_addressee=norm_addressee,
+    )
+
+    assert "Nur jaehrlich wiederkehrender Erfuellungsaufwand" in prompt
+    assert "Nicht zulaessig als Prozess" in prompt
 
 
 def test_case_group_development_prompt_omits_handbook_example():

@@ -697,6 +697,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         unterschiedlich ist, muessen getrennte Prozesse ausgewiesen werden, auch wenn die praktische Bearbeitung aehnlich erscheint. Die spaetere
         gesonderte Ausweisung EU-bedingten Erfuellungsaufwands muss anhand Ihrer Prozessstruktur weiterhin moeglich bleiben.
 
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Prozesse fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
+        Nicht zulaessig als Prozess ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Prozess aus.
+        Ein durch die Regelung neu hinzukommender Prozess (aenderungsstatus "eingefuehrt") ist hingegen zulaessig, sofern er laufenden, jaehrlich wiederkehrenden Aufwand ausloest.
+
         {norm_addressee_rule}
 
         {handbook_process_example}
@@ -774,7 +778,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
         Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Fallgruppen fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
-        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Einfuehrung, Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
+        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
         Wiederkehrende Erstbearbeitungen (z.B. die laufend neu hinzukommenden Erstantraege oder Erstanerkennungen) sind hingegen zulaessig, weil sie jaehrlich anfallen.
 
         {norm_addressee_rule}
@@ -878,11 +882,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
         Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
 
-        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Einfuehrung, Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung) duerfen nicht ausgegeben werden.
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung) duerfen nicht ausgegeben werden.
 
         {step_analysis_addressee_rule}
 
-        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. Einfuehrung, Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung) nicht uebernehmen.
+        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung) nicht uebernehmen.
 
         {step_analysis_checklist}
 
@@ -1842,9 +1846,9 @@ def _render_handbook_process_example(norm_addressee: str | None) -> str:
             heading=(
                 "Methodenbeispiel aus dem Leitfaden zur Orientierung; "
                 "nicht als Sachverhalt dieses Regelungsvorhabens verwenden. "
-                "Bilden Sie nur Prozesse fuer jaehrlich wiederkehrenden Aufwand; "
-                "einmalige Umstellungs-/Einfuehrungsposten (z.B. Schulung des "
-                "Personals, Nachruestung/Austausch von Geraeten) nicht uebernehmen:"
+                "Die im Beispiel genannten einmaligen Posten (z.B. Schulung des "
+                "Personals, Nachruestung/Austausch von Geraeten) sind kein "
+                "wiederkehrender Aufwand und nicht als Prozess zu uebernehmen:"
             ),
         )
     return ""
