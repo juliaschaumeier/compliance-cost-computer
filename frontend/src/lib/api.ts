@@ -406,7 +406,7 @@ export const apiClient = {
     if (!response.ok) {
       await throwApiClientErrorFromResponse(
         response,
-        "Failed to download Vorblatt/Begründung export"
+        "Failed to download Vorblatt und Begründung export"
       );
     }
     return response.blob();

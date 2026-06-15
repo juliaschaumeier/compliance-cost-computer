@@ -27,6 +27,7 @@ import { RunAllStatusResponse, SessionStatus, SessionSummary } from "@/types";
 
 type SessionMenuProps = {
   compact?: boolean;
+  variant?: "default" | "header";
 };
 
 type SessionStepResult = { status: string; message?: string };
@@ -71,7 +72,10 @@ function getApiDetailMessage(error: unknown): string | null {
   return typeof message === "string" && message.trim() ? message : null;
 }
 
-export default function SessionMenu({ compact }: SessionMenuProps) {
+const isLikelyValidApiKey = (value: string | null) =>
+  Boolean(value && value.trim().length > 10);
+
+export default function SessionMenu({ compact, variant = "default" }: SessionMenuProps) {
   const {
     state,
     setAvailableRegulations,
@@ -124,6 +128,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   const runPollTimerRef = useRef<number | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const triggerRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
     top: 96,
     left: 16,
@@ -328,6 +333,30 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) {
+        return;
+      }
+      setIsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
   const handleNewSession = () => {
     sessionStorage.clear();
     window.location.reload();
@@ -390,30 +419,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
     }
   };
 
-  const handleExportSession = async () => {
-    try {
-      resetStatus();
-      const result = await apiClient.exportSession(state.appSessionId);
-      const blob = new Blob([result.markdown], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setStatus("Session exportiert.");
-    } catch (error) {
-      logClientError("SessionMenu.exportSession", error, {
-        appSessionId: state.appSessionId,
-      });
-      setStatus("Export fehlgeschlagen.");
-    }
-  };
-
   const handleToggleDeepResearch = async () => {
     if (isUpdatingResearch || researchLocked || hasActiveWorkflowRun) {
+      return;
+    }
+    if (!researchEnabled && !isLikelyValidApiKey(localStorage.getItem("gemini_api_key"))) {
+      setStatus(
+        "Deep Research benötigt einen Gemini API Key. Bitte in der LLM-Auswahl hinterlegen."
+      );
       return;
     }
     try {
@@ -500,7 +513,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
   const handleDownloadComplianceExport = async () => {
     if (!state.totalCostReady) {
-      setStatus("Vorblatt/Begründung kann erst nach Abschluss aller Schritte exportiert werden.");
+      setStatus("Vorblatt und Begründung können erst nach Abschluss aller Schritte exportiert werden.");
       return;
     }
     if (!state.selectedModel) {
@@ -514,7 +527,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       setIsDownloadingComplianceExport(true);
       setIsComplianceExportRunning(true);
       await downloadComplianceExport("reject_if_user_edits", exportSessionId);
-      setStatus("Vorblatt/Begründung exportiert.");
+      setStatus("Vorblatt und Begründung exportiert.");
     } catch (error) {
       if (getErrorStatus(error) === 409 && getDetailError(error) === "user_edits_present") {
         setIsComplianceEditChoiceVisible(true);
@@ -523,7 +536,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         logClientError("SessionMenu.downloadComplianceExport", error, {
           appSessionId: exportSessionId,
         });
-        setStatus("Vorblatt/Begründung-Export fehlgeschlagen.");
+        setStatus("Export von Vorblatt und Begründung fehlgeschlagen.");
       }
     } finally {
       setIsDownloadingComplianceExport(false);
@@ -536,7 +549,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   ) => {
     if (userEditPolicy === null) {
       setIsComplianceEditChoiceVisible(false);
-      setStatus("Vorblatt/Begründung-Export abgebrochen.");
+      setStatus("Export von Vorblatt und Begründung abgebrochen.");
       return;
     }
     const exportSessionId = state.appSessionId;
@@ -548,14 +561,14 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
       await downloadComplianceExport(userEditPolicy, exportSessionId);
       setStatus(
         userEditPolicy === "use_user_edits"
-          ? "Vorblatt/Begründung mit bearbeiteten EA-Werten exportiert."
-          : "Vorblatt/Begründung exportiert."
+          ? "Vorblatt und Begründung mit bearbeiteten EA-Werten exportiert."
+          : "Vorblatt und Begründung exportiert."
       );
     } catch (error) {
       logClientError("SessionMenu.downloadComplianceExport.retry", error, {
         appSessionId: exportSessionId,
       });
-      setStatus("Vorblatt/Begründung-Export fehlgeschlagen.");
+      setStatus("Export von Vorblatt und Begründung fehlgeschlagen.");
     } finally {
       setIsDownloadingComplianceExport(false);
       setIsComplianceExportRunning(false);
@@ -928,6 +941,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
   const menuContent = (
     <div
+      ref={menuRef}
       className="fixed z-[60] w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-2xl"
       style={{ top: menuPos.top, left: menuPos.left }}
     >
@@ -935,9 +949,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         <div className="font-semibold text-slate-900">Session Aktionen</div>
         <button
           onClick={() => setIsOpen(false)}
-          className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Session Aktionsmenü schließen"
         >
-          Schließen
+          ×
         </button>
       </div>
       <div className="mt-4 space-y-2">
@@ -946,7 +961,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         </div>
         <button
           onClick={handleNewSession}
-          className="w-full rounded-xl bg-slate-900 px-3 py-2 text-left text-xs font-semibold text-white"
+          className="w-full rounded-xl bg-slate-800 px-3 py-2 text-left text-xs font-semibold text-white"
         >
           Neue Session starten
         </button>
@@ -1005,7 +1020,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             onClick={handleToggleDeepResearch}
             className={`relative mt-1 h-6 w-14 rounded-full border p-0.5 text-[10px] font-bold leading-none transition disabled:cursor-not-allowed disabled:opacity-50 ${
               researchEnabled
-                ? "border-slate-900 bg-slate-900 text-white"
+                ? "border-slate-700 bg-slate-800 text-white"
                 : "border-slate-300 bg-slate-100 text-slate-500"
             }`}
           >
@@ -1023,26 +1038,11 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             />
           </button>
         </div>
-        <button
-          onClick={handleDownloadDeepResearchReport}
-          disabled={isDownloadingResearch || researchStatus !== "parsed"}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-        >
-          {isDownloadingResearch
-            ? "Bericht wird geladen..."
-            : "Deep-Research-Bericht herunterladen"}
-        </button>
       </div>
       <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
           Export
         </div>
-        <button
-          onClick={handleExportSession}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          Sessiongraph exportieren (Mermaid)
-        </button>
         <button
           onClick={handleDownloadComplianceExport}
           disabled={
@@ -1053,15 +1053,24 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
         >
           {isDownloadingComplianceExport
-            ? "Vorblatt/Begründung wird geladen..."
-            : "Vorblatt/Begründung exportieren"}
+            ? "Vorblatt und Begründung werden geladen..."
+            : "Vorblatt und Begründung exportieren"}
+        </button>
+        <button
+          onClick={handleDownloadDeepResearchReport}
+          disabled={isDownloadingResearch || researchStatus !== "parsed"}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          {isDownloadingResearch
+            ? "Bericht wird geladen..."
+            : "Deep-Research-Bericht herunterladen"}
         </button>
         {isComplianceEditChoiceVisible && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+          <div className="ccc-status-warning rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
             <div className="font-semibold">
               Bearbeitete EA-Werte vorhanden.
             </div>
-            <div className="mt-1 text-amber-800">
+            <div className="mt-1">
               Der Export verwendet immer den aktuell sichtbaren EA-Stand. Wenn du Modellwerte exportieren möchtest, setze die EA-Werte zuerst in „EA bearbeiten“ zurück.
             </div>
             <div className="mt-2 space-y-1">
@@ -1069,7 +1078,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
                 type="button"
                 onClick={() => handleComplianceEditChoice("use_user_edits")}
                 disabled={isDownloadingComplianceExport}
-                className="w-full rounded-lg bg-amber-900 px-2 py-1.5 text-left font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-lg bg-[var(--ccc-status-review-text)] px-2 py-1.5 text-left font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Bearbeitete EA-Werte verwenden
               </button>
@@ -1077,7 +1086,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
                 type="button"
                 onClick={() => handleComplianceEditChoice(null)}
                 disabled={isDownloadingComplianceExport}
-                className="w-full rounded-lg px-2 py-1.5 text-left font-semibold text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-lg px-2 py-1.5 text-left font-semibold text-[var(--ccc-status-review-text)] hover:bg-[var(--ccc-status-review-bg)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Abbrechen
               </button>
@@ -1107,7 +1116,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
             disabled={!hasPendingSessionSwitch}
             className={`rounded-xl px-4 py-2 text-xs font-semibold transition ${
               hasPendingSessionSwitch
-                ? "bg-slate-900 text-white hover:bg-slate-800"
+                ? "bg-slate-800 text-white hover:bg-slate-700"
                 : "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
             }`}
           >
@@ -1116,7 +1125,7 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         </div>
       </div>
       {status && (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+        <div className="ccc-status-warning mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
           {status}
         </div>
       )}
@@ -1126,24 +1135,64 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
   return (
     <div ref={triggerRef} className="relative">
       <div
-        className={`rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 ${
-          compact ? "px-3 py-2 text-[11px]" : ""
-        }`}
+        className={`flex h-10 items-center overflow-hidden rounded-xl border font-semibold shadow-sm ${
+          variant === "header"
+            ? "border-white/30 bg-white/10 text-white"
+            : "border-slate-200 bg-white text-slate-700"
+        } ${compact ? "text-[11px]" : "text-sm"}`}
       >
-        <span className="block text-[10px] uppercase tracking-wide text-slate-500">
-          Session
-        </span>
-        <span className="block select-text font-mono text-sm">
-          {state.appSessionId}
-        </span>
+        <div className="flex items-center gap-2 px-4 py-2">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="h-5 w-6 shrink-0"
+          >
+            <ellipse
+              cx="12"
+              cy="5"
+              rx="8.8"
+              ry="3"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+            <path
+              d="M3.2 5v14c0 1.7 3.9 3 8.8 3s8.8-1.3 8.8-3V5"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+            <path
+              d="M3.2 12c0 1.7 3.9 3 8.8 3s8.8-1.3 8.8-3"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+          </svg>
+          <span>Session</span>
+          <span className="select-text font-mono">{state.appSessionId}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          title="Session Aktionen"
+          aria-label={isOpen ? "Session Aktionen schließen" : "Session Aktionen öffnen"}
+          aria-expanded={isOpen}
+          className={`h-full border-l px-3 py-2 transition ${
+            variant === "header"
+              ? "border-white/20 hover:bg-white/10"
+              : "border-slate-200 hover:bg-slate-50"
+          }`}
+        >
+          {isOpen ? "⌃" : "⌄"}
+        </button>
       </div>
-      <button
-        onClick={() => setIsOpen((prev) => !prev)}
-        title="Session Aktionen"
-        className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full border border-slate-200 bg-white text-[10px] text-slate-600 shadow-sm"
-      >
-        ↻
-      </button>
       {isOpen && isMounted ? createPortal(menuContent, document.body) : null}
     </div>
   );

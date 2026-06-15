@@ -514,7 +514,7 @@ describe("EaEditDrawerShell", () => {
     render(<EaEditDrawerShell open onClose={jest.fn()} />);
 
     expect(
-      screen.getByText(/vorblatt\/begründung wird gerade erzeugt/i)
+      screen.getByText(/vorblatt und begründung werden gerade erzeugt/i)
     ).toBeInTheDocument();
     expect(
       screen.getByText(/bitte warte, bis die pdf-erstellung abgeschlossen ist/i)

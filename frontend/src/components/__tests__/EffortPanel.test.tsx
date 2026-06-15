@@ -87,7 +87,7 @@ describe("EffortPanel", () => {
 
     render(<EffortPanel />);
 
-    const button = screen.getByRole("button", { name: /Aufwand berechnen/i });
+    const button = screen.getByRole("button", { name: /Ausführen/i });
     expect(button).toBeDisabled();
   });
 
@@ -118,7 +118,7 @@ describe("EffortPanel", () => {
     render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
 
     await waitFor(() => {
       expect(mockStartStepRun).toHaveBeenCalledTimes(1);
@@ -154,7 +154,7 @@ describe("EffortPanel", () => {
     render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
 
     expect(
       await screen.findByText("Aufwand konnte nicht gestartet werden.")
@@ -195,7 +195,7 @@ describe("EffortPanel", () => {
     render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
 
     expect(
       await screen.findByText(
@@ -297,7 +297,7 @@ describe("EffortPanel", () => {
     render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
     const cancelButton = await screen.findByRole("button", { name: /abbrechen/i });
     await user.click(cancelButton);
 

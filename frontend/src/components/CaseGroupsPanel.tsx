@@ -7,6 +7,8 @@ import { buildLlmRequestOptions } from "@/lib/api";
 import { getVisibleFailedStepStatus } from "@/lib/sessionStatus";
 import { useCancellableStepRun } from "@/lib/useCancellableStepRun";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
+import StepRunButton from "@/components/StepRunButton";
+import WorkflowControls from "@/components/WorkflowControls";
 
 export default function CaseGroupsPanel() {
   const { state, setCurrentTab, setCaseGroupsReady } = useApp();
@@ -81,14 +83,14 @@ export default function CaseGroupsPanel() {
       ? runAllCancel.isCancellingRunAll
         ? "Abbruch wird ausgeführt..."
         : "Abbrechen"
-      : "Fallgruppen entwickeln";
+      : "Ausführen";
   const buttonClass =
     stepRun.isRunning || isRunAllBusy
       ? stepRun.isCancelling || runAllCancel.isCancellingRunAll
         ? "cursor-not-allowed border border-rose-100 bg-rose-100 text-rose-400"
         : "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
       : canRun
-        ? "bg-slate-900 text-white"
+        ? "bg-slate-800 text-white"
         : "cursor-not-allowed bg-slate-200 text-slate-500";
   const buttonDisabled =
     stepRun.isCancelling ||
@@ -103,32 +105,29 @@ export default function CaseGroupsPanel() {
   );
 
   return (
-    <section className="w-full border-b border-white/60 bg-white/80 px-6 py-4 backdrop-blur">
-      <div className="mx-auto max-w-6xl space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <p className="text-xs leading-5 text-slate-600">
+    <section className="w-full border-b border-white/60 bg-white/80 py-4 backdrop-blur">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <p className="max-w-xl text-xs leading-5 text-slate-600">
             Wenn Prozesse auf unterschiedlichen Wegen erfüllt werden, werden
             Fallgruppen gebildet. Jede Fallgruppe beschreibt eine typische
-            Ausprägung der Ausführung, damit der Erfüllungsaufwand getrennt
-            ermittelt werden kann. Der Lauf entwickelt Fallgruppen in einem
-            Durchgang für Verwaltung, Wirtschaft und Bürger, erzeugt dabei aber
-            je Normadressat eine eigene fachliche Sicht. Der Umschalter zeigt
-            die Sicht des ausgewählten Normadressaten.
+            Ausprägung der Ausführung je Normadressat.
           </p>
-          <button
+          <StepRunButton
             onClick={handleButtonClick}
             disabled={buttonDisabled}
-            className={`inline-flex items-center gap-2 justify-self-start whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition sm:justify-self-end ${buttonClass}`}
+            className={buttonClass}
+            isRunning={stepRun.isRunning || isRunAllBusy}
           >
-            {(stepRun.isRunning || isRunAllBusy) && (
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            )}
             {buttonLabel}
-          </button>
+          </StepRunButton>
+          <div className="xl:ml-auto">
+            <WorkflowControls />
+          </div>
         </div>
 
         {(status || visibleStepRunStatus || failedStepStatus) && (
-          <div className="whitespace-pre-line rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+          <div className="ccc-status-warning whitespace-pre-line rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             {visibleStepRunStatus || status || failedStepStatus}
           </div>
         )}

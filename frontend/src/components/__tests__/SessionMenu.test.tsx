@@ -422,7 +422,9 @@ describe("SessionMenu", () => {
 
     await user.selectOptions(select, "XYZ789");
     expect(select).toHaveValue("XYZ789");
-    await user.click(screen.getByRole("button", { name: /schließen/i }));
+    await user.click(
+      screen.getByRole("button", { name: "Session Aktionsmenü schließen" })
+    );
 
     expect(mockGetSessionStatus).not.toHaveBeenCalledWith("XYZ789");
     expect(mockRebuildTiles).not.toHaveBeenCalledWith("XYZ789", "business");
@@ -494,7 +496,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /vorblatt\/begründung exportieren/i })
+      screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
     );
 
     await waitFor(() =>
@@ -505,7 +507,7 @@ describe("SessionMenu", () => {
         })
       )
     );
-    expect(await screen.findByText("Vorblatt/Begründung exportiert.")).toBeInTheDocument();
+    expect(await screen.findByText("Vorblatt und Begründung exportiert.")).toBeInTheDocument();
     expect(setIsComplianceExportRunning).toHaveBeenCalledWith(true);
     expect(setIsComplianceExportRunning).toHaveBeenCalledWith(false);
   });
@@ -552,14 +554,16 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /vorblatt\/begründung exportieren/i })
+      screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
     );
-    expect(await screen.findByText("Vorblatt/Begründung exportiert.")).toBeInTheDocument();
+    expect(await screen.findByText("Vorblatt und Begründung exportiert.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /schließen/i }));
+    await user.click(
+      screen.getByRole("button", { name: "Session Aktionsmenü schließen" })
+    );
     await user.click(screen.getByTitle("Session Aktionen"));
 
-    expect(screen.queryByText("Vorblatt/Begründung exportiert.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vorblatt und Begründung exportiert.")).not.toBeInTheDocument();
   });
 
   it("uses the session id captured at export start for the compliance filename", async () => {
@@ -619,7 +623,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /vorblatt\/begründung exportieren/i })
+      screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
     );
 
     await waitFor(() =>
@@ -675,7 +679,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /vorblatt\/begründung exportieren/i })
+      screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
     );
     expect(
       await screen.findByText("Bearbeitete EA-Werte vorhanden.")
@@ -702,7 +706,7 @@ describe("SessionMenu", () => {
       )
     );
     expect(
-      await screen.findByText("Vorblatt/Begründung mit bearbeiteten EA-Werten exportiert.")
+      await screen.findByText("Vorblatt und Begründung mit bearbeiteten EA-Werten exportiert.")
     ).toBeInTheDocument();
   });
 
@@ -760,7 +764,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /vorblatt\/begründung exportieren/i })
+      screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
     );
     expect(
       await screen.findByText("Es gibt bearbeitete EA-Werte. Bitte Exportvariante auswählen.")
@@ -776,12 +780,12 @@ describe("SessionMenu", () => {
       screen.queryByText("Es gibt bearbeitete EA-Werte. Bitte Exportvariante auswählen.")
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /vorblatt\/begründung wird geladen/i })
+      screen.getByRole("button", { name: /vorblatt und begründung werden geladen/i })
     ).toBeDisabled();
 
     resolveExport?.(new Blob(["pdf"], { type: "application/pdf" }));
     expect(
-      await screen.findByText("Vorblatt/Begründung mit bearbeiteten EA-Werten exportiert.")
+      await screen.findByText("Vorblatt und Begründung mit bearbeiteten EA-Werten exportiert.")
     ).toBeInTheDocument();
   });
 
@@ -831,13 +835,13 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /vorblatt\/begründung exportieren/i })
+      screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
     );
     await user.click(await screen.findByRole("button", { name: /abbrechen/i }));
 
     expect(mockDownloadComplianceTextExport).toHaveBeenCalledTimes(1);
     expect(
-      await screen.findByText("Vorblatt/Begründung-Export abgebrochen.")
+      await screen.findByText("Export von Vorblatt und Begründung abgebrochen.")
     ).toBeInTheDocument();
   });
 });

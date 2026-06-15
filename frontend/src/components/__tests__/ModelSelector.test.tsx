@@ -53,7 +53,9 @@ describe("ModelSelector", () => {
     expect(modal.className).toContain("fixed");
     expect(modal.className).toContain("z-[70]");
 
-    await user.click(screen.getByRole("button", { name: /Schließen/i }));
+    await user.click(
+      screen.getByRole("button", { name: "LLM-Dialog schließen" })
+    );
     expect(screen.queryByText("LLM-Auswahl")).not.toBeInTheDocument();
   });
 

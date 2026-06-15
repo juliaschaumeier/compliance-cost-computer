@@ -277,7 +277,7 @@ export default function UploadPanel() {
         ? "cursor-not-allowed border border-rose-100 bg-rose-100 text-rose-400"
         : "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
       : canStart
-        ? "bg-slate-900 text-white"
+        ? "bg-slate-800 text-white"
         : "cursor-not-allowed bg-slate-200 text-slate-500";
   const startButtonDisabled =
     stepRun.isCancelling ||
@@ -378,7 +378,7 @@ export default function UploadPanel() {
             </div>
             {conflicts.current && pendingUploads.current.file && (
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
+                <span className="ccc-status-warning rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
                   Datei existiert bereits
                 </span>
                 <button
@@ -478,7 +478,7 @@ export default function UploadPanel() {
             </div>
             {conflicts.proposed && pendingUploads.proposed.file && (
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
+                <span className="ccc-status-warning rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
                   Datei existiert bereits
                 </span>
                 <button
@@ -513,7 +513,7 @@ export default function UploadPanel() {
         </div>
 
         {(status || visibleStepRunStatus || failedStepStatus) && (
-          <div className="whitespace-pre-line rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+          <div className="ccc-status-warning whitespace-pre-line rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             {visibleStepRunStatus || status || failedStepStatus}
           </div>
         )}

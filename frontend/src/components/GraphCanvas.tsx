@@ -778,7 +778,7 @@ function GraphCanvasInner() {
           </div>
         )}
         {error && !loading && (
-          <div className="pointer-events-none absolute right-4 top-4 z-20 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+          <div className="ccc-status-warning pointer-events-none absolute right-4 top-4 z-20 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             {error}
           </div>
         )}

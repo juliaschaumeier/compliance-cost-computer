@@ -6,6 +6,8 @@ import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
+import StepRunButton from "@/components/StepRunButton";
+import WorkflowControls from "@/components/WorkflowControls";
 
 export default function TotalCostPanel() {
   const { state, setCurrentTab, setTotalCostReady } = useApp();
@@ -34,14 +36,14 @@ export default function TotalCostPanel() {
     !isBusy;
 
   const label = state.totalCostReady
-    ? "Bereits berechnet"
+    ? "Alles berechnet"
     : isRunAllBusy
       ? runAllCancel.isCancellingRunAll
         ? "Abbruch wird ausgeführt..."
         : "Abbrechen"
       : isRunning
         ? "Bitte warten..."
-      : "Gesamtkosten berechnen";
+      : "Ausführen";
 
   const handleCompute = async () => {
     if (isRunAllBusy) {
@@ -120,44 +122,44 @@ export default function TotalCostPanel() {
   };
 
   return (
-    <section className="w-full border-b border-white/60 bg-white/80 px-6 py-4 backdrop-blur">
-      <div className="mx-auto max-w-6xl space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <p className="text-xs leading-5 text-slate-600">
+    <section className="w-full border-b border-white/60 bg-white/80 py-4 backdrop-blur">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <p className="max-w-xl text-xs leading-5 text-slate-600">
             Beim Klick auf „Gesamtkosten berechnen“ werden Schritt-, Fallgruppen-
-            und Prozesskosten in einem Durchgang für Verwaltung, Wirtschaft und
-            Bürger berechnet, dabei aber je Normadressat eigene Kostensichten
-            erzeugt. Der Umschalter zeigt die Sicht des ausgewählten Normadressaten.
+            und Prozesskosten je Normadressat berechnet.
           </p>
-          <button
+          <StepRunButton
             onClick={handleCompute}
             disabled={
               runAllCancel.isCancellingRunAll ||
               (isRunAllBusy ? !runAllCancel.runAllRunId : !canRun)
             }
-            className={`inline-flex items-center gap-2 justify-self-start whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition sm:justify-self-end ${
+            className={
               isRunAllBusy
                 ? runAllCancel.isCancellingRunAll
                   ? "cursor-not-allowed border border-rose-100 bg-rose-100 text-rose-400"
                   : "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
                 : canRun
-                  ? "bg-slate-900 text-white"
+                  ? "bg-slate-800 text-white"
                   : "cursor-not-allowed bg-slate-200 text-slate-500"
-            }`}
+            }
+            isRunning={isRunAllBusy || isRunning}
+            showIcon={!state.totalCostReady}
           >
-            {isRunAllBusy && (
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            )}
             {label}
-          </button>
+          </StepRunButton>
+          <div className="xl:ml-auto">
+            <WorkflowControls />
+          </div>
         </div>
 
         {status && (
           <div
             className={`rounded-xl px-3 py-2 text-xs font-semibold ${
               statusTone === "success"
-                ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
-                : "border border-amber-200 bg-amber-50 text-amber-800"
+                ? "ccc-status-success border border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "ccc-status-warning border border-amber-200 bg-amber-50 text-amber-800"
             }`}
           >
             {status}

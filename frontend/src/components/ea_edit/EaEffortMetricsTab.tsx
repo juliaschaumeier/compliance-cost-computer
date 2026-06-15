@@ -953,7 +953,7 @@ export default function EaEffortMetricsTab({
             </div>
           )}
           {selectionNotice && (
-            <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
+            <div className="ea-current-subhead rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
               {selectionNotice}
             </div>
           )}
@@ -961,11 +961,11 @@ export default function EaEffortMetricsTab({
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-slate-200 text-left text-slate-600">
                 <th className="px-2 py-2">Schritt</th>
-                <th className="bg-sky-50 px-2 py-2 text-sky-900" colSpan={currentFields.length}>
+                <th className="ea-current-head bg-sky-50 px-2 py-2 text-sky-900" colSpan={currentFields.length}>
                   Aktuelles Gesetz
                 </th>
                 <th
-                  className="border-l border-slate-200 bg-emerald-50 px-2 py-2 text-emerald-900"
+                  className="ea-proposed-head border-l border-slate-200 bg-emerald-50 px-2 py-2 text-emerald-900"
                   colSpan={proposedFields.length}
                 >
                   Gesetzesentwurf
@@ -974,14 +974,14 @@ export default function EaEffortMetricsTab({
               <tr className="border-b border-slate-200 text-left text-slate-500">
                 <th className="px-2 py-2" />
                 {currentFields.map((field) => (
-                  <th key={field.key} className="bg-sky-50/70 px-2 py-2 text-sky-800">
+                  <th key={field.key} className="ea-current-subhead bg-sky-50/70 px-2 py-2 text-sky-800">
                     {getColumnLabel(normAddressee, field.slot)}
                   </th>
                 ))}
                 {proposedFields.map((field) => (
                   <th
                     key={field.key}
-                    className={`bg-emerald-50/70 px-2 py-2 text-emerald-800 ${
+                    className={`ea-proposed-subhead bg-emerald-50/70 px-2 py-2 text-emerald-800 ${
                       field === proposedFields[0] ? "border-l border-slate-200" : ""
                     }`}
                   >
@@ -1001,7 +1001,7 @@ export default function EaEffortMetricsTab({
                       ? `border border-slate-300 ${
                           isZeroInputValue(value) ? "text-slate-400" : "text-slate-900"
                         }`
-                      : "border border-red-400 bg-red-50"
+                      : "ea-invalid-input border border-red-400 bg-red-50"
                   }`;
                 const updateField = (cellKey: string, value: string) => {
                   if (readOnly) {
@@ -1021,7 +1021,9 @@ export default function EaEffortMetricsTab({
                   return (
                     <td
                       key={`${row.step_id}-${field.key}`}
-                      className={`px-2 py-2 ${changed ? "bg-amber-50" : ""} ${extraClass}`}
+                      className={`px-2 py-2 ${
+                        changed ? "ea-review-cell bg-amber-50" : ""
+                      } ${extraClass}`}
                     >
                       {columnCells.length === 0 ? (
                         <span className="text-slate-300">–</span>
@@ -1129,12 +1131,12 @@ export default function EaEffortMetricsTab({
         </>
       )}
       {invalidCellCount > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">
+        <div className="ea-alert rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">
           Bitte ungültige Zahlenformate korrigieren ({invalidCellCount}).
         </div>
       )}
       {status && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+        <div className="ea-notice rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
           {status}
         </div>
       )}

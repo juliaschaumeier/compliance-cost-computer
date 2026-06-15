@@ -2378,6 +2378,9 @@ async def case_group_research_settings_update(
 async def export_session(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
 ) -> SessionExportResponse:
+    # Currently not exposed in the frontend. The Mermaid/Markdown export needs
+    # rework before becoming user-facing again: it renders only the Verwaltung
+    # view and the Markdown output is not polished enough for users.
     session = db.get_session_by_app_id(app_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -2524,7 +2527,7 @@ async def export_compliance_text(
             status_code=409,
             detail={
                 "error": "session_not_complete",
-                "message": "Vorblatt/Begründung export requires a completed session.",
+                "message": "Vorblatt und Begründung export requires a completed session.",
             },
         )
     user_edit_policy = normalize_user_edit_policy(payload.user_edit_policy)
@@ -2575,7 +2578,7 @@ async def export_compliance_text(
         )
         pdf = _render_research_report_pdf(
             str(cached["generated_markdown"]),
-            f"Vorblatt/Begründung {payload.app_session_id}",
+            f"Vorblatt und Begründung {payload.app_session_id}",
             metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
         )
         filename = _compliance_export_filename(payload.app_session_id, user_edit_policy)
@@ -2663,7 +2666,7 @@ async def export_compliance_text(
     )
     pdf = _render_research_report_pdf(
         llm_result.text,
-        f"Vorblatt/Begründung {payload.app_session_id}",
+        f"Vorblatt und Begründung {payload.app_session_id}",
         metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
     )
     filename = _compliance_export_filename(payload.app_session_id, user_edit_policy)

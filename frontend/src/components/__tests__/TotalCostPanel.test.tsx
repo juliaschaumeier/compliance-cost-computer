@@ -53,7 +53,7 @@ describe("TotalCostPanel", () => {
     render(<TotalCostPanel />);
 
     const button = screen.getByRole("button", {
-      name: /Gesamtkosten berechnen/i,
+      name: /Ausführen/i,
     });
     expect(button).toBeDisabled();
   });
@@ -70,7 +70,7 @@ describe("TotalCostPanel", () => {
     const user = userEvent.setup();
 
     await user.click(
-      screen.getByRole("button", { name: /Gesamtkosten berechnen/i })
+      screen.getByRole("button", { name: /Ausführen/i })
     );
 
     expect(
@@ -103,7 +103,7 @@ describe("TotalCostPanel", () => {
     const user = userEvent.setup();
 
     await user.click(
-      screen.getByRole("button", { name: /Gesamtkosten berechnen/i })
+      screen.getByRole("button", { name: /Ausführen/i })
     );
 
     expect(
@@ -124,7 +124,7 @@ describe("TotalCostPanel", () => {
     render(<TotalCostPanel />);
 
     const button = screen.getByRole("button", {
-      name: /Bereits berechnet/i,
+      name: /Alles berechnet/i,
     });
     expect(button).toBeDisabled();
   });

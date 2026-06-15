@@ -10,8 +10,71 @@
   --accent-1: #0ea5a4;
   --accent-2: #f97316;
   --border-soft: rgba(15, 23, 42, 0.12);
+  --ccc-status-ok-bg: #e7f3f0;
+  --ccc-status-ok-border: #087f6f;
+  --ccc-status-ok-text: #075d51;
+  --ccc-status-review-bg: #fff0df;
+  --ccc-status-review-border: #f7bb82;
+  --ccc-status-review-text: #8a5723;
+  --ccc-status-alert-bg: #fde9e8;
+  --ccc-status-alert-border: #df6260;
+  --ccc-status-alert-text: #9f3331;
+  --ccc-status-info-bg: #e7f3f0;
+  --ccc-status-info-border: #087f6f;
+  --ccc-status-info-text: #075d51;
+  --ccc-status-success-bg: #e7f3f0;
+  --ccc-status-success-border: #087f6f;
+  --ccc-status-success-text: #075d51;
+  --ccc-ea-current-bg: #f1f5f9;
+  --ccc-ea-current-subtle-bg: #f8fafc;
+  --ccc-ea-current-text: #334155;
+  --ccc-ea-proposed-bg: #e6f2ef;
+  --ccc-ea-proposed-subtle-bg: #edf7f4;
+  --ccc-ea-proposed-text: #075d51;
   --llm-console-fab-left: 12px;
   --llm-console-fab-top: clamp(96px, 14vh, 156px);
+}
+
+:root[data-palette-variant="palette8-current"] {
+  --ccc-status-ok-bg: #e7f3f0;
+  --ccc-status-ok-border: #087f6f;
+  --ccc-status-ok-text: #075d51;
+  --ccc-status-review-bg: #fff0df;
+  --ccc-status-review-border: #f7bb82;
+  --ccc-status-review-text: #8a5723;
+  --ccc-status-alert-bg: #fde9e8;
+  --ccc-status-alert-border: #df6260;
+  --ccc-status-alert-text: #9f3331;
+  --ccc-status-info-bg: #e7f3f0;
+  --ccc-status-info-border: #087f6f;
+  --ccc-status-info-text: #075d51;
+  --ccc-status-success-bg: #e7f3f0;
+  --ccc-status-success-border: #087f6f;
+  --ccc-status-success-text: #075d51;
+  --ccc-ea-proposed-bg: #e6f2ef;
+  --ccc-ea-proposed-subtle-bg: #edf7f4;
+  --ccc-ea-proposed-text: #075d51;
+}
+
+:root[data-palette-variant="palette8-exact"] {
+  --ccc-status-ok-bg: #e7eee7;
+  --ccc-status-ok-border: #006955;
+  --ccc-status-ok-text: #006955;
+  --ccc-status-review-bg: #fff0e4;
+  --ccc-status-review-border: #feae73;
+  --ccc-status-review-text: #9a561f;
+  --ccc-status-alert-bg: #fbe7e7;
+  --ccc-status-alert-border: #d64e52;
+  --ccc-status-alert-text: #9f2f32;
+  --ccc-status-info-bg: #e7eee7;
+  --ccc-status-info-border: #006955;
+  --ccc-status-info-text: #006955;
+  --ccc-status-success-bg: #e7eee7;
+  --ccc-status-success-border: #006955;
+  --ccc-status-success-text: #006955;
+  --ccc-ea-proposed-bg: #e7eee7;
+  --ccc-ea-proposed-subtle-bg: #f2f6f2;
+  --ccc-ea-proposed-text: #006955;
 }
 
 @theme inline {
@@ -127,21 +190,21 @@ body {
 }
 
 .tile-node .tile-status-eingefuehrt {
-  background: #dcfce7;
-  color: #166534;
-  border: 1px solid #86efac;
+  background: var(--ccc-status-ok-bg);
+  color: var(--ccc-status-ok-text);
+  border: 1px solid var(--ccc-status-ok-border);
 }
 
 .tile-node .tile-status-geaendert {
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fcd34d;
+  background: var(--ccc-status-review-bg);
+  color: var(--ccc-status-review-text);
+  border: 1px solid var(--ccc-status-review-border);
 }
 
 .tile-node .tile-status-abgeschafft {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #fca5a5;
+  background: var(--ccc-status-alert-bg);
+  color: var(--ccc-status-alert-text);
+  border: 1px solid var(--ccc-status-alert-border);
 }
 
 .tile-node .tile-status-unveraendert {
@@ -289,6 +352,85 @@ body {
   background: #e0f2fe;
   border-color: #bae6fd;
   color: #075985;
+}
+
+.ea-review-cell {
+  background: var(--ccc-status-review-bg) !important;
+}
+
+.ea-invalid-input {
+  background: var(--ccc-status-alert-bg) !important;
+  border-color: var(--ccc-status-alert-border) !important;
+}
+
+.ea-alert {
+  background: var(--ccc-status-alert-bg) !important;
+  border-color: var(--ccc-status-alert-border) !important;
+  color: var(--ccc-status-alert-text) !important;
+}
+
+.ea-notice {
+  background: var(--ccc-status-review-bg) !important;
+  border-color: var(--ccc-status-review-border) !important;
+  color: var(--ccc-status-review-text) !important;
+}
+
+.ea-current-head {
+  background: var(--ccc-ea-current-bg) !important;
+  color: var(--ccc-ea-current-text) !important;
+}
+
+.ea-current-subhead {
+  background: var(--ccc-ea-current-subtle-bg) !important;
+  color: var(--ccc-ea-current-text) !important;
+}
+
+.ea-proposed-head {
+  background: var(--ccc-ea-proposed-bg) !important;
+  color: var(--ccc-ea-proposed-text) !important;
+}
+
+.ea-proposed-subhead {
+  background: var(--ccc-ea-proposed-subtle-bg) !important;
+  color: var(--ccc-ea-proposed-text) !important;
+}
+
+.ccc-status-info {
+  background: var(--ccc-status-info-bg) !important;
+  border-color: var(--ccc-status-info-border) !important;
+  color: var(--ccc-status-info-text) !important;
+}
+
+.ccc-status-success {
+  background: var(--ccc-status-success-bg) !important;
+  border-color: var(--ccc-status-success-border) !important;
+  color: var(--ccc-status-success-text) !important;
+}
+
+.ccc-status-warning {
+  background: var(--ccc-status-review-bg) !important;
+  border-color: var(--ccc-status-review-border) !important;
+  color: var(--ccc-status-review-text) !important;
+}
+
+.ccc-status-error {
+  background: var(--ccc-status-alert-bg) !important;
+  border-color: var(--ccc-status-alert-border) !important;
+  color: var(--ccc-status-alert-text) !important;
+}
+
+.ccc-danger-outline {
+  border-color: var(--ccc-status-alert-border) !important;
+  color: var(--ccc-status-alert-text) !important;
+}
+
+.ccc-danger-action {
+  background: var(--ccc-status-alert-text) !important;
+  color: #ffffff !important;
+}
+
+.ccc-danger-action:disabled {
+  background: color-mix(in srgb, var(--ccc-status-alert-border) 65%, white) !important;
 }
 
 .llm-console-fab {
