@@ -5,6 +5,7 @@ import {
   TilesResponse,
   VorgabenResponse,
   TotalCostResponse,
+  TotalCostSummaryResponse,
   SessionsResponse,
   SessionStatus,
   UndoStepResponse,
@@ -715,6 +716,18 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to compute total cost");
+    }
+    return response.json();
+  },
+
+  async getTotalCostSummary(
+    appSessionId: string
+  ): Promise<TotalCostSummaryResponse> {
+    const params = new URLSearchParams();
+    params.set("app_session_id", appSessionId);
+    const response = await fetch(`${API_BASE_URL}/costs/totals?${params.toString()}`);
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load total costs");
     }
     return response.json();
   },

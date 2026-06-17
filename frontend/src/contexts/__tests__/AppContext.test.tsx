@@ -19,6 +19,7 @@ function ContextProbe() {
       data-testid="state"
       data-tab={state.currentTab}
       data-effort={state.effortReady}
+      data-total={state.totalCostReady}
       data-addressee={state.selectedNormAddressee}
     />
   );
@@ -102,6 +103,64 @@ describe("AppContext session status sync", () => {
       const node = getByTestId("state");
       expect(node.getAttribute("data-effort")).toBe("false");
       expect(node.getAttribute("data-tab")).toBe("5");
+    });
+  });
+
+  it("uses backend by-addressee status as authoritative over stale stored readiness", async () => {
+    (apiClient.getSessionStatus as jest.Mock).mockResolvedValue({
+      summary_ready: true,
+      regulations_ready: true,
+      processes_ready: true,
+      processes_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+      case_groups_ready: true,
+      case_groups_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+      process_steps_ready: true,
+      process_steps_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+      effort_ready: true,
+      effort_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+      total_cost_ready: true,
+      total_cost_ready_by_addressee: {
+        administration: true,
+        business: true,
+        citizens: true,
+      },
+    });
+    sessionStorage.setItem("app_session_id", "ABC123");
+    sessionStorage.setItem(
+      "norm_addressee_readiness",
+      JSON.stringify({
+        administration: { totalCostReady: false },
+        business: { totalCostReady: false },
+        citizens: { totalCostReady: false },
+      })
+    );
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      const node = getByTestId("state");
+      expect(node.getAttribute("data-total")).toBe("true");
+      expect(node.getAttribute("data-tab")).toBe("6");
     });
   });
 

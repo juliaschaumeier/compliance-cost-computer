@@ -26,6 +26,67 @@ def test_upsert_process_step_cost_by_addressee_has_no_dead_breakdown_params():
     }
 
 
+def test_get_cost_totals_returns_persisted_addressee_totals(test_client):
+    session_id, _ = db.upsert_session("COST-TOTALS", "test-model")
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        ADMINISTRATION,
+        total_cost=35305.2,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        BUSINESS,
+        total_cost=78202.0,
+        bureaucracy_cost=78202.0,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    resp = test_client.get("/costs/totals", params={"app_session_id": "COST-TOTALS"})
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["administration"]["total_cost"] == pytest.approx(35305.2)
+    assert payload["business"]["total_cost"] == pytest.approx(78202.0)
+    assert payload["business"]["bureaucracy_cost"] == pytest.approx(78202.0)
+    assert payload["citizens"] is None
+
+
+def test_total_cost_readiness_requires_explicit_total_row():
+    session_id, _ = db.upsert_session("COST-READY-EXPLICIT", "test-model")
+    db.update_session_summary(
+        "COST-READY-EXPLICIT",
+        "Titel",
+        "Zusammenfassung",
+    )
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Vorgabe Verwaltung",
+        applies_to_administration=True,
+        applies_to_business=False,
+        applies_to_citizens=False,
+    )
+    db.insert_process(
+        session_id,
+        "Prozess Verwaltung",
+        "Beschreibung",
+        cost=123.0,
+        norm_addressee=ADMINISTRATION,
+    )
+
+    status = db.get_session_status("COST-READY-EXPLICIT")
+
+    assert status is not None
+    assert status["total_cost_ready_by_addressee"][ADMINISTRATION] is False
+    assert status["total_cost_ready_by_addressee"][BUSINESS] is True
+    assert status["total_cost_ready_by_addressee"][CITIZENS] is True
+    assert status["total_cost_ready"] is False
+
+
 def _seed_flow(session_id: int) -> dict:
     process_id = db.insert_process(session_id, "Prozess A", "Beschreibung Prozess")
     case_group_id = db.insert_case_group(

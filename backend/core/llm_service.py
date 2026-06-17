@@ -20,6 +20,7 @@ DB integration:
 import asyncio
 from dataclasses import dataclass
 import json
+import re
 from typing import Any, Awaitable, Callable, Optional
 
 import httpx
@@ -38,6 +39,74 @@ from .config import is_deepinfra_model, is_gemini_model, settings
 
 DEEPINFRA_BASE_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
 GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+OPENAI_SAFE_MAX_OUTPUT_TOKENS = 100_000
+
+
+def _openai_chat_token_limit_key(model: str) -> str:
+    model_name = _openai_model_name(model)
+    if model_name.startswith(("o1", "o3", "o4")):
+        return "max_completion_tokens"
+    return "max_tokens"
+
+
+def _openai_model_name(model: str) -> str:
+    return model.lower().strip().rsplit("/", 1)[-1].replace("_", "-").replace(" ", "-")
+
+
+def _openai_chat_max_tokens(model: str, configured_max_tokens: int) -> int:
+    if configured_max_tokens <= 0:
+        return configured_max_tokens
+    model_name = _openai_model_name(model)
+    if model_name.startswith("o4-mini"):
+        return min(configured_max_tokens, OPENAI_SAFE_MAX_OUTPUT_TOKENS)
+    return configured_max_tokens
+
+
+def _openai_safe_max_tokens(configured_max_tokens: int) -> int:
+    if configured_max_tokens <= 0:
+        return configured_max_tokens
+    return min(configured_max_tokens, OPENAI_SAFE_MAX_OUTPUT_TOKENS)
+
+
+def _openai_chat_payload_token_limit_key(payload: dict[str, Any]) -> str | None:
+    if "max_tokens" in payload:
+        return "max_tokens"
+    if "max_completion_tokens" in payload:
+        return "max_completion_tokens"
+    return None
+
+
+def _openai_chat_retry_payload_for_token_error(
+    payload: dict[str, Any],
+    exc: Exception,
+) -> dict[str, Any] | None:
+    message = str(exc)
+    lowered = message.lower()
+    current_key = _openai_chat_payload_token_limit_key(payload)
+    if current_key == "max_tokens" and (
+        "unsupported parameter" in lowered and "max_tokens" in lowered
+    ):
+        retry_payload = dict(payload)
+        retry_payload["max_completion_tokens"] = retry_payload.pop("max_tokens")
+        return retry_payload
+
+    if current_key is None:
+        return None
+
+    match = re.search(r"supports at most\s+([0-9][0-9,_.]*)\s+completion tokens", lowered)
+    if not match:
+        return None
+    raw_limit = match.group(1).replace(",", "").replace("_", "").replace(".", "")
+    try:
+        provider_limit = int(raw_limit)
+    except ValueError:
+        return None
+    current_value = payload.get(current_key)
+    if not isinstance(current_value, int) or current_value <= provider_limit:
+        return None
+    retry_payload = dict(payload)
+    retry_payload[current_key] = provider_limit
+    return retry_payload
 
 
 @dataclass
@@ -384,11 +453,14 @@ async def query_openai(
         "messages": [{"role": "user", "content": prompt}],
     }
     if settings.openai_max_tokens > 0:
-        payload["max_tokens"] = settings.openai_max_tokens
+        payload[_openai_chat_token_limit_key(model)] = _openai_chat_max_tokens(
+            model,
+            settings.openai_max_tokens,
+        )
     if settings.enable_web_search:
         payload["tools"] = [{"type": "web_search"}]
-    async def _run_once(local_payload: dict[str, Any]) -> LlmResult:
-        if stream:
+    async def _run_once(local_payload: dict[str, Any], *, use_stream: bool) -> LlmResult:
+        if use_stream:
             return await _query_chat_completions_stream(
                 provider="openai",
                 client=client,
@@ -403,8 +475,31 @@ async def query_openai(
             model=model,
         )
 
+    async def _run_with_token_retry(
+        local_payload: dict[str, Any],
+        *,
+        use_stream: bool,
+    ) -> LlmResult:
+        current_payload = local_payload
+        for attempt_index in range(3):
+            try:
+                return await _run_once(current_payload, use_stream=use_stream)
+            except Exception as exc:
+                retry_payload = _openai_chat_retry_payload_for_token_error(
+                    current_payload,
+                    exc,
+                )
+                if (
+                    retry_payload is None
+                    or retry_payload == current_payload
+                    or attempt_index == 2
+                ):
+                    raise
+                current_payload = retry_payload
+        raise RuntimeError("unreachable OpenAI token retry state")
+
     try:
-        return await _run_once(payload)
+        return await _run_with_token_retry(payload, use_stream=stream)
     except NotFoundError as exc:
         if "not a chat model" in str(exc).lower():
             if stream:
@@ -431,12 +526,7 @@ async def query_openai(
                     },
                 )
                 try:
-                    return await _query_chat_completions_once(
-                        provider="openai",
-                        client=client,
-                        payload=payload,
-                        model=model,
-                    )
+                    return await _run_with_token_retry(payload, use_stream=False)
                 except Exception as fallback_exc:
                     raise _normalize_llm_exception(
                         provider="openai",
@@ -446,7 +536,7 @@ async def query_openai(
             raise _normalize_llm_exception(provider="openai", model=model, exc=exc) from exc
         payload.pop("tools", None)
         try:
-            return await _run_once(payload)
+            return await _run_with_token_retry(payload, use_stream=stream)
         except Exception as retry_exc:
             if stream and _is_stream_unsupported_error(retry_exc):
                 await _emit_stream_event(
@@ -459,12 +549,7 @@ async def query_openai(
                     },
                 )
                 try:
-                    return await _query_chat_completions_once(
-                        provider="openai",
-                        client=client,
-                        payload=payload,
-                        model=model,
-                    )
+                    return await _run_with_token_retry(payload, use_stream=False)
                 except Exception as fallback_exc:
                     raise _normalize_llm_exception(
                         provider="openai",
@@ -581,7 +666,9 @@ async def _query_openai_responses(
 ) -> LlmResult:
     payload = {"model": model, "input": prompt}
     if settings.openai_max_tokens > 0:
-        payload["max_output_tokens"] = settings.openai_max_tokens
+        payload["max_output_tokens"] = _openai_safe_max_tokens(
+            settings.openai_max_tokens
+        )
     if settings.enable_web_search:
         payload["tools"] = [{"type": "web_search"}]
     try:
@@ -825,7 +912,9 @@ async def _query_openai_responses_stream(
 ) -> LlmResult:
     payload = {"model": model, "input": prompt}
     if settings.openai_max_tokens > 0:
-        payload["max_output_tokens"] = settings.openai_max_tokens
+        payload["max_output_tokens"] = _openai_safe_max_tokens(
+            settings.openai_max_tokens
+        )
     if settings.enable_web_search:
         payload["tools"] = [{"type": "web_search"}]
     try:

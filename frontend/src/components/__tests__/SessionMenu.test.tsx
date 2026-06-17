@@ -58,6 +58,7 @@ const mockPrepareSessionDocuments = prepareSessionDocuments as jest.Mock;
 describe("SessionMenu", () => {
   const setCurrentTab = jest.fn();
   const setAppSessionId = jest.fn();
+  const setSelectedModel = jest.fn();
   const setAvailableRegulations = jest.fn();
   const setSelectedCurrentLaw = jest.fn();
   const setSelectedRegulation = jest.fn();
@@ -67,12 +68,18 @@ describe("SessionMenu", () => {
   const setPendingProposedUploadName = jest.fn();
   const setSummaryReady = jest.fn();
   const setRegulationsReady = jest.fn();
+  const setProcessesReady = jest.fn();
+  const setCaseGroupsReady = jest.fn();
+  const setProcessStepsReady = jest.fn();
+  const setEffortReady = jest.fn();
+  const setTotalCostReady = jest.fn();
   const setLastCompletedStep = jest.fn();
   const setLastCompletedLabel = jest.fn();
   const setLastFailedStep = jest.fn();
   const setLastFailedLabel = jest.fn();
   const setLastFailedMessage = jest.fn();
   const setIsComplianceExportRunning = jest.fn();
+  const applySessionStatus = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -98,11 +105,12 @@ describe("SessionMenu", () => {
         effortReady: false,
         totalCostReady: false,
         lastCompletedStep: "effort",
-        lastCompletedLabel: "Aufwand berechnen",
+        lastCompletedLabel: "Aufwand quantifizieren",
       },
       setAvailableRegulations,
       setCurrentTab,
       setAppSessionId,
+      setSelectedModel,
       setSelectedCurrentLaw,
       setSelectedRegulation,
       setPendingCurrentUpload,
@@ -111,12 +119,18 @@ describe("SessionMenu", () => {
       setPendingProposedUploadName,
       setSummaryReady,
       setRegulationsReady,
+      setProcessesReady,
+      setCaseGroupsReady,
+      setProcessStepsReady,
+      setEffortReady,
+      setTotalCostReady,
       setLastCompletedStep,
       setLastCompletedLabel,
       setLastFailedStep,
       setLastFailedLabel,
       setLastFailedMessage,
       setIsComplianceExportRunning,
+      applySessionStatus,
     });
     mockRebuildTiles.mockResolvedValue({ ok: true });
     mockListSessions.mockResolvedValue({
@@ -130,8 +144,8 @@ describe("SessionMenu", () => {
         {
           app_session_id: "XYZ789",
           created_at: "2026-04-14T09:00:00Z",
-          llm_model: "gpt-5.4",
-          used_llm_models: "gpt-5.4",
+          llm_model: "gemini-3.5-flash",
+          used_llm_models: "gemini-3.5-flash",
         },
       ],
     });
@@ -144,12 +158,12 @@ describe("SessionMenu", () => {
       effort_ready: true,
       total_cost_ready: false,
       last_completed_step: "effort",
-      last_completed_label: "Aufwand berechnen",
+      last_completed_label: "Aufwand quantifizieren",
     });
     mockUndoLastStep.mockResolvedValue({
       status: "ok",
       undone_step: "effort",
-      undone_label: "Aufwand berechnen",
+      undone_label: "Aufwand quantifizieren",
     });
     mockGetCaseGroupResearchSettings.mockResolvedValue({
       app_session_id: "ABC123",
@@ -163,6 +177,7 @@ describe("SessionMenu", () => {
       started: true,
       status: "running",
     });
+    mockDownloadComplianceTextExport.mockReset();
     mockDownloadComplianceTextExport.mockResolvedValue(
       new Blob(["pdf"], { type: "application/pdf" })
     );
@@ -195,16 +210,49 @@ describe("SessionMenu", () => {
   }
 
   it("rebuilds the selected norm addressee after loading another session", async () => {
+    mockGetSessionStatus.mockImplementation((appSessionId: string) =>
+      Promise.resolve(
+        appSessionId === "XYZ789"
+          ? {
+              summary_ready: true,
+              regulations_ready: true,
+              processes_ready: true,
+              case_groups_ready: true,
+              process_steps_ready: true,
+              effort_ready: true,
+              total_cost_ready: true,
+              last_completed_step: "total_cost",
+              last_completed_label: "Gesamtkosten berechnen",
+            }
+          : {
+              summary_ready: true,
+              regulations_ready: true,
+              processes_ready: true,
+              case_groups_ready: true,
+              process_steps_ready: true,
+              effort_ready: true,
+              total_cost_ready: false,
+              last_completed_step: "effort",
+              last_completed_label: "Aufwand quantifizieren",
+            }
+      )
+    );
     const user = await openMenu();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalled());
     await user.selectOptions(screen.getByRole("combobox"), "XYZ789");
-    await user.click(screen.getByRole("button", { name: /wechseln/i }));
 
     await waitFor(() =>
       expect(mockRebuildTiles).toHaveBeenCalledWith("XYZ789", "business")
     );
     expect(setAppSessionId).toHaveBeenCalledWith("XYZ789");
+    expect(setSelectedModel).toHaveBeenCalledWith("gemini-3.5-flash");
+    expect(applySessionStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        total_cost_ready: true,
+        last_completed_step: "total_cost",
+      })
+    );
   });
 
   it("rebuilds the selected norm addressee after undo", async () => {
@@ -212,7 +260,7 @@ describe("SessionMenu", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: /aufwand berechnen/i,
+        name: /aufwand quantifizieren/i,
       })
     );
 
@@ -239,7 +287,7 @@ describe("SessionMenu", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: /aufwand berechnen/i,
+        name: /aufwand quantifizieren/i,
       })
     );
 
@@ -323,6 +371,61 @@ describe("SessionMenu", () => {
     );
   });
 
+  it("disables run-all when all steps are complete", async () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        appSessionId: "ABC123",
+        selectedNormAddressee: "business",
+        selectedModel: "gpt-5.4",
+        availableModels: [],
+        selectedCurrentLaw: "",
+        selectedRegulation: "",
+        availableRegulations: [],
+        pendingCurrentUpload: null,
+        pendingProposedUpload: null,
+        pendingCurrentUploadName: "",
+        pendingProposedUploadName: "",
+        summaryReady: true,
+        regulationsReady: true,
+        processesReady: true,
+        caseGroupsReady: true,
+        processStepsReady: true,
+        effortReady: true,
+        totalCostReady: true,
+        lastCompletedStep: "total_cost",
+        lastCompletedLabel: "Gesamtkosten berechnen",
+      },
+      setAvailableRegulations,
+      setCurrentTab,
+      setAppSessionId,
+      setSelectedCurrentLaw,
+      setSelectedRegulation,
+      setPendingCurrentUpload,
+      setPendingProposedUpload,
+      setPendingCurrentUploadName,
+      setPendingProposedUploadName,
+      setSummaryReady,
+      setRegulationsReady,
+      setProcessesReady,
+      setCaseGroupsReady,
+      setProcessStepsReady,
+      setEffortReady,
+      setTotalCostReady,
+      setLastCompletedStep,
+      setLastCompletedLabel,
+      setLastFailedStep,
+      setLastFailedLabel,
+      setLastFailedMessage,
+      setIsComplianceExportRunning,
+    });
+    await openMenu();
+
+    const runAllButton = screen.getByRole("button", {
+      name: /alle schritte abgeschlossen/i,
+    });
+    expect(runAllButton).toBeDisabled();
+  });
+
   it("shows elapsed Deep Research runtime while running", async () => {
     mockGetCaseGroupResearchSettings.mockResolvedValue({
       app_session_id: "ABC123",
@@ -347,7 +450,7 @@ describe("SessionMenu", () => {
     });
 
     const resetButton = screen.getByRole("button", {
-      name: /aufwand berechnen.*zurücksetzen/i,
+      name: /aufwand quantifizieren.*zurücksetzen/i,
     });
     expect(resetButton).toBeDisabled();
 
@@ -413,7 +516,7 @@ describe("SessionMenu", () => {
     expect(apiClient.updateCaseGroupResearchSettings).not.toHaveBeenCalled();
   });
 
-  it("does not load a selected session when the modal is closed before Wechseln", async () => {
+  it("loads a selected session immediately and closes the menu", async () => {
     const user = await openMenu();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalled());
@@ -421,18 +524,68 @@ describe("SessionMenu", () => {
     expect(select).toHaveValue("ABC123");
 
     await user.selectOptions(select, "XYZ789");
-    expect(select).toHaveValue("XYZ789");
-    await user.click(
-      screen.getByRole("button", { name: "Session Aktionsmenü schließen" })
-    );
 
-    expect(mockGetSessionStatus).not.toHaveBeenCalledWith("XYZ789");
-    expect(mockRebuildTiles).not.toHaveBeenCalledWith("XYZ789", "business");
-    expect(setAppSessionId).not.toHaveBeenCalledWith("XYZ789");
+    await waitFor(() =>
+      expect(mockGetSessionStatus).toHaveBeenCalledWith("XYZ789")
+    );
+    await waitFor(() =>
+      expect(mockRebuildTiles).toHaveBeenCalledWith("XYZ789", "business")
+    );
+    expect(setAppSessionId).toHaveBeenCalledWith("XYZ789");
+    expect(
+      screen.queryByRole("button", { name: "Session Aktionsmenü schließen" })
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByTitle("Session Aktionen"));
     await screen.findByText("Session Aktionen");
     expect(screen.getByRole("combobox")).toHaveValue("ABC123");
+  });
+
+  it("does not commit a session switch when rebuilding tiles fails", async () => {
+    mockGetSessionStatus.mockImplementation((appSessionId: string) =>
+      Promise.resolve(
+        appSessionId === "XYZ789"
+          ? {
+              summary_ready: true,
+              regulations_ready: true,
+              processes_ready: true,
+              case_groups_ready: true,
+              process_steps_ready: true,
+              effort_ready: true,
+              total_cost_ready: true,
+              last_completed_step: "total_cost",
+              last_completed_label: "Gesamtkosten berechnen",
+            }
+          : {
+              summary_ready: true,
+              regulations_ready: true,
+              processes_ready: true,
+              case_groups_ready: true,
+              process_steps_ready: true,
+              effort_ready: true,
+              total_cost_ready: false,
+              last_completed_step: "effort",
+              last_completed_label: "Aufwand quantifizieren",
+            }
+      )
+    );
+    mockRebuildTiles.mockRejectedValueOnce(new Error("tile rebuild failed"));
+    const user = await openMenu();
+
+    await waitFor(() => expect(mockListSessions).toHaveBeenCalled());
+    await user.selectOptions(screen.getByRole("combobox"), "XYZ789");
+
+    await waitFor(() =>
+      expect(mockRebuildTiles).toHaveBeenCalledWith("XYZ789", "business")
+    );
+    expect(setAppSessionId).not.toHaveBeenCalledWith("XYZ789");
+    expect(applySessionStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ total_cost_ready: true })
+    );
+    expect(screen.getByRole("combobox")).toHaveValue("ABC123");
+    expect(
+      await screen.findByText("Session konnte nicht geladen werden.")
+    ).toBeInTheDocument();
   });
 
   it("sends only one cancellation request when run-all cancel is clicked repeatedly", async () => {
@@ -442,7 +595,7 @@ describe("SessionMenu", () => {
       screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
     );
     const cancelButton = await screen.findByRole("button", {
-      name: /ausführung abbrechen/i,
+      name: /"schritte" abbrechen/i,
     });
     fireEvent.click(cancelButton);
     fireEvent.click(cancelButton);
@@ -452,6 +605,41 @@ describe("SessionMenu", () => {
 
     expect(apiClient.cancelRunAll).toHaveBeenCalledTimes(1);
     expect(apiClient.cancelRunAll).toHaveBeenCalledWith("run-123");
+  });
+
+  it("shows the current run-all step name in the cancel button", async () => {
+    const listeners: Record<string, EventListener> = {};
+    (global as typeof globalThis & { EventSource: jest.Mock }).EventSource = jest
+      .fn()
+      .mockImplementation(() => ({
+        addEventListener: jest.fn((eventName: string, listener: EventListener) => {
+          listeners[eventName] = listener;
+        }),
+        close: jest.fn(),
+      }));
+    const user = await openMenu();
+
+    await user.click(
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
+    );
+
+    await waitFor(() => expect(listeners.step_started).toBeDefined());
+    act(() => {
+      listeners.step_started(
+        new MessageEvent("step_started", {
+          data: JSON.stringify({
+            key: "process_steps",
+            label: "Prozessschritte bestimmen",
+          }),
+        })
+      );
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: /"prozessschritte bestimmen" abbrechen/i,
+      })
+    ).toBeInTheDocument();
   });
 
   it("downloads the compliance text export from the export section", async () => {
@@ -631,7 +819,7 @@ describe("SessionMenu", () => {
     );
   });
 
-  it("offers explicit edited EA export or cancellation when compliance export detects edits", async () => {
+  it("clears the edited EA export choice on session change and exports the new session", async () => {
     mockUseApp.mockReturnValue({
       state: {
         appSessionId: "ABC123",
@@ -676,7 +864,10 @@ describe("SessionMenu", () => {
         details: { error: "user_edits_present" },
       })
       .mockResolvedValueOnce(new Blob(["pdf"], { type: "application/pdf" }));
-    const user = await openMenu();
+    const user = userEvent.setup();
+    const { rerender } = render(<SessionMenu />);
+    await user.click(screen.getByTitle("Session Aktionen"));
+    await screen.findByText("Session Aktionen");
 
     await user.click(
       screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
@@ -692,21 +883,68 @@ describe("SessionMenu", () => {
         name: /ursprüngliche generierte werte verwenden/i,
       })
     ).not.toBeInTheDocument();
-    await user.click(
-      screen.getByRole("button", {
+    mockUseApp.mockReturnValue({
+      state: {
+        appSessionId: "XYZ789",
+        selectedNormAddressee: "business",
+        selectedModel: "gpt-5.4",
+        availableModels: [],
+        selectedCurrentLaw: "",
+        selectedRegulation: "",
+        availableRegulations: [],
+        pendingCurrentUpload: null,
+        pendingProposedUpload: null,
+        pendingCurrentUploadName: "",
+        pendingProposedUploadName: "",
+        summaryReady: true,
+        regulationsReady: true,
+        processesReady: true,
+        caseGroupsReady: true,
+        processStepsReady: true,
+        effortReady: true,
+        totalCostReady: true,
+        lastCompletedStep: "total_cost",
+        lastCompletedLabel: "Gesamtkosten berechnen",
+      },
+      setAvailableRegulations,
+      setCurrentTab,
+      setAppSessionId,
+      setSelectedModel,
+      setSelectedCurrentLaw,
+      setSelectedRegulation,
+      setPendingCurrentUpload,
+      setPendingProposedUpload,
+      setPendingCurrentUploadName,
+      setPendingProposedUploadName,
+      setSummaryReady,
+      setRegulationsReady,
+      setLastCompletedStep,
+      setLastCompletedLabel,
+      setIsComplianceExportRunning,
+      applySessionStatus,
+    });
+    rerender(<SessionMenu />);
+    expect(screen.queryByText("Bearbeitete EA-Werte vorhanden.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
         name: /bearbeitete ea-werte verwenden/i,
       })
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /vorblatt und begründung exportieren/i })
     );
 
     await waitFor(() =>
       expect(mockDownloadComplianceTextExport).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          userEditPolicy: "use_user_edits",
+          appSessionId: "XYZ789",
+          userEditPolicy: "reject_if_user_edits",
         })
       )
     );
     expect(
-      await screen.findByText("Vorblatt und Begründung mit bearbeiteten EA-Werten exportiert.")
+      await screen.findByText("Vorblatt und Begründung exportiert.")
     ).toBeInTheDocument();
   });
 

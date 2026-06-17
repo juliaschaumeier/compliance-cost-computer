@@ -1,6 +1,6 @@
 "use client";
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import TotalCostPanel from "@/components/TotalCostPanel";
@@ -10,6 +10,7 @@ import { useApp } from "@/contexts/AppContext";
 jest.mock("@/lib/api", () => ({
   apiClient: {
     computeTotalCost: jest.fn(),
+    getTotalCostSummary: jest.fn(),
   },
 }));
 
@@ -19,6 +20,7 @@ jest.mock("@/contexts/AppContext", () => ({
 
 const mockUseApp = useApp as jest.Mock;
 const mockComputeTotalCost = apiClient.computeTotalCost as jest.Mock;
+const mockGetTotalCostSummary = apiClient.getTotalCostSummary as jest.Mock;
 
 const baseState = {
   currentTab: 6,
@@ -41,6 +43,8 @@ const baseState = {
 describe("TotalCostPanel", () => {
   beforeEach(() => {
     mockComputeTotalCost.mockReset();
+    mockGetTotalCostSummary.mockReset();
+    mockGetTotalCostSummary.mockResolvedValue({});
   });
 
   it("disables the button when process steps are not ready", () => {
@@ -114,7 +118,222 @@ describe("TotalCostPanel", () => {
     expect(setTotalCostReady).not.toHaveBeenCalledWith(true);
   });
 
-  it("disables the button when totals are already computed", () => {
+  it("replaces the run controls with a compact cost summary after all totals are computed", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+        administration: { norm_addressee: "administration", total_cost: 320000 },
+        business: { norm_addressee: "business", total_cost: 920000 },
+        citizens: {
+          norm_addressee: "citizens",
+          total_cost: null,
+          total_time_hours: 14200,
+          total_expenses: 35000,
+        },
+      });
+    mockComputeTotalCost.mockImplementation(
+      ({ normAddressee }: { normAddressee: string }) => {
+        if (normAddressee === "citizens") {
+          return Promise.resolve({
+            total_cost: null,
+            total_time_hours: 14200,
+            total_expenses: 35000,
+          });
+        }
+        return Promise.resolve({
+          total_cost: normAddressee === "administration" ? 320000 : 920000,
+        });
+      }
+    );
+
+    let currentState = baseState;
+    const setTotalCostReady = jest.fn((ready: boolean) => {
+      currentState = { ...currentState, totalCostReady: ready };
+      mockUseApp.mockReturnValue({
+        state: currentState,
+        setCurrentTab: jest.fn(),
+        setTotalCostReady,
+      });
+    });
+    mockUseApp.mockReturnValue({
+      state: currentState,
+      setCurrentTab: jest.fn(),
+      setTotalCostReady,
+    });
+
+    const { rerender } = render(<TotalCostPanel />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
+    await waitFor(() => expect(setTotalCostReady).toHaveBeenCalledWith(true));
+    rerender(<TotalCostPanel />);
+
+    expect(
+      await screen.findByLabelText(
+        /Kostenübersicht: Gesamt 1.240 Tsd. €.*Bürger:innen 14.200 h · 35 Tsd. €.*Wirtschaft 920 Tsd. €.*Verwaltung 320 Tsd. €/i
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Kosten")).toBeInTheDocument();
+    expect(screen.getByText("14.200 h · 35 Tsd. €")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet/)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Alles berechnet/i })
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("tiles-updated"));
+    });
+
+    expect(
+      screen.getByLabelText(/Kostenübersicht: Gesamt 1.240 Tsd. €/i)
+    ).toBeInTheDocument();
+  });
+
+  it("loads the compact cost summary when totals are already computed", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 320000 },
+      business: { norm_addressee: "business", total_cost: 920000 },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: 14200,
+        total_expenses: 35000,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(
+      await screen.findByLabelText(/Kostenübersicht: Gesamt 1.240 Tsd. €/i)
+    ).toBeInTheDocument();
+    expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123");
+  });
+
+  it("compacts very large citizen hours in the cost summary", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: null },
+      business: { norm_addressee: "business", total_cost: 8542000 },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: 13450127,
+        total_expenses: 2101000,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(await screen.findByText("13,5 Mio. h · 2.101 Tsd. €")).toBeInTheDocument();
+    expect(screen.getByText("0 €")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Kostenübersicht: Gesamt 8.542 Tsd. €.*Verwaltung 0 €/i)
+    ).toBeInTheDocument();
+  });
+
+  it("shows zero citizen effort instead of unavailable when citizen totals are empty", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 1000 },
+      business: { norm_addressee: "business", total_cost: 2000 },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: null,
+        total_expenses: null,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(await screen.findByText("0 h · 0 €")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Kostenübersicht: Gesamt 3 Tsd. €.*Bürger:innen 0 h · 0 €/i)
+    ).toBeInTheDocument();
+  });
+
+  it("shows the cost summary when a completed session has no citizen total row", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 5793.68 },
+      business: { norm_addressee: "business", total_cost: 42606.82 },
+      citizens: null,
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(
+      await screen.findByLabelText(/Kostenübersicht: Gesamt 48 Tsd. €/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText("0 h · 0 €")).toBeInTheDocument();
+  });
+
+  it("does not load or show persisted totals before the total-cost step is ready", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 320000 },
+      business: { norm_addressee: "business", total_cost: 920000 },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: 14200,
+        total_expenses: 35000,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: false },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(mockGetTotalCostSummary).not.toHaveBeenCalled();
+    expect(
+      screen.queryByLabelText(/Kostenübersicht:/i)
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ausführen/i })).toBeInTheDocument();
+  });
+
+  it("keeps the run controls visible for a partial persisted cost summary", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 320000 },
+      business: { norm_addressee: "business", total_cost: 920000 },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: false },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(mockGetTotalCostSummary).not.toHaveBeenCalled();
+    expect(
+      screen.queryByLabelText(/Kostenübersicht:/i)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Ausführen/i })
+    ).toBeInTheDocument();
+  });
+
+  it("disables the button when totals are already computed but no summary is loaded", async () => {
     mockUseApp.mockReturnValue({
       state: { ...baseState, totalCostReady: true },
       setCurrentTab: jest.fn(),
@@ -127,5 +346,8 @@ describe("TotalCostPanel", () => {
       name: /Alles berechnet/i,
     });
     expect(button).toBeDisabled();
+    await waitFor(() =>
+      expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123")
+    );
   });
 });

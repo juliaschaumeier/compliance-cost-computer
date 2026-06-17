@@ -333,11 +333,11 @@ class SessionLlmMonitorStreamAttemptResponse(BaseModel):
 
 RUN_ALL_STEPS: tuple[tuple[str, str, str], ...] = (
     ("summary", "CCC starten", "summary_ready"),
-    ("regulations", "Vorgaben bestimmen", "regulations_ready"),
+    ("regulations", "Vorgaben identifizieren", "regulations_ready"),
     ("processes", "Prozesse bündeln", "processes_ready"),
     ("case_groups", "Fallgruppen entwickeln", "case_groups_ready"),
     ("process_steps", "Prozessschritte bestimmen", "process_steps_ready"),
-    ("effort", "Aufwand berechnen", "effort_ready"),
+    ("effort", "Aufwand quantifizieren", "effort_ready"),
     ("total_cost", "Gesamtkosten berechnen", "total_cost_ready"),
 )
 RUN_ALL_STEP_BY_KEY = {key: (label, status_flag) for key, label, status_flag in RUN_ALL_STEPS}
@@ -518,7 +518,7 @@ _FAILED_PROMPT_STEP: dict[str, tuple[str, str, str]] = {
     "law_summary": ("summary", "CCC starten", "summary_ready"),
     "regulations_identification": (
         "regulations",
-        "Vorgaben bestimmen",
+        "Vorgaben identifizieren",
         "regulations_ready",
     ),
     "process_compilation": ("processes", "Prozesse bündeln", "processes_ready"),
@@ -532,8 +532,8 @@ _FAILED_PROMPT_STEP: dict[str, tuple[str, str, str]] = {
         "Prozessschritte bestimmen",
         "process_steps_ready",
     ),
-    "cases_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
-    "effort_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
+    "cases_calculation": ("effort", "Aufwand quantifizieren", "effort_ready"),
+    "effort_calculation": ("effort", "Aufwand quantifizieren", "effort_ready"),
 }
 
 
@@ -585,11 +585,16 @@ def _get_latest_failed_step_status(
     session_id = db.get_session_id_by_app_id(app_session_id)
     if session_id is None:
         return None
+    seen_prompts: set[str] = set()
     for row in db.list_recent_llm_answers_for_session(session_id, limit=50):
-        if row.get("answer_state") != "invalid":
-            continue
-        mapping = _FAILED_PROMPT_STEP.get(str(row.get("prompt_id") or ""))
+        prompt_id = str(row.get("prompt_id") or "")
+        mapping = _FAILED_PROMPT_STEP.get(prompt_id)
         if mapping is None:
+            continue
+        if prompt_id in seen_prompts:
+            continue
+        seen_prompts.add(prompt_id)
+        if row.get("answer_state") != "invalid":
             continue
         step_key, label, ready_flag = mapping
         if bool(status.get(ready_flag)):

@@ -17,6 +17,10 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
   if (activeTab === "flow") {
     return (
       <div className="space-y-3 text-sm leading-6 text-slate-600">
+        <p>
+          In sieben Schritten ermittelt die App, wie sich der jährliche
+          Erfüllungsaufwand durch die Gesetzesänderung verändert.
+        </p>
         <ol className="grid grid-cols-1 gap-1">
           {[
             "Gesetz auswählen",
@@ -24,7 +28,7 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
             "Prozesse bündeln",
             "Fallgruppen entwickeln",
             "Prozessschritte bestimmen",
-            "Aufwand berechnen",
+            "Aufwand quantifizieren",
             "Gesamtkosten berechnen",
           ].map((label, index) => (
             <li key={label} className="flex gap-2">
@@ -36,23 +40,26 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
           ))}
         </ol>
         <p>
-          Nach „Gesamtkosten berechnen“ können Sie über „EA bearbeiten“ globale
-          Lohnsätze, Fallzahlen und Schrittkosten wie Zeitaufwand und
-          Sachaufwand bearbeiten. Gespeicherte Änderungen berechnen die
-          Gesamtkosten automatisch neu. Soweit vorhanden, zeigt der Dialog auch
-          die vom Modell mitgelieferte Einschätzung zu Sicherheit und
-          Begründung.
+          Am Ende zeigt die App eine kompakte Übersicht der Gesamtkosten sowie
+          der Aufwände je Normadressat. Für Bürgerinnen und Bürger werden
+          Zeitaufwand und Sachkosten ausgewiesen.
+        </p>
+        <p>
+          Über „EA bearbeiten“ können Sie anschließend die berechneten Werte
+          prüfen und anpassen: globale Lohnsätze, Fallzahlen und Schrittkosten
+          wie Zeitaufwand und Sachkosten. Dort sehen Sie auch Begründungen und
+          Konfidenzangaben. Gespeicherte Änderungen berechnen die Gesamtkosten
+          automatisch neu.
         </p>
         <p>
           Deep Research kann im Session-Menü für Fallzahlen aktiviert werden.
           Wenn es aktiv ist, werden die Fallzahlen beim Schritt „Aufwand
-          berechnen“ vertieft recherchiert. Nach Abschluss kann der
+          quantifizieren“ vertieft recherchiert. Nach Abschluss kann der
           Deep-Research-Bericht im Session-Menü heruntergeladen werden.
         </p>
         <p>
           Wenn Sie den zuletzt abgeschlossenen Schritt zurücknehmen möchten,
           können Sie das im Session-Menü mit „Schrittname“ zurücksetzen tun.
-          Zurückgesetzte Schritte müssen erneut berechnet werden.
         </p>
       </div>
     );
@@ -63,8 +70,9 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
       <div className="space-y-3 text-sm leading-6 text-slate-600">
         <p>
           <strong className="font-semibold text-slate-900">Session-Menü:</strong>{" "}
-          Hier verwalten Sie die aktuelle Session: Sie können Sessions wechseln
-          oder neu starten und sessionweite Aktionen ausführen.
+          Im Session-Menü können Sie eine neue Session starten, über die
+          Auswahlliste direkt zu einer anderen Session wechseln und
+          sessionweite Aktionen ausführen.
         </p>
         <div className="ml-1 space-y-2 border-l border-slate-200 pl-3 text-[13px] leading-5 text-slate-600">
           <p>
@@ -72,7 +80,7 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
               Deep Research:
             </strong>{" "}
             recherchiert Fallzahlen vertieft und wird beim Schritt „Aufwand
-            berechnen“ berücksichtigt. Der erzeugte Bericht steht nach Abschluss
+            quantifizieren“ berücksichtigt. Der erzeugte Bericht steht nach Abschluss
             als Download bereit.
           </p>
           <p>
@@ -98,9 +106,9 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
           <strong className="font-semibold text-slate-900">
             Normadressaten-Ansicht:
           </strong>{" "}
-          Die Ansicht wechselt zwischen Verwaltung, Wirtschaft und Bürgerinnen
-          und Bürgern. Sie ändert nur, welche Werte und Kacheln angezeigt
-          werden; die Berechnungsschritte laufen für alle Normadressaten.
+          Die Ansicht wechselt zwischen Bürgerinnen und Bürgern, Wirtschaft und
+          Verwaltung. Sie ändert nur, welche Werte und Kacheln angezeigt werden;
+          die Berechnungsschritte laufen für alle Normadressaten.
         </p>
         <p>
           <strong className="font-semibold text-slate-900">EA bearbeiten:</strong>{" "}
@@ -123,9 +131,9 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
         Vorgaben, Prozesse, Fallgruppen und Prozessschritte bis zur Berechnung
         von Aufwand und Gesamtkosten.
       </p>
-      <p className="ccc-status-info rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 font-semibold text-slate-900">
-        Wichtig: Die Werte werden KI-gestützt erzeugt und sind Schätzungen. Sie
-        müssen fachlich geprüft werden.
+      <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-semibold text-slate-700">
+        Die Werte werden KI-gestützt erzeugt und sind Schätzungen. Bitte
+        fachlich prüfen.
       </p>
       <p>
         Die App trennt zwischen sessionweiten Funktionen in der oberen Leiste

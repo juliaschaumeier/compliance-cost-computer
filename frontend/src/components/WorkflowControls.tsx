@@ -7,10 +7,15 @@ import { useApp } from "@/contexts/AppContext";
 import { NormAddressee } from "@/types";
 
 const normAddresseeLabels: Record<NormAddressee, string> = {
-  administration: "Verwaltung",
-  business: "Wirtschaft",
   citizens: "Bürger:innen",
+  business: "Wirtschaft",
+  administration: "Verwaltung",
 };
+
+const workflowControlBase =
+  "h-10 rounded-xl border border-slate-200 bg-white text-[13px] font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50";
+const workflowControlDisabled =
+  "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400 opacity-60 shadow-none hover:border-slate-100 hover:bg-slate-50";
 
 export default function WorkflowControls() {
   const { state, setSelectedNormAddressee } = useApp();
@@ -31,7 +36,7 @@ export default function WorkflowControls() {
         <label className="sr-only" htmlFor="norm-addressee-view">
           Normadressat-Ansicht auswählen
         </label>
-        <div className="relative w-36 shrink-0">
+        <div className="relative w-40 shrink-0">
           <svg
             aria-hidden="true"
             viewBox="0 0 24 24"
@@ -62,7 +67,7 @@ export default function WorkflowControls() {
                 event.target.value as NormAddressee
               )
             }
-            className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-8 text-[13px] font-medium text-slate-800 transition hover:border-slate-300"
+            className={`${workflowControlBase} w-full appearance-none py-2 pl-9 pr-8`}
           >
             {(Object.keys(normAddresseeLabels) as NormAddressee[]).map(
               (value) => (
@@ -83,10 +88,8 @@ export default function WorkflowControls() {
           type="button"
           onClick={() => setEaEditOpen(true)}
           disabled={!canOpenEditor}
-          className={`inline-flex h-10 min-w-36 items-center justify-center gap-2 rounded-xl border px-3 text-[13px] font-medium shadow-sm transition ${
-            canOpenEditor
-              ? "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300"
-              : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400"
+          className={`inline-flex min-w-36 items-center justify-center gap-2 px-3 ${workflowControlBase} ${
+            canOpenEditor ? "" : workflowControlDisabled
           }`}
           title={
             canOpenEditor

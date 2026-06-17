@@ -14,7 +14,7 @@ const tabs: Array<{ id: number; label: string; shortLabel: string }> = [
   { id: 2, label: "Prozesse bündeln", shortLabel: "Prozesse" },
   { id: 3, label: "Fallgruppen entwickeln", shortLabel: "Fälle" },
   { id: 4, label: "Prozessschritte bestimmen", shortLabel: "Schritte" },
-  { id: 5, label: "Aufwand berechnen", shortLabel: "Aufwand" },
+  { id: 5, label: "Aufwand quantifizieren", shortLabel: "Aufwand" },
   { id: 6, label: "Gesamtkosten berechnen", shortLabel: "Kosten" },
 ];
 
@@ -51,21 +51,28 @@ export default function TabBar() {
         <div className="hidden grid-cols-7 gap-2 py-3 lg:grid">
           {tabs.map((tab) => {
             const isActive = tab.id === state.currentTab;
+            const isCompletedFinalStep = tab.id === 6 && state.totalCostReady;
+            const shouldHighlight = isActive && !isCompletedFinalStep;
             const isDisabled = isTabDisabled(tab.id, state);
+            const isVisuallyMuted = isDisabled || isCompletedFinalStep;
             return (
               <button
                 key={tab.id}
                 onClick={() => setCurrentTab(tab.id)}
                 disabled={isDisabled}
                 className={`flex min-h-12 w-full min-w-0 items-center gap-2 rounded-2xl border px-3 py-2 text-left text-[13px] font-semibold transition-all ${
-                  isActive
+                  shouldHighlight
                     ? "border-slate-700 bg-slate-800 text-white shadow-lg"
                     : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-                } ${isDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                } ${isVisuallyMuted ? "opacity-50" : ""} ${
+                  isDisabled ? "cursor-not-allowed" : ""
+                }`}
               >
                 <span
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs ${
-                    isActive ? "bg-white text-slate-900" : "bg-slate-100 text-slate-700"
+                    shouldHighlight
+                      ? "bg-white text-slate-900"
+                      : "bg-slate-100 text-slate-700"
                   }`}
                 >
                   {tab.id + 1}
@@ -78,17 +85,22 @@ export default function TabBar() {
         <div className="flex gap-2 overflow-x-auto py-3 lg:hidden">
           {tabs.map((tab) => {
             const isActive = tab.id === state.currentTab;
+            const isCompletedFinalStep = tab.id === 6 && state.totalCostReady;
+            const shouldHighlight = isActive && !isCompletedFinalStep;
             const isDisabled = isTabDisabled(tab.id, state);
+            const isVisuallyMuted = isDisabled || isCompletedFinalStep;
             return (
               <button
                 key={tab.id}
                 onClick={() => setCurrentTab(tab.id)}
                 disabled={isDisabled}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                  isActive
+                  shouldHighlight
                     ? "border-slate-700 bg-slate-800 text-white"
                     : "border-slate-200 bg-white text-slate-600"
-                } ${isDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                } ${isVisuallyMuted ? "opacity-50" : ""} ${
+                  isDisabled ? "cursor-not-allowed" : ""
+                }`}
               >
                 {tab.shortLabel}
               </button>

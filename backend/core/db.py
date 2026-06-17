@@ -3110,23 +3110,8 @@ def has_total_cost_for_addressee(session_id: int, norm_addressee: str = ADMINIST
     ):
         _maybe_close(conn)
         return True
-    cur.execute(
-        """
-        SELECT
-            COUNT(*) AS total_count,
-            SUM(CASE WHEN cost IS NOT NULL THEN 1 ELSE 0 END) AS priced_count
-        FROM processes
-        WHERE session_id = ? AND norm_addressee = ?
-        """,
-        (session_id, resolved),
-    )
-    row = cur.fetchone()
     _maybe_close(conn)
-    return bool(
-        row
-        and int(row["total_count"] or 0) > 0
-        and int(row["priced_count"] or 0) == int(row["total_count"] or 0)
-    )
+    return False
 
 
 def get_session_id_by_app_id(app_session_id: str) -> int | None:

@@ -18,11 +18,11 @@ class WorkflowStep:
 
 WORKFLOW_STEPS: tuple[WorkflowStep, ...] = (
     WorkflowStep("total_cost", "Gesamtkosten berechnen", "total_cost_ready"),
-    WorkflowStep("effort", "Aufwand berechnen", "effort_ready"),
+    WorkflowStep("effort", "Aufwand quantifizieren", "effort_ready"),
     WorkflowStep("process_steps", "Prozessschritte bestimmen", "process_steps_ready"),
     WorkflowStep("case_groups", "Fallgruppen entwickeln", "case_groups_ready"),
     WorkflowStep("processes", "Prozesse bündeln", "processes_ready"),
-    WorkflowStep("regulations", "Vorgaben bestimmen", "regulations_ready"),
+    WorkflowStep("regulations", "Vorgaben identifizieren", "regulations_ready"),
     WorkflowStep("summary", "CCC starten", "summary_ready"),
 )
 

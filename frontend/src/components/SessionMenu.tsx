@@ -22,7 +22,6 @@ import {
   logSessionStartError,
   prepareSessionDocuments,
 } from "@/lib/sessionStart";
-import { deriveTabFromStatus } from "@/lib/sessionStatus";
 import { RunAllStatusResponse, SessionStatus, SessionSummary } from "@/types";
 
 type SessionMenuProps = {
@@ -57,6 +56,29 @@ function deriveRunAllStepKeyFromStatus(
   return null;
 }
 
+const RUN_ALL_STEP_LABELS: Record<RunAllStepKey, string> = {
+  summary: "Gesetz auswählen",
+  regulations: "Vorgaben identifizieren",
+  processes: "Prozesse bündeln",
+  case_groups: "Fallgruppen entwickeln",
+  process_steps: "Prozessschritte bestimmen",
+  effort: "Aufwand quantifizieren",
+  total_cost: "Gesamtkosten berechnen",
+};
+
+function getRunAllStepLabel(
+  key?: string | null,
+  label?: string | null
+): string | null {
+  if (label) {
+    return label;
+  }
+  if (key && key in RUN_ALL_STEP_LABELS) {
+    return RUN_ALL_STEP_LABELS[key as RunAllStepKey];
+  }
+  return null;
+}
+
 function formatElapsedDuration(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -75,30 +97,60 @@ function getApiDetailMessage(error: unknown): string | null {
 const isLikelyValidApiKey = (value: string | null) =>
   Boolean(value && value.trim().length > 10);
 
+const menuSectionLabelClass =
+  "text-[10px] font-semibold uppercase tracking-wide text-slate-400";
+const menuButtonBaseClass =
+  "w-full rounded-xl px-3 py-2 text-left text-xs font-semibold transition";
+const menuPrimaryButtonClass =
+  `${menuButtonBaseClass} bg-slate-800 text-white`;
+const menuSecondaryButtonClass =
+  `${menuButtonBaseClass} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50`;
+const menuRunningButtonClass =
+  `${menuButtonBaseClass} flex items-center gap-2 border border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100`;
+const menuCancellingButtonClass =
+  `${menuButtonBaseClass} flex cursor-not-allowed items-center gap-2 border border-slate-200 bg-slate-100 text-slate-400`;
+const menuDisabledButtonClass =
+  `${menuButtonBaseClass} cursor-not-allowed border border-slate-100 bg-slate-100 text-slate-400`;
+const menuExportButtonClass = `${menuSecondaryButtonClass} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`;
+
+function isTransientWorkflowStatus(status: string | null): boolean {
+  if (!status) {
+    return false;
+  }
+  return [
+    "Abbruch angefordert",
+    "Abbruch läuft bereits",
+    "Alle Schritte sind bereits abgeschlossen",
+    "Alle Schritte wurden ausgeführt",
+    "Ausführung abgebrochen",
+    "Lauf beendet",
+    "Lauf läuft bereits",
+    "Letzter Schritt zurückgesetzt",
+    "Läuft:",
+    "Schritte werden ausgeführt",
+    "Schritte werden vorbereitet",
+  ].some((prefix) => status.startsWith(prefix));
+}
+
 export default function SessionMenu({ compact, variant = "default" }: SessionMenuProps) {
   const {
     state,
     setAvailableRegulations,
-    setCurrentTab,
     setAppSessionId,
+    setSelectedModel,
     setSelectedCurrentLaw,
     setSelectedRegulation,
     setPendingCurrentUpload,
     setPendingProposedUpload,
     setPendingCurrentUploadName,
     setPendingProposedUploadName,
-    setSummaryReady,
-    setRegulationsReady,
-    setLastCompletedStep,
-    setLastCompletedLabel,
-    setLastFailedStep,
-    setLastFailedLabel,
-    setLastFailedMessage,
     setIsComplianceExportRunning,
+    applySessionStatus,
   } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState("");
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
   const [researchEnabled, setResearchEnabled] = useState(false);
@@ -119,8 +171,13 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     isComplianceEditChoiceVisible,
     setIsComplianceEditChoiceVisible,
   ] = useState(false);
+  const [
+    pendingComplianceExportSessionId,
+    setPendingComplianceExportSessionId,
+  ] = useState<string | null>(null);
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [currentRunLabel, setCurrentRunLabel] = useState<string | null>(null);
   const [isCancellingRun, setIsCancellingRun] = useState(false);
   const isCancellingRunRef = useRef(false);
   const activeWorkflowRun = useActiveWorkflowRun();
@@ -204,8 +261,12 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
 
   useEffect(() => {
     setSelectedSession(isOpen ? state.appSessionId : "");
+  }, [isOpen, state.appSessionId]);
+
+  useEffect(() => {
     resetStatus();
     setIsComplianceEditChoiceVisible(false);
+    setPendingComplianceExportSessionId(null);
   }, [isOpen, state.appSessionId]);
 
   useEffect(() => {
@@ -238,8 +299,8 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     });
   }, [sessions]);
 
-  const hasPendingSessionSwitch =
-    Boolean(selectedSession) && selectedSession !== state.appSessionId;
+  const getSessionModel = (appSessionId: string): string | null =>
+    sessions.find((session) => session.app_session_id === appSessionId)?.llm_model || null;
 
   const resetStatus = () => setStatus(null);
   const getErrorStatus = (error: unknown): number | undefined => {
@@ -289,14 +350,21 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     state.processStepsReady ||
     state.effortReady ||
     state.totalCostReady;
-  const runAllActionLabel = state.totalCostReady
-    ? "Alle Schritte abgeschlossen"
-    : hasAnyCompletedWorkflowStep
-      ? "Verbleibende Schritte ausführen"
-      : "Alle Schritte ausführen";
+  const isRunAllComplete = state.totalCostReady;
+  const runAllIdleLabel = hasAnyCompletedWorkflowStep
+    ? "Verbleibende Schritte ausführen"
+    : "Alle Schritte ausführen";
+  const runAllButtonLabel = isRunningAll
+    ? isCancellingRun
+      ? "Abbruch wird ausgeführt..."
+      : `\"${currentRunLabel || "Schritte"}\" abbrechen`
+    : isRunAllComplete
+      ? "Alle Schritte abgeschlossen"
+      : runAllIdleLabel;
   const isRunAllActionDisabled =
-    (!isRunningAll && (state.totalCostReady || isSingleStepWorkflowRunning)) ||
+    (!isRunningAll && (isRunAllComplete || isSingleStepWorkflowRunning)) ||
     (isRunningAll && isCancellingRun);
+  const otherStatus = status && !isTransientWorkflowStatus(status) ? status : null;
 
   useEffect(() => {
     if (!isOpen) {
@@ -362,27 +430,39 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     window.location.reload();
   };
 
-  const handleLoadSession = async () => {
-    if (!hasPendingSessionSwitch) {
-      setStatus("Bitte eine Session auswählen.");
+  const handleLoadSession = async (targetSession: string) => {
+    if (!targetSession || targetSession === state.appSessionId || isLoadingSession) {
       return;
     }
     try {
       resetStatus();
-      const sessionStatus = await apiClient.getSessionStatus(selectedSession);
-      setAppSessionId(selectedSession);
-      applySessionStatus(sessionStatus);
+      setIsLoadingSession(true);
+      const sessionStatus = await apiClient.getSessionStatus(targetSession);
       await apiClient.rebuildTiles(
-        selectedSession,
+        targetSession,
         state.selectedNormAddressee
       );
+      const sessionModel = getSessionModel(targetSession);
+      setAppSessionId(targetSession);
+      if (sessionModel) {
+        setSelectedModel(sessionModel);
+      }
+      applySessionMenuStatus(sessionStatus);
       setIsOpen(false);
     } catch (error) {
       logClientError("SessionMenu.loadSession", error, {
-        selectedSession,
+        selectedSession: targetSession,
       });
+      setSelectedSession(state.appSessionId);
       setStatus("Session konnte nicht geladen werden.");
+    } finally {
+      setIsLoadingSession(false);
     }
+  };
+
+  const handleSessionSelect = (targetSession: string) => {
+    setSelectedSession(targetSession);
+    void handleLoadSession(targetSession);
   };
 
   const handleUndoLastStep = async () => {
@@ -402,7 +482,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
         state.selectedNormAddressee
       );
       const sessionStatus = await apiClient.getSessionStatus(state.appSessionId);
-      applySessionStatus(sessionStatus);
+      applySessionMenuStatus(sessionStatus);
       window.dispatchEvent(new Event("tiles-updated"));
       setStatus(`Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`);
     } catch (error) {
@@ -524,12 +604,14 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     try {
       resetStatus();
       setIsComplianceEditChoiceVisible(false);
+      setPendingComplianceExportSessionId(null);
       setIsDownloadingComplianceExport(true);
       setIsComplianceExportRunning(true);
       await downloadComplianceExport("reject_if_user_edits", exportSessionId);
       setStatus("Vorblatt und Begründung exportiert.");
     } catch (error) {
       if (getErrorStatus(error) === 409 && getDetailError(error) === "user_edits_present") {
+        setPendingComplianceExportSessionId(exportSessionId);
         setIsComplianceEditChoiceVisible(true);
         setStatus("Es gibt bearbeitete EA-Werte. Bitte Exportvariante auswählen.");
       } else {
@@ -549,10 +631,11 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
   ) => {
     if (userEditPolicy === null) {
       setIsComplianceEditChoiceVisible(false);
+      setPendingComplianceExportSessionId(null);
       setStatus("Export von Vorblatt und Begründung abgebrochen.");
       return;
     }
-    const exportSessionId = state.appSessionId;
+    const exportSessionId = pendingComplianceExportSessionId || state.appSessionId;
     try {
       resetStatus();
       setIsDownloadingComplianceExport(true);
@@ -572,17 +655,12 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     } finally {
       setIsDownloadingComplianceExport(false);
       setIsComplianceExportRunning(false);
+      setPendingComplianceExportSessionId(null);
     }
   };
 
-  const applySessionStatus = (sessionStatus: SessionStatus) => {
-    setSummaryReady(sessionStatus.summary_ready);
-    setRegulationsReady(sessionStatus.regulations_ready);
-    setLastCompletedStep(sessionStatus.last_completed_step ?? null);
-    setLastCompletedLabel(sessionStatus.last_completed_label ?? null);
-    setLastFailedStep(sessionStatus.last_failed_step ?? null);
-    setLastFailedLabel(sessionStatus.last_failed_label ?? null);
-    setLastFailedMessage(sessionStatus.last_failed_message ?? null);
+  const applySessionMenuStatus = (sessionStatus: SessionStatus) => {
+    applySessionStatus(sessionStatus);
     setResearchEnabled(Boolean(sessionStatus.case_group_research_enabled));
     setResearchStatus(sessionStatus.case_group_research_status || "idle");
     setResearchElapsedSeconds(
@@ -600,7 +678,6 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
         sessionStatus.case_group_research_status || "idle"
       )
     );
-    setCurrentTab(deriveTabFromStatus(sessionStatus));
     window.dispatchEvent(new Event("tiles-updated"));
   };
 
@@ -634,6 +711,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
   const resetRunUiState = () => {
     setIsRunningAll(false);
     setCurrentRunId(null);
+    setCurrentRunLabel(null);
     setIsCancellingRun(false);
     isCancellingRunRef.current = false;
     emitRunAllStepCleared();
@@ -647,7 +725,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     });
     try {
       const sessionStatus = await apiClient.getSessionStatus(state.appSessionId);
-      applySessionStatus(sessionStatus);
+      applySessionMenuStatus(sessionStatus);
     } catch (statusError) {
       logClientError("SessionMenu.refreshStatusAfterMissingRun", statusError, {
         runId,
@@ -666,11 +744,13 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       try {
         const progress = await apiClient.getRunAllStatus(runId);
         if (progress.final_status) {
-          applySessionStatus(progress.final_status);
+          applySessionMenuStatus(progress.final_status);
         }
         if (progress.status === "running") {
           if (progress.current_step) {
-            emitRunAllStepStarted(progress.current_step, runId);
+            const label = getRunAllStepLabel(progress.current_step);
+            setCurrentRunLabel(label);
+            emitRunAllStepStarted(progress.current_step, runId, "run_all", label);
           }
           pollRunStatus(runId);
           return;
@@ -711,12 +791,17 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunAllStatusResponse;
         if (payload.final_status) {
-          applySessionStatus(payload.final_status);
+          applySessionMenuStatus(payload.final_status);
         }
         if (payload.status === "running" && payload.current_step) {
-          emitRunAllStepStarted(payload.current_step, runId);
-          if (payload.current_label && !isCancellingRunRef.current) {
-            setStatus(`Läuft: ${payload.current_label}`);
+          const label = getRunAllStepLabel(
+            payload.current_step,
+            payload.current_label
+          );
+          setCurrentRunLabel(label);
+          emitRunAllStepStarted(payload.current_step, runId, "run_all", label);
+          if (label && !isCancellingRunRef.current) {
+            setStatus(`Läuft: ${label}`);
           }
         }
       } catch (error) {
@@ -727,9 +812,11 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     source.addEventListener("step_started", (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunStepStartedEvent;
-        emitRunAllStepStarted(payload.key, runId);
-        if (payload.label && !isCancellingRunRef.current) {
-          setStatus(`Läuft: ${payload.label}`);
+        const label = getRunAllStepLabel(payload.key, payload.label);
+        setCurrentRunLabel(label);
+        emitRunAllStepStarted(payload.key, runId, "run_all", label);
+        if (label && !isCancellingRunRef.current) {
+          setStatus(`Läuft: ${label}`);
         }
       } catch (error) {
         logClientError("SessionMenu.stepStartedEvent", error, { runId });
@@ -741,10 +828,12 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunStepStatusEvent;
         if (payload.session_status) {
-          applySessionStatus(payload.session_status);
+          applySessionMenuStatus(payload.session_status);
           const inferredStep = deriveRunAllStepKeyFromStatus(payload.session_status);
           if (inferredStep) {
-            emitRunAllStepStarted(inferredStep, runId);
+            const label = getRunAllStepLabel(inferredStep);
+            setCurrentRunLabel(label);
+            emitRunAllStepStarted(inferredStep, runId, "run_all", label);
           }
         }
       } catch (error) {
@@ -766,7 +855,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunCompletedEvent;
         if (payload.final_status) {
-          applySessionStatus(payload.final_status);
+          applySessionMenuStatus(payload.final_status);
         }
         setStatus(payload.ok ? "Alle Schritte wurden ausgeführt." : "Lauf beendet.");
       } catch (error) {
@@ -775,6 +864,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       } finally {
         setIsRunningAll(false);
         setCurrentRunId(null);
+        setCurrentRunLabel(null);
         setIsCancellingRun(false);
         isCancellingRunRef.current = false;
         emitRunAllStepCleared();
@@ -787,7 +877,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunFailedEvent;
         if (payload.final_status) {
-          applySessionStatus(payload.final_status);
+          applySessionMenuStatus(payload.final_status);
         }
         const failedStep = payload.steps?.find((step) => step.status === "failed");
         setStatus(
@@ -801,6 +891,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       } finally {
         setIsRunningAll(false);
         setCurrentRunId(null);
+        setCurrentRunLabel(null);
         setIsCancellingRun(false);
         isCancellingRunRef.current = false;
         emitRunAllStepCleared();
@@ -812,7 +903,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunCancelledEvent;
         if (payload.final_status) {
-          applySessionStatus(payload.final_status);
+          applySessionMenuStatus(payload.final_status);
         }
         setStatus(
           payload.message ||
@@ -826,6 +917,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       } finally {
         setIsRunningAll(false);
         setCurrentRunId(null);
+        setCurrentRunLabel(null);
         setIsCancellingRun(false);
         isCancellingRunRef.current = false;
         emitRunAllStepCleared();
@@ -881,6 +973,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     }
     resetStatus();
     setIsRunningAll(true);
+    setCurrentRunLabel(null);
     isCancellingRunRef.current = false;
     setStatus("Schritte werden vorbereitet...");
     emitRunAllStepCleared();
@@ -923,6 +1016,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
           : "Lauf läuft bereits. Status wird synchronisiert..."
       );
       setCurrentRunId(start.run_id);
+      setCurrentRunLabel(null);
       setIsCancellingRun(false);
       beginRunEventStream(start.run_id);
     } catch (error) {
@@ -932,6 +1026,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       setStatus(formatSessionStartError(error));
       setIsRunningAll(false);
       setCurrentRunId(null);
+      setCurrentRunLabel(null);
       setIsCancellingRun(false);
       isCancellingRunRef.current = false;
       emitRunAllStepCleared();
@@ -956,40 +1051,60 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
         </button>
       </div>
       <div className="mt-4 space-y-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <div className={menuSectionLabelClass}>
           Session
         </div>
         <button
           onClick={handleNewSession}
-          className="w-full rounded-xl bg-slate-800 px-3 py-2 text-left text-xs font-semibold text-white"
+          className={menuPrimaryButtonClass}
         >
           Neue Session starten
         </button>
+        <select
+          value={selectedSession}
+          onChange={(event) => handleSessionSelect(event.target.value)}
+          disabled={isLoadingSession}
+          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-wait disabled:bg-slate-100 disabled:text-slate-400"
+          aria-label="Session wechseln"
+        >
+          <option value="">Session auswählen</option>
+          {formattedSessions.map((session) => (
+            <option key={session.app_session_id} value={session.app_session_id}>
+              {session.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
+        <div className={menuSectionLabelClass}>
+          Ablauf
+        </div>
         <button
           onClick={handleRunAllSteps}
-          className={`w-full rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
+          className={
             isRunningAll
-              ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+              ? isCancellingRun
+                ? menuCancellingButtonClass
+                : menuRunningButtonClass
               : isRunAllActionDisabled
-                ? "cursor-not-allowed border border-slate-100 bg-slate-100 text-slate-400"
-              : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-          }`}
+                ? menuDisabledButtonClass
+                : menuSecondaryButtonClass
+          }
           disabled={isRunAllActionDisabled}
         >
-          {isRunningAll
-            ? isCancellingRun
-              ? "Abbruch wird ausgeführt..."
-              : "Ausführung abbrechen"
-            : runAllActionLabel}
+          {isRunningAll && (
+            <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          )}
+          <span>{runAllButtonLabel}</span>
         </button>
         <button
           onClick={handleUndoLastStep}
           disabled={!lastStepLabel || isUndoing || hasActiveWorkflowRun}
-          className={`w-full rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
+          className={
             lastStepLabel && !isUndoing && !hasActiveWorkflowRun
-              ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              : "cursor-not-allowed border border-slate-100 bg-slate-100 text-slate-400"
-          }`}
+              ? menuSecondaryButtonClass
+              : menuDisabledButtonClass
+          }
         >
           {isUndoing
             ? "Bitte warten..."
@@ -999,7 +1114,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
       <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            <div className={menuSectionLabelClass}>
               Fallzahlen
             </div>
             <div className="mt-1 font-semibold text-slate-900">
@@ -1040,7 +1155,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
         </div>
       </div>
       <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <div className={menuSectionLabelClass}>
           Export
         </div>
         <button
@@ -1050,7 +1165,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
             isRunningAll ||
             !state.totalCostReady
           }
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+          className={menuExportButtonClass}
         >
           {isDownloadingComplianceExport
             ? "Vorblatt und Begründung werden geladen..."
@@ -1059,7 +1174,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
         <button
           onClick={handleDownloadDeepResearchReport}
           disabled={isDownloadingResearch || researchStatus !== "parsed"}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+          className={menuExportButtonClass}
         >
           {isDownloadingResearch
             ? "Bericht wird geladen..."
@@ -1094,39 +1209,9 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
           </div>
         )}
       </div>
-      <div className="mt-4">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          Session wechseln
-        </div>
-        <select
-          value={selectedSession}
-          onChange={(event) => setSelectedSession(event.target.value)}
-          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
-        >
-          <option value="">Session auswählen</option>
-          {formattedSessions.map((session) => (
-            <option key={session.app_session_id} value={session.app_session_id}>
-              {session.label}
-            </option>
-          ))}
-        </select>
-        <div className="mt-2 flex justify-end">
-          <button
-            onClick={handleLoadSession}
-            disabled={!hasPendingSessionSwitch}
-            className={`rounded-xl px-4 py-2 text-xs font-semibold transition ${
-              hasPendingSessionSwitch
-                ? "bg-slate-800 text-white hover:bg-slate-700"
-                : "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
-            }`}
-          >
-            {hasPendingSessionSwitch ? "Session wechseln" : "Aktuelle Session"}
-          </button>
-        </div>
-      </div>
-      {status && (
+      {otherStatus && (
         <div className="ccc-status-warning mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
-          {status}
+          {otherStatus}
         </div>
       )}
     </div>

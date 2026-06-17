@@ -6,6 +6,7 @@ import { useApp } from "@/contexts/AppContext";
 import { apiClient, buildLlmRequestOptions } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
 import { getVisibleFailedStepStatus } from "@/lib/sessionStatus";
+import StepRunButton from "@/components/StepRunButton";
 import {
   formatSessionStartError,
   logSessionStartError,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/sessionStart";
 import { useCancellableStepRun } from "@/lib/useCancellableStepRun";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
+import { getWorkflowStepActionButtonState } from "@/lib/workflowStepActionButton";
 
 type UploadTarget = "current" | "proposed";
 
@@ -30,6 +32,9 @@ export default function UploadPanel() {
     setProcessesReady,
     setRegulationsReady,
     setSummaryReady,
+    setLastFailedStep,
+    setLastFailedLabel,
+    setLastFailedMessage,
   } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState({
@@ -221,6 +226,9 @@ export default function UploadPanel() {
       return;
     }
     setStatus(null);
+    setLastFailedStep(null);
+    setLastFailedLabel(null);
+    setLastFailedMessage(null);
     setSummaryReady(false);
     try {
       const { currentFilename, proposedFilename } = await prepareSessionDocuments({
@@ -262,27 +270,15 @@ export default function UploadPanel() {
     await handleStart();
   };
 
-  const startButtonLabel = stepRun.isRunning
-    ? stepRun.isCancelling
-      ? "Abbruch wird ausgeführt..."
-      : "Abbrechen"
-    : isRunAllBusy
-      ? runAllCancel.isCancellingRunAll
-        ? "Abbruch wird ausgeführt..."
-        : "Abbrechen"
-      : "CCC starten";
-  const startButtonClass =
-    stepRun.isRunning || isRunAllBusy
-      ? stepRun.isCancelling || runAllCancel.isCancellingRunAll
-        ? "cursor-not-allowed border border-rose-100 bg-rose-100 text-rose-400"
-        : "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
-      : canStart
-        ? "bg-slate-800 text-white"
-        : "cursor-not-allowed bg-slate-200 text-slate-500";
-  const startButtonDisabled =
-    stepRun.isCancelling ||
-    runAllCancel.isCancellingRunAll ||
-    (isRunAllBusy ? !runAllCancel.runAllRunId : !stepRun.isRunning && !canStart);
+  const startButtonState = getWorkflowStepActionButtonState({
+    idleLabel: "CCC starten",
+    canRun: canStart,
+    isManualRunning: stepRun.isRunning,
+    isManualCancelling: stepRun.isCancelling,
+    isRunAllBusy,
+    isRunAllCancelling: runAllCancel.isCancellingRunAll,
+    runAllRunId: runAllCancel.runAllRunId,
+  });
   const visibleStepRunStatus = stepRun.isRunning ? null : stepRun.statusText;
   const failedStepStatus = getVisibleFailedStepStatus(
     state,
@@ -292,13 +288,23 @@ export default function UploadPanel() {
   );
 
   return (
-    <section className="w-full border-b border-white/60 bg-white/80 px-6 py-4 backdrop-blur">
-      <div className="mx-auto max-w-6xl space-y-4">
-        <p className="text-xs text-slate-600">
-          Laden Sie die benötigten Dokumente hoch und/oder wählen Sie diese in den Menüs aus.
-        </p>
+    <section className="w-full border-b border-white/60 bg-white/80 py-4 backdrop-blur">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <p className="max-w-xl text-xs leading-5 text-slate-600">
+            Laden Sie die benötigten Dokumente hoch und/oder wählen Sie diese in den Menüs aus.
+          </p>
+          <StepRunButton
+            onClick={handleStartButton}
+            disabled={startButtonState.disabled}
+            className={startButtonState.className}
+            isRunning={startButtonState.isRunning}
+          >
+            {startButtonState.label}
+          </StepRunButton>
+        </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-800">
               Gültiges Gesetz
@@ -497,18 +503,6 @@ export default function UploadPanel() {
                 />
               </div>
             )}
-          </div>
-          <div className="flex items-end justify-start lg:justify-center">
-            <button
-              onClick={handleStartButton}
-              disabled={startButtonDisabled}
-              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${startButtonClass}`}
-            >
-              {(stepRun.isRunning || isRunAllBusy) && (
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              )}
-              {startButtonLabel}
-            </button>
           </div>
         </div>
 

@@ -338,7 +338,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                   }
                   className="ccc-danger-outline rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Alle EA-Werte auf Modellwerte zurücksetzen
+                  Alle EA-Werte aller Normadressaten zurücksetzen
                 </button>
                 <button
                   onClick={requestClose}
@@ -488,7 +488,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                 className="w-full max-w-lg rounded-2xl border border-slate-300 bg-white p-4 shadow-2xl"
               >
                 <div id="ea-reset-all-title" className="text-sm font-semibold text-slate-900">
-                  Alle EA-Werte auf Modellwerte zurücksetzen?
+                  Alle EA-Werte aller Normadressaten zurücksetzen?
                 </div>
                 <p className="mt-2 text-xs text-slate-600">
                   Dies setzt Lohnsätze, Fallzahlen und Schrittkosten für alle Normadressaten dieser Session zurück. Anschließend werden die Gesamtkosten neu berechnet.

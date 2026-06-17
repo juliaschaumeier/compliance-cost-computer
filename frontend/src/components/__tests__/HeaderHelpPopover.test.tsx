@@ -34,8 +34,19 @@ describe("HeaderHelpPopover", () => {
 
     await user.click(screen.getByRole("button", { name: "Ablauf" }));
 
+    expect(
+      screen.getByText(/In sieben Schritten ermittelt die App/)
+    ).toBeInTheDocument();
     expect(screen.getByText("Vorgaben identifizieren")).toBeInTheDocument();
-    expect(screen.getByText(/Nach „Gesamtkosten berechnen“/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Am Ende zeigt die App eine kompakte Übersicht/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Über „EA bearbeiten“ können Sie anschließend/)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Nach „Gesamtkosten berechnen“/)
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText(/mit „Schrittname“ zurücksetzen tun/)
     ).toBeInTheDocument();
@@ -46,7 +57,7 @@ describe("HeaderHelpPopover", () => {
     expect(toolsTab).not.toBeNull();
     expect(
       within(toolsTab as HTMLElement).getByText(
-        /Sie können Sessions wechseln oder neu starten/
+        /über die Auswahlliste direkt zu einer anderen Session wechseln/
       )
     ).toBeInTheDocument();
     expect(

@@ -59,6 +59,18 @@ def _build_cost_response(
     }
 
 
+def _total_cost_row_to_response(row: dict | None, norm_addressee: str) -> dict | None:
+    if row is None:
+        return None
+    return _build_cost_response(
+        norm_addressee=norm_addressee,
+        total_cost=row.get("total_cost"),
+        bureaucracy_cost=row.get("bureaucracy_cost"),
+        total_time_minutes=row.get("total_time_minutes"),
+        total_expenses=row.get("total_expenses"),
+    )
+
+
 def _skipped_cost_response(norm_addressee: str) -> dict:
     return _build_cost_response(
         norm_addressee=norm_addressee,
@@ -314,3 +326,18 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         app_session_id=payload.app_session_id,
         norm_addressee=payload.norm_addressee,
     )
+
+
+@router.get("/totals")
+async def get_cost_totals(app_session_id: str) -> dict:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    return {
+        norm_addressee: _total_cost_row_to_response(
+            db.get_session_total_costs_by_addressee(session_id, norm_addressee),
+            norm_addressee,
+        )
+        for norm_addressee in (ADMINISTRATION, BUSINESS, CITIZENS)
+    }

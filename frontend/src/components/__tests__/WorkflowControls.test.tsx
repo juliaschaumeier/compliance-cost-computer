@@ -45,9 +45,11 @@ describe("WorkflowControls", () => {
 
     const select = screen.getByLabelText("Normadressat-Ansicht auswählen");
     expect(select).toHaveValue("administration");
-    expect(screen.getByRole("option", { name: "Verwaltung" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Wirtschaft" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Bürger:innen" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Bürger:innen",
+      "Wirtschaft",
+      "Verwaltung",
+    ]);
 
     await user.selectOptions(select, "business");
     expect(setSelectedNormAddressee).toHaveBeenCalledWith("business");
@@ -59,6 +61,9 @@ describe("WorkflowControls", () => {
     expect(
       screen.getByRole("button", { name: /ea bearbeiten/i })
     ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /ea bearbeiten/i })).toHaveClass(
+      "opacity-60"
+    );
 
     mockUseApp.mockReturnValue({
       state: {
@@ -73,6 +78,9 @@ describe("WorkflowControls", () => {
     expect(
       screen.getByRole("button", { name: /ea bearbeiten/i })
     ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: /ea bearbeiten/i })
+    ).not.toHaveClass("opacity-60");
   });
 
   it("closes the EA drawer when total cost readiness is reset", async () => {

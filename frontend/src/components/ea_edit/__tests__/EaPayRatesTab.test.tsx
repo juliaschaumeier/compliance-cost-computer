@@ -91,6 +91,47 @@ describe("EaPayRatesTab", () => {
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
 
+  it("saves business pay rates without an administration level", async () => {
+    mockGetSessionWageRates.mockResolvedValueOnce({
+      app_session_id: "PAY-TAB",
+      rows: [
+        {
+          wage_source_kind: "wirtschaftsabschnitt",
+          wage_source_value: "gesamtwirtschaft",
+          qualification: "niedrig",
+          model_hourly_rate: 26.1,
+          hourly_rate_edited: null,
+        },
+      ],
+    });
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
+    );
+
+    const row = await screen.findByText(/Niedrig/i);
+    const tr = row.closest("tr");
+    expect(tr).toBeTruthy();
+    const input = within(tr as HTMLElement).getByRole("textbox");
+    const user = userEvent.setup();
+
+    await user.clear(input);
+    await user.type(input, "45");
+    await user.click(screen.getByRole("button", { name: /lohnsätze speichern/i }));
+
+    await waitFor(() => expect(mockUpdateSessionWageRate).toHaveBeenCalledTimes(1));
+    expect(mockUpdateSessionWageRate).toHaveBeenCalledWith({
+      appSessionId: "PAY-TAB",
+      normAddressee: "business",
+      wageSourceKind: "wirtschaftsabschnitt",
+      wageSourceValue: "gesamtwirtschaft",
+      qualification: "niedrig",
+      hourlyRateEdited: 45,
+      eaActivityId: EA_ACTIVITY_ID,
+    });
+    expect(runAutoRecompute).toHaveBeenCalledTimes(1);
+  });
+
   it("clears a previous save status when the user edits again", async () => {
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
@@ -116,6 +157,44 @@ describe("EaPayRatesTab", () => {
     expect(
       screen.queryByText(/lohnsaetze gespeichert|lohnsätze gespeichert/i)
     ).not.toBeInTheDocument();
+  });
+
+  it("appends backend details as a technical hint on save failure", async () => {
+    mockGetSessionWageRates.mockResolvedValueOnce({
+      app_session_id: "PAY-TAB",
+      rows: [
+        {
+          wage_source_kind: "wirtschaftsabschnitt",
+          wage_source_value: "gesamtwirtschaft",
+          qualification: "niedrig",
+          model_hourly_rate: 26.1,
+          hourly_rate_edited: null,
+        },
+      ],
+    });
+    mockUpdateSessionWageRate.mockRejectedValueOnce(
+      new Error("wage source only supported for active session rows")
+    );
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
+    );
+
+    const row = await screen.findByText(/Niedrig/i);
+    const tr = row.closest("tr");
+    expect(tr).toBeTruthy();
+    const input = within(tr as HTMLElement).getByRole("textbox");
+    const user = userEvent.setup();
+
+    await user.clear(input);
+    await user.type(input, "45");
+    await user.click(screen.getByRole("button", { name: /lohnsätze speichern/i }));
+
+    expect(
+      await screen.findByText(
+        /Speichern fehlgeschlagen.*Technischer Hinweis: wage source only supported for active session rows/i
+      )
+    ).toBeInTheDocument();
   });
 
   it("emits tiles-updated only once on save via recompute", async () => {

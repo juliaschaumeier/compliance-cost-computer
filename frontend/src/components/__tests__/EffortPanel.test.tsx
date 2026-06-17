@@ -111,7 +111,7 @@ describe("EffortPanel", () => {
       app_session_id: "ABC123",
       status: "completed",
       ok: true,
-      steps: [{ key: "effort", label: "Aufwand berechnen", status: "completed" }],
+      steps: [{ key: "effort", label: "Aufwand quantifizieren", status: "completed" }],
       final_status: { ...baseState, effort_ready: true },
     });
 
@@ -184,7 +184,7 @@ describe("EffortPanel", () => {
       steps: [
         {
           key: "effort",
-          label: "Aufwand berechnen",
+          label: "Aufwand quantifizieren",
           status: "skipped",
           message: "Step already complete",
         },
@@ -283,8 +283,8 @@ describe("EffortPanel", () => {
       app_session_id: "ABC123",
       status: "running",
       ok: null,
-      current_label: "Aufwand berechnen",
-      steps: [{ key: "effort", label: "Aufwand berechnen", status: "running" }],
+      current_label: "Aufwand quantifizieren",
+      steps: [{ key: "effort", label: "Aufwand quantifizieren", status: "running" }],
     });
     mockCancelStepRun.mockResolvedValue({
       run_id: "manual-run-1",
