@@ -50,7 +50,9 @@ def test_effort_prompt_for_business_uses_only_business_tables_and_guidance():
     prompt = _render_effort_prompt(BUSINESS)
 
     assert "Dieser Lauf betrifft nur den Normadressaten Wirtschaft." in prompt
-    assert "A=Niedrig, B=Mittel, C=Hoch, D=Durchschnitt" in prompt
+    assert "`niedrig`, `mittel`, `hoch` oder `durchschnitt`" in prompt
+    assert '"personalaufwand_gueltig"' in prompt
+    assert '"stundenlohn"' not in prompt
     assert "Anhang Wirtschaft:" in prompt
     assert "Zeitwerttabelle Wirtschaft" in prompt
     assert "Anhang 4" in prompt
@@ -81,12 +83,36 @@ def test_effort_prompt_for_administration_keeps_administration_specific_tables()
     prompt = _render_effort_prompt(ADMINISTRATION)
 
     assert "Dieser Lauf betrifft nur den Normadressaten Verwaltung." in prompt
-    assert "A=Einfacher und mittlerer Dienst, B=Gehobener Dienst, C=Hoeherer Dienst" in prompt
+    assert (
+        "`einfacher_und_mittlerer_dienst`, `gehobener_dienst`, "
+        "`hoeherer_dienst` oder `durchschnitt`"
+    ) in prompt
+    assert '"personalaufwand_gueltig"' in prompt
+    assert '"stundenlohn"' not in prompt
     assert "Anhang Verwaltung:" in prompt
     assert "Zeitwerttabelle Verwaltung" in prompt
     assert "Lohnkostentabelle Verwaltung" in prompt
     assert "Zeitwerttabelle Wirtschaft" not in prompt
     assert "Lohnkostentabelle Wirtschaft" not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS])
+def test_effort_prompt_uses_row_based_personnel_effort_contract(norm_addressee):
+    prompt = _render_effort_prompt(norm_addressee)
+
+    # New row-based contract: qualifikation + lohnquelle + zeitaufwand per row.
+    assert '"personalaufwand_gueltig"' in prompt
+    assert '"personalaufwand_vorschlag"' in prompt
+    assert '"qualifikation"' in prompt
+    assert '"lohnquelle"' in prompt
+    # Legacy role/wage fields are gone; the LLM no longer outputs wages.
+    assert '"rollen_gueltig"' not in prompt
+    assert '"rollen_vorschlag"' not in prompt
+    assert '"lohngruppe"' not in prompt
+    assert '"stundenlohn"' not in prompt
+    # Aggregation + backend-resolves-wage rules are stated.
+    assert "zu genau einem Eintrag zusammen" in prompt
+    assert "Backend-Anwendung ermittelt den Stundenlohn" in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -555,3 +581,40 @@ def test_citizens_step_analysis_prompt_matches_schema_without_time_estimate():
     assert "Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen" in prompt
     assert "Schaetzen Sie in der Schrittanalyse keine Zeit-" not in prompt
     assert "Gesamtzeitaufwand" not in prompt
+
+
+def test_effort_prompt_includes_lohnquelle_field_for_administration():
+    prompt = _render_effort_prompt(ADMINISTRATION)
+
+    assert '"lohnquelle"' in prompt
+
+
+def test_effort_prompt_includes_lohnquelle_field_for_business():
+    prompt = _render_effort_prompt(BUSINESS)
+
+    assert '"lohnquelle"' in prompt
+
+
+def test_effort_prompt_excludes_lohnquelle_field_for_citizens():
+    prompt = _render_effort_prompt(CITIZENS)
+
+    assert '"lohnquelle"' not in prompt
+
+
+def test_effort_prompt_administration_guidance_names_verwaltungsebenen():
+    prompt = _render_effort_prompt(ADMINISTRATION)
+
+    assert "verwaltungsebene" in prompt.lower() or "bund" in prompt.lower()
+    assert "laender" in prompt.lower() or "länder" in prompt.lower()
+    assert "kommunen" in prompt.lower()
+    assert "sozialversicherung" in prompt.lower()
+    assert "durchschnitt" in prompt.lower()
+
+
+def test_effort_prompt_business_guidance_names_wirtschaftsabschnitt():
+    prompt = _render_effort_prompt(BUSINESS)
+
+    assert "wirtschaftsabschnitt" in prompt.lower() or "lohnquelle" in prompt.lower()
+    assert "gesamtwirtschaft" in prompt.lower()
+
+

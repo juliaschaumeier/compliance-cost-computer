@@ -18,7 +18,7 @@ import {
   Model,
   LlmMonitorSnapshotResponse,
   LlmMonitorStreamAttemptResponse,
-  SessionPayRatesResponse,
+  SessionWageRatesResponse,
   SessionEditAuditResponse,
   EditableCaseGroupsResponse,
   EditableProcessStepsResponse,
@@ -771,52 +771,6 @@ export const apiClient = {
     return response.json();
   },
 
-  async getSessionPayRates(options: {
-    appSessionId: string;
-    normAddressee?: NormAddressee;
-  }): Promise<SessionPayRatesResponse> {
-    const params = new URLSearchParams();
-    params.set("app_session_id", options.appSessionId);
-    if (options.normAddressee) {
-      params.set("norm_addressee", options.normAddressee);
-    }
-    const response = await fetch(`${API_BASE_URL}/sessions/pay-rates?${params.toString()}`);
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to load session pay rates");
-    }
-    return response.json();
-  },
-
-  async updateSessionPayRates(options: {
-    appSessionId: string;
-    normAddressee?: NormAddressee;
-    administrationLevel?: string;
-    editedA: number | null;
-    editedB: number | null;
-    editedC: number | null;
-    editedD: number | null;
-  }): Promise<SessionPayRatesResponse> {
-    const response = await fetch(`${API_BASE_URL}/sessions/pay-rates`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        app_session_id: options.appSessionId,
-        norm_addressee: options.normAddressee,
-        administration_level: options.administrationLevel,
-        edited_a: options.editedA,
-        edited_b: options.editedB,
-        edited_c: options.editedC,
-        edited_d: options.editedD,
-      }),
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to update session pay rates");
-    }
-    return response.json();
-  },
-
   async resetSessionEaEdits(options: {
     appSessionId: string;
   }): Promise<{
@@ -835,6 +789,50 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to reset EA edits");
+    }
+    return response.json();
+  },
+
+  async getSessionWageRates(options: {
+    appSessionId: string;
+    normAddressee?: NormAddressee;
+  }): Promise<SessionWageRatesResponse> {
+    const params = new URLSearchParams();
+    params.set("app_session_id", options.appSessionId);
+    if (options.normAddressee) {
+      params.set("norm_addressee", options.normAddressee);
+    }
+    const response = await fetch(`${API_BASE_URL}/sessions/wage-rates?${params.toString()}`);
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load session wage rates");
+    }
+    return response.json();
+  },
+
+  async updateSessionWageRate(options: {
+    appSessionId: string;
+    normAddressee?: NormAddressee;
+    wageSourceKind: string;
+    wageSourceValue: string;
+    qualification: string;
+    hourlyRateEdited: number | null;
+  }): Promise<SessionWageRatesResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/wage-rates`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
+        wage_source_kind: options.wageSourceKind,
+        wage_source_value: options.wageSourceValue,
+        qualification: options.qualification,
+        hourly_rate_edited: options.hourlyRateEdited,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update session wage rate");
     }
     return response.json();
   },
@@ -939,6 +937,38 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to update process steps");
+    }
+    return response.json();
+  },
+
+  async updatePersonnelEffortTime(options: {
+    appSessionId: string;
+    normAddressee: NormAddressee;
+    stepId: number;
+    period: "current" | "proposed";
+    qualification: string;
+    wageSourceKind: string;
+    wageSourceValue: string;
+    timeRequiredInMinEdited: number | null;
+  }): Promise<{ updated: number }> {
+    const response = await fetch(`${API_BASE_URL}/process-steps/personnel-effort-edit`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        norm_addressee: options.normAddressee,
+        step_id: options.stepId,
+        period: options.period,
+        qualification: options.qualification,
+        wage_source_kind: options.wageSourceKind,
+        wage_source_value: options.wageSourceValue,
+        time_required_in_min_edited: options.timeRequiredInMinEdited,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update personnel effort time");
     }
     return response.json();
   },

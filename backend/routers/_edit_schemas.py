@@ -76,6 +76,10 @@ class EditableProcessStepRow(BaseModel):
     time_required_in_min_c_proposed_effective: float | None = None
     time_required_in_min_d_proposed_effective: float | None = None
     expenses_proposed_effective: float | None = None
+    role_sources_current: list[dict] | None = None
+    role_sources_proposed: list[dict] | None = None
+    personnel_effort_current: list[dict] | None = None
+    personnel_effort_proposed: list[dict] | None = None
 
 
 class EditableProcessStepsResponse(BaseModel):

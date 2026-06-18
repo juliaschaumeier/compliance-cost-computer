@@ -464,6 +464,108 @@ def test_compute_costs_allows_business_time_only_inputs_with_active_rates(test_c
     assert resp.json()["total_cost"] == pytest.approx(26.1)
 
 
+def test_compute_costs_business_time_only_uses_baseline_row_not_gesamtwirtschaft(
+    test_client,
+):
+    """Regression (M-2): Ein Schritt mit Zeit, aber OHNE per-Schritt-Modell-Satz und
+    OHNE Override faellt auf die tatsaechlich genutzte Baseline-Zeile zurueck
+    (role_sources -> "K"), nicht mehr auf den Gesamtwirtschaft-Snapshot.
+    K.a = 29.0, Gesamtwirtschaft.a = 26.1; 1 h -> 29.0 belegt die genutzte Zeile."""
+    session_id, _ = db.upsert_session("COST-BUSINESS-BASELINE-ROW", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Business Process",
+        "Beschreibung Prozess",
+        norm_addressee=BUSINESS,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Business Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=BUSINESS,
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Business Step",
+        "Beschreibung Schritt",
+        norm_addressee=BUSINESS,
+    )
+    for tile_id, title, link_from, column, meta in (
+        (f"process_{process_id}", "Business Process", [], 2, {"process_id": process_id}),
+        (
+            f"case_group_{case_group_id}",
+            "Business Case Group",
+            [f"process_{process_id}"],
+            3,
+            {"case_group_id": case_group_id, "process_id": process_id},
+        ),
+        (
+            f"step_{step_id}",
+            "Business Step",
+            [f"case_group_{case_group_id}"],
+            4,
+            {"step_id": step_id, "case_group_id": case_group_id},
+        ),
+    ):
+        db.upsert_tile(
+            Tile(
+                id=tile_id,
+                title=title,
+                text=title,
+                meta_information=meta,
+                column=column,
+                row=0,
+                deletable=True,
+                link_from_tile=link_from,
+            ),
+            session_id=session_id,
+            norm_addressee=BUSINESS,
+        )
+
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    # Time on slot a but no per-step model rate; used row via role_sources = "K".
+    role_sources = [
+        {
+            "slot": "a",
+            "role": "",
+            "source_kind": "wirtschaftsabschnitt",
+            "source_value": "K",
+        }
+    ]
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        role_sources_current=role_sources,
+        role_sources_proposed=role_sources,
+    )
+
+    # Make sure the used baseline row is actually "K".
+    assert db.get_used_wage_baseline(session_id, BUSINESS) == "K"
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-BUSINESS-BASELINE-ROW", "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+    # K.a = 29.0 (nicht Gesamtwirtschaft 26.1).
+    assert resp.json()["total_cost"] == pytest.approx(29.0)
+
+
 def test_compute_costs_business_allocates_bureaucracy_proportionally_for_mixed_steps(
     test_client,
 ):
@@ -877,3 +979,501 @@ def test_compute_costs_citizens_ignores_persisted_hourly_rates(test_client):
     assert totals["bureaucracy_cost"] is None
     assert totals["total_time_minutes"] == pytest.approx(60.0)
     assert totals["total_expenses"] == pytest.approx(10.0)
+
+
+def _set_admin_pay_rate_override(test_client, app_session_id: str, **edited: float | None):
+    """Setzt einen manuellen Lohnsatz-Override realistisch ueber den oeffentlichen
+    Endpoint POST /sessions/pay-rates (nicht per direktem SQL)."""
+    payload = {
+        "app_session_id": app_session_id,
+        "norm_addressee": ADMINISTRATION,
+        "edited_a": edited.get("a"),
+        "edited_b": edited.get("b"),
+        "edited_c": edited.get("c"),
+        "edited_d": edited.get("d"),
+    }
+    resp = test_client.post("/sessions/pay-rates", json=payload)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_manual_pay_rate_override_beats_per_step_rate(test_client):
+    """B1: Ein manuell gesetzter Override (Stufe b) schlaegt den pro Schritt vom
+    Modell zugewiesenen hourly_rate_b; die Gesamtsumme entspricht dem Override."""
+    session_id, _ = db.upsert_session("COST-OVERRIDE-B1", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    # Step 1 carries the per-step model rate b = 50; step 2 has no effort.
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 50, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 50, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 0, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    # Without override: model rate 50 EUR/h * 1 h = 50.
+    resp_no_override = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-OVERRIDE-B1"}
+    )
+    assert resp_no_override.status_code == 200
+    assert resp_no_override.json()["total_cost"] == pytest.approx(50.0)
+
+    # With override b = 80: override beats the model rate -> 80 EUR/h * 1 h = 80.
+    _set_admin_pay_rate_override(test_client, "COST-OVERRIDE-B1", b=80)
+    resp_override = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-OVERRIDE-B1"}
+    )
+    assert resp_override.status_code == 200
+    assert resp_override.json()["total_cost"] == pytest.approx(80.0)
+
+
+def test_no_override_uses_per_step_model_rate(test_client):
+    """B2: Ohne Override wird der pro Schritt zugewiesene Modell-Satz genutzt;
+    Kosten bleiben unveraendert (Regression)."""
+    session_id, _ = db.upsert_session("COST-OVERRIDE-B2", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 70, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 70, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 0, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    resp = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-OVERRIDE-B2"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total_cost"] == pytest.approx(70.0)
+
+
+def test_override_only_b_keeps_other_slots_on_model_rate(test_client):
+    """B3: Override nur fuer Stufe b -> a/c/d behalten ihre Modell-Schritt-Saetze."""
+    session_id, _ = db.upsert_session("COST-OVERRIDE-B3", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    # 60 min (1 h) per slot with a model rate; sum without override = 10+20+30+40 = 100.
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 10, "b": 20, "c": 30, "d": 40},
+        time_required_proposed={"a": 60, "b": 60, "c": 60, "d": 60},
+        expenses_proposed=None,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 10, "b": 20, "c": 30, "d": 40},
+        time_required_proposed={"a": 0, "b": 0, "c": 0, "d": 0},
+        expenses_proposed=None,
+    )
+
+    _set_admin_pay_rate_override(test_client, "COST-OVERRIDE-B3", b=80)
+    resp = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-OVERRIDE-B3"}
+    )
+    assert resp.status_code == 200
+    # Nur b durch 80 ersetzt: 10 + 80 + 30 + 40 = 160.
+    assert resp.json()["total_cost"] == pytest.approx(160.0)
+
+
+def test_override_applies_to_current_and_proposed(test_client):
+    """B4: Der Override wirkt in current UND proposed."""
+    session_id, _ = db.upsert_session("COST-OVERRIDE-B4", "test-model")
+    seeded = _seed_flow(session_id)
+
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_current=1,
+        annual_frequency_current=1,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    # current and proposed each 1 h of effort on slot b with model rate 50.
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_one"],
+        hourly_rates_current={"a": None, "b": 50, "c": None, "d": None},
+        time_required_current={"a": None, "b": 60, "c": None, "d": None},
+        expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 50, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_two"],
+        hourly_rates_current={"a": None, "b": 50, "c": None, "d": None},
+        time_required_current={"a": None, "b": 0, "c": None, "d": None},
+        expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 50, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 0, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    _set_admin_pay_rate_override(test_client, "COST-OVERRIDE-B4", b=80)
+    resp = test_client.post(
+        "/costs/compute", json={"app_session_id": "COST-OVERRIDE-B4"}
+    )
+    assert resp.status_code == 200
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT cost_current, cost_proposed FROM process_steps WHERE step_id = ?",
+        (seeded["step_one"],),
+    )
+    row = cur.fetchone()
+    conn.close()
+    # current AND proposed use the override 80 instead of the model rate 50.
+    assert row["cost_current"] == pytest.approx(80.0)
+    assert row["cost_proposed"] == pytest.approx(80.0)
+
+
+def test_override_does_not_affect_citizens(test_client):
+    """B5: Buerger haben keine Lohnsaetze; ein Lohnsatz hat keinen Kosteneffekt (0)."""
+    session_id, _ = db.upsert_session("COST-OVERRIDE-B5", "test-model")
+    process_id = db.insert_process(
+        session_id,
+        "Citizens Process",
+        "Beschreibung Prozess",
+        norm_addressee="citizens",
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Citizens Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee="citizens",
+    )
+    step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Citizens Step",
+        "Beschreibung Schritt",
+        norm_addressee="citizens",
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"process_{process_id}",
+            title="Citizens Process",
+            text="Beschreibung Prozess",
+            meta_information={"process_id": process_id},
+            column=2,
+            row=0,
+            deletable=True,
+            link_from_tile=[],
+        ),
+        session_id=session_id,
+        norm_addressee="citizens",
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"case_group_{case_group_id}",
+            title="Citizens Case Group",
+            text="Beschreibung Fallgruppe",
+            meta_information={"case_group_id": case_group_id, "process_id": process_id},
+            column=3,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"process_{process_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee="citizens",
+    )
+    db.upsert_tile(
+        Tile(
+            id=f"step_{step_id}",
+            title="Citizens Step",
+            text="Beschreibung Schritt",
+            meta_information={"step_id": step_id, "case_group_id": case_group_id},
+            column=4,
+            row=0,
+            deletable=True,
+            link_from_tile=[f"case_group_{case_group_id}"],
+        ),
+        session_id=session_id,
+        norm_addressee="citizens",
+    )
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee="citizens",
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee="citizens",
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=10.0,
+    )
+
+    resp = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-OVERRIDE-B5", "norm_addressee": "citizens"},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    # Citizens carry no wage costs; only the expenses (10) count.
+    assert payload["total_cost"] is None
+    assert payload["total_time_minutes"] == pytest.approx(60.0)
+    assert payload["total_expenses"] == pytest.approx(10.0)
+
+
+def _set_business_pay_rate_override(test_client, app_session_id: str, **edited: float | None):
+    """Like _set_admin_pay_rate_override but for business: no administration_level
+    (which would raise 422 for business)."""
+    payload = {
+        "app_session_id": app_session_id,
+        "norm_addressee": BUSINESS,
+        "edited_a": edited.get("a"),
+        "edited_b": edited.get("b"),
+        "edited_c": edited.get("c"),
+        "edited_d": edited.get("d"),
+    }
+    resp = test_client.post("/sessions/pay-rates", json=payload)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _seed_business_single_step(session_id: int, *, model_rate_a: float) -> None:
+    process_id = db.insert_process(session_id, "Business Process", "d", norm_addressee=BUSINESS)
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Business Case Group", "d", norm_addressee=BUSINESS
+    )
+    step_id = db.insert_process_step(
+        session_id, case_group_id, "Business Step", "d", norm_addressee=BUSINESS
+    )
+    for tile_id, column, link in (
+        (f"process_{process_id}", 2, []),
+        (f"case_group_{case_group_id}", 3, [f"process_{process_id}"]),
+        (f"step_{step_id}", 4, [f"case_group_{case_group_id}"]),
+    ):
+        db.upsert_tile(
+            Tile(
+                id=tile_id,
+                title="t",
+                text="d",
+                meta_information={},
+                column=column,
+                row=0,
+                deletable=True,
+                link_from_tile=link,
+            ),
+            session_id=session_id,
+            norm_addressee=BUSINESS,
+        )
+    db.upsert_case_group_metrics_by_addressee(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        norm_addressee=BUSINESS,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": model_rate_a, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 60, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+
+def test_manual_business_pay_rate_override_beats_per_step_rate(test_client):
+    """B6: like B1 but for business. A business override set via the pay-rates tab
+    beats the per-step model rate and flows into the computed total (the path that was
+    untested and hid the earlier business recompute bug)."""
+    session_id, _ = db.upsert_session("COST-OVERRIDE-B6", "test-model")
+    _seed_business_single_step(session_id, model_rate_a=50)
+
+    # Without override: model rate 50 EUR/h * 1 h = 50.
+    resp_no_override = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-OVERRIDE-B6", "norm_addressee": BUSINESS},
+    )
+    assert resp_no_override.status_code == 200
+    assert resp_no_override.json()["total_cost"] == pytest.approx(50.0)
+
+    # With override a = 80: override beats the model rate -> 80 EUR/h * 1 h = 80.
+    _set_business_pay_rate_override(test_client, "COST-OVERRIDE-B6", a=80)
+    resp_override = test_client.post(
+        "/costs/compute",
+        json={"app_session_id": "COST-OVERRIDE-B6", "norm_addressee": BUSINESS},
+    )
+    assert resp_override.status_code == 200
+    assert resp_override.json()["total_cost"] == pytest.approx(80.0)
+
+
+def _seed_proposed_cases(session_id, case_group_id):
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        addressees_proposed=1,
+        annual_frequency_proposed=1,
+    )
+
+
+def test_compute_costs_row_model_sums_mixed_sources(test_client):
+    # Bund and Laender (same qualification) in one step are summed per row -- the
+    # legacy slot model could only keep one rate for that qualification.
+    session_id, _ = db.upsert_session("COST-ROWS-MIXED", "test-model")
+    seeded = _seed_flow(session_id)
+    _seed_proposed_cases(session_id, seeded["case_group_id"])
+    step_one, step_two = seeded["step_one"], seeded["step_two"]
+
+    # Dual-write reality: slot carries the aggregated time (passes cost-input
+    # validation); child rows carry the per-source detail and drive the cost.
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_one,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 42.0, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    db.replace_process_step_personnel_effort(
+        session_id, ADMINISTRATION, step_one,
+        [
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
+             "time_required_in_min": 30, "model_hourly_rate": 40.4},
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "laender",
+             "time_required_in_min": 30, "model_hourly_rate": 43.2},
+        ],
+    )
+    # step_two stays on the legacy slot fallback (no child rows) in the same run.
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_two,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": 60.0, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    resp = test_client.post("/costs/compute", json={"app_session_id": "COST-ROWS-MIXED"})
+    assert resp.status_code == 200
+
+    conn = db.get_conn()
+    c1 = conn.execute("SELECT cost_proposed FROM process_steps WHERE step_id=?", (step_one,)).fetchone()["cost_proposed"]
+    c2 = conn.execute("SELECT cost_proposed FROM process_steps WHERE step_id=?", (step_two,)).fetchone()["cost_proposed"]
+    # Row model: 40.4*30/60 + 43.2*30/60 = 20.2 + 21.6 = 41.8 (not 42*60/60=42)
+    assert c1 == pytest.approx(41.8)
+    # Legacy fallback still works in the same session: 60*30/60 = 30
+    assert c2 == pytest.approx(30.0)
+
+
+def test_compute_costs_row_model_override_wins_and_expenses_once(test_client):
+    # A session wage override beats the model rate; step expenses are added once
+    # per step, not per personnel row.
+    session_id, _ = db.upsert_session("COST-ROWS-OVR", "test-model")
+    seeded = _seed_flow(session_id)
+    _seed_proposed_cases(session_id, seeded["case_group_id"])
+    step_one, step_two = seeded["step_one"], seeded["step_two"]
+
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_one,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 40.4, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=10,
+    )
+    db.replace_process_step_personnel_effort(
+        session_id, ADMINISTRATION, step_one,
+        [
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
+             "time_required_in_min": 60, "model_hourly_rate": 40.4},
+        ],
+    )
+    # Override for (verwaltungsebene, bund, gehobener_dienst) -> 50.0
+    conn = db.get_conn()
+    conn.execute(
+        """
+        INSERT INTO session_wage_rate_overrides (
+            session_id, norm_addressee, wage_source_kind, wage_source_value,
+            qualification, hourly_rate_edited, last_edited_at
+        ) VALUES (?, 'administration', 'verwaltungsebene', 'bund',
+                  'gehobener_dienst', 50.0, current_timestamp)
+        """,
+        (session_id,),
+    )
+    conn.commit()
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_two,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": 60.0, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 10, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+
+    resp = test_client.post("/costs/compute", json={"app_session_id": "COST-ROWS-OVR"})
+    assert resp.status_code == 200
+
+    cost = db.get_conn().execute(
+        "SELECT cost_proposed FROM process_steps WHERE step_id=?", (step_one,)
+    ).fetchone()["cost_proposed"]
+    # Override 50.0 * 60/60 + expenses 10 (once) = 60.0  (model 40.4 would give 50.4)
+    assert cost == pytest.approx(60.0)

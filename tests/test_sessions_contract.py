@@ -161,6 +161,133 @@ def test_sessions_edit_audit_contract(test_client):
     assert parsed.rows[0].entity_type in {"pay_rate", "case_group", "process_step"}
 
 
+def test_sessions_pay_rates_contract_includes_wage_source_label(test_client):
+    from backend.core.norm_addressees import BUSINESS
+
+    app_session_id = "CONTRACT-PAY-RATES"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    process_id = db.insert_process(
+        session_id, "Prozess", "Beschreibung", norm_addressee=BUSINESS
+    )
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Fallgruppe", "Beschreibung", norm_addressee=BUSINESS
+    )
+
+    # Ohne role_sources: wage_source_label ist None, Felder bleiben abwaertskompatibel.
+    fresh_resp = test_client.get(
+        "/sessions/pay-rates",
+        params={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert fresh_resp.status_code == 200
+    fresh = _parse_contract(sessions_router.SessionPayRatesResponse, fresh_resp.json())
+    assert fresh.wage_source_label is None
+
+    # Mit genutzter Lohnzeile: wage_source_label spiegelt die genutzte source_value.
+    step_id = db.insert_process_step(
+        session_id, case_group_id, "Schritt", "Beschreibung", norm_addressee=BUSINESS
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=BUSINESS,
+        hourly_rates_current={"a": None, "b": None, "c": 51.0, "d": None},
+        time_required_current={"a": None, "b": None, "c": None, "d": None},
+        expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": None, "c": 51.0, "d": None},
+        time_required_proposed={"a": None, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        role_sources_current=[
+            {"slot": "c", "role": "", "source_kind": "wirtschaftsabschnitt", "source_value": "K"}
+        ],
+        role_sources_proposed=[
+            {"slot": "c", "role": "", "source_kind": "wirtschaftsabschnitt", "source_value": "K"}
+        ],
+    )
+
+    used_resp = test_client.get(
+        "/sessions/pay-rates",
+        params={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert used_resp.status_code == 200
+    used = _parse_contract(sessions_router.SessionPayRatesResponse, used_resp.json())
+    assert used.wage_source_label == "K"
+    # defaults reflect the canonical WZ-section row (K), not the per-step rate.
+    assert used.defaults == {"a": 29.0, "b": 54.4, "c": 93.1, "d": 57.9}
+
+
+def test_pay_rates_save_and_reset_for_laender_session_no_422(test_client):
+    """Regression: Admin-Session mit genutzter Ebene 'laender' speichert/setzt zurueck ohne 422.
+
+    Frueher schickte der Tab administration_level='laender' zurueck, das nur 'bund'
+    validierte -> 422. Die Constants-only-Aufloesung kennt alle Verwaltungsebenen, daher
+    ist 'laender' gueltig.
+    """
+    from backend.core.norm_addressees import ADMINISTRATION
+
+    app_session_id = "CONTRACT-PAY-RATES-LAENDER"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    process_id = db.insert_process(
+        session_id, "Prozess", "Beschreibung", norm_addressee=ADMINISTRATION
+    )
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Fallgruppe", "Beschreibung", norm_addressee=ADMINISTRATION
+    )
+    step_id = db.insert_process_step(
+        session_id, case_group_id, "Schritt", "Beschreibung", norm_addressee=ADMINISTRATION
+    )
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=ADMINISTRATION,
+        hourly_rates_current={"a": 30.5, "b": None, "c": None, "d": None},
+        time_required_current={"a": None, "b": None, "c": None, "d": None},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 30.5, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        role_sources_current=[
+            {"slot": "a", "role": "", "source_kind": "verwaltungsebene", "source_value": "laender"}
+        ],
+        role_sources_proposed=[
+            {"slot": "a", "role": "", "source_kind": "verwaltungsebene", "source_value": "laender"}
+        ],
+    )
+
+    get_resp = test_client.get(
+        "/sessions/pay-rates", params={"app_session_id": app_session_id}
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["administration_level"] == "laender"
+
+    # Saving with the used level must NOT raise 422.
+    save_resp = test_client.post(
+        "/sessions/pay-rates",
+        json={
+            "app_session_id": app_session_id,
+            "administration_level": "laender",
+            "edited_a": 50,
+            "edited_b": None,
+            "edited_c": None,
+            "edited_d": None,
+        },
+    )
+    assert save_resp.status_code == 200
+
+    # Resetting with the same level: also no 422.
+    reset_resp = test_client.post(
+        "/sessions/pay-rates",
+        json={
+            "app_session_id": app_session_id,
+            "administration_level": "laender",
+            "edited_a": None,
+            "edited_b": None,
+            "edited_c": None,
+            "edited_d": None,
+        },
+    )
+    assert reset_resp.status_code == 200
+
+
 def test_sessions_export_contract(test_client):
     _seed_exportable_session("CONTRACT-EXPORT")
 

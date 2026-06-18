@@ -9,12 +9,14 @@ jest.mock("@/lib/api", () => ({
     getEditableCaseGroups: jest.fn(),
     getEditableProcessSteps: jest.fn(),
     bulkUpdateProcessSteps: jest.fn(),
+    updatePersonnelEffortTime: jest.fn(),
   },
 }));
 
 const mockGetEditableCaseGroups = apiClient.getEditableCaseGroups as jest.Mock;
 const mockGetEditableProcessSteps = apiClient.getEditableProcessSteps as jest.Mock;
 const mockBulkUpdateProcessSteps = apiClient.bulkUpdateProcessSteps as jest.Mock;
+const mockUpdatePersonnelEffortTime = apiClient.updatePersonnelEffortTime as jest.Mock;
 
 describe("EaEffortMetricsTab", () => {
   beforeEach(() => {
@@ -74,6 +76,273 @@ describe("EaEffortMetricsTab", () => {
       ],
     });
     mockBulkUpdateProcessSteps.mockResolvedValue({ updated: 1 });
+    mockUpdatePersonnelEffortTime.mockReset();
+    mockUpdatePersonnelEffortTime.mockResolvedValue({ updated: 1 });
+  });
+
+  // A business step whose only personnel row is "hoch" (slot c) under one WZ
+  // section, with the dual-write slot mirror filled.
+  function businessHochStep(stepId: number, stepLabel: string, section: string, rate: number) {
+    return {
+      step_id: stepId,
+      case_group_id: 22,
+      norm_addressee: "business",
+      step: stepLabel,
+      description: "Beschreibung",
+      change_status: "geaendert",
+      time_required_in_min_a_current: null,
+      time_required_in_min_b_current: null,
+      time_required_in_min_c_current: 30,
+      time_required_in_min_d_current: null,
+      expenses_current: 0,
+      time_required_in_min_a_current_edited: null,
+      time_required_in_min_b_current_edited: null,
+      time_required_in_min_c_current_edited: null,
+      time_required_in_min_d_current_edited: null,
+      expenses_current_edited: null,
+      time_required_in_min_a_proposed: null,
+      time_required_in_min_b_proposed: null,
+      time_required_in_min_c_proposed: null,
+      time_required_in_min_d_proposed: null,
+      expenses_proposed: 0,
+      time_required_in_min_a_proposed_edited: null,
+      time_required_in_min_b_proposed_edited: null,
+      time_required_in_min_c_proposed_edited: null,
+      time_required_in_min_d_proposed_edited: null,
+      expenses_proposed_edited: null,
+      time_required_in_min_a_current_effective: null,
+      time_required_in_min_b_current_effective: null,
+      time_required_in_min_c_current_effective: 30,
+      time_required_in_min_d_current_effective: null,
+      expenses_current_effective: 0,
+      time_required_in_min_a_proposed_effective: null,
+      time_required_in_min_b_proposed_effective: null,
+      time_required_in_min_c_proposed_effective: null,
+      time_required_in_min_d_proposed_effective: null,
+      expenses_proposed_effective: 0,
+      personnel_effort_current: [
+        {
+          qualification: "hoch",
+          wage_source_kind: "wirtschaftsabschnitt",
+          wage_source_value: section,
+          model_hourly_rate: rate,
+          time_required_in_min: 30,
+          time_required_in_min_edited: null,
+        },
+      ],
+      personnel_effort_proposed: [],
+    };
+  }
+
+  it("shows different WZ sections per step in the same case group", async () => {
+    // Validates: a case group CAN contain steps with different economic sectors
+    // (the prompt/model do not force one per case group), and the table then
+    // labels each step with its own letter -- both fully editable.
+    mockGetEditableCaseGroups.mockResolvedValue({
+      rows: [{ case_group_id: 22, norm_addressee: "business", process_id: 1, case_group: "FG" }],
+    });
+    mockGetEditableProcessSteps.mockResolvedValue({
+      rows: [
+        businessHochStep(301, "Schritt Kunst", "R", 51.0),
+        businessHochStep(302, "Schritt Finanz", "K", 93.1),
+      ],
+    });
+    render(
+      <EaEffortMetricsTab normAddressee="business" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    const trR = (await screen.findByText("Schritt Kunst")).closest("tr") as HTMLElement;
+    const trK = screen.getByText("Schritt Finanz").closest("tr") as HTMLElement;
+    // Each step row shows its own WZ section letter.
+    expect(within(trR).getByText("· R")).toBeInTheDocument();
+    expect(within(trK).getByText("· K")).toBeInTheDocument();
+    // Both steps are fully editable (4 qualifications + expenses per side = 10).
+    expect(within(trR).getAllByRole("textbox")).toHaveLength(10);
+    expect(within(trK).getAllByRole("textbox")).toHaveLength(10);
+  });
+
+  function seedPersonnelStep(overrides: Record<string, unknown> = {}) {
+    mockGetEditableProcessSteps.mockResolvedValue({
+      rows: [
+        {
+          step_id: 201,
+          case_group_id: 22,
+          norm_addressee: "administration",
+          step: "Schritt R",
+          description: "Beschreibung",
+          change_status: "geaendert",
+          // Dual-write mirror in the slot columns (slot b = gehobener Dienst).
+          time_required_in_min_a_current: null,
+          time_required_in_min_b_current: 10,
+          time_required_in_min_c_current: null,
+          time_required_in_min_d_current: null,
+          expenses_current: 0,
+          time_required_in_min_a_current_edited: null,
+          time_required_in_min_b_current_edited: null,
+          time_required_in_min_c_current_edited: null,
+          time_required_in_min_d_current_edited: null,
+          expenses_current_edited: null,
+          time_required_in_min_a_proposed: null,
+          time_required_in_min_b_proposed: 8,
+          time_required_in_min_c_proposed: null,
+          time_required_in_min_d_proposed: null,
+          expenses_proposed: 0,
+          time_required_in_min_a_proposed_edited: null,
+          time_required_in_min_b_proposed_edited: null,
+          time_required_in_min_c_proposed_edited: null,
+          time_required_in_min_d_proposed_edited: null,
+          expenses_proposed_edited: null,
+          time_required_in_min_a_current_effective: null,
+          time_required_in_min_b_current_effective: 10,
+          time_required_in_min_c_current_effective: null,
+          time_required_in_min_d_current_effective: null,
+          expenses_current_effective: 0,
+          time_required_in_min_a_proposed_effective: null,
+          time_required_in_min_b_proposed_effective: 8,
+          time_required_in_min_c_proposed_effective: null,
+          time_required_in_min_d_proposed_effective: null,
+          expenses_proposed_effective: 0,
+          personnel_effort_current: [
+            {
+              qualification: "gehobener_dienst",
+              wage_source_kind: "verwaltungsebene",
+              wage_source_value: "laender",
+              model_hourly_rate: 43.2,
+              time_required_in_min: 10,
+              time_required_in_min_edited: null,
+            },
+          ],
+          personnel_effort_proposed: [
+            {
+              qualification: "gehobener_dienst",
+              wage_source_kind: "verwaltungsebene",
+              wage_source_value: "laender",
+              model_hourly_rate: 43.2,
+              time_required_in_min: 8,
+              time_required_in_min_edited: null,
+            },
+          ],
+          ...overrides,
+        },
+      ],
+    });
+  }
+
+  it("renders all qualifications editable under the step's single source", async () => {
+    seedPersonnelStep();
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    const row = await screen.findByText("Schritt R");
+    const tr = row.closest("tr") as HTMLElement;
+    // 4 qualifications x 2 periods + 2 expenses = 10 editable inputs (like before
+    // the redesign): empty qualifications are editable, not dashes.
+    const inputs = within(tr).getAllByRole("textbox");
+    expect(inputs).toHaveLength(10);
+    expect(within(tr).queryByText("–")).not.toBeInTheDocument();
+    // The source is shown once on the step, not on every cell.
+    expect(within(tr).getAllByText(/Länder/)).toHaveLength(1);
+    // Order per period: eD/mD, gD, hD, Ø, expenses. gD is prefilled, eD/mD empty.
+    expect(inputs[0]).toHaveValue("");
+    expect(inputs[1]).toHaveValue("10");
+  });
+
+  it("edits an existing qualification via the row endpoint, not bulk-update", async () => {
+    seedPersonnelStep();
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={runAutoRecompute} />
+    );
+
+    const row = await screen.findByText("Schritt R");
+    const tr = row.closest("tr") as HTMLElement;
+    const inputs = within(tr).getAllByRole("textbox");
+    const user = userEvent.setup();
+    // inputs[1] = current gD (prefilled 10).
+    await user.clear(inputs[1]);
+    await user.type(inputs[1], "5");
+    await user.click(screen.getByRole("button", { name: /prüfen/i }));
+    await user.click(screen.getByRole("button", { name: /änderungen speichern/i }));
+
+    await waitFor(() => expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledTimes(1));
+    expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledWith({
+      appSessionId: "STEP-TAB",
+      normAddressee: "administration",
+      stepId: 201,
+      period: "current",
+      qualification: "gehobener_dienst",
+      wageSourceKind: "verwaltungsebene",
+      wageSourceValue: "laender",
+      timeRequiredInMinEdited: 5,
+    });
+    expect(mockBulkUpdateProcessSteps).not.toHaveBeenCalled();
+    expect(runAutoRecompute).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates a row when adding time for an unassigned qualification", async () => {
+    // Julia: move minutes to a qualification the LLM did not assign. Editing the
+    // empty hD column upserts a row under the step's source.
+    seedPersonnelStep();
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    const row = await screen.findByText("Schritt R");
+    const tr = row.closest("tr") as HTMLElement;
+    const inputs = within(tr).getAllByRole("textbox");
+    const user = userEvent.setup();
+    // inputs[2] = current hD (empty, LLM did not assign it).
+    await user.type(inputs[2], "20");
+    await user.click(screen.getByRole("button", { name: /prüfen/i }));
+    await user.click(screen.getByRole("button", { name: /änderungen speichern/i }));
+
+    await waitFor(() => expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledTimes(1));
+    expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledWith({
+      appSessionId: "STEP-TAB",
+      normAddressee: "administration",
+      stepId: 201,
+      period: "current",
+      qualification: "hoeherer_dienst",
+      wageSourceKind: "verwaltungsebene",
+      wageSourceValue: "laender",
+      timeRequiredInMinEdited: 20,
+    });
+  });
+
+  it("reset clears personnel time edits via the row endpoint", async () => {
+    seedPersonnelStep({
+      personnel_effort_current: [
+        {
+          qualification: "gehobener_dienst",
+          wage_source_kind: "verwaltungsebene",
+          wage_source_value: "laender",
+          model_hourly_rate: 43.2,
+          time_required_in_min: 10,
+          time_required_in_min_edited: 99,
+        },
+      ],
+    });
+    const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
+    render(
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={runAutoRecompute} />
+    );
+
+    await screen.findByText("Schritt R");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /auf modellwerte zurücksetzen/i }));
+
+    await waitFor(() => expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledTimes(1));
+    expect(mockUpdatePersonnelEffortTime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stepId: 201,
+        period: "current",
+        timeRequiredInMinEdited: null,
+      })
+    );
+    // No step-level edits exist, so the slot bulk-update is skipped entirely.
+    expect(mockBulkUpdateProcessSteps).not.toHaveBeenCalled();
+    expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
 
   it("loads case groups/steps and saves reviewed step edits", async () => {

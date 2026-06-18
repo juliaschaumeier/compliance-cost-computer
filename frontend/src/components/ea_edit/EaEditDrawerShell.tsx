@@ -31,7 +31,7 @@ const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
 const TAB_COPY: Record<EditorTab, { title: string; hint: string }> = {
   pay_rates: {
     title: "Globale Lohnsätze",
-    hint: "Lege die aktiven Lohnsätze für diese Session fest. Werte gelten für alle Schritte.",
+    hint: "Lohnsätze für diese Session. Hier gesetzte Werte überschreiben die vom Modell genutzten Sätze für alle Schritte dieses Normadressaten. Ohne Eintrag gelten die Modellwerte.",
   },
   case_metrics: {
     title: "Fallzahlen",
@@ -55,6 +55,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
   const cancelResetRef = useRef<HTMLButtonElement | null>(null);
   const { recomputeStatus, runAutoRecompute } = useDebouncedSessionRecompute({
     appSessionId: state.appSessionId,
+    normAddressee: state.selectedNormAddressee,
     debounceMs: 400,
   });
   const {

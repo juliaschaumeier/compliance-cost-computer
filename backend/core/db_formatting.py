@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from backend.core.norm_addressees import personnel_provenance_label
+
 
 def format_number(value: float | int | None) -> str:
     if value is None:
@@ -164,6 +166,85 @@ def build_process_step_tile_text(
         expenses_proposed,
         cost_proposed,
     )
+    if current_line:
+        lines.append(current_line)
+    if proposed_line:
+        lines.append(proposed_line)
+    if execution_per_case is not None:
+        lines.append(
+            "Ausfuehrung pro Einzelfall: "
+            + ("ja" if bool(execution_per_case) else "nein")
+        )
+    return "\n".join(lines).strip()
+
+
+def build_process_step_tile_text_from_rows(
+    description: str,
+    norm_addressee: str,
+    current_rows: list[dict],
+    proposed_rows: list[dict],
+    expenses_current: float | int | None,
+    cost_current: float | int | None,
+    expenses_proposed: float | int | None,
+    cost_proposed: float | int | None,
+    execution_per_case: bool | int | None,
+    wage_overrides: dict | None = None,
+) -> str:
+    """Step tile text from the row-based personnel-effort model.
+
+    Each personnel row is labelled with its wage provenance (Comment 2), e.g.
+    ``Bund - Gehobener Dienst`` / ``R - Mittel``. Time and rate are the effective
+    values (edited time and session wage override win), matching the cost engine,
+    so a row edit is reflected immediately instead of showing stale slot data.
+    """
+    overrides = wage_overrides or {}
+    lines = []
+    base = (description or "").strip()
+    if base:
+        lines.append(base)
+
+    def _effective_rate(row: dict) -> float | None:
+        key = (row.get("wage_source_kind"), row.get("wage_source_value"), row.get("qualification"))
+        override = overrides.get(key)
+        if override is not None:
+            return float(override)
+        return row.get("model_hourly_rate")
+
+    def _effective_minutes(row: dict) -> float | int | None:
+        edited = row.get("time_required_in_min_edited")
+        return edited if edited is not None else row.get("time_required_in_min")
+
+    def _format_period(
+        label: str,
+        rows: list[dict],
+        expenses: float | int | None,
+        cost: float | int | None,
+    ) -> str | None:
+        parts = []
+        for row in rows:
+            minutes = _effective_minutes(row)
+            rate = _effective_rate(row)
+            if minutes is None and rate is None:
+                continue
+            provenance = personnel_provenance_label(
+                norm_addressee, row.get("wage_source_value"), row.get("qualification")
+            )
+            detail = []
+            if minutes is not None:
+                detail.append(f"{format_number(minutes)} Min.")
+            if rate is not None:
+                detail.append(f"{format_currency(rate)}/Std.")
+            parts.append(f"{provenance}: " + ", ".join(detail))
+        if expenses is not None:
+            parts.append(f"Sachaufwand: {format_currency(expenses)}")
+        if cost is not None:
+            parts.append(f"Kosten: {format_currency(cost)}")
+        if not parts:
+            return None
+        return f"{label}: " + " | ".join(parts)
+
+    current_line = _format_period("Aktuell", current_rows, expenses_current, cost_current)
+    proposed_line = _format_period("Entwurf", proposed_rows, expenses_proposed, cost_proposed)
     if current_line:
         lines.append(current_line)
     if proposed_line:
