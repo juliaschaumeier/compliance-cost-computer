@@ -7,10 +7,6 @@ import { apiClient } from "@/lib/api";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
 
-function formatEuro(value: number | null | undefined): string {
-  return typeof value === "number" ? `${value.toFixed(2)} EUR` : "n. v.";
-}
-
 export default function TotalCostPanel() {
   const { state, setCurrentTab, setTotalCostReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
@@ -90,24 +86,10 @@ export default function TotalCostPanel() {
 
     window.dispatchEvent(new Event("tiles-updated"));
 
-    const successLines = successes.map(({ na, result }) => {
-      if (na === "citizens") {
-        const timePart =
-          typeof result.total_time_hours === "number"
-            ? `Zeit ${result.total_time_hours.toFixed(2)} Std.`
-            : null;
-        const expensesPart =
-          typeof result.total_expenses === "number"
-            ? `Sachaufwand ${result.total_expenses.toFixed(2)} EUR`
-            : null;
-        const detail =
-          timePart || expensesPart
-            ? [timePart, expensesPart].filter(Boolean).join(", ")
-            : "Aufwand berechnet";
-        return ` ${labels[na]}: ${detail}.`;
-      }
-      return ` ${labels[na]}: ${formatEuro(result.total_cost)}.`;
-    });
+    // Bewusst ohne konkrete Beträge: die maßgebliche, stets aktuelle Summe steht
+    // in der total_cost-Kachel (Single Source of Truth). Eine Zahl hier würde nach
+    // späteren EA-Edits (Löhne/Fallzahlen) veralten (PR #35, Kommentar Julia).
+    const successLines = successes.map(({ na }) => ` ${labels[na]}: berechnet.`);
 
     const failureLines = failures.map(
       ({ na, error }) =>
@@ -117,9 +99,7 @@ export default function TotalCostPanel() {
       if (failures.length === 0) {
         setTotalCostReady(true);
         setStatusTone("success");
-        setStatus(
-          `Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.${successLines.join("")}`
-        );
+        setStatus("Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.");
         setCurrentTab(6);
       } else if (successes.length === 0) {
         setStatusTone("error");

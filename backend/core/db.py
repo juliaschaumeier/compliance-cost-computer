@@ -42,15 +42,104 @@ PAY_RATE_BUND_DEFAULTS: dict[str, float] = {
     "c": 67.6,
     "d": 44.4,
 }
+# Hourly wage rates per administration level (handbook_tables.py, Anhang 8).
+# Keys are administration_level values; columns eD/mD,gD,hD,avg map to a,b,c,d.
+PAY_RATE_LEVEL_DEFAULTS: dict[str, dict[str, float]] = {
+    "bund": PAY_RATE_BUND_DEFAULTS,
+    "laender": {"a": 30.5, "b": 43.2, "c": 69.3, "d": 46.7},
+    "kommunen": {"a": 25.5, "b": 42.2, "c": 70.4, "d": 40.7},
+    "sozialversicherung": {"a": 30.3, "b": 46.3, "c": 73.2, "d": 48.1},
+    "durchschnitt": {"a": 27.3, "b": 42.9, "c": 69.3, "d": 44.4},
+}
 PAY_RATE_BUSINESS_DEFAULTS: dict[str, float] = {
     "a": 26.1,
     "b": 37.1,
     "c": 62.4,
     "d": 38.6,
 }
+# Hourly wage rates per economic section (handbook_tables.py).
+# Keys are WZ sections (A..S without O) plus "gesamtwirtschaft".
+PAY_RATE_BUSINESS_SECTION_DEFAULTS: dict[str, dict[str, float]] = {
+    "A": {"a": 22.7, "b": 25.6, "c": 45.8, "d": 25.0},
+    "B": {"a": 32.6, "b": 41.8, "c": 85.6, "d": 45.0},
+    "C": {"a": 31.6, "b": 44.2, "c": 76.2, "d": 46.2},
+    "D": {"a": 33.6, "b": 54.9, "c": 80.7, "d": 57.8},
+    "E": {"a": 28.5, "b": 37.0, "c": 64.7, "d": 37.4},
+    "F": {"a": 26.1, "b": 33.7, "c": 59.5, "d": 33.7},
+    "G": {"a": 23.6, "b": 32.4, "c": 62.4, "d": 33.4},
+    "H": {"a": 25.9, "b": 32.2, "c": 62.8, "d": 32.1},
+    "I": {"a": 21.7, "b": 24.4, "c": 39.7, "d": 23.6},
+    "J": {"a": 25.1, "b": 49.9, "c": 63.7, "d": 52.8},
+    "K": {"a": 29.0, "b": 54.4, "c": 93.1, "d": 57.9},
+    "L": {"a": 24.1, "b": 34.7, "c": 56.2, "d": 35.0},
+    "M": {"a": 25.5, "b": 40.9, "c": 64.2, "d": 46.7},
+    "N": {"a": 23.3, "b": 30.2, "c": 55.0, "d": 28.0},
+    "P": {"a": 26.3, "b": 36.4, "c": 53.1, "d": 43.2},
+    "Q": {"a": 27.0, "b": 34.2, "c": 62.0, "d": 36.9},
+    "R": {"a": 22.9, "b": 32.2, "c": 51.0, "d": 31.7},
+    "S": {"a": 23.6, "b": 30.3, "c": 49.0, "d": 32.1},
+    "gesamtwirtschaft": PAY_RATE_BUSINESS_DEFAULTS,
+}
 NORM_ADDRESSEE_CHECK_SQL = "CHECK (norm_addressee IN ({values}))".format(
     values=", ".join(f"'{na}'" for na in SUPPORTED_NORM_ADDRESSEES)
 )
+
+# Canonical machine names for the qualification dimension of the row-based
+# personnel-effort model (process_step_personnel_effort). The four slots a/b/c/d
+# of the legacy fixed-column model map 1:1 onto these names per norm addressee.
+PERSONNEL_QUALIFICATION_BY_SLOT: dict[str, dict[str, str]] = {
+    ADMINISTRATION: {
+        "a": "einfacher_und_mittlerer_dienst",
+        "b": "gehobener_dienst",
+        "c": "hoeherer_dienst",
+        "d": "durchschnitt",
+    },
+    BUSINESS: {
+        "a": "niedrig",
+        "b": "mittel",
+        "c": "hoch",
+        "d": "durchschnitt",
+    },
+}
+PERSONNEL_SLOT_BY_QUALIFICATION: dict[str, dict[str, str]] = {
+    addressee: {name: slot for slot, name in slots.items()}
+    for addressee, slots in PERSONNEL_QUALIFICATION_BY_SLOT.items()
+}
+# Wage-source kind is derivable from the norm addressee.
+WAGE_SOURCE_KIND_BY_ADDRESSEE: dict[str, str] = {
+    ADMINISTRATION: "verwaltungsebene",
+    BUSINESS: "wirtschaftsabschnitt",
+}
+
+
+def get_model_hourly_rate(
+    norm_addressee: str,
+    wage_source_value: str,
+    qualification: str,
+) -> float | None:
+    """Resolve the model hourly wage rate from the reference constants.
+
+    This is the single seam between the row-based model and the wage reference
+    data. Today it reads the in-code constants (PAY_RATE_*_DEFAULTS); promoting
+    them to a DB table later only changes this function. Returns None when the
+    (addressee, source, qualification) combination is unknown so callers can
+    decide how to react; citizens have no monetised personnel rate (0.0).
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == CITIZENS:
+        return 0.0
+    slot = PERSONNEL_SLOT_BY_QUALIFICATION.get(resolved, {}).get(qualification)
+    if slot is None:
+        return None
+    if resolved == ADMINISTRATION:
+        table = PAY_RATE_LEVEL_DEFAULTS.get(wage_source_value)
+    elif resolved == BUSINESS:
+        table = PAY_RATE_BUSINESS_SECTION_DEFAULTS.get(wage_source_value)
+    else:
+        return None
+    if table is None:
+        return None
+    return table.get(slot)
 
 
 def _ensure_parent(path: Path) -> None:
@@ -206,85 +295,69 @@ def _migrate_tile_tables_to_norm_addressee(cur: sqlite3.Cursor) -> None:
     cur.execute("PRAGMA foreign_keys = ON")
 
 
-def _create_pay_rate_defaults_table(cur: sqlite3.Cursor) -> None:
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS pay_rate_defaults (
-            administration_level TEXT PRIMARY KEY,
-            hourly_rate_a        REAL NOT NULL,
-            hourly_rate_b        REAL NOT NULL,
-            hourly_rate_c        REAL NOT NULL,
-            hourly_rate_d        REAL NOT NULL
-        )
-        """
-    )
-
-
-def _seed_pay_rate_defaults(cur: sqlite3.Cursor) -> None:
-    cur.execute(
-        """
-        INSERT OR IGNORE INTO pay_rate_defaults (
-            administration_level,
-            hourly_rate_a,
-            hourly_rate_b,
-            hourly_rate_c,
-            hourly_rate_d
-        )
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            PAY_RATE_LEVEL_BUND,
-            PAY_RATE_BUND_DEFAULTS["a"],
-            PAY_RATE_BUND_DEFAULTS["b"],
-            PAY_RATE_BUND_DEFAULTS["c"],
-            PAY_RATE_BUND_DEFAULTS["d"],
-        ),
-    )
+# Canonical wage rates per norm addressee. These constants are the single source
+# of truth; there is no pay_rate_defaults table. Per-session reproducibility lives
+# in the sessions.pay_rate_default_* snapshots.
+_PAY_RATE_DEFAULTS_BY_ADDRESSEE: dict[str, dict[str, dict[str, float]]] = {
+    ADMINISTRATION: PAY_RATE_LEVEL_DEFAULTS,
+    BUSINESS: PAY_RATE_BUSINESS_SECTION_DEFAULTS,
+}
+# Fallback key + constant per norm addressee when neither the requested label
+# nor the default key is found in the constants dict.
+_PAY_RATE_FALLBACK_KEY: dict[str, str] = {
+    ADMINISTRATION: PAY_RATE_LEVEL_BUND,
+    BUSINESS: "gesamtwirtschaft",
+}
+_PAY_RATE_FALLBACK_DEFAULTS: dict[str, dict[str, float]] = {
+    ADMINISTRATION: PAY_RATE_BUND_DEFAULTS,
+    BUSINESS: PAY_RATE_BUSINESS_DEFAULTS,
+}
 
 
 def _resolve_pay_rate_defaults(
-    cur: sqlite3.Cursor,
-    administration_level: str | None,
+    norm_addressee: str,
+    source_value: str | None,
 ) -> dict[str, float]:
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
-    level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
-    cur.execute(
-        """
-        SELECT hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
-        FROM pay_rate_defaults
-        WHERE administration_level = ?
-        """,
-        (level,),
-    )
-    row = cur.fetchone()
-    if row:
-        return {
-            "a": float(row["hourly_rate_a"]),
-            "b": float(row["hourly_rate_b"]),
-            "c": float(row["hourly_rate_c"]),
-            "d": float(row["hourly_rate_d"]),
-        }
-    return dict(PAY_RATE_BUND_DEFAULTS)
+    """Resolve the canonical rate row (a..d) for a norm addressee + source.
+
+    Constants-only, no DB access. Fallback chain: requested source_value ->
+    addressee default key (administration -> "bund", business -> "gesamtwirtschaft")
+    -> hardcoded constant.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    table = _PAY_RATE_DEFAULTS_BY_ADDRESSEE.get(resolved, {})
+
+    fallback_key = _PAY_RATE_FALLBACK_KEY.get(resolved, PAY_RATE_LEVEL_BUND)
+    requested = str(source_value or "").strip()
+    if resolved == ADMINISTRATION:
+        requested = requested.lower()
+    lookup_keys = [requested] if requested else []
+    if fallback_key not in lookup_keys:
+        lookup_keys.append(fallback_key)
+
+    for key in lookup_keys:
+        rates = table.get(key)
+        if rates:
+            return {
+                "a": float(rates["a"]),
+                "b": float(rates["b"]),
+                "c": float(rates["c"]),
+                "d": float(rates["d"]),
+            }
+    return dict(_PAY_RATE_FALLBACK_DEFAULTS.get(resolved, PAY_RATE_BUND_DEFAULTS))
 
 
 def get_default_pay_rates_for_addressee(
     norm_addressee: str,
-    administration_level: str | None = None,
+    source_value: str | None = None,
 ) -> dict[str, float]:
     resolved = normalize_norm_addressee(norm_addressee)
-    if resolved == BUSINESS:
-        return dict(PAY_RATE_BUSINESS_DEFAULTS)
-    if resolved == ADMINISTRATION:
-        conn = get_conn()
-        cur = conn.cursor()
-        defaults = _resolve_pay_rate_defaults(cur, administration_level)
-        _maybe_close(conn)
-        return defaults
-    raise ValueError(
-        f"pay-rate defaults are only defined for {ADMINISTRATION} and {BUSINESS}, "
-        f"got norm_addressee={norm_addressee!r}"
-    )
+    if resolved not in (ADMINISTRATION, BUSINESS):
+        raise ValueError(
+            f"pay-rate defaults are only defined for {ADMINISTRATION} and {BUSINESS}, "
+            f"got norm_addressee={norm_addressee!r}"
+        )
+    return _resolve_pay_rate_defaults(resolved, source_value)
 
 
 def _empty_pay_rate_edits() -> dict[str, float | None]:
@@ -540,6 +613,8 @@ def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_
             cost_current                    REAL,
             cost_proposed                   REAL,
             last_edited_at                  TEXT,
+            role_sources_current_json       TEXT,
+            role_sources_proposed_json      TEXT,
             FOREIGN KEY (case_group_id)
             REFERENCES case_groups
                 ON UPDATE CASCADE
@@ -852,6 +927,214 @@ def _create_session_pay_rate_overrides_by_addressee_table(
         )
         """
     )
+
+
+def _create_process_step_personnel_effort_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "process_step_personnel_effort",
+) -> None:
+    """Row-based personnel effort (child of process_steps).
+
+    One row per (step, period, qualification, wage source). Replaces the fixed
+    a/b/c/d wage/time columns on process_steps so that mixed wage sources for the
+    same qualification (e.g. Bund and Laender gehobener Dienst in one step) no
+    longer overwrite each other.
+
+    The per-row cost is recomputed on demand from rate * time and deliberately not
+    cached here (no ``computed_cost`` column): it is cheap to derive and a cache
+    would only risk drifting from the authoritative rate/time/override inputs.
+    """
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            effort_id                    INTEGER PRIMARY KEY,
+            session_id                   INTEGER NOT NULL,
+            norm_addressee               TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            step_id                      INTEGER NOT NULL,
+            period                       TEXT NOT NULL CHECK (period IN ('current', 'proposed')),
+            qualification                TEXT NOT NULL,
+            wage_source_kind             TEXT NOT NULL,
+            wage_source_value            TEXT NOT NULL,
+            time_required_in_min         REAL,
+            time_required_in_min_edited  REAL,
+            model_hourly_rate            REAL NOT NULL,
+            last_edited_at               TEXT,
+            UNIQUE (
+                session_id,
+                norm_addressee,
+                step_id,
+                period,
+                qualification,
+                wage_source_kind,
+                wage_source_value
+            ),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            FOREIGN KEY (step_id)
+            REFERENCES process_steps (step_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _create_session_wage_rate_overrides_table(
+    cur: sqlite3.Cursor,
+    table_name: str = "session_wage_rate_overrides",
+) -> None:
+    """Row-keyed session wage overrides (created now, used from Phase B/C).
+
+    Keyed by (source, qualification) so a manual rate edit applies precisely to
+    matching personnel-effort rows, unlike the legacy slot-based overrides.
+    """
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            session_id           INTEGER NOT NULL,
+            norm_addressee       TEXT NOT NULL {NORM_ADDRESSEE_CHECK_SQL},
+            wage_source_kind     TEXT NOT NULL,
+            wage_source_value    TEXT NOT NULL,
+            qualification        TEXT NOT NULL,
+            hourly_rate_edited   REAL,
+            last_edited_at       TEXT,
+            PRIMARY KEY (
+                session_id,
+                norm_addressee,
+                wage_source_kind,
+                wage_source_value,
+                qualification
+            ),
+            FOREIGN KEY (session_id)
+            REFERENCES sessions (session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+
+
+def _decode_role_sources_by_slot(raw_json: str | None) -> dict[str, str]:
+    """Decode role_sources_*_json into ``{slot: source_value}`` (best effort)."""
+    if not raw_json:
+        return {}
+    try:
+        entries = json.loads(raw_json)
+    except (TypeError, ValueError):
+        return {}
+    result: dict[str, str] = {}
+    if isinstance(entries, list):
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("slot") and entry.get("source_value"):
+                result[str(entry["slot"])] = str(entry["source_value"])
+    return result
+
+
+def _recover_backfill_wage_source(
+    norm_addressee: str,
+    slot: str,
+    stored_rate: float | None,
+    recorded_source: str | None,
+) -> str | None:
+    """Resolve the wage source for a legacy slot cell during backfill.
+
+    Priority: (1) the source the parser recorded in role_sources_*_json, else
+    (2) reverse-lookup by the stored slot rate -> the table source carrying that
+    rate, else (3) when several sources share that rate, the aggregate label
+    (durchschnitt / gesamtwirtschaft) if it is among them, otherwise the first
+    candidate alphabetically. Every equal-rate candidate yields the same cost, so
+    only the source *label* of an ambiguous cell is a best-effort guess.
+    """
+    if recorded_source:
+        return recorded_source
+    if norm_addressee == ADMINISTRATION:
+        table = PAY_RATE_LEVEL_DEFAULTS
+        default = "durchschnitt"
+    elif norm_addressee == BUSINESS:
+        table = PAY_RATE_BUSINESS_SECTION_DEFAULTS
+        default = "gesamtwirtschaft"
+    else:
+        return None
+    if stored_rate is None:
+        return default
+    candidates = sorted(
+        source
+        for source, col in table.items()
+        if slot in col and abs(col[slot] - float(stored_rate)) < 0.005
+    )
+    if not candidates:
+        return default
+    if default in candidates:
+        return default
+    return candidates[0]
+
+
+def _backfill_process_step_personnel_effort(cur: sqlite3.Cursor) -> int:
+    """One-time, idempotent migration of legacy slot effort into child rows.
+
+    For every org step (administration/business) that still has slot-based time
+    but no child rows yet, create the equivalent process_step_personnel_effort
+    rows. The wage source is recovered from role_sources_*_json or, when missing,
+    reverse-looked-up from the stored slot rate (see
+    `_recover_backfill_wage_source`). The model_hourly_rate is taken from the wage
+    table, which equals the stored slot rate for legacy data, so per-step costs
+    are preserved. Citizens carry no monetised personnel rows and are skipped.
+
+    Returns the number of child rows inserted (0 on an already-migrated or empty
+    database).
+    """
+    existing = {
+        row["step_id"]
+        for row in cur.execute(
+            "SELECT DISTINCT step_id FROM process_step_personnel_effort"
+        ).fetchall()
+    }
+    steps = cur.execute(
+        "SELECT * FROM process_steps WHERE norm_addressee IN (?, ?)",
+        (ADMINISTRATION, BUSINESS),
+    ).fetchall()
+    inserted = 0
+    for step in steps:
+        step_id = step["step_id"]
+        if step_id in existing:
+            continue
+        addr = step["norm_addressee"]
+        kind = WAGE_SOURCE_KIND_BY_ADDRESSEE.get(addr)
+        for period in ("current", "proposed"):
+            recorded = _decode_role_sources_by_slot(step[f"role_sources_{period}_json"])
+            for slot in PAY_RATE_KEYS:
+                base = step[f"time_required_in_min_{slot}_{period}"]
+                edited = step[f"time_required_in_min_{slot}_{period}_edited"]
+                if base is None and edited is None:
+                    continue
+                qualification = PERSONNEL_QUALIFICATION_BY_SLOT[addr][slot]
+                source_value = _recover_backfill_wage_source(
+                    addr, slot, step[f"hourly_rate_{slot}_{period}"], recorded.get(slot)
+                )
+                if source_value is None:
+                    continue
+                model_rate = get_model_hourly_rate(addr, source_value, qualification)
+                if model_rate is None:
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO process_step_personnel_effort (
+                        session_id, norm_addressee, step_id, period,
+                        qualification, wage_source_kind, wage_source_value,
+                        time_required_in_min, time_required_in_min_edited,
+                        model_hourly_rate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        step["session_id"], addr, step_id, period,
+                        qualification, kind, source_value,
+                        base, edited, model_rate,
+                    ),
+                )
+                inserted += 1
+    return inserted
 
 
 def _create_parent_composite_indexes(cur: sqlite3.Cursor) -> None:
@@ -1184,8 +1467,9 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
         """
     )
 
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
+    # Migration helper: drop the orphaned pay_rate_defaults table. Wage rates are
+    # now constants-only; session snapshots in sessions.pay_rate_default_* are kept.
+    cur.execute("DROP TABLE IF EXISTS pay_rate_defaults")
 
     # Migration helper: add editable overrides for case group metrics.
     _ensure_column(cur, "case_groups", "addressees_current_edited", "REAL")
@@ -1226,8 +1510,10 @@ def _run_legacy_migrations(cur: sqlite3.Cursor) -> None:
         _ensure_column(cur, "process_steps", f"expenses_{suffix}_edited", "REAL")
     _ensure_column(cur, "process_steps", "last_edited_at", "TEXT")
     _ensure_column(cur, "process_steps", "execution_per_case", "INTEGER")
+    _ensure_column(cur, "process_steps", "role_sources_current_json", "TEXT")
+    _ensure_column(cur, "process_steps", "role_sources_proposed_json", "TEXT")
 
-    defaults = _resolve_pay_rate_defaults(cur, PAY_RATE_LEVEL_BUND)
+    defaults = _resolve_pay_rate_defaults(ADMINISTRATION, PAY_RATE_LEVEL_BUND)
     cur.execute(
         """
         UPDATE sessions
@@ -1322,8 +1608,6 @@ def init_db() -> None:
         )
         """
     )
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
     _create_deep_research_runs_table(cur)
     # TODO: Maybe add updated_at with trigger rule: https://www.sqlitetutorial.net/sqlite-date-functions/sqlite-current_timestamp/
     # TODO: Potentially add the change in cases? How meaningful is that number?
@@ -1527,6 +1811,10 @@ def init_db() -> None:
     # TODO: Handle list insertion, possibly change to position list instead of linked list? Does it need to be doubly linked? Single just seems easier.
     # TODO: Change prozessschritt mit tätigkeiten?
     _create_process_steps_table(cur)
+    # Row-based personnel-effort child table + row-keyed session wage overrides.
+    # Created after process_steps so the step_id foreign key resolves.
+    _create_process_step_personnel_effort_table(cur)
+    _create_session_wage_rate_overrides_table(cur)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS web_sources_process_steps (
@@ -1658,6 +1946,10 @@ def init_db() -> None:
     _create_used_models_triggers(cur)
     _create_citizens_hourly_rate_triggers(cur)
     _create_session_cc_cost_triggers(cur)
+    # One-time, idempotent backfill of legacy slot effort into the row model so
+    # the cost engine can stop reading slot columns (Phase D2). Runs after all
+    # schema is ensured; a no-op on fresh/already-migrated databases.
+    _backfill_process_step_personnel_effort(cur)
     _maybe_commit(conn)
     _maybe_close(conn)
 
@@ -2654,7 +2946,7 @@ def ensure_session(
 def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
     conn = get_conn()
     cur = conn.cursor()
-    defaults = _resolve_pay_rate_defaults(cur, PAY_RATE_LEVEL_BUND)
+    defaults = _resolve_pay_rate_defaults(ADMINISTRATION, PAY_RATE_LEVEL_BUND)
     cur.execute(
         "SELECT session_id FROM sessions WHERE app_session_id = ?",
         (app_session_id,),
@@ -3353,6 +3645,8 @@ def list_process_steps_for_session_and_addressee(
         "time_required_in_min_d_proposed_edited",
         "expenses_proposed_edited",
         "last_edited_at",
+        "role_sources_current_json",
+        "role_sources_proposed_json",
     ]
     for optional_column in optional_columns:
         if _table_has_column(cur, "process_steps", optional_column):
@@ -3436,24 +3730,88 @@ def resolve_effective_process_step_metrics(step: dict) -> dict:
             step.get(f"expenses_{suffix}"),
             step.get(f"expenses_{suffix}_edited"),
         )
+        raw_json = step.get(f"role_sources_{suffix}_json")
+        resolved[f"role_sources_{suffix}"] = json.loads(raw_json) if raw_json else None
     return resolved
 
 
-def list_pay_rate_defaults() -> list[dict]:
+def list_pay_rate_defaults(norm_addressee: str = ADMINISTRATION) -> list[dict]:
+    """List the canonical rate rows for a norm addressee.
+
+    Defaults to administration so the validation/render path does not accidentally
+    accept business source_values (WZ sections) as valid administration_level. For
+    administration, source_value is exposed as administration_level to keep the
+    existing router/test contract stable.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    table = _PAY_RATE_DEFAULTS_BY_ADDRESSEE.get(resolved, {})
+    return [
+        {
+            "administration_level": source_value,
+            "hourly_rate_a": float(rates["a"]),
+            "hourly_rate_b": float(rates["b"]),
+            "hourly_rate_c": float(rates["c"]),
+            "hourly_rate_d": float(rates["d"]),
+        }
+        for source_value, rates in sorted(table.items())
+    ]
+
+
+def get_used_wage_baseline(session_id: int, norm_addressee: str) -> str | None:
+    """Return the dominant wage-row label from role_sources (read-only).
+
+    Reads role_sources_current_json + role_sources_proposed_json across all steps of
+    the session+addressee and returns the most frequent source_value (e.g. "laender"
+    for admin, "K" for business), or None when no valid role_sources exist (callers
+    then fall back to the constant defaults). current and proposed are intentionally
+    collapsed into one dominant label per addressee.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved not in (ADMINISTRATION, BUSINESS):
+        return None
     conn = get_conn()
     cur = conn.cursor()
-    _create_pay_rate_defaults_table(cur)
-    _seed_pay_rate_defaults(cur)
     cur.execute(
         """
-        SELECT administration_level, hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
-        FROM pay_rate_defaults
-        ORDER BY administration_level
-        """
+        SELECT
+            role_sources_current_json,
+            role_sources_proposed_json
+        FROM process_steps
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
     )
-    rows = [dict(row) for row in cur.fetchall()]
+    rows = cur.fetchall()
     _maybe_close(conn)
-    return rows
+
+    # Count occurrences per source_value to pick the dominant one.
+    counts: dict[str, int] = {}
+    for row in rows:
+        for suffix in ("current", "proposed"):
+            raw = row[f"role_sources_{suffix}_json"]
+            if not raw:
+                continue
+            try:
+                entries = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                source_value = entry.get("source_value")
+                slot = entry.get("slot")
+                if not source_value or slot not in PAY_RATE_KEYS:
+                    continue
+                counts[source_value] = counts.get(source_value, 0) + 1
+
+    if not counts:
+        return None
+    # Pick the dominant row. Deterministic tie-break: on equal counts the
+    # alphabetically first source_value wins, independent of dict iteration order.
+    max_count = max(counts.values())
+    return min(value for value, count in counts.items() if count == max_count)
 
 
 def get_session_administration_pay_rates(session_id: int) -> dict | None:
@@ -3514,16 +3872,35 @@ def get_session_pay_rates_for_addressee(
         administration_rates = get_session_administration_pay_rates(session_id)
         if administration_rates is None:
             return None
+        level = administration_rates["administration_level"]
+        defaults = administration_rates["defaults"]
+        baseline = get_used_wage_baseline(session_id, ADMINISTRATION)
+        if baseline is not None:
+            # administration_level carries the used level label; it is a valid level
+            # and thus save-compatible, so no separate wage_source_label is needed.
+            level = baseline
+            defaults = get_default_pay_rates_for_addressee(
+                ADMINISTRATION, source_value=baseline
+            )
+        edited = administration_rates["edited"]
+        active = {
+            key: (edited[key] if edited[key] is not None else defaults[key])
+            for key in PAY_RATE_KEYS
+        }
         return {
             "norm_addressee": resolved,
             "editable": True,
-            "administration_level": administration_rates["administration_level"],
-            "defaults": administration_rates["defaults"],
-            "edited": administration_rates["edited"],
-            "active": administration_rates["active"],
+            "administration_level": level,
+            "wage_source_label": None,
+            "defaults": defaults,
+            "edited": edited,
+            "active": active,
         }
     if resolved == BUSINESS:
-        defaults = get_default_pay_rates_for_addressee(BUSINESS)
+        baseline = get_used_wage_baseline(session_id, BUSINESS)
+        # Used WZ section: full rate row + label for the badge. Without a label the
+        # resolve falls back to gesamtwirtschaft.
+        defaults = get_default_pay_rates_for_addressee(BUSINESS, source_value=baseline)
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
@@ -3550,6 +3927,7 @@ def get_session_pay_rates_for_addressee(
             "norm_addressee": resolved,
             "editable": True,
             "administration_level": None,
+            "wage_source_label": baseline,
             "defaults": defaults,
             "edited": edited,
             "active": active,
@@ -3559,6 +3937,7 @@ def get_session_pay_rates_for_addressee(
         "norm_addressee": resolved,
         "editable": False,
         "administration_level": None,
+        "wage_source_label": None,
         "defaults": defaults,
         "edited": _empty_pay_rate_edits(),
         "active": defaults,
@@ -3608,23 +3987,17 @@ def update_session_pay_rate_edits(
         return False
     previous = dict(previous_row)
     level = str(administration_level or PAY_RATE_LEVEL_BUND).strip().lower()
-    cur.execute(
-        """
-        SELECT hourly_rate_a, hourly_rate_b, hourly_rate_c, hourly_rate_d
-        FROM pay_rate_defaults
-        WHERE administration_level = ?
-        """,
-        (level,),
-    )
-    row = cur.fetchone()
-    if row is None:
+    # Constants-only validation: only real administration levels are valid; a WZ
+    # section (e.g. "K") is not a valid administration_level.
+    rates = PAY_RATE_LEVEL_DEFAULTS.get(level)
+    if rates is None:
         _maybe_close(conn)
         raise ValueError(f"Unknown administration_level: {level}")
     defaults = {
-        "a": float(row["hourly_rate_a"]),
-        "b": float(row["hourly_rate_b"]),
-        "c": float(row["hourly_rate_c"]),
-        "d": float(row["hourly_rate_d"]),
+        "a": float(rates["a"]),
+        "b": float(rates["b"]),
+        "c": float(rates["c"]),
+        "d": float(rates["d"]),
     }
     changed = value_changed(previous.get("pay_rate_administration_level"), level)
     for key in PAY_RATE_KEYS:
@@ -3719,9 +4092,10 @@ def update_session_pay_rate_edits_for_addressee(
     if administration_level is not None:
         raise ValueError("administration_level is only supported for administration")
 
+    # resolved is always BUSINESS here (admin/citizens handled above), and
+    # get_session_pay_rates_for_addressee always returns a dict for BUSINESS,
+    # so no None guard is needed.
     previous = get_session_pay_rates_for_addressee(session_id, resolved)
-    if previous is None:
-        return False
     changed = False
     for key in PAY_RATE_KEYS:
         changed = changed or value_changed(previous["edited"].get(key), edited.get(key))
@@ -3828,10 +4202,18 @@ def reset_all_ea_edit_overrides(session_id: int) -> dict[str, int]:
             ):
                 updated_pay_rates += 1
 
+        # NEU stores (Dual-Write phase): clear the row-based wage overrides and the
+        # effort-time edit overlay session-wide so a global reset yields pure model
+        # costs. ALT pay_rates reset above is left untouched (Phase-4 teardown).
+        cleared_wage_overrides = clear_session_wage_rate_overrides(session_id)
+        cleared_effort_time_edits = clear_personnel_effort_time_edits(session_id)
+
         return {
             "pay_rates": updated_pay_rates,
             "case_groups": updated_case_groups,
             "process_steps": updated_process_steps,
+            "wage_overrides": cleared_wage_overrides,
+            "effort_time_edits": cleared_effort_time_edits,
         }
 
 
@@ -4256,6 +4638,8 @@ def upsert_process_step_effort_split_by_addressee(
     time_required_proposed: dict[str, float | None],
     expenses_proposed: float | None,
     execution_per_case: bool | None = None,
+    role_sources_current: list[dict] | None = None,
+    role_sources_proposed: list[dict] | None = None,
 ) -> None:
     resolved = normalize_norm_addressee(norm_addressee)
     if resolved == CITIZENS:
@@ -4294,7 +4678,9 @@ def upsert_process_step_effort_split_by_addressee(
             time_required_in_min_c_proposed = ?,
             time_required_in_min_d_proposed = ?,
             expenses_proposed = ?,
-            execution_per_case = COALESCE(?, execution_per_case)
+            execution_per_case = COALESCE(?, execution_per_case),
+            role_sources_current_json = ?,
+            role_sources_proposed_json = ?
         WHERE step_id = ? AND session_id = ? AND norm_addressee = ?
         """,
         (
@@ -4317,6 +4703,8 @@ def upsert_process_step_effort_split_by_addressee(
             time_required_proposed.get("d"),
             expenses_proposed,
             (int(bool(execution_per_case)) if execution_per_case is not None else None),
+            json.dumps(role_sources_current) if role_sources_current else None,
+            json.dumps(role_sources_proposed) if role_sources_proposed else None,
             step_id,
             session_id,
             resolved,
@@ -4693,7 +5081,434 @@ def clear_session_summary(session_id: int) -> None:
     _maybe_close(conn)
 
 
+def replace_process_step_personnel_effort(
+    session_id: int,
+    norm_addressee: str,
+    step_id: int,
+    rows: list[dict],
+) -> None:
+    """Replace all personnel-effort rows for one step (fresh effort calc).
+
+    `rows` items carry: period ('current'|'proposed'), qualification,
+    wage_source_kind, wage_source_value, time_required_in_min (optional) and
+    model_hourly_rate. Replace semantics keep re-runs idempotent.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    # Integrity guard at the DB layer: the two foreign keys (session_id, step_id)
+    # are independent, so enforce that the step actually belongs to this
+    # session+addressee instead of relying on every caller to pass a matching
+    # combination.
+    belongs = cur.execute(
+        """
+        SELECT 1 FROM process_steps
+        WHERE step_id = ? AND session_id = ? AND norm_addressee = ?
+        """,
+        (step_id, session_id, resolved),
+    ).fetchone()
+    if belongs is None:
+        _maybe_close(conn)
+        raise ValueError(
+            f"process_step {step_id} does not belong to session {session_id} "
+            f"/ norm_addressee {resolved!r}"
+        )
+    cur.execute(
+        """
+        DELETE FROM process_step_personnel_effort
+        WHERE session_id = ? AND norm_addressee = ? AND step_id = ?
+        """,
+        (session_id, resolved, step_id),
+    )
+    for row in rows:
+        cur.execute(
+            """
+            INSERT INTO process_step_personnel_effort (
+                session_id,
+                norm_addressee,
+                step_id,
+                period,
+                qualification,
+                wage_source_kind,
+                wage_source_value,
+                time_required_in_min,
+                model_hourly_rate
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                resolved,
+                step_id,
+                row["period"],
+                row["qualification"],
+                row["wage_source_kind"],
+                row["wage_source_value"],
+                row.get("time_required_in_min"),
+                row["model_hourly_rate"],
+            ),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def list_process_step_personnel_effort(
+    session_id: int,
+    norm_addressee: str,
+    step_id: int | None = None,
+) -> list[dict]:
+    """Read personnel-effort rows for a session+addressee (optionally one step)."""
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    if step_id is None:
+        cur.execute(
+            """
+            SELECT * FROM process_step_personnel_effort
+            WHERE session_id = ? AND norm_addressee = ?
+            ORDER BY step_id, period, qualification, wage_source_value
+            """,
+            (session_id, resolved),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT * FROM process_step_personnel_effort
+            WHERE session_id = ? AND norm_addressee = ? AND step_id = ?
+            ORDER BY period, qualification, wage_source_value
+            """,
+            (session_id, resolved, step_id),
+        )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
+def list_session_personnel_effort(session_id: int) -> list[dict]:
+    """All personnel-effort rows of a session across norm addressees (step_id is a
+    global PK, so callers can group by step_id)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT * FROM process_step_personnel_effort
+        WHERE session_id = ?
+        ORDER BY step_id, period, qualification, wage_source_value
+        """,
+        (session_id,),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return rows
+
+
+def upsert_personnel_effort_time_edit(
+    session_id: int,
+    norm_addressee: str,
+    step_id: int,
+    period: str,
+    qualification: str,
+    wage_source_kind: str,
+    wage_source_value: str,
+    time_required_in_min_edited: float | None,
+) -> int:
+    """Set or clear the edited time of one personnel-effort row.
+
+    Creates the row when the user adds time for a (qualification, source) the LLM
+    did not assign (model_hourly_rate from the wage table, model time NULL); and
+    removes a user-created row when its edit is cleared (an LLM row keeps its model
+    time and only clears the edit). Returns 1 when something changed, else 0.
+    Raises ValueError on an unknown combination or a step not owned by the session.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    existing = cur.execute(
+        """
+        SELECT effort_id, time_required_in_min FROM process_step_personnel_effort
+        WHERE session_id = ? AND norm_addressee = ? AND step_id = ? AND period = ?
+            AND qualification = ? AND wage_source_kind = ? AND wage_source_value = ?
+        """,
+        (session_id, resolved, step_id, period, qualification, wage_source_kind, wage_source_value),
+    ).fetchone()
+
+    if time_required_in_min_edited is None:
+        if existing is None:
+            _maybe_close(conn)
+            return 0
+        if existing["time_required_in_min"] is None:
+            # User-created row (no model time): clearing removes it entirely.
+            cur.execute(
+                "DELETE FROM process_step_personnel_effort WHERE effort_id = ?",
+                (existing["effort_id"],),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE process_step_personnel_effort
+                SET time_required_in_min_edited = NULL, last_edited_at = current_timestamp
+                WHERE effort_id = ?
+                """,
+                (existing["effort_id"],),
+            )
+        _maybe_commit(conn)
+        _maybe_close(conn)
+        return 1
+
+    if existing is not None:
+        cur.execute(
+            """
+            UPDATE process_step_personnel_effort
+            SET time_required_in_min_edited = ?, last_edited_at = current_timestamp
+            WHERE effort_id = ?
+            """,
+            (float(time_required_in_min_edited), existing["effort_id"]),
+        )
+        _maybe_commit(conn)
+        _maybe_close(conn)
+        return 1
+
+    # No row yet: create one for the LLM-unassigned (qualification, source).
+    model_rate = get_model_hourly_rate(resolved, wage_source_value, qualification)
+    if model_rate is None:
+        _maybe_close(conn)
+        raise ValueError(
+            f"Unknown wage combination: {wage_source_value!r} / {qualification!r} "
+            f"for {resolved!r}"
+        )
+    belongs = cur.execute(
+        "SELECT 1 FROM process_steps WHERE step_id = ? AND session_id = ? AND norm_addressee = ?",
+        (step_id, session_id, resolved),
+    ).fetchone()
+    if belongs is None:
+        _maybe_close(conn)
+        raise ValueError(
+            f"process_step {step_id} does not belong to session {session_id} / {resolved!r}"
+        )
+    cur.execute(
+        """
+        INSERT INTO process_step_personnel_effort (
+            session_id, norm_addressee, step_id, period, qualification,
+            wage_source_kind, wage_source_value, time_required_in_min,
+            time_required_in_min_edited, model_hourly_rate, last_edited_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, current_timestamp)
+        """,
+        (
+            session_id, resolved, step_id, period, qualification,
+            wage_source_kind, wage_source_value,
+            float(time_required_in_min_edited), model_rate,
+        ),
+    )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return 1
+
+
+def clear_personnel_effort_time_edits(session_id: int) -> int:
+    """Reset all personnel-effort time edits of a session to their model state.
+
+    Mirrors the per-row clear in `upsert_personnel_effort_time_edit(..., None)` so a
+    global reset yields the exact same DB state as N per-row resets:
+    - user-created rows (no model time, `time_required_in_min IS NULL`) are DELETED,
+      because there is no model value to fall back to; this also clears any leftover
+      NULL/NULL zombie rows.
+    - model (LLM) rows keep their `time_required_in_min` and only have their
+      `time_required_in_min_edited` overlay nulled.
+
+    Invariant after reset: every surviving row is a model row; user-created rows
+    without a model time are removed (analogous to the per-row clear path). DELETE
+    runs before UPDATE. Returns the total number of affected rows. Transaction-safe:
+    inside an open transaction() block _maybe_commit / _maybe_close are no-ops.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM process_step_personnel_effort
+        WHERE session_id = ? AND time_required_in_min IS NULL
+        """,
+        (session_id,),
+    )
+    deleted = cur.rowcount
+    cur.execute(
+        """
+        UPDATE process_step_personnel_effort
+        SET time_required_in_min_edited = NULL, last_edited_at = current_timestamp
+        WHERE session_id = ? AND time_required_in_min_edited IS NOT NULL
+        """,
+        (session_id,),
+    )
+    updated = cur.rowcount
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return deleted + updated
+
+
+def get_session_wage_rate_overrides(
+    session_id: int,
+    norm_addressee: str,
+) -> dict[tuple[str, str, str], float]:
+    """Row-keyed session wage overrides as {(kind, value, qualification): rate}.
+
+    Only rows with a non-null hourly_rate_edited are returned. Empty until the
+    Phase C editing UI writes to session_wage_rate_overrides; the cost engine
+    already reads it so no further cost change is needed when that UI lands.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT wage_source_kind, wage_source_value, qualification, hourly_rate_edited
+        FROM session_wage_rate_overrides
+        WHERE session_id = ? AND norm_addressee = ? AND hourly_rate_edited IS NOT NULL
+        """,
+        (session_id, resolved),
+    )
+    overrides = {
+        (row["wage_source_kind"], row["wage_source_value"], row["qualification"]):
+            float(row["hourly_rate_edited"])
+        for row in cur.fetchall()
+    }
+    _maybe_close(conn)
+    return overrides
+
+
+def list_session_wage_rate_rows(
+    session_id: int,
+    norm_addressee: str,
+) -> list[dict]:
+    """Editable wage rows for the session: for each wage source actually used in
+    the session, every qualification of the addressee with its model rate and the
+    current override (if any). Drives the row-based "Globale Loehnsaetze" tab.
+    """
+    resolved = normalize_norm_addressee(norm_addressee)
+    if resolved == CITIZENS:
+        return []
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT DISTINCT wage_source_kind, wage_source_value
+        FROM process_step_personnel_effort
+        WHERE session_id = ? AND norm_addressee = ?
+        ORDER BY wage_source_kind, wage_source_value
+        """,
+        (session_id, resolved),
+    )
+    used_sources = [(r["wage_source_kind"], r["wage_source_value"]) for r in cur.fetchall()]
+    cur.execute(
+        """
+        SELECT wage_source_kind, wage_source_value, qualification, hourly_rate_edited
+        FROM session_wage_rate_overrides
+        WHERE session_id = ? AND norm_addressee = ? AND hourly_rate_edited IS NOT NULL
+        """,
+        (session_id, resolved),
+    )
+    overrides = {
+        (r["wage_source_kind"], r["wage_source_value"], r["qualification"]):
+            float(r["hourly_rate_edited"])
+        for r in cur.fetchall()
+    }
+    _maybe_close(conn)
+
+    qualifications = PERSONNEL_QUALIFICATION_BY_SLOT.get(resolved, {})
+    rows: list[dict] = []
+    for kind, value in used_sources:
+        for slot in PAY_RATE_KEYS:
+            qualification = qualifications.get(slot)
+            if qualification is None:
+                continue
+            model = get_model_hourly_rate(resolved, value, qualification)
+            if model is None:
+                continue
+            rows.append(
+                {
+                    "wage_source_kind": kind,
+                    "wage_source_value": value,
+                    "qualification": qualification,
+                    "model_hourly_rate": model,
+                    "hourly_rate_edited": overrides.get((kind, value, qualification)),
+                }
+            )
+    return rows
+
+
+def upsert_session_wage_rate_override(
+    session_id: int,
+    norm_addressee: str,
+    wage_source_kind: str,
+    wage_source_value: str,
+    qualification: str,
+    hourly_rate_edited: float | None,
+) -> None:
+    """Set (or clear, when hourly_rate_edited is None) one row-keyed wage override."""
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    if hourly_rate_edited is None:
+        cur.execute(
+            """
+            DELETE FROM session_wage_rate_overrides
+            WHERE session_id = ? AND norm_addressee = ? AND wage_source_kind = ?
+                AND wage_source_value = ? AND qualification = ?
+            """,
+            (session_id, resolved, wage_source_kind, wage_source_value, qualification),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO session_wage_rate_overrides (
+                session_id, norm_addressee, wage_source_kind, wage_source_value,
+                qualification, hourly_rate_edited, last_edited_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, current_timestamp)
+            ON CONFLICT(session_id, norm_addressee, wage_source_kind,
+                        wage_source_value, qualification)
+            DO UPDATE SET
+                hourly_rate_edited = excluded.hourly_rate_edited,
+                last_edited_at = current_timestamp
+            """,
+            (
+                session_id,
+                resolved,
+                wage_source_kind,
+                wage_source_value,
+                qualification,
+                float(hourly_rate_edited),
+            ),
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+
+
+def clear_session_wage_rate_overrides(session_id: int) -> int:
+    """Delete all row-keyed wage overrides of a session (all norm addressees).
+
+    Mirrors upsert_session_wage_rate_override(..., hourly_rate_edited=None), which
+    deletes a single override row; model rates are constants from the wage table, so
+    deleting the override rows loses no model value. Returns the number of deleted
+    rows. Transaction-safe: inside an open transaction() block _maybe_commit /
+    _maybe_close are no-ops, so this runs in the caller's transaction.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM session_wage_rate_overrides WHERE session_id = ?",
+        (session_id,),
+    )
+    deleted = cur.rowcount
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return deleted
+
+
 def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) -> None:
+    # Effort undo clears the step `_edited` times and role_sources, but intentionally
+    # NOT the manual pay-rate overrides (sessions.pay_rate_edited_* /
+    # session_pay_rate_overrides_by_addressee). The override is a standalone
+    # session-level user setting, not an effort result, so it survives a re-run.
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
@@ -4749,7 +5564,19 @@ def clear_effort_metrics(session_id: int, norm_addressee: str = ADMINISTRATION) 
             time_required_in_min_d_proposed_edited = NULL,
             expenses_proposed = NULL,
             expenses_proposed_edited = NULL,
-            last_edited_at = NULL
+            last_edited_at = NULL,
+            role_sources_current_json = NULL,
+            role_sources_proposed_json = NULL
+        WHERE session_id = ? AND norm_addressee = ?
+        """,
+        (session_id, resolved),
+    )
+    # Row-based effort rows are an effort result, so undo clears them too
+    # (mirrors the slot columns above). Session wage overrides are a standalone
+    # user setting and intentionally survive, like the legacy pay-rate edits.
+    cur.execute(
+        """
+        DELETE FROM process_step_personnel_effort
         WHERE session_id = ? AND norm_addressee = ?
         """,
         (session_id, resolved),

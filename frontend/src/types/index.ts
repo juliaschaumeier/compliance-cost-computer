@@ -318,12 +318,18 @@ export interface TotalCostResponse {
   total_expenses?: number | null;
 }
 
-export interface SessionPayRatesResponse {
+export interface SessionWageRateRow {
+  wage_source_kind: string;
+  wage_source_value: string;
+  qualification: string;
+  model_hourly_rate: number;
+  hourly_rate_edited: number | null;
+}
+
+export interface SessionWageRatesResponse {
   app_session_id: string;
-  administration_level: string;
-  defaults: Record<string, number>;
-  edited: Record<string, number | null>;
-  active: Record<string, number>;
+  norm_addressee?: NormAddressee;
+  rows: SessionWageRateRow[];
 }
 
 export interface SessionEditAuditRow {
@@ -411,6 +417,26 @@ export interface EditableProcessStepRow {
   time_required_in_min_c_proposed_effective: number | null;
   time_required_in_min_d_proposed_effective: number | null;
   expenses_proposed_effective: number | null;
+  role_sources_current: RoleSourceEntry[] | null;
+  role_sources_proposed: RoleSourceEntry[] | null;
+  personnel_effort_current?: PersonnelEffortEntry[] | null;
+  personnel_effort_proposed?: PersonnelEffortEntry[] | null;
+}
+
+export interface RoleSourceEntry {
+  slot: string;
+  role: string;
+  source_kind: string;
+  source_value: string;
+}
+
+export interface PersonnelEffortEntry {
+  qualification: string;
+  wage_source_kind: string;
+  wage_source_value: string;
+  model_hourly_rate: number;
+  time_required_in_min: number | null;
+  time_required_in_min_edited: number | null;
 }
 
 export interface EditableProcessStepsResponse {

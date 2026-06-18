@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -222,93 +223,230 @@ _BUSINESS_LEVEL_ALIASES: dict[str, str] = {
 }
 
 
-def _resolve_effort_group(
-    raw_role: dict,
-    norm_addressee: str,
-) -> str | None:
-    raw_group = str(
-        raw_role.get("lohngruppe")
-        or raw_role.get("gruppe")
-        or raw_role.get("group")
-        or ""
-    ).strip().lower()
-    if raw_group in {"a", "b", "c", "d"}:
-        return raw_group
-    if raw_group:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"effort_calculation: Unbekannte Lohngruppe {raw_group!r}. "
-                "Zulaessig sind nur 'a', 'b', 'c' oder 'd'."
-            ),
-        )
+_WZ_VALID_LETTERS: frozenset[str] = frozenset("ABCDEFGHIJKLMNPQRS")
+_WZ_PREFIX_RE = re.compile(
+    r"^(?:wirtschaftsabschnitt|wz[ -]?abschnitt|wz)?\s*[-–—]?\s*([a-s])\b",
+    re.IGNORECASE,
+)
+_WZ_GESAMTWIRTSCHAFT_VALUES = frozenset([
+    "gesamtwirtschaft",
+    "gesamtwirtschaft (a-s ohne o)",
+])
+_ADMIN_LEVEL_ALIASES: dict[str, str] = {
+    "bund": "bund",
+    "laender": "laender",
+    "länder": "laender",
+    "lander": "laender",
+    "land": "laender",
+    "kommunen": "kommunen",
+    "kommune": "kommunen",
+    "sozialversicherung": "sozialversicherung",
+    "durchschnitt": "durchschnitt",
+    "öffentliche verwaltung": "durchschnitt",
+    "oeffentliche verwaltung": "durchschnitt",
+    "durchschnitt öffentliche verwaltung, verteidigung, sozialversicherung": "durchschnitt",
+    "durchschnitt oeffentliche verwaltung, verteidigung, sozialversicherung": "durchschnitt",
+}
 
-    raw_level = str(
-        raw_role.get("schwierigkeitsgrad")
-        or raw_role.get("niveau")
-        or raw_role.get("level")
-        or raw_role.get("rolle")
-        or ""
-    ).strip().lower()
-    if not raw_level:
+
+def _normalize_role_wage_source(raw_role: dict, norm_addressee: str) -> str | None:
+    raw = str(raw_role.get("lohnquelle") or "").strip()
+    if not raw:
         return None
+    if norm_addressee == BUSINESS:
+        normalized = raw.lower()
+        if normalized in _WZ_GESAMTWIRTSCHAFT_VALUES:
+            return "gesamtwirtschaft"
+        match = _WZ_PREFIX_RE.match(normalized)
+        if match:
+            letter = match.group(1).upper()
+            if letter in _WZ_VALID_LETTERS:
+                return letter
+        return None
+    if norm_addressee == ADMINISTRATION:
+        return _ADMIN_LEVEL_ALIASES.get(raw.lower())
+    return None
 
+
+def _resolve_qualification_slot(item: dict, norm_addressee: str) -> str | None:
+    """Map a `qualifikation` value (row-based model) to the a/b/c/d slot.
+
+    Maps via the laufbahn/level aliases only (underscores in canonical machine
+    names like ``gehobener_dienst`` are normalised to spaces first). The bare
+    slot letters a/b/c/d are intentionally NOT accepted: the prompt never emits
+    them, so they would be old-slot-model leakage. The semantic aliases
+    (``gehobener dienst``, ``gd``, ``niedrig``/``low`` …) are kept on purpose as
+    LLM robustness. Raises 422 on an unrecognised qualification.
+    """
+    raw = str(item.get("qualifikation") or item.get("qualification") or "").strip()
+    if not raw:
+        return None
+    normalized = raw.lower().replace("_", " ")
     aliases = (
         _ADMIN_LAUFBAHN_ALIASES
         if norm_addressee == ADMINISTRATION
         else _BUSINESS_LEVEL_ALIASES
     )
-    resolved = aliases.get(raw_level)
+    resolved = aliases.get(normalized)
     if resolved is not None:
         return resolved
     raise HTTPException(
         status_code=422,
         detail=(
-            f"effort_calculation: Unbekannte Laufbahn/Niveau-Angabe "
-            f"{raw_level!r} fuer Normadressat {norm_addressee!r}. "
-            "Bitte Prompt- oder LLM-Antwort pruefen."
+            f"effort_calculation: Unbekannte `qualifikation` {raw!r} fuer "
+            f"Normadressat {norm_addressee!r}. Bitte Prompt- oder LLM-Antwort pruefen."
         ),
     )
 
 
-def _parse_role_entries(
+def _parse_personnel_effort_entries(
     entry: dict,
     period_suffix: str,
     norm_addressee: str,
-) -> tuple[dict[str, float | None], dict[str, float | None], bool]:
+) -> tuple[dict[str, float | None], dict[str, float | None], list[dict], list[dict], bool]:
+    """Parse the row-based ``personalaufwand_{period}`` list.
+
+    Returns ``(hourly_rates, time_required, role_sources, rows, used_format)``.
+    The first three are the legacy slot-based aggregation used for the Phase A
+    dual-write into the old process_steps columns; ``rows`` are the authoritative
+    child-table rows. Rejects the legacy ``rollen_{period}`` format (K4).
+    """
     slot_keys = ["a", "b", "c", "d"]
-    hourly_rates = {key: None for key in slot_keys}
-    time_required = {key: None for key in slot_keys}
-    raw_roles = entry.get(f"rollen_{period_suffix}")
-    used_new_format = isinstance(raw_roles, list)
-    if not used_new_format:
-        return hourly_rates, time_required, False
+    hourly_rates: dict[str, float | None] = {key: None for key in slot_keys}
+    time_required: dict[str, float | None] = {key: None for key in slot_keys}
 
-    parsed_roles: list[tuple[str, float | None, float | None]] = []
-    for raw_role in raw_roles:
-        if not isinstance(raw_role, dict):
+    raw_items = entry.get(f"personalaufwand_{period_suffix}")
+    if not isinstance(raw_items, list):
+        if isinstance(entry.get(f"rollen_{period_suffix}"), list):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"effort_calculation: Veraltetes `rollen_{period_suffix}`-Format "
+                    f"wird nicht mehr akzeptiert. Erwartet: "
+                    f"`personalaufwand_{period_suffix}`."
+                ),
+            )
+        return hourly_rates, time_required, [], [], False
+
+    period = "current" if period_suffix == "gueltig" else "proposed"
+    source_kind = db.WAGE_SOURCE_KIND_BY_ADDRESSEE.get(norm_addressee)
+    rows: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    slot_minutes: dict[str, float] = {}
+    # slot -> (minutes, model_rate, source_value) of the dominant (max-minutes) row
+    slot_dominant: dict[str, tuple[float, float, str]] = {}
+
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
             continue
-        slot = _resolve_effort_group(raw_role, norm_addressee)
-        if slot is None:
-            continue
-        hourly_rate = parse_optional_number(
-            raw_role.get("stundenlohn")
-            or raw_role.get("stundenlohn_satz")
-            or raw_role.get("hourly_rate")
-        )
+        raw_qualification = str(
+            raw_item.get("qualifikation") or raw_item.get("qualification") or ""
+        ).strip()
+        raw_source = str(raw_item.get("lohnquelle") or "").strip()
         duration = parse_optional_number(
-            raw_role.get("zeitaufwand_in_min")
-            or raw_role.get("zeitaufwand")
-            or raw_role.get("time_required_in_min")
+            raw_item.get("zeitaufwand_in_min")
+            or raw_item.get("zeitaufwand")
+            or raw_item.get("time_required_in_min")
         )
-        if hourly_rate is None and duration is None:
+        if not raw_qualification:
+            # Fully empty placeholder rows (prompt template) are skipped; a row that
+            # carries a `lohnquelle` or a time but no `qualifikation` is rejected, so
+            # a partially-filled entry is never silently dropped (symmetric with the
+            # missing-`lohnquelle` rule below).
+            if raw_source or duration is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "effort_calculation: Personalaufwand-Eintrag ohne "
+                        "`qualifikation`, aber mit `lohnquelle`/`zeitaufwand`. Jeder "
+                        "Eintrag mit Daten muss eine `qualifikation` angeben."
+                    ),
+                )
             continue
-        parsed_roles.append((slot, hourly_rate, duration))
+        slot = _resolve_qualification_slot(raw_item, norm_addressee)
+        qualification = db.PERSONNEL_QUALIFICATION_BY_SLOT[norm_addressee][slot]
 
-    for slot, hourly_rate, duration in parsed_roles:
-        hourly_rates[slot] = hourly_rate
-        time_required[slot] = duration
-    return hourly_rates, time_required, True
+        source_value = _normalize_role_wage_source(raw_item, norm_addressee)
+        if source_value is None:
+            if raw_source:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"effort_calculation: Ungueltige `lohnquelle` "
+                        f"{raw_item.get('lohnquelle')!r} fuer Normadressat "
+                        f"{norm_addressee!r}. Erwartet: {source_kind}."
+                    ),
+                )
+            # Missing source is rejected (not silently defaulted): every row must
+            # name its lohnquelle, otherwise the wage row is not verifiable (#23)
+            # and "forgot" would be indistinguishable from an explicit durchschnitt/
+            # gesamtwirtschaft choice.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"effort_calculation: Fehlende `lohnquelle` fuer Normadressat "
+                    f"{norm_addressee!r}. Jeder Personalaufwand-Eintrag muss eine "
+                    f"`lohnquelle` angeben ({source_kind})."
+                ),
+            )
+
+        if duration is None:
+            continue
+
+        dedup_key = (qualification, source_value)
+        if dedup_key in seen:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"effort_calculation: Doppelte Kombination aus `qualifikation` "
+                    f"{qualification!r} und `lohnquelle` {source_value!r} in "
+                    f"`personalaufwand_{period_suffix}`. Jede Kombination darf nur "
+                    "einmal vorkommen."
+                ),
+            )
+        seen.add(dedup_key)
+
+        model_rate = db.get_model_hourly_rate(norm_addressee, source_value, qualification)
+        if model_rate is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"effort_calculation: Kein Modell-Stundenlohn fuer "
+                    f"{norm_addressee!r}/{source_value!r}/{qualification!r}."
+                ),
+            )
+
+        rows.append(
+            {
+                "period": period,
+                "qualification": qualification,
+                "wage_source_kind": source_kind,
+                "wage_source_value": source_value,
+                "time_required_in_min": duration,
+                "model_hourly_rate": model_rate,
+            }
+        )
+
+        # Dual-write aggregation: sum minutes per slot, keep the dominant row's
+        # rate/source so the legacy single-rate columns stay consistent.
+        slot_minutes[slot] = slot_minutes.get(slot, 0.0) + duration
+        prev = slot_dominant.get(slot)
+        if prev is None or duration > prev[0]:
+            slot_dominant[slot] = (duration, model_rate, source_value)
+
+    role_sources: dict[str, dict] = {}
+    for slot, total_minutes in slot_minutes.items():
+        time_required[slot] = total_minutes
+    for slot, (_mins, rate, source_value) in slot_dominant.items():
+        hourly_rates[slot] = rate
+        role_sources[slot] = {
+            "slot": slot,
+            "role": "",
+            "source_kind": source_kind,
+            "source_value": source_value,
+        }
+
+    return hourly_rates, time_required, list(role_sources.values()), rows, True
 
 
 def _parse_citizens_effort_entry(entry: dict, step_id: int) -> dict | None:
@@ -369,86 +507,38 @@ def _parse_org_effort_entry(
     norm_addressee: str,
 ) -> tuple[dict | None, set[str]]:
     fallback_kinds: set[str] = set()
-    hourly_rates_current, time_required_current, uses_role_format_current = _parse_role_entries(
-        entry,
-        "gueltig",
-        norm_addressee,
-    )
-    hourly_rates_proposed, time_required_proposed, uses_role_format_proposed = _parse_role_entries(
-        entry,
-        "vorschlag",
-        norm_addressee,
-    )
-    business_aliases = {
-        "a": ["niedrig", "low"],
-        "b": ["mittel", "medium"],
-        "c": ["hoch", "high"],
-        "d": ["durchschnitt", "average", "avg"],
-    }
-    for key in ["a", "b", "c", "d"]:
-        if not uses_role_format_current:
-            hourly_rates_current_raw, current_rate_alias = _value_from_keys(
-                entry,
-                f"stundenlohn_satz_{key}_gueltig",
-                (
-                    f"stundenlohn_satz_{key}_current",
-                    f"stundenlohn_satz_{key.upper()}_gueltig",
-                    f"stundenlohn_satz_{key.upper()}_current",
-                    *(f"stundenlohn_satz_{alias}_gueltig" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias}_current" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_gueltig" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_current" for alias in business_aliases[key]),
-                ),
-            )
-            time_required_current_raw, current_time_alias = _value_from_keys(
-                entry,
-                f"zeitaufwand_in_min_{key}_gueltig",
-                (
-                    f"zeitaufwand_in_min_{key}_current",
-                    f"zeitaufwand_in_min_{key.upper()}_gueltig",
-                    f"zeitaufwand_in_min_{key.upper()}_current",
-                    *(f"zeitaufwand_in_min_{alias}_gueltig" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias}_current" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_gueltig" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_current" for alias in business_aliases[key]),
-                ),
-            )
-            if current_rate_alias is not None or current_time_alias is not None:
-                fallback_kinds.add("effort_legacy_english_alias")
-            hourly_rates_current[key] = parse_optional_number(hourly_rates_current_raw)
-            time_required_current[key] = parse_optional_number(time_required_current_raw)
-
-        if not uses_role_format_proposed:
-            hourly_rates_proposed_raw, proposed_rate_alias = _value_from_keys(
-                entry,
-                f"stundenlohn_satz_{key}_vorschlag",
-                (
-                    f"stundenlohn_satz_{key}_proposed",
-                    f"stundenlohn_satz_{key.upper()}_vorschlag",
-                    f"stundenlohn_satz_{key.upper()}_proposed",
-                    *(f"stundenlohn_satz_{alias}_vorschlag" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias}_proposed" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
-                    *(f"stundenlohn_satz_{alias.upper()}_proposed" for alias in business_aliases[key]),
-                ),
-            )
-            time_required_proposed_raw, proposed_time_alias = _value_from_keys(
-                entry,
-                f"zeitaufwand_in_min_{key}_vorschlag",
-                (
-                    f"zeitaufwand_in_min_{key}_proposed",
-                    f"zeitaufwand_in_min_{key.upper()}_vorschlag",
-                    f"zeitaufwand_in_min_{key.upper()}_proposed",
-                    *(f"zeitaufwand_in_min_{alias}_vorschlag" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias}_proposed" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_vorschlag" for alias in business_aliases[key]),
-                    *(f"zeitaufwand_in_min_{alias.upper()}_proposed" for alias in business_aliases[key]),
-                ),
-            )
-            if proposed_rate_alias is not None or proposed_time_alias is not None:
-                fallback_kinds.add("effort_legacy_english_alias")
-            hourly_rates_proposed[key] = parse_optional_number(hourly_rates_proposed_raw)
-            time_required_proposed[key] = parse_optional_number(time_required_proposed_raw)
+    (
+        hourly_rates_current,
+        time_required_current,
+        role_sources_current,
+        rows_current,
+        _uses_personnel_current,
+    ) = _parse_personnel_effort_entries(entry, "gueltig", norm_addressee)
+    (
+        hourly_rates_proposed,
+        time_required_proposed,
+        role_sources_proposed,
+        rows_proposed,
+        _uses_personnel_proposed,
+    ) = _parse_personnel_effort_entries(entry, "vorschlag", norm_addressee)
+    # The LLM contract is row-only (`personalaufwand_*`); it must never return
+    # wages. Any `stundenlohn_satz_*` (the old AI-wage slot format) is rejected
+    # outright (Julia: "stop accepting stundenlohn"). The backend resolves the
+    # hourly rate from the wage table. The slot columns are still written, but
+    # only as a dual-write aggregation of the row model (see
+    # `_parse_personnel_effort_entries`), not from flat LLM keys.
+    if any(
+        isinstance(key, str) and key.lower().startswith("stundenlohn_satz")
+        for key in entry
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "effort_calculation: `stundenlohn_satz_*` (KI-Loehne) werden nicht "
+                "mehr akzeptiert. Der Backend-Dienst ermittelt den Stundenlohn aus "
+                "der Lohnkostentabelle; geben Sie nur `personalaufwand_*` aus."
+            ),
+        )
 
     expenses_current_raw, expenses_current_alias = _value_from_keys(
         entry,
@@ -485,6 +575,9 @@ def _parse_org_effort_entry(
         "expenses_proposed": expenses_proposed,
         "execution_per_case": _parse_execution_per_case(entry),
         "aenderungsstatus": extract_change_status(entry),
+        "role_sources_current": role_sources_current,
+        "role_sources_proposed": role_sources_proposed,
+        "personnel_effort_rows": rows_current + rows_proposed,
     }, fallback_kinds
 
 
@@ -790,6 +883,16 @@ async def _calculate_effort(
                     time_required_proposed=entry["time_required_proposed"],
                     expenses_proposed=entry.get("expenses_proposed"),
                     execution_per_case=entry.get("execution_per_case"),
+                    role_sources_current=entry.get("role_sources_current"),
+                    role_sources_proposed=entry.get("role_sources_proposed"),
+                )
+                # Dual-write: the authoritative row-based store. The slot columns
+                # above remain the scaffold the cost engine still reads in Phase A.
+                db.replace_process_step_personnel_effort(
+                    session_id=session_id,
+                    norm_addressee=norm_addressee,
+                    step_id=entry["step_id"],
+                    rows=entry.get("personnel_effort_rows", []),
                 )
 
             if not skip_cases_calculation:

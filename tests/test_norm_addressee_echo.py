@@ -265,8 +265,10 @@ def test_parse_effort_payload_flags_mismatch():
               "taetigkeiten": [
                 {
                   "taetigkeiten_id": 100,
-                  "stundenlohn_satz_a_vorschlag": "10",
-                  "zeitaufwand_in_min_a_vorschlag": "6",
+                  "personalaufwand_vorschlag": [
+                    {"qualifikation": "einfacher_und_mittlerer_dienst",
+                     "lohnquelle": "bund", "zeitaufwand_in_min": "6"}
+                  ],
                   "sachaufwand_vorschlag": "2"
                 }
               ]

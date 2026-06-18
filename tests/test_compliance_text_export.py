@@ -101,6 +101,77 @@ def _seed_completed_session(app_session_id: str) -> dict:
     }
 
 
+def test_export_reflects_row_wage_override_and_warns(test_client):
+    # A row-based wage override must appear in the export at the override rate, be
+    # flagged as a user edit (so the export warns), and keep the cost consistent
+    # with the displayed rate. "reject" falls back to the model rate + model cost.
+    seeded = _seed_completed_session("COMP-WAGE-OVR")
+    session_id = seeded["session_id"]
+    step_id = seeded["step_id"]
+    db.replace_process_step_personnel_effort(
+        session_id,
+        ADMINISTRATION,
+        step_id,
+        [
+            {
+                "period": "current",
+                "qualification": "gehobener_dienst",
+                "wage_source_kind": "verwaltungsebene",
+                "wage_source_value": "bund",
+                "time_required_in_min": 20,
+                "model_hourly_rate": 40.4,
+            },
+        ],
+    )
+    # Dual-write reality: slot columns mirror the row so the cost-input gate passes.
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=ADMINISTRATION,
+        hourly_rates_current={"a": None, "b": 40.4, "c": None, "d": None},
+        time_required_current={"a": None, "b": 20, "c": None, "d": None},
+        expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        execution_per_case=True,
+    )
+    db.upsert_session_wage_rate_override(
+        session_id, ADMINISTRATION, "verwaltungsebene", "bund", "gehobener_dienst", 100.0
+    )
+
+    use = build_compliance_export_context(
+        app_session_id="COMP-WAGE-OVR",
+        session_id=session_id,
+        user_edit_policy=USER_EDIT_USE,
+    )
+    assert use.has_user_edits is True
+    adm = next(
+        a for a in use.snapshot["normadressaten"] if a["normadressat"] == ADMINISTRATION
+    )
+    rate = adm["lohnsaetze"]["werte"]["b"]
+    assert rate["wert"] == 100.0
+    assert rate["value_source"] == "user_edited"
+    step = adm["prozesse"][0]["fallgruppen"][0]["taetigkeiten"][0]
+    assert step["stundenloehne"]["b_current"] == 100.0
+    assert abs(step["kosten"]["gueltig"] - 100.0 * 20 / 60) < 0.01
+
+    reject = build_compliance_export_context(
+        app_session_id="COMP-WAGE-OVR",
+        session_id=session_id,
+        user_edit_policy=USER_EDIT_REJECT,
+    )
+    adm_r = next(
+        a
+        for a in reject.snapshot["normadressaten"]
+        if a["normadressat"] == ADMINISTRATION
+    )
+    assert adm_r["lohnsaetze"]["werte"]["b"]["wert"] == 40.4
+    step_r = adm_r["prozesse"][0]["fallgruppen"][0]["taetigkeiten"][0]
+    assert step_r["stundenloehne"]["b_current"] == 40.4
+    assert abs(step_r["kosten"]["gueltig"] - 40.4 * 20 / 60) < 0.01
+
+
 def test_compliance_text_examples_are_seeded_from_resources(test_client):
     examples = db.list_compliance_text_examples()
 
@@ -405,6 +476,9 @@ def test_reset_session_ea_edits_clears_overrides_for_export(test_client):
         "pay_rates": 1,
         "case_groups": 1,
         "process_steps": 1,
+        # NEU stores: none set in this session, so the global reset clears 0 of each.
+        "wage_overrides": 0,
+        "effort_time_edits": 0,
     }
     after = build_compliance_export_context(
         app_session_id="COMP-RESET-EA",

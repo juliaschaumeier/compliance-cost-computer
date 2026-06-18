@@ -132,11 +132,15 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
                   "taetigkeiten_id": "{step_one}",
                   "taetigkeit": "Schritt 1",
                   "beschreibung": "Beschreibung Schritt 1",
-                  "stundenlohn_satz_a_gueltig": "40",
-                  "zeitaufwand_in_min_a_gueltig": "1",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1"}}
+                  ],
                   "sachaufwand_gueltig": "10",
-                  "stundenlohn_satz_a_vorschlag": "45",
-                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1.5"}}
+                  ],
                   "sachaufwand_vorschlag": "12"
                 }}
               ]
@@ -191,10 +195,12 @@ def test_calculate_effort_updates_db_and_tiles(test_client, monkeypatch):
     }
 
     steps = db.list_process_steps_for_session(session_id)
-    assert steps[0]["hourly_rate_a_current"] == 40
+    # Hourly rate now comes from the wage table (administration/bund/einfacher_und_
+    # mittlerer_dienst = 33.8), not from the LLM, which no longer returns wages.
+    assert steps[0]["hourly_rate_a_current"] == 33.8
     assert steps[0]["time_required_in_min_a_current"] == 1
     assert steps[0]["expenses_current"] == 10
-    assert steps[0]["hourly_rate_a_proposed"] == 45
+    assert steps[0]["hourly_rate_a_proposed"] == 33.8
     assert steps[0]["time_required_in_min_a_proposed"] == 1.5
     assert steps[0]["expenses_proposed"] == 12
 
@@ -278,11 +284,15 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_current": "99",
-                  "zeitaufwand_in_min_a_current": "9",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "9"}}
+                  ],
                   "sachaufwand_current": "11",
-                  "stundenlohn_satz_a_proposed": "44",
-                  "zeitaufwand_in_min_a_proposed": "6",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "6"}}
+                  ],
                   "sachaufwand_proposed": "8"
                 }}
               ]
@@ -321,10 +331,12 @@ def test_calculate_effort_preserves_existing_base_values(test_client, monkeypatc
     assert case_group["annual_frequency_proposed"] == 4
 
     step = db.list_process_steps_for_session(session_id)[0]
-    assert step["hourly_rate_a_current"] == 99
+    # Hourly rate is resolved from the wage table (administration/bund/eD = 33.8),
+    # not from the LLM; only time and expenses come from the answer.
+    assert step["hourly_rate_a_current"] == 33.8
     assert step["time_required_in_min_a_current"] == 9
     assert step["expenses_current"] == 11
-    assert step["hourly_rate_a_proposed"] == 44
+    assert step["hourly_rate_a_proposed"] == 33.8
     assert step["time_required_in_min_a_proposed"] == 6
     assert step["expenses_proposed"] == 8
 
@@ -436,16 +448,20 @@ def test_calculate_effort_returns_existing_without_llm_call(test_client, monkeyp
                   "taetigkeiten_id": "{step_one}",
                   "taetigkeit": "Schritt 1",
                   "beschreibung": "Beschreibung Schritt 1",
-                  "stundenlohn_satz_a_vorschlag": "45",
-                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1.5"}}
+                  ],
                   "sachaufwand_vorschlag": "12"
                 }},
                 {{
                   "taetigkeiten_id": "{step_two}",
                   "taetigkeit": "Schritt 2",
                   "beschreibung": "Beschreibung Schritt 2",
-                  "stundenlohn_satz_a_vorschlag": "45",
-                  "zeitaufwand_in_min_a_vorschlag": "1.5",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "1.5"}}
+                  ],
                   "sachaufwand_vorschlag": "12"
                 }}
               ]
@@ -526,8 +542,10 @@ def test_public_calculate_effort_ignores_skip_cases_calculation(test_client, mon
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_gueltig": "40",
-                  "zeitaufwand_in_min_a_gueltig": "5",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "5"}}
+                  ],
                   "sachaufwand_gueltig": "1"
                 }}
               ]
@@ -742,11 +760,15 @@ def test_calculate_effort_logs_parse_fallback_for_alias_keys(test_client, monkey
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_current": "20",
-                  "zeitaufwand_in_min_a_current": "15",
+                  "personalaufwand_gueltig": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "15"}}
+                  ],
                   "sachaufwand_current": "5",
-                  "stundenlohn_satz_a_proposed": "25",
-                  "zeitaufwand_in_min_a_proposed": "10",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ],
                   "sachaufwand_proposed": "6"
                 }}
               ]
@@ -819,8 +841,10 @@ def test_calculate_effort_rejects_unknown_case_group(test_client, monkeypatch):
               "taetigkeiten": [
                 {
                   "taetigkeiten_id": "1",
-                  "stundenlohn_satz_a_vorschlag": "10",
-                  "zeitaufwand_in_min_a_vorschlag": "1",
+                  "personalaufwand_vorschlag": [
+                    {"qualifikation": "einfacher_und_mittlerer_dienst",
+                     "lohnquelle": "bund", "zeitaufwand_in_min": "1"}
+                  ],
                   "sachaufwand_vorschlag": "1"
                 }
               ]
@@ -990,8 +1014,10 @@ def test_calculate_effort_rejects_unknown_step(test_client, monkeypatch):
               "taetigkeiten": [
                 {
                   "taetigkeiten_id": "999",
-                  "stundenlohn_satz_a_vorschlag": "10",
-                  "zeitaufwand_in_min_a_vorschlag": "1",
+                  "personalaufwand_vorschlag": [
+                    {"qualifikation": "einfacher_und_mittlerer_dienst",
+                     "lohnquelle": "bund", "zeitaufwand_in_min": "1"}
+                  ],
                   "sachaufwand_vorschlag": "1"
                 }
               ]
@@ -1115,8 +1141,10 @@ def test_calculate_effort_reuses_pending_pair_answer_on_retry(test_client, monke
               "taetigkeiten": [
                 {{
                   "taetigkeiten_id": "{step_one}",
-                  "stundenlohn_satz_a_vorschlag": "10",
-                  "zeitaufwand_in_min_a_vorschlag": "6",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst",
+                      "lohnquelle": "bund", "zeitaufwand_in_min": "6"}}
+                  ],
                   "sachaufwand_vorschlag": "2"
                 }}
               ]
@@ -1345,3 +1373,471 @@ def test_calculate_effort_rejects_invalid_norm_addressee(test_client):
     )
     assert resp.status_code == 422
     assert "Unsupported norm_addressee" in resp.json()["detail"]
+
+
+def _build_org_effort_response_with_roles(case_group_id, step_id, norm_addressee):
+    if norm_addressee == ADMINISTRATION:
+        qual_gueltig, lohnquelle_gueltig = "einfacher_und_mittlerer_dienst", "bund"
+        qual_vorschlag, lohnquelle_vorschlag = "gehobener_dienst", "laender"
+    else:
+        qual_gueltig, lohnquelle_gueltig = "niedrig", "I"
+        qual_vorschlag, lohnquelle_vorschlag = "mittel", "K"
+    return f"""
+    {{
+      "normadressat": "{norm_addressee}",
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_gueltig": "10",
+              "haeufigkeit_pro_jahr_gueltig": "1",
+              "anzahl_betroffene_vorschlag": "12",
+              "haeufigkeit_pro_jahr_vorschlag": "1",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_gueltig": [
+                    {{
+                      "qualifikation": "{qual_gueltig}",
+                      "lohnquelle": "{lohnquelle_gueltig}",
+                      "zeitaufwand_in_min": "30"
+                    }}
+                  ],
+                  "personalaufwand_vorschlag": [
+                    {{
+                      "qualifikation": "{qual_vorschlag}",
+                      "lohnquelle": "{lohnquelle_vorschlag}",
+                      "zeitaufwand_in_min": "20"
+                    }}
+                  ]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+
+def _seed_org_session(norm_addressee):
+    app_id = f"EFFORT-ROLESRC-{norm_addressee.upper()}"
+    session_id, _ = db.upsert_session(app_id, "test-model")
+    process_id = db.insert_process(
+        session_id, "Prozess", "Beschreibung", norm_addressee=norm_addressee
+    )
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Fallgruppe", "Beschreibung", norm_addressee=norm_addressee
+    )
+    step_id = db.insert_process_step(
+        session_id, case_group_id, "Schritt", "Beschreibung", norm_addressee=norm_addressee
+    )
+    return app_id, session_id, case_group_id, step_id
+
+
+def test_role_wage_source_persisted_for_administration(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, ADMINISTRATION)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 200
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is not None
+    assert steps[0]["role_sources_proposed_json"] is not None
+
+    import json
+    sources_current = json.loads(steps[0]["role_sources_current_json"])
+    sources_proposed = json.loads(steps[0]["role_sources_proposed_json"])
+    assert sources_current == [
+        {"slot": "a", "role": "", "source_kind": "verwaltungsebene", "source_value": "bund"}
+    ]
+    assert sources_proposed == [
+        {"slot": "b", "role": "", "source_kind": "verwaltungsebene", "source_value": "laender"}
+    ]
+
+    # Dual-write: the authoritative child-table rows carry source + model rate.
+    rows = db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
+    assert len(rows) == 2
+    by_period = {row["period"]: row for row in rows}
+    assert by_period["current"]["wage_source_value"] == "bund"
+    assert by_period["current"]["qualification"] == "einfacher_und_mittlerer_dienst"
+    assert by_period["current"]["model_hourly_rate"] == 33.8  # bund, slot a
+    assert by_period["current"]["time_required_in_min"] == 30
+    assert by_period["proposed"]["wage_source_value"] == "laender"
+    assert by_period["proposed"]["model_hourly_rate"] == 43.2  # laender, slot b
+
+
+def test_role_wage_source_persisted_for_business(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(BUSINESS)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, BUSINESS)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": BUSINESS},
+    )
+    assert resp.status_code == 200
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, BUSINESS)
+    import json
+    sources_current = json.loads(steps[0]["role_sources_current_json"])
+    assert sources_current == [
+        {"slot": "a", "role": "", "source_kind": "wirtschaftsabschnitt", "source_value": "I"}
+    ]
+
+
+def test_personnel_effort_invalid_lohnquelle_rejected(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "gehobener_dienst",
+              "lohnquelle": "voellig_ungueltig",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "lohnquelle" in resp.json()["detail"].lower()
+
+
+def test_personnel_effort_missing_lohnquelle_rejected(test_client, monkeypatch):
+    # A row without `lohnquelle` is rejected (422), not silently defaulted: every
+    # row must name its source so the wage stays verifiable (#23), and "forgot" is
+    # kept distinct from an explicit durchschnitt/gesamtwirtschaft choice.
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "gehobener_dienst",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "lohnquelle" in resp.json()["detail"].lower()
+    assert "fehlende" in resp.json()["detail"].lower()
+
+
+def test_personnel_effort_missing_qualifikation_rejected(test_client, monkeypatch):
+    # Symmetric to the missing-`lohnquelle` rule: a row carrying a `lohnquelle`
+    # (and/or a time) but no `qualifikation` is rejected (422) instead of silently
+    # dropped, so a partially-filled entry can never under-count the effort.
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "",
+              "lohnquelle": "bund",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "qualifikation" in resp.json()["detail"].lower()
+
+
+def test_personnel_effort_duplicate_combination_rejected(test_client, monkeypatch):
+    # Two rows with the same (qualifikation, lohnquelle) in one period -> 422
+    # (end-to-end over the route; the parser unit + DB constraint are covered
+    # separately).
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [
+              {{"qualifikation": "gehobener_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "30"}},
+              {{"qualifikation": "gehobener_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+            ],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "doppelte" in resp.json()["detail"].lower()
+
+
+def test_personnel_effort_bare_slot_letter_rejected(test_client, monkeypatch):
+    # `qualifikation: "a"` is old-slot-model leakage and must be rejected (422).
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "a",
+              "lohnquelle": "bund",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "personalaufwand_vorschlag": []
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "qualifikation" in resp.json()["detail"].lower()
+
+
+def test_personnel_effort_mixed_with_legacy_flat_wage_rejected(test_client, monkeypatch):
+    # A step that uses the row model in one period must not smuggle LLM wages via
+    # the legacy flat format (stundenlohn_satz_*) in the other period -> 422.
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "personalaufwand_gueltig": [{{
+              "qualifikation": "gehobener_dienst",
+              "lohnquelle": "bund",
+              "zeitaufwand_in_min": "30"
+            }}],
+            "stundenlohn_satz_a_vorschlag": "45",
+            "zeitaufwand_in_min_a_vorschlag": "20"
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "stundenlohn_satz" in resp.json()["detail"].lower()
+
+
+def test_role_wage_source_cleared_on_undo(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, ADMINISTRATION)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is not None
+
+    assert db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
+
+    db.clear_effort_metrics(session_id, ADMINISTRATION)
+
+    steps = db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+    assert steps[0]["role_sources_current_json"] is None
+    assert steps[0]["role_sources_proposed_json"] is None
+    # Undo also clears the authoritative child rows.
+    assert db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id) == []
+
+
+def test_role_wage_source_decoded_in_editable_api(test_client, monkeypatch):
+    app_id, session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = _build_org_effort_response_with_roles(case_group_id, step_id, ADMINISTRATION)
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+
+    resp = test_client.get(
+        "/process-steps/editable",
+        params={"app_session_id": app_id, "case_group_id": case_group_id},
+    )
+    assert resp.status_code == 200
+    rows = resp.json()["rows"]
+    assert len(rows) == 1
+    sources = rows[0]["role_sources_current"]
+    assert sources == [
+        {"slot": "a", "role": "", "source_kind": "verwaltungsebene", "source_value": "bund"}
+    ]
+
+
+def test_legacy_flat_format_rejected(test_client, monkeypatch):
+    # The legacy flat effort format (stundenlohn_satz_* / zeitaufwand_in_min_<slot>_*)
+    # is no longer accepted: the LLM contract is row-only (personalaufwand_*) and the
+    # backend never takes wages from the answer.
+    app_id, _session_id, case_group_id, step_id = _seed_org_session(ADMINISTRATION)
+    effort_response = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [{{
+        "fallgruppen": [{{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_gueltig": "5",
+          "haeufigkeit_pro_jahr_gueltig": "1",
+          "anzahl_betroffene_vorschlag": "5",
+          "haeufigkeit_pro_jahr_vorschlag": "1",
+          "taetigkeiten": [{{
+            "taetigkeiten_id": "{step_id}",
+            "stundenlohn_satz_a_gueltig": "40",
+            "zeitaufwand_in_min_a_gueltig": "30",
+            "stundenlohn_satz_a_vorschlag": "42",
+            "zeitaufwand_in_min_a_vorschlag": "25"
+          }}]
+        }}]
+      }}]
+    }}
+    """
+    monkeypatch.setattr(
+        effort_router,
+        "query_llm",
+        _build_effort_query_llm(effort_response, effort_response),
+    )
+
+    resp = test_client.post(
+        "/effort/calculate",
+        json={"app_session_id": app_id, "model": "test-model", "norm_addressee": ADMINISTRATION},
+    )
+    assert resp.status_code == 422
+    assert "stundenlohn_satz" in resp.json()["detail"].lower()
+
+
