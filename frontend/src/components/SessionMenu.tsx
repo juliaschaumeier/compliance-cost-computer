@@ -265,6 +265,24 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
 
   const lastStepLabel = state.lastCompletedLabel;
   const hasActiveWorkflowRun = activeWorkflowRun.isActive || isRunningAll;
+  const isSingleStepWorkflowRunning =
+    activeWorkflowRun.isActive && activeWorkflowRun.runKind === "step";
+  const hasAnyCompletedWorkflowStep =
+    state.summaryReady ||
+    state.regulationsReady ||
+    state.processesReady ||
+    state.caseGroupsReady ||
+    state.processStepsReady ||
+    state.effortReady ||
+    state.totalCostReady;
+  const runAllActionLabel = state.totalCostReady
+    ? "Alle Schritte abgeschlossen"
+    : hasAnyCompletedWorkflowStep
+      ? "Verbleibende Schritte ausführen"
+      : "Alle Schritte ausführen";
+  const isRunAllActionDisabled =
+    (!isRunningAll && (state.totalCostReady || isSingleStepWorkflowRunning)) ||
+    (isRunningAll && isCancellingRun);
 
   useEffect(() => {
     if (!isOpen) {
@@ -925,15 +943,17 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
           className={`w-full rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
             isRunningAll
               ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+              : isRunAllActionDisabled
+                ? "cursor-not-allowed border border-slate-100 bg-slate-100 text-slate-400"
               : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
           }`}
-          disabled={isRunningAll && isCancellingRun}
+          disabled={isRunAllActionDisabled}
         >
           {isRunningAll
             ? isCancellingRun
               ? "Abbruch wird ausgeführt..."
               : "Ausführung abbrechen"
-            : "Alle Schritte ausführen"}
+            : runAllActionLabel}
         </button>
         <button
           onClick={handleUndoLastStep}

@@ -115,6 +115,26 @@ def apply_deep_research_case_metrics(
     report_text: str,
     research_run_id: int | None = None,
 ) -> int:
+    data, parsed = validate_deep_research_case_metrics(
+        session_id=session_id,
+        report_text=report_text,
+    )
+    with db.transaction():
+        apply_validated_deep_research_case_metrics(
+            session_id=session_id,
+            data=data,
+            parsed=parsed,
+            report_text=report_text,
+            research_run_id=research_run_id,
+        )
+    return len(parsed)
+
+
+def validate_deep_research_case_metrics(
+    *,
+    session_id: int,
+    report_text: str,
+) -> tuple[dict[str, Any], list[ParsedResearchCaseGroup]]:
     data, parsed = parse_deep_research_case_metrics(report_text)
     if not parsed:
         raise HTTPException(
@@ -161,24 +181,33 @@ def apply_deep_research_case_metrics(
             status_code=422,
             detail="Deep Research omitted fallgruppen_id values: " + ", ".join(omitted),
         )
+    return data, parsed
 
-    with db.transaction():
-        for entry in parsed:
-            db.upsert_case_group_metrics_by_addressee(
-                session_id=session_id,
-                case_group_id=entry.case_group_id,
-                norm_addressee=entry.norm_addressee,
-                addressees_current=entry.addressees_current,
-                annual_frequency_current=entry.annual_frequency_current,
-                addressees_proposed=entry.addressees_proposed,
-                annual_frequency_proposed=entry.annual_frequency_proposed,
-                case_metric_research_json=entry.metadata,
-            )
-        if research_run_id is not None:
-            db.update_deep_research_run(
-                research_run_id,
-                status="parsed",
-                report_md=report_text,
-                result_json=data,
-            )
+
+def apply_validated_deep_research_case_metrics(
+    *,
+    session_id: int,
+    data: dict[str, Any],
+    parsed: list[ParsedResearchCaseGroup],
+    report_text: str,
+    research_run_id: int | None = None,
+) -> int:
+    for entry in parsed:
+        db.upsert_case_group_metrics_by_addressee(
+            session_id=session_id,
+            case_group_id=entry.case_group_id,
+            norm_addressee=entry.norm_addressee,
+            addressees_current=entry.addressees_current,
+            annual_frequency_current=entry.annual_frequency_current,
+            addressees_proposed=entry.addressees_proposed,
+            annual_frequency_proposed=entry.annual_frequency_proposed,
+            case_metric_research_json=entry.metadata,
+        )
+    if research_run_id is not None:
+        db.update_deep_research_run(
+            research_run_id,
+            status="parsed",
+            report_md=report_text,
+            result_json=data,
+        )
     return len(parsed)

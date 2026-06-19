@@ -2292,7 +2292,7 @@ def update_deep_research_run(
         values.append(status)
         if status == "running":
             assignments.append("started_at = COALESCE(started_at, current_timestamp)")
-        if status in {"completed", "failed", "cancelled"}:
+        if status in {"completed", "failed", "cancelled", "cancelled_harvested"}:
             assignments.append("completed_at = COALESCE(completed_at, current_timestamp)")
         if status == "parsed":
             assignments.append("parsed_at = COALESCE(parsed_at, current_timestamp)")
@@ -2354,6 +2354,22 @@ def get_latest_deep_research_run(
     if row is None:
         return None
     return dict(row)
+
+
+def get_deep_research_run(research_run_id: int) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT *
+        FROM deep_research_runs
+        WHERE research_run_id = ?
+        """,
+        (research_run_id,),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return dict(row) if row else None
 
 
 def get_latest_deep_research_run_status(session_id: int, purpose: str) -> str:
@@ -2584,7 +2600,9 @@ def list_recent_deep_research_monitor_rows_for_session(
                 "output_tokens": row.get("output_tokens"),
                 "hidden_thinking_tokens": row.get("thought_tokens"),
                 "estimated_cost_usd": row.get("estimated_cost_usd"),
-                "error_kind": status if status in {"failed", "cancelled"} else None,
+                "error_kind": (
+                    status if status in {"failed", "cancelled", "cancelled_harvested"} else None
+                ),
                 "error_status_code": None,
                 "error": row.get("error"),
                 "created_at": completed_at or row.get("created_at"),
@@ -3227,6 +3245,97 @@ def get_reusable_pending_llm_answer(
     return None
 
 
+def promote_waiting_session_update_llm_answers_to_paired_retry(
+    *,
+    session_id: int,
+    prompts: list[tuple[str, str | None, str, str, str | None]],
+) -> list[int]:
+    """Promote fully staged but unapplied pending answers so an atomic retry can reuse them.
+
+    Each prompt tuple is `(prompt_id, norm_addressee, prompt_sha256, model, provider)`.
+    """
+    promoted: list[int] = []
+    conn = get_conn()
+    cur = conn.cursor()
+    for prompt_id, norm_addressee, prompt_hash, model, provider in prompts:
+        cur.execute(
+            """
+            SELECT answer_id, metadata, answer_text
+            FROM llm_answers
+            WHERE session_id = ?
+              AND prompt_id = ?
+              AND model = ?
+              AND answer_state = ?
+              AND state_reason = 'waiting_for_session_update'
+              AND COALESCE(norm_addressee, '') = COALESCE(?, '')
+            ORDER BY answer_id DESC
+            """,
+            (session_id, prompt_id, model, LLM_ANSWER_STATE_PENDING, norm_addressee),
+        )
+        for row in cur.fetchall():
+            if not str(row["answer_text"] or "").strip():
+                continue
+            metadata = json.loads(row["metadata"] or "{}")
+            if not isinstance(metadata, dict):
+                continue
+            if metadata.get("provider") != provider:
+                continue
+            if metadata.get("prompt_sha256") != prompt_hash:
+                continue
+            answer_id = int(row["answer_id"])
+            cur.execute(
+                """
+                UPDATE llm_answers
+                SET state_reason = 'waiting_for_paired_retry'
+                WHERE answer_id = ?
+                """,
+                (answer_id,),
+            )
+            promoted.append(answer_id)
+            break
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return promoted
+
+
+def promote_waiting_session_update_answers_by_prompt(
+    session_id: int,
+    prompt_ids: list[str],
+) -> list[int]:
+    safe_prompt_ids = [prompt_id for prompt_id in prompt_ids if str(prompt_id or "").strip()]
+    if not safe_prompt_ids:
+        return []
+    placeholders = ", ".join("?" for _ in safe_prompt_ids)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        SELECT answer_id
+        FROM llm_answers
+        WHERE session_id = ?
+          AND prompt_id IN ({placeholders})
+          AND answer_state = ?
+          AND state_reason = 'waiting_for_session_update'
+          AND TRIM(answer_text) != ''
+        """,
+        (session_id, *safe_prompt_ids, LLM_ANSWER_STATE_PENDING),
+    )
+    answer_ids = [int(row["answer_id"]) for row in cur.fetchall()]
+    if answer_ids:
+        id_placeholders = ", ".join("?" for _ in answer_ids)
+        cur.execute(
+            f"""
+            UPDATE llm_answers
+            SET state_reason = 'waiting_for_paired_retry'
+            WHERE answer_id IN ({id_placeholders})
+            """,
+            answer_ids,
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return answer_ids
+
+
 def update_llm_answer_state_reason(
     answer_id: int,
     reason: str,
@@ -3372,6 +3481,7 @@ def list_recent_llm_answers_for_session(session_id: int, limit: int = 80) -> lis
             output_tokens,
             hidden_thinking_tokens,
             estimated_cost_usd,
+            norm_addressee,
             created_at,
             metadata
         FROM llm_answers
@@ -3410,6 +3520,7 @@ def list_recent_llm_answers_for_session(session_id: int, limit: int = 80) -> lis
                 "output_tokens": row.get("output_tokens"),
                 "hidden_thinking_tokens": row.get("hidden_thinking_tokens"),
                 "estimated_cost_usd": row.get("estimated_cost_usd"),
+                "norm_addressee": row.get("norm_addressee"),
                 "error_kind": metadata.get("error_kind"),
                 "error_status_code": metadata.get("error_status_code"),
                 "error": metadata.get("error"),

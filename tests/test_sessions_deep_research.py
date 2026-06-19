@@ -251,6 +251,59 @@ def test_deep_research_cancellation_marks_run_terminal(monkeypatch):
     assert "cancelled" in run["error"]
 
 
+def test_cancelled_deep_research_harvest_stores_audit_report(monkeypatch):
+    app_session_id = "DR-CANCEL-HARVEST"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    run_id = db.create_deep_research_run(
+        session_id=session_id,
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent="deep-research-test",
+        status="running",
+        prompt_text="prompt",
+    )
+    db.update_deep_research_run(
+        run_id,
+        status="cancelled",
+        interaction_id="interaction-1",
+        error="cancelled locally",
+    )
+
+    async def fake_harvest(*_args, **_kwargs):
+        return DeepResearchResult(
+            agent="deep-research-test",
+            interaction_id="interaction-1",
+            report_text="late report",
+            response_json={"status": "completed"},
+            input_tokens=10,
+            output_tokens=20,
+            thought_tokens=5,
+            total_tokens=35,
+            estimated_cost_usd=0.12,
+        )
+
+    monkeypatch.setattr(
+        sessions_router,
+        "harvest_deep_research_interaction",
+        fake_harvest,
+    )
+
+    asyncio.run(
+        sessions_router._harvest_cancelled_deep_research_run(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=run_id,
+            api_keys=ApiKeys(gemini_api_key="test"),
+        )
+    )
+
+    run = db.get_deep_research_run(run_id)
+    assert run is not None
+    assert run["status"] == "cancelled_harvested"
+    assert run["report_md"] == "late report"
+    assert run["parsed_at"] is None
+    assert "audit only" in run["error"]
+
+
 def test_deep_research_publishes_llm_monitor_lifecycle(monkeypatch):
     app_session_id = "DR-MONITOR"
     session_id, _ = db.upsert_session(app_session_id, "test-model")

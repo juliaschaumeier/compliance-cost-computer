@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.core import db
-from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
-from backend.core.llm_attempts import (
-    mark_llm_parse_fallback,
-    mark_llm_answer_applied,
-)
 from backend.core.llm_json import extract_fallgruppen, require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
@@ -30,11 +25,6 @@ from backend.routers._edit_validation import validate_non_empty_rows
 from backend.routers._edit_validation import validate_non_noop_update_count
 from backend.routers._edit_validation import validate_unique_ids
 from backend.routers._edit_validation import validate_wage_source_kind
-from backend.routers._llm_router_utils import (
-    ensure_session_or_400,
-    query_and_stage_or_http,
-    run_with_answer_apply_guard,
-)
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
@@ -43,13 +33,6 @@ from backend.routers._session_validation import (
 
 
 router = APIRouter(prefix="/process-steps", tags=["process-steps"])
-
-class ProcessStepAnalysisRequest(BaseModel):
-    app_session_id: AppSessionId
-    model: str | None = None
-    provider: str | None = None
-    norm_addressee: str | None = None
-
 
 class ProcessStepEditRow(BaseModel):
     step_id: int
@@ -79,6 +62,133 @@ class PersonnelEffortTimeEditRequest(BaseModel):
     wage_source_kind: str
     wage_source_value: str
     time_required_in_min_edited: float | None = None
+
+
+def build_process_step_analysis_prompt(
+    *,
+    session_id: int,
+    norm_addressee: str,
+) -> tuple[str | None, dict]:
+    case_groups = db.list_case_groups_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not case_groups and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
+        session_id, norm_addressee
+    ):
+        return None, {"status": "skipped", "case_groups": []}
+    if not case_groups:
+        raise HTTPException(status_code=400, detail="No case groups for session")
+
+    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    payload_groups = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        regulations=regulations,
+        norm_addressee=norm_addressee,
+    )
+
+    prompt = render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        session_id=session_id,
+        case_groups_json=dump_prompt_json(payload_groups),
+        norm_addressee=norm_addressee,
+    )
+    return prompt, {
+        "status": "ready",
+        "case_groups": case_groups,
+        "processes": processes,
+        "regulations": regulations,
+        "case_group_lookup": {row["case_group_id"]: row for row in case_groups},
+        "process_regulation_ids_by_process": _process_regulation_ids_by_process(
+            regulations
+        ),
+    }
+
+
+def _process_regulation_ids_by_process(regulations: list[dict]) -> dict[int, list[int]]:
+    process_regulation_ids_by_process: dict[int, list[int]] = {}
+    for row in regulations:
+        process_id = row.get("process_id")
+        regulation_id = row.get("regulation_id")
+        if process_id is None or regulation_id is None:
+            continue
+        process_regulation_ids_by_process.setdefault(int(process_id), []).append(
+            int(regulation_id)
+        )
+    for process_id, regulation_ids in list(process_regulation_ids_by_process.items()):
+        process_regulation_ids_by_process[process_id] = sorted(set(regulation_ids))
+    return process_regulation_ids_by_process
+
+
+def parse_process_step_analysis_answer(
+    *,
+    response_text: str,
+    norm_addressee: str,
+    context: dict,
+) -> tuple[list[dict], set[str]]:
+    parsed, fallback_kinds = _parse_process_steps(response_text, norm_addressee)
+    if not parsed:
+        raise HTTPException(status_code=422, detail="No process steps parsed")
+
+    case_group_lookup = context["case_group_lookup"]
+    process_regulation_ids_by_process = context["process_regulation_ids_by_process"]
+    missing = [
+        str(entry["case_group_id"])
+        for entry in parsed
+        if entry["case_group_id"] not in case_group_lookup
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail="Unknown fallgruppen_id values: " + ", ".join(missing),
+        )
+
+    invalid_regulation_links: list[str] = []
+    for entry in parsed:
+        process_id = int(case_group_lookup[entry["case_group_id"]]["process_id"])
+        valid_regulation_ids = set(process_regulation_ids_by_process.get(process_id, []))
+        for step in entry["taetigkeiten"]:
+            unknown_ids = sorted(
+                {
+                    int(regulation_id)
+                    for regulation_id in (step.get("regulation_ids") or [])
+                    if int(regulation_id) not in valid_regulation_ids
+                }
+            )
+            if not unknown_ids:
+                continue
+            invalid_regulation_links.append(
+                f"{step.get('taetigkeit') or 'Unbenannte Taetigkeit'} -> "
+                + ", ".join(str(regulation_id) for regulation_id in unknown_ids)
+            )
+    if invalid_regulation_links:
+        raise HTTPException(
+            status_code=422,
+            detail="Unknown vorgaben_ids in process steps: " + "; ".join(invalid_regulation_links),
+        )
+    return parsed, fallback_kinds
+
+
+def apply_process_step_analysis(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    parsed: list[dict],
+    context: dict,
+) -> list[dict]:
+    return _add_step_tiles(
+        session_id,
+        parsed,
+        context["case_group_lookup"],
+        context["process_regulation_ids_by_process"],
+        norm_addressee=norm_addressee,
+    )
 
 
 @router.get("/editable", response_model=EditableProcessStepsResponse)
@@ -456,140 +566,3 @@ def _resolve_step_regulation_ids(
     if len(process_regulation_ids) == 1:
         return list(process_regulation_ids)
     return []
-
-
-@router.post("/analyze")
-async def analyze_process_steps(
-    payload: ProcessStepAnalysisRequest,
-    api_keys: ApiKeys = Depends(get_api_keys),
-) -> dict:
-    session_id, _created, model = ensure_session_or_400(
-        payload.app_session_id,
-        payload.model,
-    )
-    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
-    existing = db.list_process_steps_for_session_and_addressee(
-        session_id,
-        norm_addressee,
-    )
-    if existing:
-        return {"steps": existing, "status": "existing", "norm_addressee": norm_addressee}
-
-    case_groups = db.list_case_groups_for_session_and_addressee(
-        session_id,
-        norm_addressee,
-    )
-    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
-    if not case_groups and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
-        session_id, norm_addressee
-    ):
-        return {"steps": [], "status": "skipped", "norm_addressee": norm_addressee}
-    if not case_groups:
-        raise HTTPException(status_code=400, detail="No case groups for session")
-
-    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
-    regulations = db.list_regulations_for_session_and_addressee(
-        session_id,
-        norm_addressee,
-    )
-    payload_groups = build_case_groups_payload(
-        processes=processes,
-        case_groups=case_groups,
-        regulations=regulations,
-        norm_addressee=norm_addressee,
-    )
-
-    prompt = render_prompt(
-        PromptId.PROCESS_STEP_ANALYSIS,
-        session_id=session_id,
-        case_groups_json=dump_prompt_json(payload_groups),
-        norm_addressee=norm_addressee,
-    )
-    answer_id, llm_result = await query_and_stage_or_http(
-        session_id=session_id,
-        prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
-        prompt=prompt,
-        api_keys=api_keys,
-        model=model,
-        provider=payload.provider,
-        query_fn=query_llm,
-        norm_addressee=norm_addressee,
-    )
-    response_text = llm_result.text
-
-    def _apply() -> list[dict]:
-        parsed, fallback_kinds = _parse_process_steps(response_text, norm_addressee)
-        for fallback_kind in sorted(fallback_kinds):
-            mark_llm_parse_fallback(
-                answer_id=answer_id,
-                session_id=session_id,
-                prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
-                fallback_kind=fallback_kind,
-            )
-        if not parsed:
-            raise HTTPException(status_code=422, detail="No process steps parsed")
-
-        case_group_lookup = {row["case_group_id"]: row for row in case_groups}
-        process_regulation_ids_by_process: dict[int, list[int]] = {}
-        for row in regulations:
-            process_id = row.get("process_id")
-            regulation_id = row.get("regulation_id")
-            if process_id is None or regulation_id is None:
-                continue
-            process_regulation_ids_by_process.setdefault(int(process_id), []).append(
-                int(regulation_id)
-            )
-        for process_id, regulation_ids in list(process_regulation_ids_by_process.items()):
-            process_regulation_ids_by_process[process_id] = sorted(set(regulation_ids))
-        missing = [
-            str(entry["case_group_id"])
-            for entry in parsed
-            if entry["case_group_id"] not in case_group_lookup
-        ]
-        if missing:
-            raise HTTPException(
-                status_code=422,
-                detail="Unknown fallgruppen_id values: " + ", ".join(missing),
-            )
-
-        invalid_regulation_links: list[str] = []
-        for entry in parsed:
-            process_id = int(case_group_lookup[entry["case_group_id"]]["process_id"])
-            valid_regulation_ids = set(process_regulation_ids_by_process.get(process_id, []))
-            for step in entry["taetigkeiten"]:
-                unknown_ids = sorted(
-                    {
-                        int(regulation_id)
-                        for regulation_id in (step.get("regulation_ids") or [])
-                        if int(regulation_id) not in valid_regulation_ids
-                    }
-                )
-                if not unknown_ids:
-                    continue
-                invalid_regulation_links.append(
-                    f"{step.get('taetigkeit') or 'Unbenannte Taetigkeit'} -> "
-                    + ", ".join(str(regulation_id) for regulation_id in unknown_ids)
-                )
-        if invalid_regulation_links:
-            raise HTTPException(
-                status_code=422,
-                detail="Unknown vorgaben_ids in process steps: " + "; ".join(invalid_regulation_links),
-            )
-
-        with db.transaction():
-            created_local = _add_step_tiles(
-                session_id,
-                parsed,
-                case_group_lookup,
-                process_regulation_ids_by_process,
-                norm_addressee=norm_addressee,
-            )
-            mark_llm_answer_applied(
-                answer_id=answer_id,
-                session_id=session_id,
-                prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
-            )
-        return created_local
-
-    created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
-    return {"steps": created, "norm_addressee": norm_addressee}

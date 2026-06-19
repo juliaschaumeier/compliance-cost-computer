@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.core import db
-from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
-from backend.core.llm_attempts import (
-    mark_llm_answer_applied,
-    mark_llm_parse_fallback,
-)
 from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
@@ -32,11 +27,6 @@ from backend.routers._edit_validation import validate_non_negative_fields
 from backend.routers._edit_validation import validate_non_empty_rows
 from backend.routers._edit_validation import validate_non_noop_update_count
 from backend.routers._edit_validation import validate_unique_ids
-from backend.routers._llm_router_utils import (
-    ensure_session_or_400,
-    query_and_stage_or_http,
-    run_with_answer_apply_guard,
-)
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
@@ -45,13 +35,6 @@ from backend.routers._session_validation import (
 
 
 router = APIRouter(prefix="/case-groups", tags=["case-groups"])
-
-class CaseGroupDevelopmentRequest(BaseModel):
-    app_session_id: AppSessionId
-    model: str | None = None
-    provider: str | None = None
-    norm_addressee: str | None = None
-
 
 class CaseGroupEditRow(BaseModel):
     case_group_id: int
@@ -64,6 +47,140 @@ class CaseGroupEditRow(BaseModel):
 class CaseGroupBulkUpdateRequest(BaseModel):
     app_session_id: AppSessionId
     rows: list[CaseGroupEditRow]
+
+
+def format_existing_case_groups_response(
+    *,
+    session_id: int,
+    existing: list[dict],
+    norm_addressee: str,
+) -> dict:
+    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+    grouped: dict[int, list[dict]] = {}
+    for row in existing:
+        grouped.setdefault(row["process_id"], []).append(
+            {
+                "case_group_id": row["case_group_id"],
+                "fallgruppe_bezeichnung": row["case_group"],
+                "fallgruppe_beschreibung": row["description"],
+                "aenderungsstatus": row["change_status"],
+            }
+        )
+    return {
+        "prozesse": [
+            {
+                "process_id": process["process_id"],
+                "prozess_bezeichnung": process["process"],
+                "prozess_beschreibung": process["description"],
+                "aenderungsstatus": process["change_status"],
+                "fallgruppen": grouped.get(process["process_id"], []),
+            }
+            for process in processes
+            if process["process_id"] in grouped
+        ],
+        "status": "existing",
+        "norm_addressee": norm_addressee,
+    }
+
+
+def build_case_group_development_prompt(
+    *,
+    session_id: int,
+    norm_addressee: str,
+) -> tuple[str | None, dict]:
+    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not processes and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
+        session_id, norm_addressee
+    ):
+        return None, {"status": "skipped", "processes": []}
+    if not processes:
+        raise HTTPException(status_code=400, detail="No processes for session")
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    prozesse_payload = build_processes_payload_with_regulations(
+        processes, regulations, norm_addressee=norm_addressee
+    )
+
+    prompt = render_prompt(
+        PromptId.CASE_GROUP_DEVELOPMENT,
+        session_id=session_id,
+        prozesse_json=dump_prompt_json(prozesse_payload),
+        norm_addressee=norm_addressee,
+    )
+    return prompt, {"status": "ready", "processes": processes}
+
+
+def parse_case_group_development_answer(
+    *,
+    response_text: str,
+    norm_addressee: str,
+    context: dict,
+) -> tuple[list[dict], set[str]]:
+    parsed, fallback_kinds = _parse_case_groups(response_text, norm_addressee)
+    if not parsed:
+        raise HTTPException(status_code=422, detail="No case groups parsed")
+
+    process_ids = {row["process_id"] for row in context["processes"]}
+    missing_ids = [
+        str(entry["prozess_id"])
+        for entry in parsed
+        if entry["prozess_id"] not in process_ids
+    ]
+    if missing_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Unknown process_id values: " + ", ".join(missing_ids),
+        )
+    return parsed, fallback_kinds
+
+
+def apply_case_group_development(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    parsed: list[dict],
+    context: dict,
+) -> list[dict]:
+    return _add_case_group_tiles(
+        session_id,
+        parsed,
+        norm_addressee=norm_addressee,
+    )
+
+
+def format_case_group_development_response(
+    *,
+    created: list[dict],
+    context: dict,
+    norm_addressee: str,
+) -> dict:
+    grouped: dict[int, list[dict]] = {}
+    for entry in created:
+        grouped.setdefault(entry["process_id"], []).append(
+            {
+                "case_group_id": entry["case_group_id"],
+                "fallgruppe_bezeichnung": entry["fallgruppe_bezeichnung"],
+                "fallgruppe_beschreibung": entry["fallgruppe_beschreibung"],
+                "aenderungsstatus": entry["aenderungsstatus"],
+            }
+        )
+    return {
+        "prozesse": [
+            {
+                "process_id": process["process_id"],
+                "prozess_bezeichnung": process["process"],
+                "prozess_beschreibung": process["description"],
+                "aenderungsstatus": process["change_status"],
+                "fallgruppen": grouped.get(process["process_id"], []),
+            }
+            for process in context["processes"]
+            if process["process_id"] in grouped
+        ],
+        "norm_addressee": norm_addressee,
+    }
 
 
 @router.get("/editable", response_model=EditableCaseGroupsResponse)
@@ -248,140 +365,3 @@ def _add_case_group_tiles(
                 }
             )
     return created
-
-
-@router.post("/develop")
-async def develop_case_groups(
-    payload: CaseGroupDevelopmentRequest,
-    api_keys: ApiKeys = Depends(get_api_keys),
-) -> dict:
-    session_id, _created, model = ensure_session_or_400(
-        payload.app_session_id,
-        payload.model,
-    )
-    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
-    existing = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
-    if existing:
-        processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
-        grouped: dict[int, list[dict]] = {}
-        for row in existing:
-            grouped.setdefault(row["process_id"], []).append(
-                {
-                    "case_group_id": row["case_group_id"],
-                    "fallgruppe_bezeichnung": row["case_group"],
-                    "fallgruppe_beschreibung": row["description"],
-                    "aenderungsstatus": row["change_status"],
-                }
-            )
-        return {
-            "prozesse": [
-                {
-                    "process_id": process["process_id"],
-                    "prozess_bezeichnung": process["process"],
-                    "prozess_beschreibung": process["description"],
-                    "aenderungsstatus": process["change_status"],
-                    "fallgruppen": grouped.get(process["process_id"], []),
-                }
-                for process in processes
-                if process["process_id"] in grouped
-            ],
-            "status": "existing",
-            "norm_addressee": norm_addressee,
-        }
-
-    processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
-    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
-    if not processes and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
-        session_id, norm_addressee
-    ):
-        return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
-    if not processes:
-        raise HTTPException(status_code=400, detail="No processes for session")
-    regulations = db.list_regulations_for_session_and_addressee(
-        session_id,
-        norm_addressee,
-    )
-    prozesse_payload = build_processes_payload_with_regulations(
-        processes, regulations, norm_addressee=norm_addressee
-    )
-
-    prompt = render_prompt(
-        PromptId.CASE_GROUP_DEVELOPMENT,
-        session_id=session_id,
-        prozesse_json=dump_prompt_json(prozesse_payload),
-        norm_addressee=norm_addressee,
-    )
-    answer_id, llm_result = await query_and_stage_or_http(
-        session_id=session_id,
-        prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
-        prompt=prompt,
-        api_keys=api_keys,
-        model=model,
-        provider=payload.provider,
-        query_fn=query_llm,
-        norm_addressee=norm_addressee,
-    )
-    response_text = llm_result.text
-
-    def _apply() -> list[dict]:
-        parsed, fallback_kinds = _parse_case_groups(response_text, norm_addressee)
-        for fallback_kind in sorted(fallback_kinds):
-            mark_llm_parse_fallback(
-                answer_id=answer_id,
-                session_id=session_id,
-                prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
-                fallback_kind=fallback_kind,
-            )
-        if not parsed:
-            raise HTTPException(status_code=422, detail="No case groups parsed")
-
-        process_ids = {row["process_id"] for row in processes}
-        missing_ids = [
-            str(entry["prozess_id"])
-            for entry in parsed
-            if entry["prozess_id"] not in process_ids
-        ]
-        if missing_ids:
-            raise HTTPException(
-                status_code=422,
-                detail="Unknown process_id values: " + ", ".join(missing_ids),
-            )
-
-        with db.transaction():
-            created_local = _add_case_group_tiles(
-                session_id,
-                parsed,
-                norm_addressee=norm_addressee,
-            )
-            mark_llm_answer_applied(
-                answer_id=answer_id,
-                session_id=session_id,
-                prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
-            )
-        return created_local
-
-    created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
-    grouped: dict[int, list[dict]] = {}
-    for entry in created:
-        grouped.setdefault(entry["process_id"], []).append(
-            {
-                "case_group_id": entry["case_group_id"],
-                "fallgruppe_bezeichnung": entry["fallgruppe_bezeichnung"],
-                "fallgruppe_beschreibung": entry["fallgruppe_beschreibung"],
-                "aenderungsstatus": entry["aenderungsstatus"],
-            }
-        )
-    return {
-        "prozesse": [
-            {
-                "process_id": process["process_id"],
-                "prozess_bezeichnung": process["process"],
-                "prozess_beschreibung": process["description"],
-                "aenderungsstatus": process["change_status"],
-                "fallgruppen": grouped.get(process["process_id"], []),
-            }
-            for process in processes
-            if process["process_id"] in grouped
-        ],
-        "norm_addressee": norm_addressee,
-    }

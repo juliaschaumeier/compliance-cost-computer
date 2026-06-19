@@ -262,52 +262,6 @@ export interface VorgabenResponse {
   status?: string;
 }
 
-export interface Prozess {
-  process_id?: number;
-  prozess_bezeichnung: string;
-  prozess_beschreibung: string;
-}
-
-export interface ProzesseResponse {
-  prozesse: Prozess[];
-  status?: string;
-}
-
-export interface Fallgruppe {
-  case_group_id?: number;
-  beschreibung_fallgruppe: string;
-}
-
-export interface FallgruppenProzess {
-  process_id?: number;
-  prozess_bezeichnung: string;
-  prozess_beschreibung: string;
-  fallgruppen: Fallgruppe[];
-}
-
-export interface FallgruppenResponse {
-  prozesse: FallgruppenProzess[];
-  status?: string;
-}
-
-export interface Prozessschritt {
-  step_id?: number;
-  case_group_id?: number;
-  taetigkeit: string;
-  beschreibung: string;
-}
-
-export interface ProzessschritteResponse {
-  steps: Prozessschritt[];
-  status?: string;
-}
-
-export interface EffortCalculationResponse {
-  case_groups_updated: number;
-  steps_updated: number;
-  status?: string;
-}
-
 export interface TotalCostResponse {
   norm_addressee?: NormAddressee;
   total_cost: number | null;

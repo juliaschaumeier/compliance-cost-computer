@@ -328,6 +328,27 @@ describe("SessionMenu", () => {
     expect(mockUndoLastStep).not.toHaveBeenCalled();
   });
 
+  it("disables run-all while a single step run is active", async () => {
+    const user = await openMenu();
+
+    act(() => {
+      emitRunAllStepStarted("effort", "step-run-1", "step", "Aufwand berechnen");
+    });
+
+    const runAllButton = screen.getByRole("button", {
+      name: /verbleibende schritte ausführen/i,
+    });
+    expect(runAllButton).toBeDisabled();
+
+    act(() => {
+      emitRunAllStepCleared();
+    });
+    expect(runAllButton).not.toBeDisabled();
+
+    await user.click(runAllButton);
+    expect(apiClient.startRunAllSteps).toHaveBeenCalledTimes(1);
+  });
+
   it("re-enables the Deep Research toggle after a pre-effort run is cleared", async () => {
     const user = await openMenu();
     const toggle = await screen.findByRole("switch");
@@ -354,7 +375,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /alle schritte ausführen/i })
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
     );
     const toggle = await screen.findByRole("switch");
     expect(toggle).toBeDisabled();
@@ -388,7 +409,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await user.click(
-      screen.getByRole("button", { name: /alle schritte ausführen/i })
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
     );
     const cancelButton = await screen.findByRole("button", {
       name: /ausführung abbrechen/i,

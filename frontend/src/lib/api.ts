@@ -3,11 +3,7 @@ import {
   RegulationsResponse,
   Tile,
   TilesResponse,
-  ProzesseResponse,
   VorgabenResponse,
-  FallgruppenResponse,
-  ProzessschritteResponse,
-  EffortCalculationResponse,
   TotalCostResponse,
   SessionsResponse,
   SessionStatus,
@@ -640,118 +636,6 @@ export const apiClient = {
     }
     return response.json();
   },
-  async compileProcesses(
-    options: {
-      appSessionId: string;
-      normAddressee?: NormAddressee;
-      model?: string;
-      provider?: string;
-      keys?: ApiKeys;
-    }
-  ): Promise<ProzesseResponse> {
-    const response = await fetch(`${API_BASE_URL}/processes/compile`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...buildKeyHeaders(options.keys || {}),
-      },
-      body: JSON.stringify({
-        app_session_id: options.appSessionId,
-        norm_addressee: options.normAddressee,
-        model: options.model,
-        provider: options.provider,
-      }),
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to compile processes");
-    }
-    return response.json();
-  },
-
-  async developCaseGroups(
-    options: {
-      appSessionId: string;
-      normAddressee?: NormAddressee;
-      model?: string;
-      provider?: string;
-      keys?: ApiKeys;
-    }
-  ): Promise<FallgruppenResponse> {
-    const response = await fetch(`${API_BASE_URL}/case-groups/develop`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...buildKeyHeaders(options.keys || {}),
-      },
-      body: JSON.stringify({
-        app_session_id: options.appSessionId,
-        norm_addressee: options.normAddressee,
-        model: options.model,
-        provider: options.provider,
-      }),
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to develop case groups");
-    }
-    return response.json();
-  },
-
-  async analyzeProcessSteps(
-    options: {
-      appSessionId: string;
-      normAddressee?: NormAddressee;
-      model?: string;
-      provider?: string;
-      keys?: ApiKeys;
-    }
-  ): Promise<ProzessschritteResponse> {
-    const response = await fetch(`${API_BASE_URL}/process-steps/analyze`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...buildKeyHeaders(options.keys || {}),
-      },
-      body: JSON.stringify({
-        app_session_id: options.appSessionId,
-        norm_addressee: options.normAddressee,
-        model: options.model,
-        provider: options.provider,
-      }),
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to analyze process steps");
-    }
-    return response.json();
-  },
-
-  async calculateEffort(
-    options: {
-      appSessionId: string;
-      normAddressee?: NormAddressee;
-      model?: string;
-      provider?: string;
-      keys?: ApiKeys;
-    }
-  ): Promise<EffortCalculationResponse> {
-    const response = await fetch(`${API_BASE_URL}/effort/calculate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...buildKeyHeaders(options.keys || {}),
-      },
-      body: JSON.stringify({
-        app_session_id: options.appSessionId,
-        norm_addressee: options.normAddressee,
-        model: options.model,
-        provider: options.provider,
-      }),
-    });
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to calculate effort");
-    }
-    return response.json();
-  },
-
   async computeTotalCost(
     options: { appSessionId: string; normAddressee?: NormAddressee }
   ): Promise<TotalCostResponse> {

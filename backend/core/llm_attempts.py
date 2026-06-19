@@ -166,6 +166,7 @@ class LlmPromptSpec:
     query_label: str
     prompt: str
     norm_addressee: str | None = None
+    result_key: str | None = None
 
 
 def mark_llm_query_failed(
@@ -536,8 +537,9 @@ async def query_and_stage_llm_answers_parallel(
                 continue
             assert answer_id is not None
             assert result is not None
-            pending_answer_ids[spec.prompt_id] = answer_id
-            query_results[spec.prompt_id] = result
+            result_key = spec.result_key or spec.prompt_id
+            pending_answer_ids[result_key] = answer_id
+            query_results[result_key] = result
     except asyncio.CancelledError:
         for task in tasks:
             if not task.done():
@@ -549,11 +551,13 @@ async def query_and_stage_llm_answers_parallel(
             spec, answer_id, _result, _query_error = item
             if answer_id is None:
                 continue
-            pending_answer_ids[spec.prompt_id] = int(answer_id)
+            result_key = spec.result_key or spec.prompt_id
+            pending_answer_ids[result_key] = int(answer_id)
         for answer_id in pending_answer_ids.values():
-            mark_llm_answer_apply_failed(
-                answer_id=answer_id,
-                exc=RuntimeError("Step execution was cancelled before applying LLM answer"),
+            db.update_llm_answer_state_reason(
+                answer_id,
+                "waiting_for_paired_retry",
+                state=db.LLM_ANSWER_STATE_PENDING,
             )
         raise
     return pending_answer_ids, query_results, query_errors
@@ -564,6 +568,7 @@ def mark_llm_answer_applied(
     answer_id: int,
     session_id: int,
     prompt_id: str,
+    publish: bool = True,
 ) -> None:
     db.activate_llm_answer(
         answer_id=answer_id,
@@ -571,6 +576,15 @@ def mark_llm_answer_applied(
         prompt_id=prompt_id,
         reason="session_updated",
     )
+    if publish:
+        publish_llm_answer_applied(answer_id=answer_id, prompt_id=prompt_id)
+
+
+def publish_llm_answer_applied(
+    *,
+    answer_id: int,
+    prompt_id: str,
+) -> None:
     answer = db.get_llm_answer_by_id(answer_id)
     if not answer:
         return
