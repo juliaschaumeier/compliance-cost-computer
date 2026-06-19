@@ -4,6 +4,7 @@ from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS
 from backend.core.prompts import PromptId
 from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
+from backend.core.workflow import undo_step
 
 
 def _seed_flow(app_session_id: str) -> dict:
@@ -104,6 +105,113 @@ def _seed_multi_addressee_process_steps(app_session_id: str) -> dict:
 
 def _tile_ids(session_id: int, norm_addressee: str) -> set[str]:
     return {tile.id for tile in db.fetch_tiles(session_id, norm_addressee)}
+
+
+def test_undo_regulations_clears_all_downstream_artifacts_and_wage_overrides():
+    seeded = _seed_flow("UNDO-REGULATIONS-DOWNSTREAM")
+    session_id = seeded["session_id"]
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=10,
+        annual_frequency_proposed=2,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id,
+        step_id=seeded["step_id"],
+        hourly_rates_current={},
+        time_required_current={},
+        expenses_current=None,
+        hourly_rates_proposed={"a": 40, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
+        expenses_proposed=5,
+    )
+    db.replace_process_step_personnel_effort(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        step_id=seeded["step_id"],
+        rows=[
+            {
+                "period": "proposed",
+                "qualification": "einfacher_und_mittlerer_dienst",
+                "wage_source_kind": "verwaltungsebene",
+                "wage_source_value": "bund",
+                "time_required_in_min": 30,
+                "model_hourly_rate": 40,
+            }
+        ],
+    )
+    db.upsert_session_wage_rate_override(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        wage_source_kind="verwaltungsebene",
+        wage_source_value="bund",
+        qualification="einfacher_und_mittlerer_dienst",
+        hourly_rate_edited=45,
+    )
+    db.update_process_step_cost(session_id, seeded["step_id"], None, 25)
+    db.update_case_group_cost(session_id, seeded["case_group_id"], 50)
+    db.update_process_cost(session_id, seeded["process_id"], 50)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        total_cost=50,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+    for prompt_id in (
+        PromptId.PROCESS_COMPILATION,
+        PromptId.CASE_GROUP_DEVELOPMENT,
+        PromptId.PROCESS_STEP_ANALYSIS,
+        PromptId.CASES_CALCULATION,
+        PromptId.EFFORT_CALCULATION,
+    ):
+        db.insert_llm_answer(
+            session_id=session_id,
+            prompt_id=prompt_id,
+            model="test-model",
+            answer_text="{}",
+        )
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    sync_all_norm_addressee_tile_snapshots(session)
+    assert any(tile_id.startswith("process_") for tile_id in _tile_ids(session_id, ADMINISTRATION))
+
+    with db.transaction():
+        undo_step(session_id, "regulations")
+
+    assert db.list_regulations_for_session(session_id) == []
+    assert db.list_processes_for_session(session_id) == []
+    assert db.list_case_groups_for_session(session_id) == []
+    assert db.list_process_steps_for_session(session_id) == []
+    assert db.list_session_personnel_effort(session_id) == []
+    assert db.list_session_wage_rate_rows(session_id, ADMINISTRATION) == []
+    assert db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION) is None
+    assert _tile_ids(session_id, ADMINISTRATION) == {"law_tile"}
+
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT answer_state, state_reason
+        FROM llm_answers
+        WHERE session_id = ? AND prompt_id IN (?, ?, ?, ?, ?)
+        """,
+        (
+            session_id,
+            PromptId.PROCESS_COMPILATION,
+            PromptId.CASE_GROUP_DEVELOPMENT,
+            PromptId.PROCESS_STEP_ANALYSIS,
+            PromptId.CASES_CALCULATION,
+            PromptId.EFFORT_CALCULATION,
+        ),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    assert rows
+    assert all(row["answer_state"] == "invalid" for row in rows)
+    assert all(row["state_reason"] == "session_reverted" for row in rows)
 
 
 def test_undo_total_cost_clears_costs_only(test_client):

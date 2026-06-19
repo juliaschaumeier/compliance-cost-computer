@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
 
 from backend.core import db
-from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
-from backend.core.llm_attempts import (
-    mark_llm_answer_applied,
-    mark_llm_parse_fallback,
-)
 from backend.core.llm_json import require_json_object
 from backend.core.llm_service import query_llm
 from backend.core.models import Tile
@@ -20,21 +14,84 @@ from backend.core.norm_addressees import (
 from backend.core.parsing import parse_first_int
 from backend.core.payload_builders import build_vorgaben_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
-from backend.routers._llm_router_utils import (
-    ensure_session_or_400,
-    query_and_stage_or_http,
-    run_with_answer_apply_guard,
-)
-from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 
 
 router = APIRouter(prefix="/processes", tags=["processes"])
 
-class ProcessCompilationRequest(BaseModel):
-    app_session_id: str
-    model: str | None = None
-    provider: str | None = None
-    norm_addressee: str | None = None
+
+def format_existing_processes_response(
+    existing: list[dict],
+    norm_addressee: str,
+) -> dict:
+    return {
+        "prozesse": [
+            {
+                "process_id": row["process_id"],
+                "prozess_bezeichnung": row["process"],
+                "prozess_beschreibung": row["description"],
+                "aenderungsstatus": row["change_status"],
+            }
+            for row in existing
+        ],
+        "status": "existing",
+        "norm_addressee": norm_addressee,
+    }
+
+
+def build_process_compilation_prompt(
+    *,
+    session_id: int,
+    norm_addressee: str,
+) -> tuple[str | None, dict]:
+    regulations = db.list_regulations_for_session_and_addressee(
+        session_id,
+        norm_addressee,
+    )
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    if not regulations and session_has_any_regulations:
+        return None, {"status": "skipped", "regulations": [], "regulation_lookup": {}}
+    if not regulations:
+        raise HTTPException(status_code=400, detail="No regulations for session")
+    vorgaben_payload = build_vorgaben_payload(regulations, norm_addressee=norm_addressee)
+    prompt = render_prompt(
+        PromptId.PROCESS_COMPILATION,
+        session_id=session_id,
+        vorgaben_json=dump_prompt_json(vorgaben_payload),
+        norm_addressee=norm_addressee,
+    )
+    return prompt, {
+        "status": "ready",
+        "regulations": regulations,
+        "regulation_lookup": {row["regulation_id"]: row for row in regulations},
+    }
+
+
+def parse_process_compilation_answer(
+    *,
+    response_text: str,
+    norm_addressee: str,
+    context: dict,
+) -> tuple[list[dict], set[str]]:
+    processes, fallback_kinds = _parse_processes(response_text, norm_addressee)
+    if not processes:
+        raise HTTPException(status_code=422, detail="No processes parsed")
+    _validate_vorgaben(processes, context["regulation_lookup"])
+    return processes, fallback_kinds
+
+
+def apply_process_compilation(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    parsed: list[dict],
+    context: dict,
+) -> list[dict]:
+    return _add_process_tiles(
+        session_id,
+        parsed,
+        context["regulation_lookup"],
+        norm_addressee=norm_addressee,
+    )
 
 
 def _parse_processes(
@@ -186,6 +243,7 @@ def _validate_vorgaben(
 ) -> None:
     seen_ids: set[int] = set()
     mismatches: list[str] = []
+    duplicate_ids: list[int] = []
     already_linked: list[str] = []
     for process in processes:
         for vorgabe in process.get("vorgaben", []):
@@ -196,9 +254,7 @@ def _validate_vorgaben(
                     mismatches.append(f"Invalid vorgaben_id '{raw_id}'")
                 continue
             if regulation_id in seen_ids:
-                mismatches.append(
-                    f"Vorgabe {regulation_id} linked to multiple processes"
-                )
+                duplicate_ids.append(regulation_id)
                 continue
             seen_ids.add(regulation_id)
             regulation = regulation_lookup.get(regulation_id)
@@ -220,91 +276,12 @@ def _validate_vorgaben(
             status_code=409,
             detail="Regulations already linked: " + ", ".join(already_linked),
         )
+    if duplicate_ids:
+        unique_duplicate_ids = sorted(set(duplicate_ids))
+        mismatches.insert(
+            0,
+            "Vorgaben mehrfach zu Prozessen zugeordnet: "
+            + ", ".join(str(regulation_id) for regulation_id in unique_duplicate_ids),
+        )
     if mismatches:
         raise HTTPException(status_code=422, detail="; ".join(mismatches[:5]))
-
-
-@router.post("/compile")
-async def compile_processes(
-    payload: ProcessCompilationRequest,
-    api_keys: ApiKeys = Depends(get_api_keys),
-) -> dict:
-    session_id, _created, model = ensure_session_or_400(
-        payload.app_session_id,
-        payload.model,
-    )
-    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
-    existing = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
-    if existing:
-        return {
-            "prozesse": [
-                {
-                    "process_id": row["process_id"],
-                    "prozess_bezeichnung": row["process"],
-                    "prozess_beschreibung": row["description"],
-                    "aenderungsstatus": row["change_status"],
-                }
-                for row in existing
-            ],
-            "status": "existing",
-            "norm_addressee": norm_addressee,
-        }
-
-    regulations = db.list_regulations_for_session_and_addressee(
-        session_id,
-        norm_addressee,
-    )
-    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
-    if not regulations and session_has_any_regulations:
-        return {"prozesse": [], "status": "skipped", "norm_addressee": norm_addressee}
-    if not regulations:
-        raise HTTPException(status_code=400, detail="No regulations for session")
-    vorgaben_payload = build_vorgaben_payload(regulations, norm_addressee=norm_addressee)
-
-    prompt = render_prompt(
-        PromptId.PROCESS_COMPILATION,
-        session_id=session_id,
-        vorgaben_json=dump_prompt_json(vorgaben_payload),
-        norm_addressee=norm_addressee,
-    )
-    answer_id, llm_result = await query_and_stage_or_http(
-        session_id=session_id,
-        prompt_id=PromptId.PROCESS_COMPILATION,
-        prompt=prompt,
-        api_keys=api_keys,
-        model=model,
-        provider=payload.provider,
-        query_fn=query_llm,
-        norm_addressee=norm_addressee,
-    )
-    response_text = llm_result.text
-
-    def _apply() -> list[dict]:
-        processes, fallback_kinds = _parse_processes(response_text, norm_addressee)
-        for fallback_kind in sorted(fallback_kinds):
-            mark_llm_parse_fallback(
-                answer_id=answer_id,
-                session_id=session_id,
-                prompt_id=PromptId.PROCESS_COMPILATION,
-                fallback_kind=fallback_kind,
-            )
-        if not processes:
-            raise HTTPException(status_code=422, detail="No processes parsed")
-        regulation_lookup = {row["regulation_id"]: row for row in regulations}
-        _validate_vorgaben(processes, regulation_lookup)
-        with db.transaction():
-            created_local = _add_process_tiles(
-                session_id,
-                processes,
-                regulation_lookup,
-                norm_addressee=norm_addressee,
-            )
-            mark_llm_answer_applied(
-                answer_id=answer_id,
-                session_id=session_id,
-                prompt_id=PromptId.PROCESS_COMPILATION,
-            )
-        return created_local
-
-    created = run_with_answer_apply_guard(answer_id=answer_id, apply_fn=_apply)
-    return {"prozesse": created, "norm_addressee": norm_addressee}

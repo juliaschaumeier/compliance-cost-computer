@@ -205,6 +205,72 @@ def _run_interaction_sync(
             time.sleep(poll_interval_seconds)
 
 
+def _poll_interaction_sync(
+    *,
+    api_key: str,
+    interaction_id: str,
+    agent: str,
+    poll_interval_seconds: float,
+    max_poll_seconds: float = 1800.0,
+    request_timeout_seconds: float = 30.0,
+) -> DeepResearchResult:
+    if not api_key:
+        raise DeepResearchError("Gemini API key is required for Deep Research")
+    if not interaction_id:
+        raise DeepResearchError("Gemini Deep Research interaction id is required")
+    timeout_ms = (
+        int(request_timeout_seconds * 1000)
+        if request_timeout_seconds and request_timeout_seconds > 0
+        else None
+    )
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=timeout_ms),
+    )
+    started = time.monotonic()
+    while True:
+        if max_poll_seconds > 0 and time.monotonic() - started >= max_poll_seconds:
+            raise DeepResearchError(
+                f"Gemini Deep Research harvest timed out after {int(max_poll_seconds)} seconds"
+            )
+        result = client.interactions.get(id=interaction_id)
+        status = str(getattr(result, "status", "") or "").lower()
+        if status == "completed":
+            response_json = _to_jsonable(result)
+            report_text = _extract_text_from_interaction(result)
+            if not report_text.strip():
+                raise DeepResearchError("Gemini Deep Research completed without report text")
+            usage = _extract_usage(response_json)
+            billable_output_tokens = _billable_output_tokens_for_cost(
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                thought_tokens=usage["thought_tokens"],
+                total_tokens=usage["total_tokens"],
+            )
+            return DeepResearchResult(
+                agent=agent,
+                interaction_id=interaction_id,
+                report_text=report_text,
+                response_json=response_json,
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                thought_tokens=usage["thought_tokens"],
+                total_tokens=usage["total_tokens"],
+                estimated_cost_usd=_resolve_estimated_cost_usd(
+                    provider="gemini",
+                    model=agent,
+                    input_tokens=usage["input_tokens"],
+                    output_tokens=billable_output_tokens,
+                ),
+            )
+        if status == "failed":
+            error = getattr(result, "error", None)
+            raise DeepResearchError(f"Gemini Deep Research failed: {error or 'unknown error'}")
+        if status in {"cancelled", "canceled"}:
+            raise DeepResearchError("Gemini Deep Research was cancelled")
+        time.sleep(poll_interval_seconds)
+
+
 async def run_deep_research(
     *,
     prompt: str,
@@ -259,4 +325,29 @@ async def run_deep_research(
                 ) from fallback_exc
         raise DeepResearchError(
             f"Gemini Deep Research failed for agent={primary_agent}: {exc}"
+        ) from exc
+
+
+async def harvest_deep_research_interaction(
+    *,
+    interaction_id: str,
+    api_keys: ApiKeys,
+    agent: str,
+) -> DeepResearchResult:
+    poll_interval = max(float(settings.deep_research_poll_interval_seconds), 1.0)
+    max_poll_seconds = max(float(settings.deep_research_max_poll_seconds), 1.0)
+    request_timeout_seconds = max(float(settings.deep_research_request_timeout_seconds), 1.0)
+    try:
+        return await asyncio.to_thread(
+            _poll_interaction_sync,
+            api_key=api_keys.gemini_api_key,
+            interaction_id=interaction_id,
+            agent=agent,
+            poll_interval_seconds=poll_interval,
+            max_poll_seconds=max_poll_seconds,
+            request_timeout_seconds=request_timeout_seconds,
+        )
+    except Exception as exc:
+        raise DeepResearchError(
+            f"Gemini Deep Research harvest failed for interaction={interaction_id}: {exc}"
         ) from exc

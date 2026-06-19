@@ -28,11 +28,25 @@ from backend.core.config import settings
 from backend.core.deep_research_cases import (
     CASE_GROUP_RESEARCH_PURPOSE,
     apply_deep_research_case_metrics,
+    apply_validated_deep_research_case_metrics,
+    validate_deep_research_case_metrics,
 )
 from backend.core.deep_research_cases_prompt import build_deep_research_cases_prompt
-from backend.core.deep_research_service import DeepResearchError, run_deep_research
-from backend.core.llm_attempts import mark_llm_answer_applied
-from backend.core.llm_service import query_llm
+from backend.core.deep_research_service import (
+    DeepResearchError,
+    harvest_deep_research_interaction,
+    run_deep_research,
+)
+from backend.core.llm_attempts import (
+    LlmPromptSpec,
+    mark_llm_answer_applied,
+    mark_llm_answer_apply_failed,
+    mark_llm_parse_fallback,
+    prompt_sha256,
+    publish_llm_answer_applied,
+    query_and_stage_llm_answers_parallel,
+)
+from backend.core.llm_service import LlmResult, query_llm
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.prompts import PromptId, render_prompt
@@ -66,6 +80,7 @@ from backend.routers import (
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 DEEP_RESEARCH_MONITOR_PROMPT_ID = "deep_research_case_group_metrics"
+_CANCELLED_DEEP_RESEARCH_HARVEST_TASKS: set[asyncio.Task] = set()
 
 ModelName = Annotated[
     str,
@@ -298,6 +313,21 @@ RUN_ALL_STEPS: tuple[tuple[str, str, str], ...] = (
 )
 RUN_ALL_STEP_BY_KEY = {key: (label, status_flag) for key, label, status_flag in RUN_ALL_STEPS}
 
+
+@dataclass(frozen=True)
+class _AtomicSinglePromptStep:
+    step_key: str
+    step_label: str
+    prompt_id: str
+    query_label: str
+    existing_fn: Callable[[int, str], list[dict]]
+    existing_response_fn: Callable[..., dict]
+    build_prompt_fn: Callable[..., tuple[str | None, dict]]
+    parse_fn: Callable[..., tuple[list[dict], set[str]]]
+    apply_fn: Callable[..., list[dict]]
+    query_fn: Callable[..., Awaitable[str | LlmResult]]
+
+
 _RUN_ALL_LOCKS: dict[str, asyncio.Lock] = {}
 
 
@@ -479,11 +509,33 @@ _FAILED_PROMPT_STEP: dict[str, tuple[str, str, str]] = {
 }
 
 
+def _format_persisted_atomic_failure(row: dict, detail: str) -> str | None:
+    prompt_id = str(row.get("prompt_id") or "")
+    mapping = _FAILED_PROMPT_STEP.get(prompt_id)
+    norm_addressee = str(row.get("norm_addressee") or "").strip()
+    if mapping is None or not norm_addressee:
+        return None
+    step_key, label, _ready_flag = mapping
+    return _format_atomic_step_error(
+        step_label=label,
+        step_key=step_key,
+        norm_addressee=norm_addressee,
+        prompt_label=prompt_id,
+        detail=detail,
+    )
+
+
 def _format_failed_answer_message(row: dict) -> str | None:
     reason = str(row.get("state_reason") or "").strip()
     error = str(row.get("error") or "").strip()
+    error_kind = str(row.get("error_kind") or "").strip()
     if reason.startswith("session_update_failed:"):
-        return reason.split(":", 1)[1].strip() or None
+        detail = reason.split(":", 1)[1].strip()
+        if not detail:
+            return None
+        return _format_persisted_atomic_failure(row, detail) or detail
+    if reason == "query_failed" and error_kind == "cancelled":
+        return "Der Schritt wurde abgebrochen. Bitte führen Sie ihn erneut aus."
     if reason == "query_failed" and error:
         return error
     if reason and reason not in {
@@ -691,23 +743,148 @@ def _recent_monitor_rows(session_id: int, limit: int) -> list[dict]:
     return rows[: max(1, min(limit, 500))]
 
 
+async def _harvest_cancelled_deep_research_run(
+    *,
+    app_session_id: str,
+    session_id: int,
+    research_run_id: int,
+    api_keys: ApiKeys,
+) -> None:
+    run = db.get_deep_research_run(research_run_id)
+    if not run or str(run.get("status") or "") != "cancelled":
+        return
+    interaction_id = str(run.get("interaction_id") or "").strip()
+    if not interaction_id:
+        return
+    agent = str(run.get("agent") or settings.deep_research_primary_agent)
+    try:
+        result = await harvest_deep_research_interaction(
+            interaction_id=interaction_id,
+            api_keys=api_keys,
+            agent=agent,
+        )
+    except Exception as exc:
+        current = db.get_deep_research_run(research_run_id)
+        if current and str(current.get("status") or "") == "cancelled":
+            db.update_deep_research_run(
+                research_run_id,
+                error=(
+                    "Deep Research was cancelled locally; remote harvest failed: "
+                    f"{_step_error_message(exc)}"
+                ),
+            )
+        return
+
+    current = db.get_deep_research_run(research_run_id)
+    if not current or str(current.get("status") or "") != "cancelled":
+        return
+    db.update_deep_research_run(
+        research_run_id,
+        status="cancelled_harvested",
+        agent=result.agent,
+        interaction_id=result.interaction_id,
+        report_md=result.report_text,
+        response_json=result.response_json,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        thought_tokens=result.thought_tokens,
+        total_tokens=result.total_tokens,
+        estimated_cost_usd=result.estimated_cost_usd,
+        error="Deep Research was cancelled locally; remote result harvested for audit only.",
+    )
+    await _publish_deep_research_monitor_event(
+        app_session_id=app_session_id,
+        session_id=session_id,
+        research_run_id=research_run_id,
+        event_type="llm_query_failed",
+        agent=result.agent,
+        request_context={},
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        thought_tokens=result.thought_tokens,
+        estimated_cost_usd=result.estimated_cost_usd,
+        answer_state="invalid",
+        state_reason="cancelled_harvested",
+        error="Deep Research was cancelled locally; remote result harvested for audit only.",
+        error_kind="cancelled_harvested",
+    )
+
+
+def _start_cancelled_deep_research_harvest(
+    *,
+    app_session_id: str,
+    session_id: int,
+    research_run_id: int,
+    api_keys: ApiKeys,
+) -> None:
+    task = asyncio.create_task(
+        _harvest_cancelled_deep_research_run(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            api_keys=api_keys,
+        )
+    )
+    _CANCELLED_DEEP_RESEARCH_HARVEST_TASKS.add(task)
+    task.add_done_callback(_CANCELLED_DEEP_RESEARCH_HARVEST_TASKS.discard)
+
+
+def _promote_effort_answers_for_retry(app_session_id: str) -> None:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        return
+    db.promote_waiting_session_update_answers_by_prompt(
+        int(session["session_id"]),
+        [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],
+    )
+
+
+def _cancel_running_deep_research_for_session(
+    *,
+    app_session_id: str,
+    api_keys: ApiKeys,
+) -> None:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        return
+    session_id = int(session["session_id"])
+    run = db.get_latest_deep_research_run(session_id, CASE_GROUP_RESEARCH_PURPOSE)
+    if not run or str(run.get("status") or "") != "running":
+        return
+    research_run_id = int(run["research_run_id"])
+    db.update_deep_research_run(
+        research_run_id,
+        status="cancelled",
+        error="Deep Research was cancelled by the user.",
+    )
+    _start_cancelled_deep_research_harvest(
+        app_session_id=app_session_id,
+        session_id=session_id,
+        research_run_id=research_run_id,
+        api_keys=api_keys,
+    )
+
+
 async def _run_case_group_deep_research(
     *,
     app_session_id: str,
     session_id: int,
     api_keys: ApiKeys,
-) -> None:
+    apply_result: bool = True,
+) -> dict | None:
     latest = db.get_latest_deep_research_run(session_id, CASE_GROUP_RESEARCH_PURPOSE)
     latest_status = str(latest.get("status") or "") if latest else "idle"
     if latest_status == "parsed":
-        return
+        return latest
     if latest_status == "completed" and latest and latest.get("report_md"):
+        if not apply_result:
+            return latest
         apply_deep_research_case_metrics(
             session_id=session_id,
             report_text=str(latest["report_md"]),
             research_run_id=int(latest["research_run_id"]),
         )
-        return
+        return db.get_latest_deep_research_run(session_id, CASE_GROUP_RESEARCH_PURPOSE)
     if latest_status == "running":
         raise HTTPException(
             status_code=409,
@@ -773,11 +950,12 @@ async def _run_case_group_deep_research(
         )
         query_succeeded = True
         try:
-            apply_deep_research_case_metrics(
-                session_id=session_id,
-                report_text=result.report_text,
-                research_run_id=research_run_id,
-            )
+            if apply_result:
+                apply_deep_research_case_metrics(
+                    session_id=session_id,
+                    report_text=result.report_text,
+                    research_run_id=research_run_id,
+                )
         except Exception as exc:
             await _publish_deep_research_monitor_event(
                 app_session_id=app_session_id,
@@ -793,26 +971,34 @@ async def _run_case_group_deep_research(
                 state_reason="session_update_failed",
             )
             raise
-        await _publish_deep_research_monitor_event(
-            app_session_id=app_session_id,
-            session_id=session_id,
-            research_run_id=research_run_id,
-            event_type="llm_apply_succeeded",
-            agent=result.agent,
-            request_context=request_context,
-            elapsed_ms=int((time.perf_counter() - started) * 1000),
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            thought_tokens=result.thought_tokens,
-            estimated_cost_usd=result.estimated_cost_usd,
-            answer_state="active",
-            state_reason="session_updated",
-        )
+        if apply_result:
+            await _publish_deep_research_monitor_event(
+                app_session_id=app_session_id,
+                session_id=session_id,
+                research_run_id=research_run_id,
+                event_type="llm_apply_succeeded",
+                agent=result.agent,
+                request_context=request_context,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                thought_tokens=result.thought_tokens,
+                estimated_cost_usd=result.estimated_cost_usd,
+                answer_state="active",
+                state_reason="session_updated",
+            )
+        return db.get_latest_deep_research_run(session_id, CASE_GROUP_RESEARCH_PURPOSE)
     except asyncio.CancelledError:
         db.update_deep_research_run(
             research_run_id,
             status="cancelled",
             error="Deep Research was cancelled by the run-all task.",
+        )
+        _start_cancelled_deep_research_harvest(
+            app_session_id=app_session_id,
+            session_id=session_id,
+            research_run_id=research_run_id,
+            api_keys=api_keys,
         )
         await _publish_deep_research_monitor_event(
             app_session_id=app_session_id,
@@ -863,6 +1049,521 @@ async def _run_case_group_deep_research(
                 error_kind="deep_research_failed",
             )
         raise
+
+
+def _result_key(prompt_id: str, norm_addressee: str) -> str:
+    return f"{prompt_id}:{norm_addressee}"
+
+
+def _format_atomic_step_error(
+    *,
+    step_label: str,
+    step_key: str,
+    norm_addressee: str,
+    prompt_label: str,
+    detail: str,
+) -> str:
+    display_addressee = {
+        ADMINISTRATION: "Verwaltung",
+        BUSINESS: "Wirtschaft",
+        CITIZENS: "Bürgerinnen und Bürger",
+    }.get(norm_addressee, norm_addressee)
+    return (
+        f"Die Antwort für {display_addressee} konnte nicht verarbeitet werden. "
+        "Bitte führen Sie den Schritt erneut aus.\n"
+        f"Technische Details: {step_label} / {step_key} / {display_addressee} / "
+        f"{prompt_label}: {detail}"
+    )
+
+
+def _promote_pending_retry(answer_ids: list[int]) -> None:
+    for answer_id in answer_ids:
+        db.update_llm_answer_state_reason(
+            answer_id,
+            "waiting_for_paired_retry",
+            state=db.LLM_ANSWER_STATE_PENDING,
+        )
+
+
+async def _run_atomic_single_prompt_step(
+    *,
+    step: _AtomicSinglePromptStep,
+    session_id: int,
+    payload: SessionRunAllRequest,
+    api_keys: ApiKeys,
+    model: str,
+    event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
+) -> dict[str, dict]:
+    prepared: dict[str, dict] = {}
+    specs: list[LlmPromptSpec] = []
+    pending_answer_ids: dict[str, int] = {}
+    query_results: dict[str, LlmResult] = {}
+
+    for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+        existing = step.existing_fn(session_id, norm_addressee)
+        if existing:
+            prepared[norm_addressee] = {
+                "status": "existing",
+                "existing": existing,
+            }
+            continue
+
+        prompt, context = step.build_prompt_fn(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+        )
+        if context.get("status") == "skipped":
+            prepared[norm_addressee] = {"status": "skipped", "context": context}
+            continue
+        if not prompt:
+            raise HTTPException(
+                status_code=500,
+                detail=f"No prompt built for {step.step_key}/{norm_addressee}",
+            )
+        await _emit_event(
+            event_hook,
+            "addressee_started",
+            {"key": step.step_key, "norm_addressee": norm_addressee},
+        )
+
+        key = _result_key(step.prompt_id, norm_addressee)
+        reusable = db.get_reusable_pending_llm_answer(
+            session_id=session_id,
+            prompt_id=step.prompt_id,
+            model=model,
+            provider=payload.provider,
+            prompt_sha256=prompt_sha256(prompt),
+            norm_addressee=norm_addressee,
+        )
+        if reusable:
+            pending_answer_ids[key] = int(reusable["answer_id"])
+            query_results[key] = LlmResult(text=str(reusable["answer_text"]))
+        else:
+            specs.append(
+                LlmPromptSpec(
+                    prompt_id=step.prompt_id,
+                    query_label=f"{step.query_label}/{norm_addressee}",
+                    prompt=prompt,
+                    norm_addressee=norm_addressee,
+                    result_key=key,
+                )
+            )
+        prepared[norm_addressee] = {"status": "ready", "context": context, "key": key}
+
+    if specs:
+        staged_ids, staged_results, query_errors = await query_and_stage_llm_answers_parallel(
+            session_id=session_id,
+            specs=specs,
+            api_keys=api_keys,
+            model=model,
+            provider=payload.provider,
+            query_fn=step.query_fn,
+        )
+        pending_answer_ids.update(staged_ids)
+        query_results.update(staged_results)
+        if query_errors:
+            _promote_pending_retry(list(pending_answer_ids.values()))
+            detail = "; ".join(query_errors)
+            await _emit_event(
+                event_hook,
+                "addressee_failed",
+                {
+                    "key": step.step_key,
+                    "norm_addressee": "unknown",
+                    "message": detail,
+                },
+            )
+            raise HTTPException(status_code=502, detail=detail)
+
+    parsed_by_addressee: dict[str, list[dict]] = {}
+    try:
+        for norm_addressee, info in prepared.items():
+            if info["status"] != "ready":
+                continue
+            key = info["key"]
+            answer_id = pending_answer_ids[key]
+            result = query_results[key]
+            parsed, fallback_kinds = step.parse_fn(
+                response_text=result.text,
+                norm_addressee=norm_addressee,
+                context=info["context"],
+            )
+            for fallback_kind in sorted(fallback_kinds):
+                mark_llm_parse_fallback(
+                    answer_id=answer_id,
+                    session_id=session_id,
+                    prompt_id=step.prompt_id,
+                    fallback_kind=fallback_kind,
+                )
+            parsed_by_addressee[norm_addressee] = parsed
+    except Exception as exc:
+        failed_addressee = norm_addressee
+        failed_key = prepared[failed_addressee]["key"]
+        failed_answer_id = pending_answer_ids.get(failed_key)
+        if failed_answer_id is not None:
+            mark_llm_answer_apply_failed(answer_id=failed_answer_id, exc=exc)
+        sibling_ids = [
+            answer_id
+            for key, answer_id in pending_answer_ids.items()
+            if key != failed_key
+        ]
+        _promote_pending_retry(sibling_ids)
+        detail = _format_atomic_step_error(
+            step_label=step.step_label,
+            step_key=step.step_key,
+            norm_addressee=failed_addressee,
+            prompt_label=step.prompt_id,
+            detail=_step_error_message(exc),
+        )
+        await _emit_event(
+            event_hook,
+            "addressee_failed",
+            {
+                "key": step.step_key,
+                "norm_addressee": failed_addressee,
+                "prompt_id": step.prompt_id,
+                "message": detail,
+            },
+        )
+        raise HTTPException(
+            status_code=getattr(exc, "status_code", 422),
+            detail=detail,
+        ) from exc
+
+    created_by_addressee: dict[str, dict] = {}
+    applied_answer_ids: list[tuple[int, str]] = []
+    try:
+        with db.transaction():
+            for norm_addressee, info in prepared.items():
+                if info["status"] == "ready":
+                    created = step.apply_fn(
+                        session_id=session_id,
+                        norm_addressee=norm_addressee,
+                        parsed=parsed_by_addressee[norm_addressee],
+                        context=info["context"],
+                    )
+                    created_by_addressee[norm_addressee] = {
+                        "status": "applied",
+                        "created": created,
+                    }
+                    mark_llm_answer_applied(
+                        answer_id=pending_answer_ids[info["key"]],
+                        session_id=session_id,
+                        prompt_id=step.prompt_id,
+                        publish=False,
+                    )
+                    applied_answer_ids.append(
+                        (pending_answer_ids[info["key"]], step.prompt_id)
+                    )
+                else:
+                    created_by_addressee[norm_addressee] = info
+    except Exception as exc:
+        for answer_id in pending_answer_ids.values():
+            mark_llm_answer_apply_failed(answer_id=answer_id, exc=exc)
+        raise
+
+    for answer_id, prompt_id in applied_answer_ids:
+        publish_llm_answer_applied(answer_id=answer_id, prompt_id=prompt_id)
+
+    for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+        if prepared.get(norm_addressee, {}).get("status") == "ready":
+            await _emit_event(
+                event_hook,
+                "addressee_completed",
+                {"key": step.step_key, "norm_addressee": norm_addressee},
+            )
+    return created_by_addressee
+
+
+async def _run_atomic_effort_step(
+    *,
+    app_session_id: str,
+    session_id: int,
+    payload: SessionRunAllRequest,
+    api_keys: ApiKeys,
+    model: str,
+    event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
+) -> None:
+    use_deep_research = db.get_case_group_research_enabled(session_id)
+    contexts: dict[str, dict] = {}
+    specs: list[LlmPromptSpec] = []
+    pending_answer_ids: dict[str, int] = {}
+    query_results: dict[str, LlmResult] = {}
+
+    for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+        context = effort_router.prepare_effort_calculation(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            skip_cases_calculation=use_deep_research,
+        )
+        contexts[norm_addressee] = context
+        if context["status"] in {"skipped", "existing"}:
+            continue
+        await _emit_event(
+            event_hook,
+            "addressee_started",
+            {"key": "effort", "norm_addressee": norm_addressee},
+        )
+
+        prompt_pairs = [
+            (PromptId.EFFORT_CALCULATION, "EFFORT_CALCULATION", context["effort_prompt"])
+        ]
+        if not use_deep_research:
+            prompt_pairs.insert(
+                0,
+                (PromptId.CASES_CALCULATION, "CASES_CALCULATION", context["cases_prompt"]),
+            )
+        for prompt_id, query_label, prompt in prompt_pairs:
+            key = _result_key(prompt_id, norm_addressee)
+            prompt_hash = prompt_sha256(prompt)
+            db.promote_waiting_session_update_llm_answers_to_paired_retry(
+                session_id=session_id,
+                prompts=[
+                    (
+                        prompt_id,
+                        norm_addressee,
+                        prompt_hash,
+                        model,
+                        payload.provider,
+                    )
+                ],
+            )
+            reusable = db.get_reusable_pending_llm_answer(
+                session_id=session_id,
+                prompt_id=prompt_id,
+                model=model,
+                provider=payload.provider,
+                prompt_sha256=prompt_hash,
+                norm_addressee=norm_addressee,
+            )
+            if reusable:
+                pending_answer_ids[key] = int(reusable["answer_id"])
+                query_results[key] = LlmResult(text=str(reusable["answer_text"]))
+                continue
+            specs.append(
+                LlmPromptSpec(
+                    prompt_id=prompt_id,
+                    query_label=f"{query_label}/{norm_addressee}",
+                    prompt=prompt,
+                    norm_addressee=norm_addressee,
+                    result_key=key,
+                )
+            )
+
+    async def _stage_missing_answers() -> tuple[dict[str, int], dict[str, LlmResult], list[str]]:
+        if not specs:
+            return {}, {}, []
+        return await query_and_stage_llm_answers_parallel(
+            session_id=session_id,
+            specs=specs,
+            api_keys=api_keys,
+            model=model,
+            provider=payload.provider,
+            query_fn=effort_router.query_llm,
+        )
+
+    deep_research_run: dict | None = None
+    if use_deep_research:
+        latest_research = db.get_latest_deep_research_run(
+            session_id,
+            CASE_GROUP_RESEARCH_PURPOSE,
+        )
+        if str((latest_research or {}).get("status") or "") == "running":
+            db.promote_waiting_session_update_answers_by_prompt(
+                session_id,
+                [PromptId.EFFORT_CALCULATION],
+            )
+            raise HTTPException(
+                status_code=409,
+                detail="Deep Research for case groups is already running.",
+            )
+        staged_task = asyncio.create_task(_stage_missing_answers())
+        research_task = asyncio.create_task(
+            _run_case_group_deep_research(
+                app_session_id=app_session_id,
+                session_id=session_id,
+                api_keys=api_keys,
+                apply_result=False,
+            )
+        )
+        done, pending = await asyncio.wait(
+            {staged_task, research_task},
+            return_when=asyncio.FIRST_EXCEPTION,
+        )
+        for task in done:
+            exc = task.exception()
+            if exc is None:
+                continue
+            for pending_task in pending:
+                pending_task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            _promote_pending_retry(list(pending_answer_ids.values()))
+            raise exc
+        if pending:
+            more_done = await asyncio.gather(*pending, return_exceptions=True)
+            for result in more_done:
+                if isinstance(result, Exception):
+                    _promote_pending_retry(list(pending_answer_ids.values()))
+                    raise result
+        staged_ids, staged_results, query_errors = staged_task.result()
+        deep_research_run = research_task.result()
+    else:
+        staged_ids, staged_results, query_errors = await _stage_missing_answers()
+
+    pending_answer_ids.update(staged_ids)
+    query_results.update(staged_results)
+    if query_errors:
+        _promote_pending_retry(list(pending_answer_ids.values()))
+        raise HTTPException(status_code=502, detail="; ".join(query_errors))
+
+    deep_research_payload: tuple[dict, list] | None = None
+    if use_deep_research:
+        if not deep_research_run or not deep_research_run.get("report_md"):
+            raise HTTPException(status_code=422, detail="No Deep Research report parsed")
+        if str(deep_research_run.get("status") or "") == "completed":
+            deep_research_payload = validate_deep_research_case_metrics(
+                session_id=session_id,
+                report_text=str(deep_research_run["report_md"]),
+            )
+
+    parsed_by_addressee: dict[str, tuple[list[dict], list[dict]]] = {}
+    try:
+        for norm_addressee, context in contexts.items():
+            if context["status"] != "ready":
+                continue
+            effort_key = _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
+            cases_key = _result_key(PromptId.CASES_CALCULATION, norm_addressee)
+            parsed_by_addressee[norm_addressee] = effort_router.parse_effort_calculation_outputs(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                context=context,
+                cases_text=(
+                    None
+                    if use_deep_research
+                    else query_results[cases_key].text
+                ),
+                effort_text=query_results[effort_key].text,
+                cases_answer_id=(
+                    None
+                    if use_deep_research
+                    else pending_answer_ids[cases_key]
+                ),
+                effort_answer_id=pending_answer_ids[effort_key],
+            )
+    except Exception as exc:
+        failed_addressee = norm_addressee
+        failed_ids = [
+            pending_answer_ids[key]
+            for key in (
+                _result_key(PromptId.CASES_CALCULATION, failed_addressee),
+                _result_key(PromptId.EFFORT_CALCULATION, failed_addressee),
+            )
+            if key in pending_answer_ids
+        ]
+        for answer_id in failed_ids:
+            mark_llm_answer_apply_failed(answer_id=answer_id, exc=exc)
+        sibling_ids = [
+            answer_id
+            for answer_id in pending_answer_ids.values()
+            if answer_id not in set(failed_ids)
+        ]
+        _promote_pending_retry(sibling_ids)
+        detail = _format_atomic_step_error(
+            step_label=RUN_ALL_STEP_BY_KEY["effort"][0],
+            step_key="effort",
+            norm_addressee=failed_addressee,
+            prompt_label=PromptId.EFFORT_CALCULATION,
+            detail=_step_error_message(exc),
+        )
+        await _emit_event(
+            event_hook,
+            "addressee_failed",
+            {
+                "key": "effort",
+                "norm_addressee": failed_addressee,
+                "prompt_id": PromptId.EFFORT_CALCULATION,
+                "message": detail,
+            },
+        )
+        raise HTTPException(
+            status_code=getattr(exc, "status_code", 422),
+            detail=detail,
+        ) from exc
+
+    applied_answer_ids: list[tuple[int, str]] = []
+    try:
+        with db.transaction():
+            if deep_research_payload is not None and deep_research_run is not None:
+                data, parsed_research = deep_research_payload
+                apply_validated_deep_research_case_metrics(
+                    session_id=session_id,
+                    data=data,
+                    parsed=parsed_research,
+                    report_text=str(deep_research_run["report_md"]),
+                    research_run_id=int(deep_research_run["research_run_id"]),
+                )
+            for norm_addressee, (parsed_cases, parsed_effort) in parsed_by_addressee.items():
+                effort_router.apply_effort_calculation_outputs(
+                    session_id=session_id,
+                    norm_addressee=norm_addressee,
+                    parsed_cases=parsed_cases,
+                    parsed_effort=parsed_effort,
+                    skip_cases_calculation=use_deep_research,
+                )
+                if not use_deep_research:
+                    mark_llm_answer_applied(
+                        answer_id=pending_answer_ids[
+                            _result_key(PromptId.CASES_CALCULATION, norm_addressee)
+                        ],
+                        session_id=session_id,
+                        prompt_id=PromptId.CASES_CALCULATION,
+                        publish=False,
+                    )
+                    applied_answer_ids.append(
+                        (
+                            pending_answer_ids[
+                                _result_key(PromptId.CASES_CALCULATION, norm_addressee)
+                            ],
+                            PromptId.CASES_CALCULATION,
+                        )
+                    )
+                mark_llm_answer_applied(
+                    answer_id=pending_answer_ids[
+                        _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
+                    ],
+                    session_id=session_id,
+                    prompt_id=PromptId.EFFORT_CALCULATION,
+                    publish=False,
+                )
+                applied_answer_ids.append(
+                    (
+                        pending_answer_ids[
+                            _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
+                        ],
+                        PromptId.EFFORT_CALCULATION,
+                    )
+                )
+            for norm_addressee, context in contexts.items():
+                if context["status"] == "ready":
+                    effort_router.refresh_effort_tiles(
+                        session_id=session_id,
+                        norm_addressee=norm_addressee,
+                    )
+    except Exception as exc:
+        for answer_id in pending_answer_ids.values():
+            mark_llm_answer_apply_failed(answer_id=answer_id, exc=exc)
+        raise
+
+    for answer_id, prompt_id in applied_answer_ids:
+        publish_llm_answer_applied(answer_id=answer_id, prompt_id=prompt_id)
+
+    for norm_addressee, context in contexts.items():
+        if context["status"] == "ready":
+            await _emit_event(
+                event_hook,
+                "addressee_completed",
+                {"key": "effort", "norm_addressee": norm_addressee},
+            )
 
 
 async def _run_single_step(
@@ -963,74 +1664,92 @@ async def _run_single_step(
         return
 
     if step_key == "processes":
-        async def _run_processes(norm_addressee: str) -> None:
-            processes_payload = processes_router.ProcessCompilationRequest(
-                app_session_id=payload.app_session_id,
-                model=model,
-                provider=payload.provider,
-                norm_addressee=norm_addressee,
-            )
-            await processes_router.compile_processes(processes_payload, api_keys)
-
-        await _run_for_supported_addressees(_run_processes)
+        session_id = db.get_session_id_by_app_id(payload.app_session_id)
+        if session_id is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        await _run_atomic_single_prompt_step(
+            step=_AtomicSinglePromptStep(
+                step_key="processes",
+                step_label=RUN_ALL_STEP_BY_KEY["processes"][0],
+                prompt_id=PromptId.PROCESS_COMPILATION,
+                query_label="PROCESS_COMPILATION",
+                existing_fn=db.list_processes_for_session_and_addressee,
+                existing_response_fn=processes_router.format_existing_processes_response,
+                build_prompt_fn=processes_router.build_process_compilation_prompt,
+                parse_fn=processes_router.parse_process_compilation_answer,
+                apply_fn=processes_router.apply_process_compilation,
+                query_fn=processes_router.query_llm,
+            ),
+            session_id=session_id,
+            payload=payload,
+            api_keys=api_keys,
+            model=model,
+            event_hook=event_hook,
+        )
         return
 
     if step_key == "case_groups":
-        async def _run_case_groups(norm_addressee: str) -> None:
-            case_groups_payload = case_groups_router.CaseGroupDevelopmentRequest(
-                app_session_id=payload.app_session_id,
-                model=model,
-                provider=payload.provider,
-                norm_addressee=norm_addressee,
-            )
-            await case_groups_router.develop_case_groups(case_groups_payload, api_keys)
-
-        await _run_for_supported_addressees(_run_case_groups)
+        session_id = db.get_session_id_by_app_id(payload.app_session_id)
+        if session_id is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        await _run_atomic_single_prompt_step(
+            step=_AtomicSinglePromptStep(
+                step_key="case_groups",
+                step_label=RUN_ALL_STEP_BY_KEY["case_groups"][0],
+                prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
+                query_label="CASE_GROUP_DEVELOPMENT",
+                existing_fn=db.list_case_groups_for_session_and_addressee,
+                existing_response_fn=case_groups_router.format_existing_case_groups_response,
+                build_prompt_fn=case_groups_router.build_case_group_development_prompt,
+                parse_fn=case_groups_router.parse_case_group_development_answer,
+                apply_fn=case_groups_router.apply_case_group_development,
+                query_fn=case_groups_router.query_llm,
+            ),
+            session_id=session_id,
+            payload=payload,
+            api_keys=api_keys,
+            model=model,
+            event_hook=event_hook,
+        )
         return
 
     if step_key == "process_steps":
-        async def _run_steps(norm_addressee: str) -> None:
-            steps_payload = process_steps_router.ProcessStepAnalysisRequest(
-                app_session_id=payload.app_session_id,
-                model=model,
-                provider=payload.provider,
-                norm_addressee=norm_addressee,
-            )
-            await process_steps_router.analyze_process_steps(steps_payload, api_keys)
-
-        await _run_for_supported_addressees(_run_steps)
+        session_id = db.get_session_id_by_app_id(payload.app_session_id)
+        if session_id is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        await _run_atomic_single_prompt_step(
+            step=_AtomicSinglePromptStep(
+                step_key="process_steps",
+                step_label=RUN_ALL_STEP_BY_KEY["process_steps"][0],
+                prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
+                query_label="PROCESS_STEP_ANALYSIS",
+                existing_fn=db.list_process_steps_for_session_and_addressee,
+                existing_response_fn=lambda **_kwargs: {},
+                build_prompt_fn=process_steps_router.build_process_step_analysis_prompt,
+                parse_fn=process_steps_router.parse_process_step_analysis_answer,
+                apply_fn=process_steps_router.apply_process_step_analysis,
+                query_fn=process_steps_router.query_llm,
+            ),
+            session_id=session_id,
+            payload=payload,
+            api_keys=api_keys,
+            model=model,
+            event_hook=event_hook,
+        )
         return
 
     if step_key == "effort":
         session_id = db.get_session_id_by_app_id(payload.app_session_id)
         if session_id is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        use_deep_research = db.get_case_group_research_enabled(session_id)
-
-        async def _run_effort(norm_addressee: str) -> None:
-            effort_payload = effort_router.EffortCalculationRequest(
-                app_session_id=payload.app_session_id,
-                model=model,
-                provider=payload.provider,
-                norm_addressee=norm_addressee,
-            )
-            await effort_router._calculate_effort(
-                effort_payload,
-                api_keys,
-                skip_cases_calculation=use_deep_research,
-            )
-
-        if use_deep_research:
-            await asyncio.gather(
-                _run_case_group_deep_research(
-                    app_session_id=payload.app_session_id,
-                    session_id=session_id,
-                    api_keys=api_keys,
-                ),
-                _run_for_supported_addressees(_run_effort),
-            )
-        else:
-            await _run_for_supported_addressees(_run_effort)
+        await _run_atomic_effort_step(
+            app_session_id=payload.app_session_id,
+            session_id=session_id,
+            payload=payload,
+            api_keys=api_keys,
+            model=model,
+            event_hook=event_hook,
+        )
         return
 
     if step_key == "total_cost":
@@ -1488,7 +2207,7 @@ def _research_settings_response(app_session_id: str) -> CaseGroupResearchSetting
         enabled=bool(session.get("case_group_research_enabled")),
         status=status,
         locked=(
-            status not in {"idle", "failed", "cancelled"}
+            status not in {"idle", "failed", "cancelled", "cancelled_harvested"}
             or bool(session_status.get("effort_ready"))
             or bool(session_status.get("total_cost_ready"))
         ),
@@ -1524,7 +2243,7 @@ async def case_group_research_settings_update(
             detail="Deep Research mode is locked after effort has been calculated. Revert effort to change it.",
         )
     status = db.get_latest_deep_research_run_status(session_id, "case_group_metrics")
-    if status not in {"idle", "failed", "cancelled"}:
+    if status not in {"idle", "failed", "cancelled", "cancelled_harvested"}:
         raise HTTPException(
             status_code=409,
             detail="Deep Research mode is locked after a research run has started. Revert effort to change it.",
@@ -2322,6 +3041,7 @@ async def _run_all_background(
                 event_hook=lambda event, data: _publish_run_event(run_id, event, data),
             )
     except asyncio.CancelledError:
+        _promote_effort_answers_for_retry(payload.app_session_id)
         await _mark_background_run_terminal(
             run_id=run_id,
             app_session_id=payload.app_session_id,
@@ -2399,6 +3119,7 @@ async def _run_single_step_background(
                 event_hook=lambda event, data: _publish_run_event(run_id, event, data),
             )
     except asyncio.CancelledError:
+        _promote_effort_answers_for_retry(payload.app_session_id)
         await _mark_background_run_terminal(
             run_id=run_id,
             app_session_id=payload.app_session_id,
@@ -2504,8 +3225,11 @@ async def get_step_run_status(run_id: str) -> SessionRunStatusResponse:
 
 
 @router.post("/step-runs/{run_id}/cancel", response_model=SessionRunCancelResponse)
-async def cancel_step_run(run_id: str) -> SessionRunCancelResponse:
-    return await cancel_run_all(run_id)
+async def cancel_step_run(
+    run_id: str,
+    api_keys: ApiKeys = Depends(get_api_keys),
+) -> SessionRunCancelResponse:
+    return await cancel_run_all(run_id, api_keys)
 
 
 @router.get("/step-runs/{run_id}/events")
@@ -2558,7 +3282,10 @@ async def start_run_all_steps(
 
 
 @router.post("/run-all/{run_id}/cancel", response_model=SessionRunCancelResponse)
-async def cancel_run_all(run_id: str) -> SessionRunCancelResponse:
+async def cancel_run_all(
+    run_id: str,
+    api_keys: ApiKeys = Depends(get_api_keys),
+) -> SessionRunCancelResponse:
     async with _RUN_REGISTRY_LOCK:
         record = _RUNS_BY_ID.get(run_id)
         if record is None:
@@ -2581,6 +3308,10 @@ async def cancel_run_all(run_id: str) -> SessionRunCancelResponse:
     )
 
     if task is not None and not task.done():
+        _cancel_running_deep_research_for_session(
+            app_session_id=record.app_session_id,
+            api_keys=api_keys,
+        )
         task.cancel("Run cancelled by user")
     return SessionRunCancelResponse(
         run_id=run_id,

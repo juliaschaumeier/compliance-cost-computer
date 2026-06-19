@@ -1,22 +1,15 @@
 from __future__ import annotations
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
 
 from backend.core import db
-from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status
 from backend.core.llm_attempts import (
-    LlmPromptSpec,
-    mark_llm_answer_applied,
-    mark_llm_answers_apply_failed,
     mark_llm_parse_fallback,
-    prompt_sha256,
-    query_and_stage_llm_answers_parallel,
 )
 from backend.core.llm_json import extract_fallgruppen, require_json_object
-from backend.core.llm_service import LlmResult, query_llm
+from backend.core.llm_service import query_llm
 from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
@@ -31,18 +24,10 @@ from backend.core.payload_builders import (
 )
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.tile_refresh import refresh_case_group_tiles, refresh_step_tiles
-from backend.routers._llm_router_utils import ensure_session_or_400
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 
 
 router = APIRouter(prefix="/effort", tags=["effort"])
-
-
-class EffortCalculationRequest(BaseModel):
-    app_session_id: str
-    model: str | None = None
-    provider: str | None = None
-    norm_addressee: str | None = None
 
 def _has_meaningful_value(value: object) -> bool:
     if value is None:
@@ -624,30 +609,12 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     return parsed, fallback_kinds
 
 
-@router.post("/calculate")
-async def calculate_effort(
-    payload: EffortCalculationRequest,
-    api_keys: ApiKeys = Depends(get_api_keys),
-) -> dict:
-    return await _calculate_effort(
-        payload,
-        api_keys,
-        skip_cases_calculation=False,
-    )
-
-
-async def _calculate_effort(
-    payload: EffortCalculationRequest,
-    api_keys: ApiKeys,
+def prepare_effort_calculation(
     *,
-    skip_cases_calculation: bool = False,
+    session_id: int,
+    norm_addressee: str,
+    skip_cases_calculation: bool,
 ) -> dict:
-    session_id, _created, model = ensure_session_or_400(
-        payload.app_session_id,
-        payload.model,
-    )
-
-    norm_addressee = normalize_norm_addressee_or_422(payload.norm_addressee)
     processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
     regulations = db.list_regulations_for_session_and_addressee(
         session_id,
@@ -662,12 +629,7 @@ async def _calculate_effort(
     if not case_groups and session_has_any_regulations and not db.has_applicable_regulations_for_addressee(
         session_id, norm_addressee
     ):
-        return {
-            "status": "skipped",
-            "case_groups_updated": 0,
-            "steps_updated": 0,
-            "norm_addressee": norm_addressee,
-        }
+        return {"status": "skipped", "case_groups": [], "steps": []}
     if not case_groups:
         raise HTTPException(
             status_code=400,
@@ -685,12 +647,7 @@ async def _calculate_effort(
         else db.has_effort_metrics(session_id, norm_addressee)
     )
     if has_existing_metrics:
-        return {
-            "status": "existing",
-            "case_groups_updated": 0,
-            "steps_updated": 0,
-            "norm_addressee": norm_addressee,
-        }
+        return {"status": "existing", "case_groups": case_groups, "steps": steps}
 
     steps_payload = build_step_analysis_payload(
         processes=processes,
@@ -707,7 +664,7 @@ async def _calculate_effort(
         norm_addressee=norm_addressee,
     )
 
-    all_specs = []
+    cases_prompt = None
     if not skip_cases_calculation:
         case_groups_payload = build_case_groups_payload(
             processes=processes,
@@ -721,195 +678,158 @@ async def _calculate_effort(
             case_groups_json=dump_prompt_json(case_groups_payload),
             norm_addressee=norm_addressee,
         )
-        all_specs.append(
-            LlmPromptSpec(
-                prompt_id=PromptId.CASES_CALCULATION,
-                query_label="CASES_CALCULATION",
-                prompt=cases_prompt,
-                norm_addressee=norm_addressee,
-            )
-        )
-    all_specs.append(
-        LlmPromptSpec(
-            prompt_id=PromptId.EFFORT_CALCULATION,
-            query_label="EFFORT_CALCULATION",
-            prompt=effort_prompt,
-            norm_addressee=norm_addressee,
-        ),
-    )
-    pending_answer_ids = {}
-    query_results = {}
-    query_errors: list[str] = []
 
-    missing_specs: list[LlmPromptSpec] = []
-    for spec in all_specs:
-        reusable = db.get_reusable_pending_llm_answer(
-            session_id=session_id,
-            prompt_id=spec.prompt_id,
-            model=model,
-            provider=payload.provider,
-            prompt_sha256=prompt_sha256(spec.prompt),
-            norm_addressee=spec.norm_addressee,
-        )
-        if reusable:
-            pending_answer_ids[spec.prompt_id] = int(reusable["answer_id"])
-            query_results[spec.prompt_id] = LlmResult(text=str(reusable["answer_text"]))
-            continue
-        missing_specs.append(spec)
+    return {
+        "status": "ready",
+        "processes": processes,
+        "regulations": regulations,
+        "case_groups": case_groups,
+        "steps": steps,
+        "cases_prompt": cases_prompt,
+        "effort_prompt": effort_prompt,
+        "skip_cases_calculation": skip_cases_calculation,
+    }
 
-    if missing_specs:
-        staged_ids, staged_results, query_errors = await query_and_stage_llm_answers_parallel(
-            session_id=session_id,
-            specs=missing_specs,
-            api_keys=api_keys,
-            model=model,
-            provider=payload.provider,
-            query_fn=query_llm,
-        )
-        pending_answer_ids.update(staged_ids)
-        query_results.update(staged_results)
 
-    if query_errors:
-        for answer_id in pending_answer_ids.values():
-            db.update_llm_answer_state_reason(
-                answer_id,
-                "waiting_for_paired_retry",
-                state=db.LLM_ANSWER_STATE_PENDING,
-            )
-        raise HTTPException(status_code=502, detail="; ".join(query_errors))
-
-    effort_result = query_results[PromptId.EFFORT_CALCULATION]
+def parse_effort_calculation_outputs(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    context: dict,
+    cases_text: str | None,
+    effort_text: str,
+    cases_answer_id: int | None,
+    effort_answer_id: int,
+) -> tuple[list[dict], list[dict]]:
     parsed_cases: list[dict] = []
-
-    try:
-        if not skip_cases_calculation:
-            cases_result = query_results[PromptId.CASES_CALCULATION]
-            parsed_cases, cases_fallback_kinds = _parse_cases_payload(
-                cases_result.text,
-                norm_addressee,
-            )
-            for fallback_kind in sorted(cases_fallback_kinds):
-                mark_llm_parse_fallback(
-                    answer_id=pending_answer_ids[PromptId.CASES_CALCULATION],
-                    session_id=session_id,
-                    prompt_id=PromptId.CASES_CALCULATION,
-                    fallback_kind=fallback_kind,
-                )
-            if not parsed_cases:
-                raise HTTPException(status_code=422, detail="No case group metrics parsed")
-        parsed_effort, effort_fallback_kinds = _parse_effort_payload(
-            effort_result.text,
+    skip_cases_calculation = bool(context.get("skip_cases_calculation"))
+    if not skip_cases_calculation:
+        if cases_text is None:
+            raise HTTPException(status_code=500, detail="Missing cases_calculation answer")
+        parsed_cases, cases_fallback_kinds = _parse_cases_payload(
+            cases_text,
             norm_addressee,
         )
-        for fallback_kind in sorted(effort_fallback_kinds):
+        for fallback_kind in sorted(cases_fallback_kinds):
             mark_llm_parse_fallback(
-                answer_id=pending_answer_ids[PromptId.EFFORT_CALCULATION],
+                answer_id=cases_answer_id,
                 session_id=session_id,
-                prompt_id=PromptId.EFFORT_CALCULATION,
+                prompt_id=PromptId.CASES_CALCULATION,
                 fallback_kind=fallback_kind,
             )
-        if not parsed_effort:
-            raise HTTPException(status_code=422, detail="No effort metrics parsed")
+        if not parsed_cases:
+            raise HTTPException(status_code=422, detail="No case group metrics parsed")
 
-        case_group_ids = {int(group["case_group_id"]) for group in case_groups}
-        step_ids = {int(step["step_id"]) for step in steps}
+    parsed_effort, effort_fallback_kinds = _parse_effort_payload(
+        effort_text,
+        norm_addressee,
+    )
+    for fallback_kind in sorted(effort_fallback_kinds):
+        mark_llm_parse_fallback(
+            answer_id=effort_answer_id,
+            session_id=session_id,
+            prompt_id=PromptId.EFFORT_CALCULATION,
+            fallback_kind=fallback_kind,
+        )
+    if not parsed_effort:
+        raise HTTPException(status_code=422, detail="No effort metrics parsed")
 
-        if not skip_cases_calculation:
-            missing_case_groups = [
-                str(entry["case_group_id"])
-                for entry in parsed_cases
-                if entry["case_group_id"] not in case_group_ids
-            ]
-            if missing_case_groups:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Unknown fallgruppen_id values: " + ", ".join(missing_case_groups),
-                )
+    case_group_ids = {int(group["case_group_id"]) for group in context["case_groups"]}
+    step_ids = {int(step["step_id"]) for step in context["steps"]}
 
-        missing_steps = [
-            str(entry["step_id"])
-            for entry in parsed_effort
-            if entry["step_id"] not in step_ids
+    if not skip_cases_calculation:
+        missing_case_groups = [
+            str(entry["case_group_id"])
+            for entry in parsed_cases
+            if entry["case_group_id"] not in case_group_ids
         ]
-        if missing_steps:
+        if missing_case_groups:
             raise HTTPException(
                 status_code=422,
-                detail="Unknown taetigkeiten_id values: " + ", ".join(missing_steps),
+                detail="Unknown fallgruppen_id values: " + ", ".join(missing_case_groups),
             )
 
-        with db.transaction():
-            if not skip_cases_calculation:
-                for entry in parsed_cases:
-                    addressees_current = entry.get("addressees_current")
-                    annual_frequency_current = entry.get("annual_frequency_current")
-                    addressees_proposed = entry.get("addressees_proposed")
-                    annual_frequency_proposed = entry.get("annual_frequency_proposed")
-                    cases_current = (
-                        addressees_current * annual_frequency_current
-                        if addressees_current is not None
-                        and annual_frequency_current is not None
-                        else None
-                    )
-                    cases_proposed = (
-                        addressees_proposed * annual_frequency_proposed
-                        if addressees_proposed is not None
-                        and annual_frequency_proposed is not None
-                        else None
-                    )
-                    db.upsert_case_group_metrics_by_addressee(
-                        session_id=session_id,
-                        case_group_id=entry["case_group_id"],
-                        norm_addressee=norm_addressee,
-                        addressees_current=addressees_current,
-                        annual_frequency_current=annual_frequency_current,
-                        addressees_proposed=addressees_proposed,
-                        annual_frequency_proposed=annual_frequency_proposed,
-                        cases_current=cases_current,
-                        cases_proposed=cases_proposed,
-                        case_metric_research_json=entry.get(
-                            "case_metric_research_json"
-                        ),
-                    )
+    missing_steps = [
+        str(entry["step_id"])
+        for entry in parsed_effort
+        if entry["step_id"] not in step_ids
+    ]
+    if missing_steps:
+        raise HTTPException(
+            status_code=422,
+            detail="Unknown taetigkeiten_id values: " + ", ".join(missing_steps),
+        )
 
-            for entry in parsed_effort:
-                db.upsert_process_step_effort_split_by_addressee(
-                    session_id=session_id,
-                    step_id=entry["step_id"],
-                    norm_addressee=norm_addressee,
-                    hourly_rates_current=entry["hourly_rates_current"],
-                    time_required_current=entry["time_required_current"],
-                    expenses_current=entry.get("expenses_current"),
-                    hourly_rates_proposed=entry["hourly_rates_proposed"],
-                    time_required_proposed=entry["time_required_proposed"],
-                    expenses_proposed=entry.get("expenses_proposed"),
-                    execution_per_case=entry.get("execution_per_case"),
-                    role_sources_current=entry.get("role_sources_current"),
-                    role_sources_proposed=entry.get("role_sources_proposed"),
-                )
-                # Dual-write: the authoritative row-based store. The slot columns
-                # above remain the scaffold the cost engine still reads in Phase A.
-                db.replace_process_step_personnel_effort(
-                    session_id=session_id,
-                    norm_addressee=norm_addressee,
-                    step_id=entry["step_id"],
-                    rows=entry.get("personnel_effort_rows", []),
-                )
+    return parsed_cases, parsed_effort
 
-            if not skip_cases_calculation:
-                mark_llm_answer_applied(
-                    answer_id=pending_answer_ids[PromptId.CASES_CALCULATION],
-                    session_id=session_id,
-                    prompt_id=PromptId.CASES_CALCULATION,
-                )
-            mark_llm_answer_applied(
-                answer_id=pending_answer_ids[PromptId.EFFORT_CALCULATION],
+
+def apply_effort_calculation_outputs(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    parsed_cases: list[dict],
+    parsed_effort: list[dict],
+    skip_cases_calculation: bool,
+) -> None:
+    if not skip_cases_calculation:
+        for entry in parsed_cases:
+            addressees_current = entry.get("addressees_current")
+            annual_frequency_current = entry.get("annual_frequency_current")
+            addressees_proposed = entry.get("addressees_proposed")
+            annual_frequency_proposed = entry.get("annual_frequency_proposed")
+            cases_current = (
+                addressees_current * annual_frequency_current
+                if addressees_current is not None
+                and annual_frequency_current is not None
+                else None
+            )
+            cases_proposed = (
+                addressees_proposed * annual_frequency_proposed
+                if addressees_proposed is not None
+                and annual_frequency_proposed is not None
+                else None
+            )
+            db.upsert_case_group_metrics_by_addressee(
                 session_id=session_id,
-                prompt_id=PromptId.EFFORT_CALCULATION,
+                case_group_id=entry["case_group_id"],
+                norm_addressee=norm_addressee,
+                addressees_current=addressees_current,
+                annual_frequency_current=annual_frequency_current,
+                addressees_proposed=addressees_proposed,
+                annual_frequency_proposed=annual_frequency_proposed,
+                cases_current=cases_current,
+                cases_proposed=cases_proposed,
+                case_metric_research_json=entry.get("case_metric_research_json"),
             )
-    except Exception as exc:
-        mark_llm_answers_apply_failed(answer_ids=pending_answer_ids.values(), exc=exc)
-        raise
 
+    for entry in parsed_effort:
+        db.upsert_process_step_effort_split_by_addressee(
+            session_id=session_id,
+            step_id=entry["step_id"],
+            norm_addressee=norm_addressee,
+            hourly_rates_current=entry["hourly_rates_current"],
+            time_required_current=entry["time_required_current"],
+            expenses_current=entry.get("expenses_current"),
+            hourly_rates_proposed=entry["hourly_rates_proposed"],
+            time_required_proposed=entry["time_required_proposed"],
+            expenses_proposed=entry.get("expenses_proposed"),
+            execution_per_case=entry.get("execution_per_case"),
+            role_sources_current=entry.get("role_sources_current"),
+            role_sources_proposed=entry.get("role_sources_proposed"),
+        )
+        db.replace_process_step_personnel_effort(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            step_id=entry["step_id"],
+            rows=entry.get("personnel_effort_rows", []),
+        )
+
+
+def refresh_effort_tiles(
+    *,
+    session_id: int,
+    norm_addressee: str,
+) -> None:
     refreshed_case_groups = db.list_case_groups_for_session_and_addressee(
         session_id,
         norm_addressee,
@@ -920,9 +840,3 @@ async def _calculate_effort(
     )
     refresh_case_group_tiles(session_id, refreshed_case_groups, norm_addressee=norm_addressee)
     refresh_step_tiles(session_id, refreshed_steps, norm_addressee=norm_addressee)
-
-    return {
-        "case_groups_updated": len(parsed_cases),
-        "steps_updated": len(parsed_effort),
-        "norm_addressee": norm_addressee,
-    }

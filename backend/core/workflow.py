@@ -26,6 +26,16 @@ WORKFLOW_STEPS: tuple[WorkflowStep, ...] = (
     WorkflowStep("summary", "CCC starten", "summary_ready"),
 )
 
+WORKFLOW_STEP_KEYS_IN_ORDER: tuple[str, ...] = (
+    "summary",
+    "regulations",
+    "processes",
+    "case_groups",
+    "process_steps",
+    "effort",
+    "total_cost",
+)
+
 
 def get_last_completed_step(status: dict) -> WorkflowStep | None:
     for step in WORKFLOW_STEPS:
@@ -43,6 +53,7 @@ def _undo_effort(session_id: int) -> None:
     for addressee in SUPPORTED_NORM_ADDRESSEES:
         db.clear_effort_metrics(session_id, norm_addressee=addressee)
     db.clear_case_group_research(session_id)
+    db.clear_session_wage_rate_overrides(session_id)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],
@@ -107,10 +118,12 @@ _UNDO_HANDLERS: dict[str, Callable[[int], None]] = {
 
 
 def undo_step(session_id: int, step_key: str) -> None:
-    handler = _UNDO_HANDLERS.get(step_key)
-    if handler is None:
+    if step_key not in WORKFLOW_STEP_KEYS_IN_ORDER:
         raise ValueError(f"Unknown workflow step: {step_key}")
-    handler(session_id)
+    start_index = WORKFLOW_STEP_KEYS_IN_ORDER.index(step_key)
+    for key in reversed(WORKFLOW_STEP_KEYS_IN_ORDER[start_index:]):
+        handler = _UNDO_HANDLERS[key]
+        handler(session_id)
     session = db.get_session_by_id(session_id)
     if session is None:
         return

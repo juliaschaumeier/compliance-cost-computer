@@ -1,6 +1,60 @@
 from backend.core import db
 
 
+def test_session_status_formats_persisted_cancelled_query_as_user_message(test_client):
+    session_id, _ = db.upsert_session("STATUS-CANCELLED-STEP", "test-model")
+    db.update_session_summary("STATUS-CANCELLED-STEP", "Titel", "Zusammenfassung")
+    db.insert_regulation(session_id, "§ 1", "Beschreibung")
+    process_id = db.insert_process(
+        session_id,
+        "Prozess A",
+        "Beschreibung Prozess",
+        norm_addressee="administration",
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Fallgruppe A",
+        "Beschreibung Fallgruppe",
+        norm_addressee="administration",
+    )
+    db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt 1",
+        "Beschreibung Schritt 1",
+        norm_addressee="administration",
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        model="test-model",
+        answer_text="",
+        metadata={
+            "error": "gemini:cancelled - LLM query was cancelled before completion",
+            "error_kind": "cancelled",
+        },
+        answer_state=db.LLM_ANSWER_STATE_INVALID,
+        state_reason="query_failed",
+        norm_addressee="administration",
+    )
+
+    resp = test_client.get(
+        "/sessions/status", params={"app_session_id": "STATUS-CANCELLED-STEP"}
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["effort_ready"] is False
+    assert payload["last_failed_step"] == "effort"
+    assert payload["last_failed_label"] == "Aufwand berechnen"
+    assert (
+        payload["last_failed_message"]
+        == "Der Schritt wurde abgebrochen. Bitte führen Sie ihn erneut aus."
+    )
+    assert "gemini:cancelled" not in payload["last_failed_message"]
+
+
 def test_session_status_exposes_latest_failed_step_message(test_client):
     session_id, _ = db.upsert_session("STATUS-FAILED-STEP", "test-model")
     db.update_session_summary("STATUS-FAILED-STEP", "Titel", "Zusammenfassung")
@@ -24,7 +78,13 @@ def test_session_status_exposes_latest_failed_step_message(test_client):
     assert payload["processes_ready"] is False
     assert payload["last_failed_step"] == "processes"
     assert payload["last_failed_label"] == "Prozesse bündeln"
-    assert payload["last_failed_message"] == "Vorgabe 295 linked to multiple processes"
+    assert "Die Antwort für Verwaltung konnte nicht verarbeitet werden" in payload["last_failed_message"]
+    assert "Schritt erneut aus.\nTechnische Details:" in payload["last_failed_message"]
+    assert (
+        "Technische Details: Prozesse bündeln / processes / Verwaltung / process_compilation"
+        in payload["last_failed_message"]
+    )
+    assert "Vorgabe 295 linked to multiple processes" in payload["last_failed_message"]
 
     process_id = db.insert_process(
         session_id,
