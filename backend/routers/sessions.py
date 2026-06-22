@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
-from backend.core.auth import ApiKeys, get_api_keys
+from backend.core.auth import ApiKeys, AuthUser, get_api_keys, get_current_user
 from backend.core.compliance_text_export import (
     USER_EDIT_REJECT,
     USER_EDIT_USE,
@@ -67,6 +67,8 @@ from backend.core.workflow import (
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
+    require_owned_session,
+    require_session_owner,
     run_with_answer_apply_guard,
 )
 from backend.routers._edit_validation import validate_wage_source_kind
@@ -102,7 +104,7 @@ ModelName = Annotated[
 
 
 class SessionUpsertRequest(BaseModel):
-    app_session_id: AppSessionId
+    # app_session_id is server-generated; only the model is supplied by the client.
     llm_model: ModelName
 
 
@@ -1611,6 +1613,7 @@ async def _run_single_step(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    user: AuthUser,
     event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> None:
     addressee_labels = {
@@ -1691,7 +1694,7 @@ async def _run_single_step(
             model=model,
             provider=payload.provider,
         )
-        await regulations_router.summarize_regulation(summary_payload, api_keys)
+        await regulations_router.summarize_regulation(summary_payload, api_keys, user)
         return
 
     if step_key == "regulations":
@@ -1700,7 +1703,7 @@ async def _run_single_step(
             model=model,
             provider=payload.provider,
         )
-        await regulations_router.identify_regulations(identify_payload, api_keys)
+        await regulations_router.identify_regulations(identify_payload, api_keys, user)
         return
 
     if step_key == "processes":
@@ -1807,6 +1810,7 @@ async def _execute_run_all_steps(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    user: AuthUser,
     event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> tuple[list[SessionRunStepResult], SessionStatusResponse, bool]:
     step_results: list[SessionRunStepResult] = []
@@ -1850,6 +1854,7 @@ async def _execute_run_all_steps(
                 payload,
                 api_keys,
                 model,
+                user,
                 event_hook=event_hook,
             )
         except Exception as exc:
@@ -1936,6 +1941,7 @@ async def _execute_single_step(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    user: AuthUser,
     event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> tuple[list[SessionRunStepResult], SessionStatusResponse, bool]:
     step_definition = RUN_ALL_STEP_BY_KEY.get(step_key)
@@ -1981,6 +1987,7 @@ async def _execute_single_step(
             payload,
             api_keys,
             model,
+            user,
             event_hook=event_hook,
         )
     except Exception as exc:
@@ -2073,21 +2080,33 @@ async def _execute_single_step(
 
 
 @router.post("", response_model=SessionUpsertResponse)
-async def upsert_session(payload: SessionUpsertRequest) -> SessionUpsertResponse:
-    _, created = db.upsert_session(payload.app_session_id, payload.llm_model)
-    return SessionUpsertResponse(
-        app_session_id=payload.app_session_id,
-        created=created,
-    )
+async def upsert_session(
+    payload: SessionUpsertRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionUpsertResponse:
+    try:
+        app_session_id, _session_id = db.create_owned_session(
+            user.user_id, payload.llm_model
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SessionUpsertResponse(app_session_id=app_session_id, created=True)
 
 
 @router.get("", response_model=SessionListResponse)
-async def list_sessions(limit: int = Query(default=50, ge=1, le=200)) -> SessionListResponse:
-    sessions = db.list_sessions(limit=limit)
+async def list_sessions(
+    limit: int = Query(default=50, ge=1, le=200),
+    user: AuthUser = Depends(get_current_user),
+) -> SessionListResponse:
+    sessions = db.list_sessions(limit=limit, owner_user_id=user.user_id)
     return SessionListResponse(sessions=sessions)
 
 
-@router.get("/status", response_model=SessionStatusResponse)
+@router.get(
+    "/status",
+    response_model=SessionStatusResponse,
+    dependencies=[Depends(require_session_owner)],
+)
 async def session_status(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
 ) -> SessionStatusResponse:
@@ -2112,7 +2131,7 @@ def _ensure_ea_edit_allowed(app_session_id: str) -> None:
         )
 
 
-@router.post("/ea-edit-activity/acquire", response_model=SessionEaEditActivityResponse)
+@router.post("/ea-edit-activity/acquire", response_model=SessionEaEditActivityResponse, dependencies=[Depends(require_session_owner)])
 async def acquire_ea_edit_activity(
     payload: SessionEaEditActivityRequest,
 ) -> SessionEaEditActivityResponse:
@@ -2137,7 +2156,7 @@ async def acquire_ea_edit_activity(
     )
 
 
-@router.post("/ea-edit-activity/heartbeat", response_model=SessionEaEditActivityResponse)
+@router.post("/ea-edit-activity/heartbeat", response_model=SessionEaEditActivityResponse, dependencies=[Depends(require_session_owner)])
 async def heartbeat_ea_edit_activity(
     payload: SessionEaEditActivityRequest,
 ) -> SessionEaEditActivityResponse:
@@ -2161,7 +2180,7 @@ async def heartbeat_ea_edit_activity(
     )
 
 
-@router.post("/ea-edit-activity/release")
+@router.post("/ea-edit-activity/release", dependencies=[Depends(require_session_owner)])
 async def release_ea_edit_activity(payload: SessionEaEditActivityRequest) -> dict:
     session_id = _session_id_or_404(payload.app_session_id)
     if payload.activity_id:
@@ -2173,7 +2192,7 @@ async def release_ea_edit_activity(payload: SessionEaEditActivityRequest) -> dic
     return {"ok": True}
 
 
-@router.get("/pay-rates", response_model=SessionPayRatesResponse)
+@router.get("/pay-rates", response_model=SessionPayRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_pay_rates(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     norm_addressee: str | None = None,
@@ -2181,7 +2200,7 @@ async def session_pay_rates(
     return _as_session_pay_rates_response(app_session_id, norm_addressee=norm_addressee)
 
 
-@router.post("/pay-rates", response_model=SessionPayRatesResponse)
+@router.post("/pay-rates", response_model=SessionPayRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_pay_rates_update(
     payload: SessionPayRatesUpdateRequest,
 ) -> SessionPayRatesResponse:
@@ -2228,7 +2247,7 @@ def _as_session_wage_rates_response(
     )
 
 
-@router.get("/wage-rates", response_model=SessionWageRatesResponse)
+@router.get("/wage-rates", response_model=SessionWageRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_wage_rates(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     norm_addressee: str | None = None,
@@ -2240,7 +2259,7 @@ async def session_wage_rates(
     return _as_session_wage_rates_response(app_session_id, session_id, resolved)
 
 
-@router.post("/wage-rates", response_model=SessionWageRatesResponse)
+@router.post("/wage-rates", response_model=SessionWageRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_wage_rates_update(
     payload: SessionWageRateUpdateRequest,
 ) -> SessionWageRatesResponse:
@@ -2283,7 +2302,7 @@ async def session_wage_rates_update(
     return _as_session_wage_rates_response(payload.app_session_id, session_id, resolved)
 
 
-@router.get("/edit-audit", response_model=SessionEditAuditResponse)
+@router.get("/edit-audit", response_model=SessionEditAuditResponse, dependencies=[Depends(require_session_owner)])
 async def session_edit_audit(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     limit: int = Query(default=200, ge=1, le=1000),
@@ -2295,7 +2314,7 @@ async def session_edit_audit(
     return SessionEditAuditResponse(app_session_id=app_session_id, rows=rows)
 
 
-@router.post("/ea-edits/reset", response_model=SessionEaEditResetResponse)
+@router.post("/ea-edits/reset", response_model=SessionEaEditResetResponse, dependencies=[Depends(require_session_owner)])
 async def reset_session_ea_edits(
     payload: SessionEaEditResetRequest,
 ) -> SessionEaEditResetResponse:
@@ -2352,14 +2371,14 @@ def _research_settings_response(app_session_id: str) -> CaseGroupResearchSetting
     )
 
 
-@router.get("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+@router.get("/case-group-research", response_model=CaseGroupResearchSettingsResponse, dependencies=[Depends(require_session_owner)])
 async def case_group_research_settings(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
 ) -> CaseGroupResearchSettingsResponse:
     return _research_settings_response(app_session_id)
 
 
-@router.post("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+@router.post("/case-group-research", response_model=CaseGroupResearchSettingsResponse, dependencies=[Depends(require_session_owner)])
 async def case_group_research_settings_update(
     payload: CaseGroupResearchSettingsRequest,
 ) -> CaseGroupResearchSettingsResponse:
@@ -2393,6 +2412,10 @@ def _compliance_export_filename(app_session_id: str, user_edit_policy: str) -> s
     return f"ccc_vorblatt_begruendung_{app_session_id}{suffix}.pdf"
 
 
+async def _render_research_report_pdf_async(*args, **kwargs) -> bytes:
+    return await asyncio.to_thread(_render_research_report_pdf, *args, **kwargs)
+
+
 def _compliance_metadata_for_pdf(
     *,
     app_session_id: str,
@@ -2405,6 +2428,10 @@ def _compliance_metadata_for_pdf(
     used_user_edits: bool,
     reused: bool,
     created_at: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    hidden_thinking_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
 ) -> dict[str, object]:
     if not has_user_edits:
         user_edit_status = "Keine bearbeiteten EA-Werte im Quellstand."
@@ -2429,17 +2456,23 @@ def _compliance_metadata_for_pdf(
         "deep_research_status": dr_status,
         "user_edit_status": user_edit_status,
         "source_snapshot_sha256": source_snapshot_sha256[:12],
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "hidden_thinking_tokens": hidden_thinking_tokens,
+        "estimated_cost_usd": estimated_cost_usd,
     }
 
 
-@router.post("/compliance-text-export")
+@router.post("/compliance-text-export", dependencies=[Depends(require_session_owner)])
 async def export_compliance_text(
     payload: ComplianceTextExportRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> Response:
     session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     status = db.get_session_status(payload.app_session_id)
     if not status or not bool(status.get("total_cost_ready")):
@@ -2491,8 +2524,12 @@ async def export_compliance_text(
             used_user_edits=bool(cached.get("used_user_edits")),
             reused=True,
             created_at=cached.get("created_at"),
+            input_tokens=cached.get("input_tokens"),
+            output_tokens=cached.get("output_tokens"),
+            hidden_thinking_tokens=cached.get("hidden_thinking_tokens"),
+            estimated_cost_usd=cached.get("estimated_cost_usd"),
         )
-        pdf = _render_research_report_pdf(
+        pdf = await _render_research_report_pdf_async(
             str(cached["generated_markdown"]),
             f"Vorblatt und Begründung {payload.app_session_id}",
             metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
@@ -2575,8 +2612,12 @@ async def export_compliance_text(
         has_user_edits=context.has_user_edits,
         used_user_edits=context.used_user_edits,
         reused=False,
+        input_tokens=llm_result.input_tokens,
+        output_tokens=llm_result.output_tokens,
+        hidden_thinking_tokens=llm_result.hidden_thinking_tokens,
+        estimated_cost_usd=llm_result.estimated_cost_usd,
     )
-    pdf = _render_research_report_pdf(
+    pdf = await _render_research_report_pdf_async(
         llm_result.text,
         f"Vorblatt und Begründung {payload.app_session_id}",
         metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
@@ -2660,34 +2701,28 @@ def _should_render_research_pdf_bold(escaped_text: str) -> bool:
     return True
 
 
-_BOLD_MARKUP = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.DOTALL)
-_ITALIC_MARKUP = re.compile(r"(?<!\*)\*(?=\S)([^*]+?)(?<=\S)\*(?!\*)", re.DOTALL)
-_ESCAPED_LINE_BREAK = re.compile(r"&lt;br\s*/?&gt;", re.IGNORECASE)
-
-
 def _research_pdf_inline_markup(text: str) -> str:
     escaped = html.escape(text).replace("\n", "<br/>")
-    escaped = _ESCAPED_LINE_BREAK.sub("<br/>", escaped)
-
-    def bold(match: re.Match[str]) -> str:
-        inner = match.group(1)
-        if not _should_render_research_pdf_bold(inner):
-            return inner
-        return f"<b>{inner}</b>"
-
-    marked = _BOLD_MARKUP.sub(bold, escaped)
-    marked = _ITALIC_MARKUP.sub(lambda match: f"<i>{match.group(1)}</i>", marked)
-    return _linkify_research_pdf_urls(marked)
+    parts = escaped.split("**")
+    if len(parts) == 1:
+        return _linkify_research_pdf_urls(escaped)
+    rendered: list[str] = []
+    for index, part in enumerate(parts):
+        linked_part = _linkify_research_pdf_urls(part)
+        if index % 2 == 1 and _should_render_research_pdf_bold(part):
+            rendered.append(f"<b>{linked_part}</b>")
+        else:
+            rendered.append(linked_part)
+    return "".join(rendered)
 
 
 def _is_research_pdf_heading(text: str) -> bool:
-    level = len(text) - len(text.lstrip("#"))
     heading = text.lstrip("#").strip()
     if not heading:
         return False
     if "\n" in heading:
         return False
-    if level >= 2 and re.match(r"^\d+\.\s+", heading):
+    if re.match(r"^\d+\.\s+", heading):
         return False
     if len(heading) > 85:
         return False
@@ -2698,38 +2733,6 @@ def _is_research_pdf_heading(text: str) -> bool:
 
 def _strip_markdown_heading_prefix(text: str) -> str:
     return re.sub(r"^#{1,6}\s*", "", text, count=1).strip()
-
-
-_LIST_ITEM = re.compile(r"^(\s*)[-*]\s+(\S.*)$")
-
-
-def _parse_markdown_list(text: str) -> tuple[str, list[tuple[int, str]]] | None:
-    """Trennt einen Block in Einleitungstext und (Einrueckungstiefe, Text)-Items.
-
-    Gibt ``None`` zurueck, wenn der Block keine Aufzaehlung enthaelt. Die
-    Aufzaehlung darf direkt an einen Absatz anschliessen, weil das Modell die
-    Leerzeile davor nicht zuverlaessig setzt. Zeilen nach einem Item gelten als
-    dessen Fortsetzung, damit umgebrochene Eintraege nicht zu eigenen Bullets
-    werden.
-    """
-    lead_lines: list[str] = []
-    items: list[tuple[int, str]] = []
-    for line in text.split("\n"):
-        if not line.strip():
-            continue
-        match = _LIST_ITEM.match(line)
-        if match:
-            depth = 1 if len(match.group(1)) >= 2 else 0
-            items.append((depth, match.group(2).strip()))
-            continue
-        if not items:
-            lead_lines.append(line.strip())
-            continue
-        depth, current = items[-1]
-        items[-1] = (depth, f"{current} {line.strip()}")
-    if not items:
-        return None
-    return "\n".join(lead_lines), items
 
 
 def _linkify_research_pdf_urls(escaped_text: str) -> str:
@@ -2792,8 +2795,9 @@ def _format_compliance_export_metadata_lines(metadata: dict[str, object]) -> lis
         "<b>Analyseumfang:</b> Die Darstellung umfasst ausschliesslich jaehrlichen "
         "Erfuellungsaufwand. Einmaliger Erfuellungsaufwand ist nicht Gegenstand "
         "dieser Analyse.",
-        "<b>Verwaltung:</b> Der Erfuellungsaufwand der Verwaltung wird getrennt nach "
-        "Bundesebene und Landesebene (einschliesslich Kommunen) ausgewiesen.",
+        "<b>Verwaltung:</b> Fuer die Verwaltung werden ausschliesslich Effekte auf "
+        "die Bundesverwaltung dargestellt; Laender und Kommunen sind nicht "
+        "Gegenstand dieser Analyse.",
     ]
     for label, value in (
         ("Session", metadata.get("app_session_id")),
@@ -2807,6 +2811,24 @@ def _format_compliance_export_metadata_lines(metadata: dict[str, object]) -> lis
     ):
         if value:
             lines.append(f"<b>{label}:</b> {html.escape(str(value))}")
+    token_parts = [
+        f"in {metadata.get('input_tokens')}" if metadata.get("input_tokens") is not None else None,
+        f"out {metadata.get('output_tokens')}" if metadata.get("output_tokens") is not None else None,
+        (
+            f"thinking {metadata.get('hidden_thinking_tokens')}"
+            if metadata.get("hidden_thinking_tokens") is not None
+            else None
+        ),
+    ]
+    tokens = " / ".join(part for part in token_parts if part)
+    if tokens:
+        lines.append(f"<b>Token:</b> {html.escape(tokens)}")
+    cost = metadata.get("estimated_cost_usd")
+    if cost is not None:
+        try:
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> ${float(cost):.4f}")
+        except (TypeError, ValueError):
+            lines.append(f"<b>Geschaetzte API-Kosten:</b> {html.escape(str(cost))}")
     return lines
 
 
@@ -2847,22 +2869,6 @@ def _render_research_report_pdf(
         fontSize=8,
         leading=10,
     )
-    sub_heading_style = ParagraphStyle(
-        "ResearchSubHeading",
-        parent=styles["Heading2"],
-        fontSize=12,
-        leading=15,
-    )
-    list_item_styles = [
-        ParagraphStyle(
-            f"ResearchListItem{depth}",
-            parent=styles["BodyText"],
-            leftIndent=16 + depth * 14,
-            bulletIndent=4 + depth * 14,
-            spaceAfter=2,
-        )
-        for depth in (0, 1)
-    ]
     available_width = A4[0] - doc.leftMargin - doc.rightMargin
     story = [Paragraph(html.escape(title), styles["Title"]), Spacer(1, 12)]
     if metadata or metadata_lines:
@@ -2893,10 +2899,8 @@ def _render_research_report_pdf(
         if not text:
             continue
         if text.startswith("#") and _is_research_pdf_heading(text):
-            level = len(text) - len(text.lstrip("#"))
             heading = text.lstrip("#").strip()
-            heading_style = sub_heading_style if level >= 3 else styles["Heading2"]
-            story.append(Paragraph(html.escape(heading), heading_style))
+            story.append(Paragraph(html.escape(heading), styles["Heading2"]))
         elif table_rows := _parse_pipe_table(text):
             column_count = len(table_rows[0])
             table_data = [
@@ -2925,23 +2929,6 @@ def _render_research_report_pdf(
                 )
             )
             story.append(table)
-        elif parsed_list := _parse_markdown_list(text):
-            lead, list_items = parsed_list
-            if lead:
-                story.append(
-                    Paragraph(
-                        _research_pdf_inline_markup(_strip_markdown_heading_prefix(lead)),
-                        styles["BodyText"],
-                    )
-                )
-            for depth, item in list_items:
-                story.append(
-                    Paragraph(
-                        _research_pdf_inline_markup(item),
-                        list_item_styles[depth],
-                        bulletText="•" if depth == 0 else "–",
-                    )
-                )
         else:
             story.append(
                 Paragraph(
@@ -2971,7 +2958,7 @@ def _render_research_report_pdf(
     return buffer.getvalue()
 
 
-@router.get("/deep-research-report")
+@router.get("/deep-research-report", dependencies=[Depends(require_session_owner)])
 async def download_deep_research_report(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     format: Literal["pdf", "md"] = "pdf",
@@ -3002,7 +2989,7 @@ async def download_deep_research_report(
             media_type="text/markdown; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
         )
-    pdf = _render_research_report_pdf(
+    pdf = await _render_research_report_pdf_async(
         report_md,
         f"Deep Research Report {app_session_id}",
         metadata={
@@ -3024,7 +3011,7 @@ async def download_deep_research_report(
     )
 
 
-@router.post("/undo", response_model=SessionUndoResponse)
+@router.post("/undo", response_model=SessionUndoResponse, dependencies=[Depends(require_session_owner)])
 async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     session = db.get_session_by_app_id(payload.app_session_id)
     if not session:
@@ -3120,6 +3107,7 @@ async def _run_all_background(
     api_keys: ApiKeys,
     model: str,
     workflow_activity_id: str,
+    user: AuthUser,
 ) -> None:
     session_id = db.get_session_id_by_app_id(payload.app_session_id)
     try:
@@ -3144,6 +3132,7 @@ async def _run_all_background(
                     payload=payload,
                     api_keys=api_keys,
                     model=model,
+                    user=user,
                     event_hook=lambda event, data: _publish_run_event(run_id, event, data),
                 )
         except asyncio.CancelledError:
@@ -3210,6 +3199,7 @@ async def _run_single_step_background(
     api_keys: ApiKeys,
     model: str,
     workflow_activity_id: str,
+    user: AuthUser,
 ) -> None:
     session_id = db.get_session_id_by_app_id(payload.app_session_id)
     try:
@@ -3227,6 +3217,7 @@ async def _run_single_step_background(
                     payload=payload,
                     api_keys=api_keys,
                     model=model,
+                    user=user,
                     event_hook=lambda event, data: _publish_run_event(run_id, event, data),
                 )
         except asyncio.CancelledError:
@@ -3275,12 +3266,14 @@ async def _run_single_step_background(
 async def start_step_run(
     payload: SessionStepRunRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunAllStartResponse:
     if payload.step_key not in RUN_ALL_STEP_BY_KEY:
         raise HTTPException(status_code=400, detail=f"Unknown step: {payload.step_key}")
     _session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     workflow_activity_id: str | None = None
 
@@ -3333,6 +3326,7 @@ async def start_step_run(
             api_keys,
             model,
             workflow_activity_id,
+            user,
         )
     )
     async with _RUN_REGISTRY_LOCK:
@@ -3348,31 +3342,41 @@ async def start_step_run(
 
 
 @router.get("/step-runs/{run_id}", response_model=SessionRunStatusResponse)
-async def get_step_run_status(run_id: str) -> SessionRunStatusResponse:
-    return await get_run_all_status(run_id)
+async def get_step_run_status(
+    run_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionRunStatusResponse:
+    return await get_run_all_status(run_id, user)
 
 
 @router.post("/step-runs/{run_id}/cancel", response_model=SessionRunCancelResponse)
 async def cancel_step_run(
     run_id: str,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunCancelResponse:
-    return await cancel_run_all(run_id, api_keys)
+    return await cancel_run_all(run_id, api_keys, user)
 
 
 @router.get("/step-runs/{run_id}/events")
-async def stream_step_run_events(run_id: str, request: Request) -> StreamingResponse:
-    return await stream_run_all_events(run_id, request)
+async def stream_step_run_events(
+    run_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    return await stream_run_all_events(run_id, request, user)
 
 
 @router.post("/run-all/start", response_model=SessionRunAllStartResponse)
 async def start_run_all_steps(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunAllStartResponse:
     _session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     workflow_activity_id: str | None = None
 
@@ -3411,7 +3415,7 @@ async def start_run_all_steps(
         _ACTIVE_RUN_BY_SESSION[payload.app_session_id] = run_id
 
     task = asyncio.create_task(
-        _run_all_background(run_id, payload, api_keys, model, workflow_activity_id)
+        _run_all_background(run_id, payload, api_keys, model, workflow_activity_id, user)
     )
     async with _RUN_REGISTRY_LOCK:
         active = _RUNS_BY_ID.get(run_id)
@@ -3429,11 +3433,13 @@ async def start_run_all_steps(
 async def cancel_run_all(
     run_id: str,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunCancelResponse:
     async with _RUN_REGISTRY_LOCK:
         record = _RUNS_BY_ID.get(run_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Run not found")
+        require_owned_session(record.app_session_id, user)
         if record.status != "running":
             return SessionRunCancelResponse(
                 run_id=record.run_id,
@@ -3467,8 +3473,12 @@ async def cancel_run_all(
 
 
 @router.get("/run-all/{run_id}", response_model=SessionRunStatusResponse)
-async def get_run_all_status(run_id: str) -> SessionRunStatusResponse:
+async def get_run_all_status(
+    run_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionRunStatusResponse:
     record = await _get_run_record(run_id)
+    require_owned_session(record.app_session_id, user)
     return SessionRunStatusResponse(
         run_id=record.run_id,
         app_session_id=record.app_session_id,
@@ -3484,8 +3494,13 @@ async def get_run_all_status(run_id: str) -> SessionRunStatusResponse:
 
 
 @router.get("/run-all/{run_id}/events")
-async def stream_run_all_events(run_id: str, request: Request) -> StreamingResponse:
-    await _get_run_record(run_id)
+async def stream_run_all_events(
+    run_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    record = await _get_run_record(run_id)
+    require_owned_session(record.app_session_id, user)
 
     async def _event_generator() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue[tuple[str, dict]] = asyncio.Queue(maxsize=128)
@@ -3537,7 +3552,7 @@ async def stream_run_all_events(run_id: str, request: Request) -> StreamingRespo
     )
 
 
-@router.get("/llm-monitor", response_model=SessionLlmMonitorSnapshotResponse)
+@router.get("/llm-monitor", response_model=SessionLlmMonitorSnapshotResponse, dependencies=[Depends(require_session_owner)])
 async def get_llm_monitor_snapshot(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     limit: int = Query(default=80, ge=1, le=500),
@@ -3563,7 +3578,7 @@ async def get_llm_monitor_snapshot(
     )
 
 
-@router.get("/llm-monitor/events")
+@router.get("/llm-monitor/events", dependencies=[Depends(require_session_owner)])
 async def stream_llm_monitor_events(
     request: Request,
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
@@ -3618,6 +3633,7 @@ async def stream_llm_monitor_events(
 @router.get(
     "/llm-monitor/stream/{attempt_id}",
     response_model=SessionLlmMonitorStreamAttemptResponse,
+    dependencies=[Depends(require_session_owner)],
 )
 async def get_llm_monitor_stream_attempt(
     attempt_id: str,

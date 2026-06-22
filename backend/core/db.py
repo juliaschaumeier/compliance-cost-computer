@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -32,6 +33,9 @@ from .norm_addressees import (
 logger = logging.getLogger(__name__)
 
 _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=None)
+
+CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+APP_SESSION_ID_LENGTH = 6
 
 
 LLM_ANSWER_STATE_PENDING = "pending"
@@ -152,9 +156,13 @@ def _ensure_parent(path: Path) -> None:
 
 def _open_connection() -> sqlite3.Connection:
     _ensure_parent(settings.db_path)
-    conn = sqlite3.connect(settings.db_path)
+    # timeout/busy_timeout: wait (up to 30s) instead of failing immediately when
+    # another writer holds the lock. Relevant once work runs off the event loop
+    # (e.g. deep-research via asyncio.to_thread) so concurrent writers can overlap.
+    conn = sqlite3.connect(settings.db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA busy_timeout = 30000;")
     return conn
 
 
@@ -595,6 +603,25 @@ def _ensure_columns(
 ) -> None:
     for column, column_ddl in columns.items():
         _ensure_column(cur, table, column, column_ddl)
+
+
+def _create_users_table(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            user_id        INTEGER PRIMARY KEY,
+            email          TEXT NOT NULL,
+            password_hash  TEXT NOT NULL,
+            is_admin       INTEGER NOT NULL DEFAULT 0,
+            is_active      INTEGER NOT NULL DEFAULT 1,
+            created_at     TEXT NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
+    # Case-insensitive unique email.
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users(lower(email))"
+    )
 
 
 def _create_process_steps_table(cur: sqlite3.Cursor, table_name: str = "process_steps") -> None:
@@ -1634,7 +1661,9 @@ def init_db() -> None:
             file_name       TEXT NOT NULL,
             law_text        TEXT NOT NULL,
             text_length     INTEGER NOT NULL,
-            uploaded_at     TEXT NOT NULL DEFAULT current_timestamp
+            uploaded_at     TEXT NOT NULL DEFAULT current_timestamp,
+            owner_user_id   INTEGER REFERENCES users(user_id),
+            is_builtin      INTEGER NOT NULL DEFAULT 1
         )
         """
     )
@@ -1679,6 +1708,21 @@ def init_db() -> None:
     )
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
+    )
+    _create_users_table(cur)
+    _ensure_column(cur, "laws", "owner_user_id", "INTEGER REFERENCES users(user_id)")
+    _ensure_column(cur, "laws", "is_builtin", "INTEGER NOT NULL DEFAULT 1")
+    cur.execute("UPDATE laws SET is_builtin = 1 WHERE is_builtin IS NULL")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_laws_owner_file ON laws(owner_user_id, file_name)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_laws_builtin_file ON laws(is_builtin, file_name)"
+    )
+    # Migration-only: add the ownership column to legacy/dev session tables.
+    _ensure_column(cur, "sessions", "owner_user_id", "INTEGER REFERENCES users(user_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_user_id)"
     )
     _create_session_activities_table(cur)
     _create_session_total_costs_by_addressee_table(cur)
@@ -2031,29 +2075,59 @@ def fetch_tiles(session_id: int, norm_addressee: str = ADMINISTRATION) -> List[T
     return tiles
 
 
-def list_law_file_names() -> List[str]:
+def list_law_file_names(owner_user_id: int | None = None) -> List[str]:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT file_name FROM laws ORDER BY uploaded_at DESC, document_id DESC"
-    )
+    if owner_user_id is None:
+        cur.execute(
+            "SELECT file_name FROM laws ORDER BY uploaded_at DESC, document_id DESC"
+        )
+    else:
+        cur.execute(
+            """
+            SELECT file_name
+            FROM laws
+            WHERE is_builtin = 1 OR owner_user_id = ?
+            ORDER BY is_builtin DESC, uploaded_at DESC, document_id DESC
+            """,
+            (int(owner_user_id),),
+        )
     names = [row["file_name"] for row in cur.fetchall()]
     _maybe_close(conn)
     return names
 
 
-def get_law_by_filename(file_name: str) -> dict | None:
+def get_law_by_filename(
+    file_name: str,
+    owner_user_id: int | None = None,
+) -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT document_id, file_name, law_text, text_length, uploaded_at
-        FROM laws
-        WHERE file_name = ?
-        LIMIT 1
-        """,
-        (file_name,),
-    )
+    if owner_user_id is None:
+        cur.execute(
+            """
+            SELECT document_id, file_name, law_text, text_length, uploaded_at,
+                   owner_user_id, is_builtin
+            FROM laws
+            WHERE file_name = ?
+            ORDER BY is_builtin DESC, uploaded_at DESC, document_id DESC
+            LIMIT 1
+            """,
+            (file_name,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT document_id, file_name, law_text, text_length, uploaded_at,
+                   owner_user_id, is_builtin
+            FROM laws
+            WHERE file_name = ?
+              AND (is_builtin = 1 OR owner_user_id = ?)
+            ORDER BY is_builtin DESC, owner_user_id DESC, uploaded_at DESC, document_id DESC
+            LIMIT 1
+            """,
+            (file_name, int(owner_user_id)),
+        )
     row = cur.fetchone()
     _maybe_close(conn)
     if row is None:
@@ -2066,7 +2140,8 @@ def get_law_by_id(document_id: int) -> dict | None:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT document_id, file_name, law_text, text_length, uploaded_at
+        SELECT document_id, file_name, law_text, text_length, uploaded_at,
+               owner_user_id, is_builtin
         FROM laws
         WHERE document_id = ?
         LIMIT 1
@@ -2080,15 +2155,26 @@ def get_law_by_id(document_id: int) -> dict | None:
     return dict(row)
 
 
-def insert_law(file_name: str, law_text: str) -> int:
+def insert_law(
+    file_name: str,
+    law_text: str,
+    owner_user_id: int | None = None,
+    is_builtin: bool = True,
+) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO laws (file_name, law_text, text_length)
-        VALUES (?, ?, ?)
+        INSERT INTO laws (file_name, law_text, text_length, owner_user_id, is_builtin)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (file_name, law_text, len(law_text)),
+        (
+            file_name,
+            law_text,
+            len(law_text),
+            None if is_builtin else owner_user_id,
+            int(bool(is_builtin)),
+        ),
     )
     _maybe_commit(conn)
     document_id = int(cur.lastrowid)
@@ -2355,11 +2441,17 @@ def get_latest_session() -> dict | None:
     return dict(row)
 
 
-def list_sessions(limit: int = 50) -> List[dict]:
+def list_sessions(limit: int = 50, owner_user_id: int | None = None) -> List[dict]:
     conn = get_conn()
     cur = conn.cursor()
+    where = ""
+    params: list = []
+    if owner_user_id is not None:
+        where = "WHERE s.owner_user_id = ?"
+        params.append(int(owner_user_id))
+    params.append(limit)
     cur.execute(
-        """
+        f"""
         SELECT
             s.app_session_id,
             s.created_at,
@@ -2367,14 +2459,138 @@ def list_sessions(limit: int = 50) -> List[dict]:
             s.used_llm_models,
             s.case_group_research_enabled
         FROM sessions AS s
+        {where}
         ORDER BY s.created_at DESC, s.session_id DESC
         LIMIT ?
         """,
-        (limit,),
+        tuple(params),
     )
     rows = [dict(row) for row in cur.fetchall()]
     _maybe_close(conn)
     return rows
+
+
+def _row_to_user_dict(row: sqlite3.Row | None) -> dict | None:
+    if row is None:
+        return None
+    data = dict(row)
+    data["is_admin"] = bool(data.get("is_admin"))
+    data["is_active"] = bool(data.get("is_active"))
+    return data
+
+
+def get_user_by_id(user_id: int) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE user_id = ? LIMIT 1", (int(user_id),))
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return _row_to_user_dict(row)
+
+
+def get_user_by_email(email: str) -> dict | None:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM users WHERE lower(email) = lower(?) LIMIT 1",
+        (str(email).strip(),),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return _row_to_user_dict(row)
+
+
+def list_users() -> List[dict]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users ORDER BY user_id ASC")
+    rows = [_row_to_user_dict(row) for row in cur.fetchall()]
+    _maybe_close(conn)
+    return [row for row in rows if row is not None]
+
+
+def count_admins() -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS n FROM users WHERE is_admin = 1 AND is_active = 1")
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return int(row["n"]) if row else 0
+
+
+def create_user(
+    email: str,
+    password_hash: str,
+    *,
+    is_admin: bool = False,
+    is_active: bool = True,
+) -> dict:
+    normalized_email = str(email).strip()
+    if not normalized_email:
+        raise ValueError("Email is required")
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO users (email, password_hash, is_admin, is_active)
+            VALUES (?, ?, ?, ?)
+            """,
+            (normalized_email, password_hash, int(is_admin), int(is_active)),
+        )
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("A user with this email already exists") from exc
+    user_id = int(cur.lastrowid)
+    _maybe_commit(conn)
+    created = get_user_by_id(user_id)
+    assert created is not None
+    return created
+
+
+def update_user(
+    user_id: int,
+    *,
+    password_hash: str | None = None,
+    is_active: bool | None = None,
+    is_admin: bool | None = None,
+) -> dict | None:
+    fields: list[str] = []
+    params: list = []
+    if password_hash is not None:
+        fields.append("password_hash = ?")
+        params.append(password_hash)
+    if is_active is not None:
+        fields.append("is_active = ?")
+        params.append(int(is_active))
+    if is_admin is not None:
+        fields.append("is_admin = ?")
+        params.append(int(is_admin))
+    if not fields:
+        return get_user_by_id(user_id)
+    params.append(int(user_id))
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE users SET {', '.join(fields)} WHERE user_id = ?", tuple(params))
+    _maybe_commit(conn)
+    return get_user_by_id(user_id)
+
+
+def create_owned_session(owner_user_id: int, llm_model: str) -> tuple[str, int]:
+    """Create a new session owned by the given user with a server-generated id."""
+    if not str(llm_model or "").strip():
+        raise ValueError("Model is required for new session")
+    for _ in range(5):
+        app_session_id = "".join(
+            secrets.choice(CROCKFORD_BASE32_ALPHABET)
+            for _ in range(APP_SESSION_ID_LENGTH)
+        )
+        if get_session_by_app_id(app_session_id) is not None:
+            continue
+        session_id, _created = upsert_session(
+            app_session_id, llm_model, owner_user_id=int(owner_user_id)
+        )
+        return app_session_id, session_id
+    raise RuntimeError("Could not allocate a unique app_session_id")
 
 
 def get_case_group_research_enabled(session_id: int) -> bool:
@@ -3106,10 +3322,13 @@ def get_session_id_by_app_id(app_session_id: str) -> int | None:
 def ensure_session(
     app_session_id: str,
     llm_model: str | None = None,
+    owner_user_id: int | None = None,
 ) -> tuple[int, bool, str]:
     requested_model = str(llm_model or "").strip()
     existing = get_session_by_app_id(app_session_id)
     if existing:
+        if owner_user_id is not None and existing.get("owner_user_id") != owner_user_id:
+            raise PermissionError("Session is owned by another user")
         session_id = int(existing["session_id"])
         existing_model = str(existing.get("llm_model") or "").strip()
         if not existing_model:
@@ -3122,11 +3341,15 @@ def ensure_session(
     if not requested_model:
         raise ValueError("Model is required for new session")
     model = requested_model
-    session_id, created = upsert_session(app_session_id, model)
+    session_id, created = upsert_session(app_session_id, model, owner_user_id=owner_user_id)
     return session_id, created, model
 
 
-def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
+def upsert_session(
+    app_session_id: str,
+    llm_model: str,
+    owner_user_id: int | None = None,
+) -> tuple[int, bool]:
     conn = get_conn()
     cur = conn.cursor()
     defaults = _resolve_pay_rate_defaults(ADMINISTRATION, PAY_RATE_LEVEL_BUND)
@@ -3167,17 +3390,19 @@ def upsert_session(app_session_id: str, llm_model: str) -> tuple[int, bool]:
             INSERT INTO sessions (
                 app_session_id,
                 llm_model,
+                owner_user_id,
                 pay_rate_administration_level,
                 pay_rate_default_a,
                 pay_rate_default_b,
                 pay_rate_default_c,
                 pay_rate_default_d
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 app_session_id,
                 llm_model,
+                owner_user_id,
                 PAY_RATE_LEVEL_BUND,
                 defaults["a"],
                 defaults["b"],
@@ -5260,16 +5485,17 @@ def update_session_documents(
     app_session_id: str,
     current_filename: str | None,
     proposed_filename: str | None,
+    owner_user_id: int | None = None,
 ) -> None:
     current_id = None
     proposed_id = None
     if current_filename:
-        current = get_law_by_filename(current_filename)
+        current = get_law_by_filename(current_filename, owner_user_id=owner_user_id)
         if current is None:
             raise ValueError("Current law not found")
         current_id = current["document_id"]
     if proposed_filename:
-        proposed = get_law_by_filename(proposed_filename)
+        proposed = get_law_by_filename(proposed_filename, owner_user_id=owner_user_id)
         if proposed is None:
             raise ValueError("Proposed law not found")
         proposed_id = proposed["document_id"]

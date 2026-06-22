@@ -1,0 +1,46 @@
+# Build-context exclusions for the backend image (context = repo root).
+# Keeps the context small and avoids copying secrets, caches, and dev artifacts.
+
+.git
+.gitignore
+
+# Python caches / virtualenvs
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Node / frontend build artifacts (frontend has its own image/context)
+**/node_modules
+frontend/.next
+frontend/out
+
+# Tests and local working artifacts
+tests
+tests_review
+review
+fixer
+workplans
+prompt_audits
+
+# Databases and local data
+*.db
+
+# Docs (not needed in the runtime image)
+*.md
+
+# Env files and tooling
+.env
+.env.*
+.devcontainer
+.github
+.idea
+.vscode
+.DS_Store

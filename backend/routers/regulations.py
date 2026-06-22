@@ -24,6 +24,7 @@ from backend.core.prompts import PromptId, render_prompt
 from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.core.auth import AuthUser, get_current_user
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
@@ -389,10 +390,12 @@ def _render_law_mode_context(prompt_id: str, law_mode: str) -> str:
 async def identify_regulations(
     payload: RegulationIdentifyRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     current_text, proposed_text = db.get_session_law_texts(session_id)
     law_mode, current_prompt_text = _resolve_law_mode(current_text, proposed_text)
@@ -455,6 +458,7 @@ async def identify_regulations(
 async def summarize_regulation(
     payload: RegulationSummaryRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     filename = Path(payload.filename).name
     if not filename:
@@ -491,6 +495,7 @@ async def summarize_regulation(
         session_id, _created, model = ensure_session_or_400(
             payload.app_session_id,
             payload.model,
+            user,
         )
     else:
         model = str(payload.model or "").strip()

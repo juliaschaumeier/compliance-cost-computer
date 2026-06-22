@@ -1,20 +1,19 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 
+import "@fontsource/space-grotesk/300.css";
+import "@fontsource/space-grotesk/400.css";
+import "@fontsource/space-grotesk/500.css";
+import "@fontsource/space-grotesk/600.css";
+import "@fontsource/space-grotesk/700.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
+import "@fontsource/jetbrains-mono/700.css";
 import "./globals.css";
+import AuthGate from "@/components/AuthGate";
 import Header from "@/components/Header";
 import TabBar from "@/components/TabBar";
 import { AppProvider } from "@/contexts/AppContext";
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-space",
-});
-
-const jetBrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-jet",
-});
+import { AuthProvider } from "@/contexts/AuthContext";
 
 export const metadata: Metadata = {
   title: "CCC App",
@@ -30,19 +29,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de" className={`${spaceGrotesk.variable} ${jetBrainsMono.variable}`}>
+    <html lang="de">
       <body>
-        <AppProvider>
-          <div className="min-h-screen flex flex-col">
-            <div className="sticky top-0 z-40">
-              <Header />
-              <TabBar />
-            </div>
-            <main className="flex-1">
-              {children}
-            </main>
-          </div>
-        </AppProvider>
+        <AuthProvider>
+          <AuthGate>
+            <AppProvider>
+              <div className="min-h-screen flex flex-col">
+                <div className="sticky top-0 z-40">
+                  <Header />
+                  <TabBar />
+                </div>
+                <main className="flex-1">
+                  {children}
+                </main>
+              </div>
+            </AppProvider>
+          </AuthGate>
+        </AuthProvider>
       </body>
     </html>
   );

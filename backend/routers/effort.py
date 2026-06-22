@@ -14,7 +14,6 @@ from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
     CITIZENS,
-    NORM_ADDRESSEE_ECHO_MISMATCH,
     check_norm_addressee_echo,
 )
 from backend.core.parsing import parse_first_int, parse_optional_number
@@ -60,18 +59,11 @@ def _parse_cases_payload(
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid cases_calculation payload",
-        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    echo_kinds = check_norm_addressee_echo(data, norm_addressee)
-    if NORM_ADDRESSEE_ECHO_MISMATCH in echo_kinds:
-        raise HTTPException(
-            status_code=422,
-            detail=f"normadressat mismatch (expected {norm_addressee})",
-        )
-    fallback_kinds.update(echo_kinds)
+    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -578,18 +570,11 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     data, parse_mode = require_json_object(
         payload,
         error_context=f"Invalid effort_calculation payload for {norm_addressee}",
-        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    echo_kinds = check_norm_addressee_echo(data, norm_addressee)
-    if NORM_ADDRESSEE_ECHO_MISMATCH in echo_kinds:
-        raise HTTPException(
-            status_code=422,
-            detail=f"normadressat mismatch (expected {norm_addressee})",
-        )
-    fallback_kinds.update(echo_kinds)
+    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -768,33 +753,6 @@ def parse_effort_calculation_outputs(
                 detail="Unknown fallgruppen_id values: " + ", ".join(missing_case_groups),
             )
 
-        # #13/#25: Jede fallgruppen_id genau einmal (kein stilles last-write-wins)
-        # und jede Fallgruppe des Normadressaten muss Kennzahlen erhalten.
-        seen_case_group_ids: set[int] = set()
-        duplicate_case_groups: list[str] = []
-        for entry in parsed_cases:
-            case_group_id = int(entry["case_group_id"])
-            if case_group_id in seen_case_group_ids:
-                duplicate_case_groups.append(str(case_group_id))
-            else:
-                seen_case_group_ids.add(case_group_id)
-        if duplicate_case_groups:
-            raise HTTPException(
-                status_code=422,
-                detail="Duplicate fallgruppen_id values: "
-                + ", ".join(sorted(set(duplicate_case_groups))),
-            )
-
-        uncovered_case_groups = sorted(
-            str(cg_id) for cg_id in case_group_ids - seen_case_group_ids
-        )
-        if uncovered_case_groups:
-            raise HTTPException(
-                status_code=422,
-                detail="Missing metrics for fallgruppen_id values: "
-                + ", ".join(uncovered_case_groups),
-            )
-
     missing_steps = [
         str(entry["step_id"])
         for entry in parsed_effort
@@ -806,29 +764,13 @@ def parse_effort_calculation_outputs(
             detail="Unknown taetigkeiten_id values: " + ", ".join(missing_steps),
         )
 
-    # #13/#25: Jede taetigkeiten_id genau einmal und jeder Schritt des
-    # Normadressaten muss einen Aufwandswert erhalten (symmetrisch zu den
-    # Fallgruppen oben).
-    seen_step_ids: set[int] = set()
-    duplicate_steps: list[str] = []
-    for entry in parsed_effort:
-        step_id = int(entry["step_id"])
-        if step_id in seen_step_ids:
-            duplicate_steps.append(str(step_id))
-        else:
-            seen_step_ids.add(step_id)
-    if duplicate_steps:
+    parsed_step_ids = {int(entry["step_id"]) for entry in parsed_effort}
+    omitted_steps = sorted(step_ids - parsed_step_ids)
+    if omitted_steps:
         raise HTTPException(
             status_code=422,
-            detail="Duplicate taetigkeiten_id values: "
-            + ", ".join(sorted(set(duplicate_steps))),
-        )
-
-    uncovered_steps = sorted(str(step_id) for step_id in step_ids - seen_step_ids)
-    if uncovered_steps:
-        raise HTTPException(
-            status_code=422,
-            detail="Missing effort for taetigkeiten_id values: " + ", ".join(uncovered_steps),
+            detail="Missing taetigkeiten_id values: "
+            + ", ".join(str(step_id) for step_id in omitted_steps),
         )
 
     return parsed_cases, parsed_effort

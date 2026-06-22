@@ -10,10 +10,13 @@ from fastapi import FastAPI
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.core import auth as auth_core
 from backend.core import db
 from backend.core import llm_trace
+from backend.core.config import settings
 from backend.core.request_context import bind_request_context, reset_request_context
 from backend.routers import (
+    auth,
     models,
     regulations,
     tiles,
@@ -32,14 +35,17 @@ logger = logging.getLogger("uvicorn.error")
 _MAX_JSON_LOG_BYTES = 65_536
 _QUIET_PATHS = {"/health"}
 
+_cors_allow_origins = [
+    origin.strip()
+    for origin in (settings.cors_allow_origins or "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-    ],
+    allow_origins=_cors_allow_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -162,18 +168,35 @@ async def log_backend_communication(request: Request, call_next):
 @app.on_event("startup")
 def startup() -> None:
     db.ensure_db()
+    auth_core.ensure_bootstrap_admin()
     db.clear_all_session_activities()
 
 
-app.include_router(tiles.router)
-app.include_router(models.router)
-app.include_router(regulations.router)
-app.include_router(processes.router)
-app.include_router(case_groups.router)
-app.include_router(process_steps.router)
-app.include_router(effort.router)
-app.include_router(costs.router)
-app.include_router(sessions.router)
+# Authentication is required on every application router; session-scoped routers
+# additionally enforce per-user ownership. `require_session_owner` itself depends
+# on `get_current_user`, so the owner gate also covers authentication.
+from fastapi import Depends  # noqa: E402
+from backend.core.auth import get_current_user  # noqa: E402
+from backend.routers._llm_router_utils import require_session_owner  # noqa: E402
+
+_auth_only = [Depends(get_current_user)]
+_owner_gate = [Depends(require_session_owner)]
+
+app.include_router(auth.router)
+# tiles and costs only ever operate on an existing session, so the owner gate
+# (which requires the session to already exist and be owned) fits the whole router.
+app.include_router(tiles.router, dependencies=_owner_gate)
+app.include_router(costs.router, dependencies=_owner_gate)
+app.include_router(models.router, dependencies=_auth_only)
+# The remaining routers expose workflow-step endpoints that create the session on
+# first use (owned by the caller via ensure_session_or_400) alongside read/edit
+# endpoints; ownership is enforced inside each handler / per-endpoint dependency.
+app.include_router(regulations.router, dependencies=_auth_only)
+app.include_router(processes.router, dependencies=_auth_only)
+app.include_router(case_groups.router, dependencies=_auth_only)
+app.include_router(process_steps.router, dependencies=_auth_only)
+app.include_router(effort.router, dependencies=_auth_only)
+app.include_router(sessions.router, dependencies=_auth_only)
 
 
 @app.get("/")

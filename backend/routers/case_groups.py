@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.core import db
@@ -10,7 +10,6 @@ from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
-    NORM_ADDRESSEE_ECHO_MISMATCH,
     check_norm_addressee_echo,
 )
 from backend.core.parsing import parse_first_int
@@ -28,6 +27,7 @@ from backend.routers._edit_validation import validate_non_negative_fields
 from backend.routers._edit_validation import validate_non_empty_rows
 from backend.routers._edit_validation import validate_non_noop_update_count
 from backend.routers._edit_validation import validate_unique_ids
+from backend.routers._llm_router_utils import require_session_owner
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_activity_guard import guarded_session_activity
 from backend.routers._session_validation import (
@@ -190,7 +190,7 @@ def format_case_group_development_response(
     }
 
 
-@router.get("/editable", response_model=EditableCaseGroupsResponse)
+@router.get("/editable", response_model=EditableCaseGroupsResponse, dependencies=[Depends(require_session_owner)])
 async def list_editable_case_groups(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
 ) -> EditableCaseGroupsResponse:
@@ -201,7 +201,7 @@ async def list_editable_case_groups(
     return EditableCaseGroupsResponse(rows=rows)
 
 
-@router.post("/bulk-update", response_model=BulkUpdateResponse)
+@router.post("/bulk-update", response_model=BulkUpdateResponse, dependencies=[Depends(require_session_owner)])
 async def bulk_update_case_groups(payload: CaseGroupBulkUpdateRequest) -> BulkUpdateResponse:
     session_id = db.get_session_id_by_app_id(payload.app_session_id)
     if session_id is None:
@@ -257,14 +257,8 @@ def _parse_case_groups(
     data, _parse_mode = require_json_object(
         payload,
         error_context="case group development",
-        required_top_level_key="prozesse",
     )
     fallback_kinds = check_norm_addressee_echo(data, norm_addressee)
-    if NORM_ADDRESSEE_ECHO_MISMATCH in fallback_kinds:
-        raise HTTPException(
-            status_code=422,
-            detail=f"normadressat mismatch (expected {norm_addressee})",
-        )
     processes = data.get("prozesse")
     if not isinstance(processes, list):
         return [], fallback_kinds

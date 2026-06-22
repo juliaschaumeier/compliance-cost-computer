@@ -2,6 +2,8 @@
 @import "@xyflow/react/dist/style.css";
 
 :root {
+  --font-space: "Space Grotesk", system-ui, sans-serif;
+  --font-jet: "JetBrains Mono", ui-monospace, monospace;
   --bg-base: #f6f1ea;
   --bg-veil: #fbfaf7;
   --bg-ink: #0b1220;

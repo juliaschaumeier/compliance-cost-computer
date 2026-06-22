@@ -1,0 +1,52 @@
+# Production deployment stack for the Compliance-Cost Computer (CCC).
+#
+# Topology: only Caddy is exposed to the public (ports 80/443). It terminates
+# TLS and reverse-proxies same-origin to the backend (/api/*) and frontend.
+#
+# Usage:
+#   cp .env.example .env   # then fill in DOMAIN, secrets, API keys
+#   docker compose up -d --build
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    environment:
+      # Persisted on the ccc-data volume; override anything in .env.
+      DB_PATH: /data/ccc.db
+      REGULATIONS_PATH: /data/regulations
+    volumes:
+      - ccc-data:/data
+    restart: unless-stopped
+    # Single instance by design (in-process workflow state).
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Same-origin API path; Caddy strips the /api prefix.
+        NEXT_PUBLIC_API_BASE_URL: /api
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    env_file: .env
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ccc-data:
+  caddy_data:
+  caddy_config:

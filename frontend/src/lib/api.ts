@@ -21,6 +21,8 @@ import {
   EditableProcessStepsResponse,
   NormAddressee,
   CaseGroupResearchSettingsResponse,
+  AuthUser,
+  AdminUser,
 } from "@/types";
 
 const API_BASE_URL =
@@ -176,27 +178,110 @@ async function throwApiClientErrorFromResponse(
 }
 
 export const apiClient = {
-  async upsertSession(
-    appSessionId: string,
-    llmModel: string
-  ): Promise<{ app_session_id: string; created: boolean }> {
-    const response = await fetch(`${API_BASE_URL}/sessions`, {
+  async login(email: string, password: string): Promise<AuthUser> {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      credentials: "include",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Anmeldung fehlgeschlagen");
+    }
+    return response.json();
+  },
+  async logout(): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+      credentials: "include",
+      method: "POST",
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Abmeldung fehlgeschlagen");
+    }
+  },
+  async getMe(): Promise<AuthUser> {
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load current user");
+    }
+    return response.json();
+  },
+  async listUsers(): Promise<AdminUser[]> {
+    const response = await fetch(`${API_BASE_URL}/auth/users`, {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load users");
+    }
+    return response.json();
+  },
+  async createUser(
+    email: string,
+    password: string,
+    isAdmin?: boolean
+  ): Promise<AdminUser> {
+    const response = await fetch(`${API_BASE_URL}/auth/users`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        app_session_id: appSessionId,
+        email,
+        password,
+        is_admin: isAdmin ?? false,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to create user");
+    }
+    return response.json();
+  },
+  async updateUser(
+    userId: number,
+    patch: { is_active?: boolean; is_admin?: boolean; password?: string }
+  ): Promise<AdminUser> {
+    const response = await fetch(
+      `${API_BASE_URL}/auth/users/${encodeURIComponent(String(userId))}`,
+      {
+        credentials: "include",
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(patch),
+      }
+    );
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to update user");
+    }
+    return response.json();
+  },
+  async createSession(
+    llmModel: string
+  ): Promise<{ app_session_id: string; created: boolean }> {
+    const response = await fetch(`${API_BASE_URL}/sessions`, {
+      credentials: "include",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         llm_model: llmModel,
       }),
     });
     if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to upsert session");
+      await throwApiClientErrorFromResponse(response, "Failed to create session");
     }
     return response.json();
   },
   async fetchOrganizedModels(keys: ApiKeys): Promise<OrganizedModelsResponse> {
     const response = await fetch(`${API_BASE_URL}/models/organized`, {
+      credentials: "include",
       headers: buildKeyHeaders(keys),
     });
     if (!response.ok) {
@@ -219,7 +304,9 @@ export const apiClient = {
       params.set("norm_addressee", normAddressee);
     }
     const query = `?${params.toString()}`;
-    const response = await fetch(`${API_BASE_URL}/tiles${query}`);
+    const response = await fetch(`${API_BASE_URL}/tiles${query}`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load tiles");
     }
@@ -239,6 +326,7 @@ export const apiClient = {
     }
     const query = `?${params.toString()}`;
     const response = await fetch(`${API_BASE_URL}/tiles${query}`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -256,6 +344,7 @@ export const apiClient = {
     normAddressee?: NormAddressee
   ): Promise<{ ok: boolean }> {
     const response = await fetch(`${API_BASE_URL}/tiles/rebuild`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -275,7 +364,9 @@ export const apiClient = {
   },
 
   async fetchRegulations(): Promise<RegulationsResponse> {
-    const response = await fetch(`${API_BASE_URL}/regulations`);
+    const response = await fetch(`${API_BASE_URL}/regulations`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load regulations");
     }
@@ -283,7 +374,9 @@ export const apiClient = {
   },
 
   async listSessions(limit = 50): Promise<SessionsResponse> {
-    const response = await fetch(`${API_BASE_URL}/sessions?limit=${limit}`);
+    const response = await fetch(`${API_BASE_URL}/sessions?limit=${limit}`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load sessions");
     }
@@ -294,7 +387,10 @@ export const apiClient = {
     const response = await fetch(
       `${API_BASE_URL}/sessions/status?app_session_id=${encodeURIComponent(
         appSessionId
-      )}`
+      )}`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load session status");
@@ -306,6 +402,7 @@ export const apiClient = {
     appSessionId: string
   ): Promise<UndoStepResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions/undo`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -325,7 +422,10 @@ export const apiClient = {
     const response = await fetch(
       `${API_BASE_URL}/sessions/case-group-research?app_session_id=${encodeURIComponent(
         appSessionId
-      )}`
+      )}`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(
@@ -340,6 +440,7 @@ export const apiClient = {
     enabled: boolean
   ): Promise<CaseGroupResearchSettingsResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions/case-group-research`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -361,7 +462,10 @@ export const apiClient = {
     const response = await fetch(
       `${API_BASE_URL}/sessions/deep-research-report?app_session_id=${encodeURIComponent(
         appSessionId
-      )}&format=pdf`
+      )}&format=pdf`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(
@@ -379,6 +483,7 @@ export const apiClient = {
     userEditPolicy?: ComplianceTextUserEditPolicy;
   }): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}/sessions/compliance-text-export`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -410,6 +515,7 @@ export const apiClient = {
     }
   ): Promise<RunAllStartResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions/run-all/start`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -440,6 +546,7 @@ export const apiClient = {
     }
   ): Promise<RunAllStartResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions/step-runs/start`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -461,7 +568,10 @@ export const apiClient = {
   },
   async getStepRunStatus(runId: string): Promise<RunAllStatusResponse> {
     const response = await fetch(
-      `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}`
+      `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load step status");
@@ -476,6 +586,7 @@ export const apiClient = {
       `${API_BASE_URL}/sessions/step-runs/${encodeURIComponent(runId)}/cancel`,
       {
         method: "POST",
+        credentials: "include",
       }
     );
     if (!response.ok) {
@@ -485,7 +596,10 @@ export const apiClient = {
   },
   async getRunAllStatus(runId: string): Promise<RunAllStatusResponse> {
     const response = await fetch(
-      `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}`
+      `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load run-all status");
@@ -500,6 +614,7 @@ export const apiClient = {
       `${API_BASE_URL}/sessions/run-all/${encodeURIComponent(runId)}/cancel`,
       {
         method: "POST",
+        credentials: "include",
       }
     );
     if (!response.ok) {
@@ -515,7 +630,10 @@ export const apiClient = {
     const response = await fetch(
       `${API_BASE_URL}/sessions/llm-monitor?app_session_id=${encodeURIComponent(
         options.appSessionId
-      )}&limit=${limit}`
+      )}&limit=${limit}`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(
@@ -541,7 +659,10 @@ export const apiClient = {
     const response = await fetch(
       `${API_BASE_URL}/sessions/llm-monitor/stream/${encodeURIComponent(
         options.attemptId
-      )}?app_session_id=${encodeURIComponent(options.appSessionId)}`
+      )}?app_session_id=${encodeURIComponent(options.appSessionId)}`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(
@@ -561,6 +682,7 @@ export const apiClient = {
       formData.append("filename", filenameOverride);
     }
     const response = await fetch(`${API_BASE_URL}/regulations/upload`, {
+      credentials: "include",
       method: "POST",
       body: formData,
     });
@@ -583,6 +705,7 @@ export const apiClient = {
     } = {}
   ): Promise<{ title: string; summary: string; blurb?: string; filename: string }> {
     const response = await fetch(`${API_BASE_URL}/regulations/summary`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -614,6 +737,7 @@ export const apiClient = {
     }
   ): Promise<VorgabenResponse> {
     const response = await fetch(`${API_BASE_URL}/regulations/identify`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -634,6 +758,7 @@ export const apiClient = {
     appSessionId: string;
   }): Promise<{ app_session_id: string; activity_id: string; lease_seconds: number; expires_at?: number | null }> {
     const response = await fetch(`${API_BASE_URL}/sessions/ea-edit-activity/acquire`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -652,6 +777,7 @@ export const apiClient = {
     activityId: string;
   }): Promise<{ app_session_id: string; activity_id: string; lease_seconds: number; expires_at?: number | null }> {
     const response = await fetch(`${API_BASE_URL}/sessions/ea-edit-activity/heartbeat`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -671,6 +797,7 @@ export const apiClient = {
     activityId: string;
   }): Promise<{ ok: boolean }> {
     const response = await fetch(`${API_BASE_URL}/sessions/ea-edit-activity/release`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -691,6 +818,7 @@ export const apiClient = {
     eaActivityId?: string;
   }): Promise<TotalCostResponse> {
     const response = await fetch(`${API_BASE_URL}/costs/compute`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -712,7 +840,9 @@ export const apiClient = {
   ): Promise<TotalCostSummaryResponse> {
     const params = new URLSearchParams();
     params.set("app_session_id", appSessionId);
-    const response = await fetch(`${API_BASE_URL}/costs/totals?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/costs/totals?${params.toString()}`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load total costs");
     }
@@ -728,6 +858,7 @@ export const apiClient = {
     recomputed_norm_addressees: string[];
   }> {
     const response = await fetch(`${API_BASE_URL}/sessions/ea-edits/reset`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -752,7 +883,9 @@ export const apiClient = {
     if (options.normAddressee) {
       params.set("norm_addressee", options.normAddressee);
     }
-    const response = await fetch(`${API_BASE_URL}/sessions/wage-rates?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/sessions/wage-rates?${params.toString()}`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load session wage rates");
     }
@@ -769,6 +902,7 @@ export const apiClient = {
     hourlyRateEdited: number | null;
   }): Promise<SessionWageRatesResponse> {
     const response = await fetch(`${API_BASE_URL}/sessions/wage-rates`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -798,7 +932,9 @@ export const apiClient = {
     if (typeof options.limit === "number") {
       params.set("limit", String(options.limit));
     }
-    const response = await fetch(`${API_BASE_URL}/sessions/edit-audit?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/sessions/edit-audit?${params.toString()}`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load session edit audit");
     }
@@ -811,7 +947,10 @@ export const apiClient = {
     const response = await fetch(
       `${API_BASE_URL}/case-groups/editable?app_session_id=${encodeURIComponent(
         options.appSessionId
-      )}`
+      )}`,
+      {
+        credentials: "include",
+      }
     );
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load editable case groups");
@@ -831,6 +970,7 @@ export const apiClient = {
     }>;
   }): Promise<{ updated: number }> {
     const response = await fetch(`${API_BASE_URL}/case-groups/bulk-update`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -856,7 +996,9 @@ export const apiClient = {
     if (typeof options.caseGroupId === "number") {
       params.set("case_group_id", String(options.caseGroupId));
     }
-    const response = await fetch(`${API_BASE_URL}/process-steps/editable?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/process-steps/editable?${params.toString()}`, {
+      credentials: "include",
+    });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to load editable process steps");
     }
@@ -881,6 +1023,7 @@ export const apiClient = {
     }>;
   }): Promise<{ updated: number }> {
     const response = await fetch(`${API_BASE_URL}/process-steps/bulk-update`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -909,6 +1052,7 @@ export const apiClient = {
     timeRequiredInMinEdited: number | null;
   }): Promise<{ updated: number }> {
     const response = await fetch(`${API_BASE_URL}/process-steps/personnel-effort-edit`, {
+      credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
