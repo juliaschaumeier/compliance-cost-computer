@@ -1,4 +1,5 @@
 import { getColumnLabel } from "@/lib/effortLabels";
+import { normalizeChangeStatus } from "@/lib/changeStatus";
 import { NormAddressee, Tile } from "@/types";
 
 export type TileTableRow = {
@@ -57,6 +58,27 @@ function formatEuro(value: number | null): string {
     minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function resolveDeltaValues(
+  currentRaw: unknown,
+  proposedRaw: unknown,
+  changeStatusRaw: unknown,
+): { current: number; proposed: number } | null {
+  const current = toFiniteNumber(currentRaw);
+  const proposed = toFiniteNumber(proposedRaw);
+  if (current !== null && proposed !== null) {
+    return { current, proposed };
+  }
+
+  const changeStatus = normalizeChangeStatus(changeStatusRaw);
+  if (changeStatus === "eingefuehrt" && proposed !== null) {
+    return { current: 0, proposed };
+  }
+  if (changeStatus === "abgeschafft" && current !== null) {
+    return { current, proposed: 0 };
+  }
+  return null;
 }
 
 function formatCurrencyCompact(value: number): string {
@@ -324,23 +346,29 @@ export function buildTileHeaderMetrics(
     };
   }
   if (tile.id.startsWith("step_")) {
-    const current = toFiniteNumber(meta.cost_current);
-    const proposed = toFiniteNumber(meta.cost_proposed);
-    if (current === null || proposed === null) {
+    const deltaValues = resolveDeltaValues(
+      meta.cost_current,
+      meta.cost_proposed,
+      meta.change_status,
+    );
+    if (!deltaValues) {
       return { left: null, right: null };
     }
     return {
-      left: `Δ ${formatCurrencyCompact(proposed - current)}`,
+      left: `Δ ${formatCurrencyCompact(deltaValues.proposed - deltaValues.current)}`,
       right: null,
     };
   }
   if (tile.id.startsWith("case_group_")) {
-    const currentCases = toFiniteNumber(meta.cases_current);
-    const proposedCases = toFiniteNumber(meta.cases_proposed);
-    if (currentCases === null || proposedCases === null) {
+    const deltaValues = resolveDeltaValues(
+      meta.cases_current,
+      meta.cases_proposed,
+      meta.change_status,
+    );
+    if (!deltaValues) {
       return { left: null, right: null };
     }
-    const delta = proposedCases - currentCases;
+    const delta = deltaValues.proposed - deltaValues.current;
     const prefix = delta > 0 ? "+" : "";
     return {
       left: `Δ ${prefix}${formatCount(delta)}`,
