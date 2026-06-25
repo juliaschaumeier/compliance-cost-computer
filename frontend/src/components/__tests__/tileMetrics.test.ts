@@ -1,4 +1,8 @@
-import { buildTileBodyText, buildTileMetricTable } from "@/components/tileMetrics";
+import {
+  buildTileBodyText,
+  buildTileHeaderMetrics,
+  buildTileMetricTable,
+} from "@/components/tileMetrics";
 import { Tile } from "@/types";
 
 function buildTile(overrides: Partial<Tile>): Tile {
@@ -16,6 +20,102 @@ function buildTile(overrides: Partial<Tile>): Tile {
 }
 
 describe("tileMetrics", () => {
+  it("renders case group delta pills for introduced groups with missing current cases", () => {
+    const tile = buildTile({
+      id: "case_group_11",
+      meta_information: {
+        change_status: "eingefuehrt",
+        cases_current: null,
+        cases_proposed: 16,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile)).toEqual({
+      left: "Δ +16",
+      right: null,
+    });
+  });
+
+  it("renders case group delta pills for removed groups with missing proposed cases", () => {
+    const tile = buildTile({
+      id: "case_group_12",
+      meta_information: {
+        change_status: "abgeschafft",
+        cases_current: 16,
+        cases_proposed: null,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile)).toEqual({
+      left: "Δ -16",
+      right: null,
+    });
+  });
+
+  it("does not render case group delta pills for changed groups with incomplete cases", () => {
+    const tile = buildTile({
+      id: "case_group_13",
+      meta_information: {
+        change_status: "geaendert",
+        cases_current: null,
+        cases_proposed: 16,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile)).toEqual({
+      left: null,
+      right: null,
+    });
+  });
+
+  it("renders step delta pills for introduced steps with missing current cost", () => {
+    const tile = buildTile({
+      id: "step_22",
+      meta_information: {
+        change_status: "eingefuehrt",
+        cost_current: null,
+        cost_proposed: 2937.6,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile)).toEqual({
+      left: "Δ 2,94 Tsd. €",
+      right: null,
+    });
+  });
+
+  it("renders step delta pills for removed steps with missing proposed cost", () => {
+    const tile = buildTile({
+      id: "step_23",
+      meta_information: {
+        change_status: "abgeschafft",
+        cost_current: 2937.6,
+        cost_proposed: null,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile)).toEqual({
+      left: "Δ -2,94 Tsd. €",
+      right: null,
+    });
+  });
+
+  it("does not render step delta pills for changed steps with incomplete costs", () => {
+    const tile = buildTile({
+      id: "step_24",
+      meta_information: {
+        change_status: "geaendert",
+        cost_current: null,
+        cost_proposed: 2937.6,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile)).toEqual({
+      left: null,
+      right: null,
+    });
+  });
+
   it("omits 'Fälle/Jahr' row when both values are missing", () => {
     const tile = buildTile({
       id: "case_group_11",

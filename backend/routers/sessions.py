@@ -321,7 +321,6 @@ class _AtomicSinglePromptStep:
     prompt_id: str
     query_label: str
     existing_fn: Callable[[int, str], list[dict]]
-    existing_response_fn: Callable[..., dict]
     build_prompt_fn: Callable[..., tuple[str | None, dict]]
     parse_fn: Callable[..., tuple[list[dict], set[str]]]
     apply_fn: Callable[..., list[dict]]
@@ -1674,7 +1673,6 @@ async def _run_single_step(
                 prompt_id=PromptId.PROCESS_COMPILATION,
                 query_label="PROCESS_COMPILATION",
                 existing_fn=db.list_processes_for_session_and_addressee,
-                existing_response_fn=processes_router.format_existing_processes_response,
                 build_prompt_fn=processes_router.build_process_compilation_prompt,
                 parse_fn=processes_router.parse_process_compilation_answer,
                 apply_fn=processes_router.apply_process_compilation,
@@ -1699,7 +1697,6 @@ async def _run_single_step(
                 prompt_id=PromptId.CASE_GROUP_DEVELOPMENT,
                 query_label="CASE_GROUP_DEVELOPMENT",
                 existing_fn=db.list_case_groups_for_session_and_addressee,
-                existing_response_fn=case_groups_router.format_existing_case_groups_response,
                 build_prompt_fn=case_groups_router.build_case_group_development_prompt,
                 parse_fn=case_groups_router.parse_case_group_development_answer,
                 apply_fn=case_groups_router.apply_case_group_development,
@@ -1724,7 +1721,6 @@ async def _run_single_step(
                 prompt_id=PromptId.PROCESS_STEP_ANALYSIS,
                 query_label="PROCESS_STEP_ANALYSIS",
                 existing_fn=db.list_process_steps_for_session_and_addressee,
-                existing_response_fn=lambda **_kwargs: {},
                 build_prompt_fn=process_steps_router.build_process_step_analysis_prompt,
                 parse_fn=process_steps_router.parse_process_step_analysis_answer,
                 apply_fn=process_steps_router.apply_process_step_analysis,
