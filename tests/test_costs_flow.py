@@ -6,6 +6,7 @@ from backend.core import db
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from tests.activity_helpers import ea_payload_for_session
+from backend.core.session_graph import build_session_tiles_snapshot
 
 
 def test_upsert_process_step_cost_by_addressee_has_no_dead_breakdown_params():
@@ -1041,6 +1042,99 @@ def test_compute_costs_citizens_ignores_persisted_hourly_rates(test_client):
     assert totals["bureaucracy_cost"] is None
     assert totals["total_time_minutes"] == pytest.approx(60.0)
     assert totals["total_expenses"] == pytest.approx(10.0)
+
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    rebuilt_tiles = build_session_tiles_snapshot(session, CITIZENS)
+    total_tile = next(tile for tile in rebuilt_tiles if tile.id == "total_cost")
+    assert total_tile.text == "Zeit: 1 Std.\nSachaufwand: 10 €"
+    assert total_tile.meta_information["total_time_minutes"] == pytest.approx(60.0)
+    assert total_tile.meta_information["total_time_hours"] == pytest.approx(1.0)
+    assert total_tile.meta_information["total_expenses"] == pytest.approx(10.0)
+
+
+def test_rebuild_non_citizen_tiles_omits_total_without_stored_total_row():
+    session_id, _ = db.upsert_session("COST-REBUILD-TOTAL-META", "test-model")
+    db.update_session_summary(
+        "COST-REBUILD-TOTAL-META",
+        "Titel",
+        "Zusammenfassung",
+    )
+    process_id = db.insert_process(
+        session_id,
+        "Administration Process",
+        "Beschreibung Prozess",
+        cost=-1655330000.0,
+        norm_addressee=ADMINISTRATION,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Administration Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=ADMINISTRATION,
+    )
+    db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Administration Step",
+        "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    rebuilt_tiles = build_session_tiles_snapshot(session, ADMINISTRATION)
+
+    assert not any(tile.id == "total_cost" for tile in rebuilt_tiles)
+
+
+def test_rebuild_non_citizen_total_tile_includes_numeric_metadata():
+    session_id, _ = db.upsert_session("COST-REBUILD-TOTAL-META-READY", "test-model")
+    db.update_session_summary(
+        "COST-REBUILD-TOTAL-META-READY",
+        "Titel",
+        "Zusammenfassung",
+    )
+    process_id = db.insert_process(
+        session_id,
+        "Administration Process",
+        "Beschreibung Prozess",
+        cost=-1655330000.0,
+        norm_addressee=ADMINISTRATION,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Administration Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=ADMINISTRATION,
+    )
+    db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Administration Step",
+        "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        ADMINISTRATION,
+        total_cost=-1655330000.0,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    rebuilt_tiles = build_session_tiles_snapshot(session, ADMINISTRATION)
+
+    total_tile = next(tile for tile in rebuilt_tiles if tile.id == "total_cost")
+    assert total_tile.meta_information["norm_addressee"] == ADMINISTRATION
+    assert total_tile.meta_information["total_cost"] == pytest.approx(-1655330000.0)
+    assert total_tile.meta_information["total_time_minutes"] is None
+    assert total_tile.meta_information["total_expenses"] is None
 
 
 def _set_admin_pay_rate_override(test_client, app_session_id: str, **edited: float | None):

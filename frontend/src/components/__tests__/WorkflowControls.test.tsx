@@ -30,7 +30,7 @@ describe("WorkflowControls", () => {
     });
   });
 
-  it("renders the norm addressee dropdown and switches the selected view", async () => {
+  it("renders the norm addressee menu and switches the selected view", async () => {
     const setSelectedNormAddressee = jest.fn();
     mockUseApp.mockReturnValue({
       state: {
@@ -43,16 +43,29 @@ describe("WorkflowControls", () => {
     render(<WorkflowControls />);
     const user = userEvent.setup();
 
-    const select = screen.getByLabelText("Normadressat-Ansicht auswählen");
-    expect(select).toHaveValue("administration");
+    const trigger = screen.getByRole("button", {
+      name: "Normadressat-Ansicht auswählen",
+    });
+    expect(trigger).toHaveTextContent("Verwaltung");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "Bürger:innen",
       "Wirtschaft",
       "Verwaltung",
     ]);
+    expect(screen.getByRole("option", { name: "Verwaltung" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
 
-    await user.selectOptions(select, "business");
+    await user.click(screen.getByRole("option", { name: "Wirtschaft" }));
     expect(setSelectedNormAddressee).toHaveBeenCalledWith("business");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
   it("enables the EA button only when total cost is ready", () => {

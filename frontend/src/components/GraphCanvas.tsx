@@ -538,7 +538,7 @@ function GraphCanvasInner() {
       : null;
     return tiles.map((tile) => {
       const layoutPos = layout.positions.get(tile.id);
-      const metrics = buildTileHeaderMetrics(tile);
+      const metrics = buildTileHeaderMetrics(tile, state.selectedNormAddressee);
       return {
         id: tile.id,
         position: {

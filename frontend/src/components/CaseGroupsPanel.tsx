@@ -98,9 +98,9 @@ export default function CaseGroupsPanel() {
       <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
           <p className="max-w-xl text-xs leading-5 text-slate-600">
-            Wenn Prozesse auf unterschiedlichen Wegen erfüllt werden, werden
-            Fallgruppen gebildet. Jede Fallgruppe beschreibt eine typische
-            Ausprägung der Ausführung je Normadressat.
+            Für Prozesse mit unterschiedlichen Ausführungswegen werden Fallgruppen
+            gebildet. Jede Fallgruppe beschreibt eine typische Ausprägung je
+            Normadressat.
           </p>
           <StepRunButton
             onClick={handleButtonClick}

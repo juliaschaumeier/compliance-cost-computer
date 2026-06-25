@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
+import { useAnchoredPopoverPosition } from "@/lib/useAnchoredPopoverPosition";
 import { Model, OrganizedModels, ProviderModels } from "@/types";
 
 const emptyProvider: ProviderModels = { recommended: [], additional: [] };
@@ -65,12 +66,16 @@ export default function ModelSelector() {
   });
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
-    top: 72,
-    left: 16,
-  });
   const [isMounted, setIsMounted] = useState(false);
   const modelsLoadedRef = useRef(false);
+  const { position: menuPos } = useAnchoredPopoverPosition({
+    open,
+    triggerRef,
+    width: 320,
+    align: "right",
+    offset: 12,
+    padding: 12,
+  });
 
   useEffect(() => {
     setIsMounted(true);
@@ -184,35 +189,6 @@ export default function ModelSelector() {
       state.availableModels
     );
   }, [organizedModels, state.availableModels, state.selectedModel]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const updatePosition = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) {
-        return;
-      }
-      const width = 320;
-      const padding = 12;
-      const left = Math.min(
-        Math.max(padding, rect.right - width),
-        window.innerWidth - width - padding
-      );
-      setMenuPos({
-        top: rect.bottom + 12,
-        left,
-      });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -372,52 +348,58 @@ export default function ModelSelector() {
 
   return (
     <div ref={triggerRef} className="relative">
-      <button
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex h-10 items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold text-white shadow-sm backdrop-blur-md transition hover:bg-white/20"
+      <div
+        className="flex h-10 items-stretch overflow-hidden rounded-xl border border-white/30 bg-white/10 text-sm font-semibold text-white shadow-sm backdrop-blur-md"
         title={selectedModelLabels.full}
-        aria-label={`LLM-Auswahl ${open ? "schließen" : "öffnen"}: ${selectedModelLabels.full}`}
-        aria-expanded={open}
       >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="h-6 w-6 shrink-0"
+        <div className="flex items-center gap-2 px-3 py-2">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="h-6 w-6 shrink-0"
+          >
+            <path
+              d="M11.5 3.5 13.2 8.8 18.5 10.5 13.2 12.2 11.5 17.5 9.8 12.2 4.5 10.5 9.8 8.8 11.5 3.5Z"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.7"
+            />
+            <path
+              d="M18.5 3.5v4"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.7"
+            />
+            <path
+              d="M20.5 5.5h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.7"
+            />
+          </svg>
+          <span>LLM:</span>
+          <span className="hidden max-w-32 overflow-hidden text-left leading-tight text-ellipsis [-webkit-box-orient:vertical] [-webkit-line-clamp:2] sm:[display:-webkit-box]">
+            {selectedModelLabels.button}
+          </span>
+          <span className="sm:hidden">Modell</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          title="LLM-Auswahl"
+          aria-label={open ? "LLM-Auswahl schließen" : "LLM-Auswahl öffnen"}
+          aria-expanded={open}
+          className="h-full border-l border-white/20 px-3 py-2 transition hover:bg-white/10"
         >
-          <path
-            d="M11.5 3.5 13.2 8.8 18.5 10.5 13.2 12.2 11.5 17.5 9.8 12.2 4.5 10.5 9.8 8.8 11.5 3.5Z"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="1.7"
-          />
-          <path
-            d="M18.5 3.5v4"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="1.7"
-          />
-          <path
-            d="M20.5 5.5h-4"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="1.7"
-          />
-        </svg>
-        <span>LLM:</span>
-        <span className="hidden max-w-32 overflow-hidden text-left leading-tight text-ellipsis [-webkit-box-orient:vertical] [-webkit-line-clamp:2] sm:[display:-webkit-box]">
-          {selectedModelLabels.button}
-        </span>
-        <span className="sm:hidden">Modell</span>
-        <span aria-hidden="true" className="text-xs">
           {open ? "⌃" : "⌄"}
-        </span>
-      </button>
+        </button>
+      </div>
       {open && isMounted ? createPortal(menuContent, document.body) : null}
     </div>
   );

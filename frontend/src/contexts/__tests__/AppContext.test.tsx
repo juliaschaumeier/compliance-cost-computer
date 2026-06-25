@@ -41,7 +41,6 @@ describe("AppContext session status sync", () => {
 
   it("clamps currentTab backwards when backend is behind", async () => {
     sessionStorage.setItem("app_session_id", "ABC123");
-    sessionStorage.setItem("effort_ready", "true");
 
     const { getByTestId } = render(
       <AppProvider>

@@ -292,7 +292,8 @@ export default function UploadPanel() {
       <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
           <p className="max-w-xl text-xs leading-5 text-slate-600">
-            Laden Sie die benötigten Dokumente hoch und/oder wählen Sie diese in den Menüs aus.
+            Wählen Sie das gültige Gesetz und den Gesetzesvorschlag aus oder
+            laden Sie die benötigten Dokumente hoch.
           </p>
           <StepRunButton
             onClick={handleStartButton}

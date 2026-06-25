@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 from backend.core import db
 from backend.core.cost_aggregation import aggregate_addressee_costs
-from backend.core.db_formatting import format_currency, format_number
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
@@ -17,6 +16,7 @@ from backend.core.session_activity import (
     SessionActivityUnavailable,
     use_existing_session_activity,
 )
+from backend.core.session_graph import build_total_cost_tile
 from backend.core.tile_refresh import refresh_case_group_tiles, refresh_step_tiles
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_activity_guard import (
@@ -79,48 +79,6 @@ def _skipped_cost_response(norm_addressee: str) -> dict:
         total_time_minutes=None,
         total_expenses=None,
     )
-
-
-def _build_total_meta(
-    *,
-    app_session_id: str,
-    norm_addressee: str,
-    total_cost: float | None,
-    bureaucracy_cost: float | None,
-    total_time_minutes: float | None,
-    total_expenses: float | None,
-) -> dict:
-    return {
-        "app_session_id": app_session_id,
-        "bureaucracy_cost": bureaucracy_cost if norm_addressee == BUSINESS else None,
-        "other_cost": (
-            total_cost - bureaucracy_cost
-            if norm_addressee == BUSINESS and total_cost is not None and bureaucracy_cost is not None
-            else None
-        ),
-        "total_time_minutes": total_time_minutes,
-        "total_time_hours": (
-            total_time_minutes / 60.0 if total_time_minutes is not None else None
-        ),
-        "total_expenses": total_expenses,
-    }
-
-
-def _build_total_tile_text(
-    *,
-    norm_addressee: str,
-    total_cost: float | None,
-    total_time_minutes: float | None,
-    total_expenses: float | None,
-) -> str:
-    if norm_addressee == CITIZENS:
-        lines: list[str] = []
-        if total_time_minutes is not None:
-            lines.append(f"Zeit: {format_number(total_time_minutes / 60.0)} Std.")
-        if total_expenses is not None:
-            lines.append(f"Sachaufwand: {format_currency(total_expenses)}")
-        return "\n".join(lines).strip()
-    return format_currency(total_cost or 0.0)
 
 
 def _refresh_process_tiles(
@@ -265,30 +223,15 @@ def compute_total_cost_for_session(
         max_col = max((tile.column for tile in tiles), default=0)
         total_col = (max_step_col if max_step_col is not None else max_col) + 1
         link_from = [f"step_{step_id}" for step_id in _last_step_ids(steps)]
-        total_tile = Tile(
-            id="total_cost",
-            title=(
-                "Jährlicher Erfüllungsaufwand"
-                if norm_addressee == CITIZENS
-                else "Jährliche Kosten"
-            ),
-            text=_build_total_tile_text(
-                norm_addressee=norm_addressee,
-                total_cost=total_cost,
-                total_time_minutes=total_time_minutes,
-                total_expenses=total_expenses,
-            ),
-            meta_information=_build_total_meta(
-                app_session_id=app_session_id,
-                norm_addressee=norm_addressee,
-                total_cost=total_cost,
-                bureaucracy_cost=bureaucracy_cost,
-                total_time_minutes=total_time_minutes,
-                total_expenses=total_expenses,
-            ),
+        total_tile = build_total_cost_tile(
+            app_session_id=app_session_id,
+            norm_addressee=norm_addressee,
+            total_cost=total_cost,
+            bureaucracy_cost=bureaucracy_cost,
+            total_time_minutes=total_time_minutes,
+            total_expenses=total_expenses,
             column=total_col,
             row=0,
-            deletable=True,
             link_from_tile=link_from,
         )
         db.upsert_tile(total_tile, session_id=session_id, norm_addressee=norm_addressee)

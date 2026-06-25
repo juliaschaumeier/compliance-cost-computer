@@ -98,8 +98,8 @@ export default function ProcessesPanel() {
       <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
           <p className="max-w-xl text-xs leading-5 text-slate-600">
-            Vorgaben, die in der Praxis in einem Zusammenhang erfüllt werden, werden
-            zu gemeinsamen Prozessen je Normadressat gebündelt.
+            Vorgaben, die in der Praxis zusammen erfüllt werden, werden je
+            Normadressat zu gemeinsamen Prozessen gebündelt.
           </p>
           <StepRunButton
             onClick={handleButtonClick}

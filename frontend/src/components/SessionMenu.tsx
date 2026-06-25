@@ -11,6 +11,7 @@ import {
   type ComplianceTextUserEditPolicy,
 } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
+import { useAnchoredPopoverPosition } from "@/lib/useAnchoredPopoverPosition";
 import {
   emitRunAllStepCleared,
   emitRunAllStepStarted,
@@ -25,7 +26,6 @@ import {
 import { RunAllStatusResponse, SessionStatus, SessionSummary } from "@/types";
 
 type SessionMenuProps = {
-  compact?: boolean;
   variant?: "default" | "header";
 };
 
@@ -132,7 +132,7 @@ function isTransientWorkflowStatus(status: string | null): boolean {
   ].some((prefix) => status.startsWith(prefix));
 }
 
-export default function SessionMenu({ compact, variant = "default" }: SessionMenuProps) {
+export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
   const {
     state,
     setAvailableRegulations,
@@ -186,9 +186,14 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
   const [isMounted, setIsMounted] = useState(false);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
-    top: 96,
-    left: 16,
+  const { position: menuPos } = useAnchoredPopoverPosition({
+    open: isOpen,
+    triggerRef,
+    width: 360,
+    align: "right",
+    offset: 8,
+    padding: 16,
+    fallbackPosition: { top: 96, left: 16 },
   });
 
   useEffect(() => {
@@ -365,41 +370,6 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
     (!isRunningAll && (isRunAllComplete || isSingleStepWorkflowRunning)) ||
     (isRunningAll && isCancellingRun);
   const otherStatus = status && !isTransientWorkflowStatus(status) ? status : null;
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const updatePosition = () => {
-      const width = 360;
-      const padding = 16;
-      if (!triggerRef.current) {
-        setMenuPos({ top: 96, left: padding });
-        return;
-      }
-      const rect = triggerRef.current.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
-        setMenuPos({ top: 96, left: padding });
-        return;
-      }
-      let left = rect.right - width;
-      if (left < padding) {
-        left = padding;
-      }
-      if (left + width > window.innerWidth - padding) {
-        left = window.innerWidth - padding - width;
-      }
-      const top = rect.bottom + 8;
-      setMenuPos({ top, left });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1224,7 +1194,7 @@ export default function SessionMenu({ compact, variant = "default" }: SessionMen
           variant === "header"
             ? "border-white/30 bg-white/10 text-white"
             : "border-slate-200 bg-white text-slate-700"
-        } ${compact ? "text-[11px]" : "text-sm"}`}
+        } text-sm`}
       >
         <div className="flex items-center gap-2 px-4 py-2">
           <svg

@@ -8,6 +8,13 @@ jest.mock("@/lib/useMounted", () => ({
 }));
 
 describe("HeaderHelpPopover", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 520,
+    });
+  });
+
   it("shows the approved overview, workflow, and tools help text", async () => {
     const user = userEvent.setup();
 
@@ -74,5 +81,23 @@ describe("HeaderHelpPopover", () => {
     expect(
       screen.getByText(/globale Lohnsätze, Fallzahlen und Schrittkosten/)
     ).toBeInTheDocument();
+  });
+
+  it("constrains the popover to the viewport and scrolls the help content", async () => {
+    const user = userEvent.setup();
+
+    render(<HeaderHelpPopover />);
+
+    await user.click(screen.getByRole("button", { name: "Hilfe und Demo öffnen" }));
+
+    const popover = screen.getByTestId("header-help-popover");
+    expect(popover).toHaveClass("flex-col");
+    expect(popover.getAttribute("style")).toContain(
+      "max-height: calc(100vh - 24px)"
+    );
+
+    const content = screen.getByTestId("header-help-content");
+    expect(content).toHaveClass("overflow-y-auto");
+    expect(screen.getByRole("button", { name: "Demo-Session laden" })).toBeInTheDocument();
   });
 });

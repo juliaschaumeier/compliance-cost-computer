@@ -168,11 +168,12 @@ describe("TotalCostPanel", () => {
 
     expect(
       await screen.findByLabelText(
-        /Kostenübersicht: Gesamt 1.240 Tsd. €.*Bürger:innen 14.200 h · 35 Tsd. €.*Wirtschaft 920 Tsd. €.*Verwaltung 320 Tsd. €/i
+        /Kostenübersicht: Gesamt 1,2 Mio. €.*Bürger:innen 14,2 Tsd. h · 35 Tsd. €.*Wirtschaft 920 Tsd. €.*Verwaltung 320 Tsd. €/i
       )
     ).toBeInTheDocument();
-    expect(screen.getByText("Kosten")).toBeInTheDocument();
-    expect(screen.getByText("14.200 h · 35 Tsd. €")).toBeInTheDocument();
+    expect(screen.getByText("Jährlicher")).toBeInTheDocument();
+    expect(screen.getByText("Aufwand")).toBeInTheDocument();
+    expect(screen.getByText("14,2 Tsd. h · 35 Tsd. €")).toBeInTheDocument();
     expect(
       screen.queryByText(/Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet/)
     ).not.toBeInTheDocument();
@@ -185,8 +186,70 @@ describe("TotalCostPanel", () => {
     });
 
     expect(
-      screen.getByLabelText(/Kostenübersicht: Gesamt 1.240 Tsd. €/i)
+      screen.getByLabelText(/Kostenübersicht: Gesamt 1,2 Mio. €/i)
     ).toBeInTheDocument();
+  });
+
+  it("does not keep a hidden success message after total costs are rolled back", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 320000 },
+      business: { norm_addressee: "business", total_cost: 920000 },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: 14200,
+        total_expenses: 35000,
+      },
+    });
+    mockComputeTotalCost.mockImplementation(
+      ({ normAddressee }: { normAddressee: string }) => {
+        if (normAddressee === "citizens") {
+          return Promise.resolve({
+            total_cost: null,
+            total_time_hours: 14200,
+            total_expenses: 35000,
+          });
+        }
+        return Promise.resolve({
+          total_cost: normAddressee === "administration" ? 320000 : 920000,
+        });
+      }
+    );
+
+    let currentState = baseState;
+    const setTotalCostReady = jest.fn((ready: boolean) => {
+      currentState = { ...currentState, totalCostReady: ready };
+      mockUseApp.mockReturnValue({
+        state: currentState,
+        setCurrentTab: jest.fn(),
+        setTotalCostReady,
+      });
+    });
+    mockUseApp.mockReturnValue({
+      state: currentState,
+      setCurrentTab: jest.fn(),
+      setTotalCostReady,
+    });
+
+    const { rerender } = render(<TotalCostPanel />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
+    await waitFor(() => expect(setTotalCostReady).toHaveBeenCalledWith(true));
+    rerender(<TotalCostPanel />);
+
+    expect(screen.queryByText(/Kosten fuer Verwaltung/)).not.toBeInTheDocument();
+
+    currentState = { ...currentState, totalCostReady: false };
+    mockUseApp.mockReturnValue({
+      state: currentState,
+      setCurrentTab: jest.fn(),
+      setTotalCostReady,
+    });
+    rerender(<TotalCostPanel />);
+
+    expect(screen.getByRole("button", { name: /Ausführen/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Kosten fuer Verwaltung/)).not.toBeInTheDocument();
   });
 
   it("loads the compact cost summary when totals are already computed", async () => {
@@ -209,7 +272,7 @@ describe("TotalCostPanel", () => {
     render(<TotalCostPanel />);
 
     expect(
-      await screen.findByLabelText(/Kostenübersicht: Gesamt 1.240 Tsd. €/i)
+      await screen.findByLabelText(/Kostenübersicht: Gesamt 1,2 Mio. €/i)
     ).toBeInTheDocument();
     expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123");
   });
@@ -233,11 +296,37 @@ describe("TotalCostPanel", () => {
 
     render(<TotalCostPanel />);
 
-    expect(await screen.findByText("13,5 Mio. h · 2.101 Tsd. €")).toBeInTheDocument();
+    expect(await screen.findByText("13,5 Mio. h · 2,1 Mio. €")).toBeInTheDocument();
     expect(screen.getByText("0 €")).toBeInTheDocument();
     expect(
-      screen.getByLabelText(/Kostenübersicht: Gesamt 8.542 Tsd. €.*Verwaltung 0 €/i)
+      screen.getByLabelText(/Kostenübersicht: Gesamt 8,5 Mio. €.*Verwaltung 0 €/i)
     ).toBeInTheDocument();
+  });
+
+  it("uses a fixed-gap flex group for norm addressee cost columns", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: -1655330000 },
+      business: { norm_addressee: "business", total_cost: -96755000 },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: -32700000,
+        total_expenses: 0,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    const group = await screen.findByTestId("cost-summary-addressee-group");
+    expect(group).toHaveClass("flex");
+    expect(group).toHaveClass("gap-10");
+    expect(screen.getByText("-32,7 Mio. h · 0 €")).toHaveClass("whitespace-nowrap");
+    expect(screen.getByText("-96,8 Mio. €")).toHaveClass("whitespace-nowrap");
   });
 
   it("shows zero citizen effort instead of unavailable when citizen totals are empty", async () => {
@@ -280,7 +369,7 @@ describe("TotalCostPanel", () => {
     render(<TotalCostPanel />);
 
     expect(
-      await screen.findByLabelText(/Kostenübersicht: Gesamt 48 Tsd. €/i)
+      await screen.findByLabelText(/Kostenübersicht: Gesamt 48,4 Tsd. €/i)
     ).toBeInTheDocument();
     expect(screen.getByText("0 h · 0 €")).toBeInTheDocument();
   });

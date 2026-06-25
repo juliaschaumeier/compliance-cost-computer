@@ -99,9 +99,8 @@ export default function RegulationsPanel() {
       <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
           <p className="max-w-xl text-xs leading-5 text-slate-600">
-            Beim Klick auf &quot;Vorgaben identifizieren&quot; werden die zwei gewählten
-            Gesetzestexte analysiert und die relevanten Vorgaben je Normadressat
-            ermittelt.
+            In diesem Schritt werden die zwei gewählten Gesetzestexte analysiert
+            und die relevanten Vorgaben je Normadressat ermittelt.
           </p>
           <StepRunButton
             onClick={handleButtonClick}

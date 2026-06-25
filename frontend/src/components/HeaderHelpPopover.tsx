@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useAnchoredPopoverPosition } from "@/lib/useAnchoredPopoverPosition";
 import { useMounted } from "@/lib/useMounted";
 
 type HelpTab = "overview" | "flow" | "tools";
@@ -153,36 +154,17 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
 export default function HeaderHelpPopover() {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<HelpTab>("overview");
-  const [menuPos, setMenuPos] = useState({ top: 72, left: 16 });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const isMounted = useMounted();
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const updatePosition = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) {
-        return;
-      }
-      const width = 420;
-      const padding = 12;
-      const left = Math.min(
-        Math.max(padding, rect.right - width),
-        window.innerWidth - width - padding
-      );
-      setMenuPos({ top: rect.bottom + 12, left });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
+  const { position: menuPos } = useAnchoredPopoverPosition({
+    open,
+    triggerRef,
+    width: 420,
+    align: "right",
+    offset: 12,
+    padding: 12,
+  });
 
   useEffect(() => {
     if (!open) {
@@ -214,10 +196,15 @@ export default function HeaderHelpPopover() {
   const popover = (
     <div
       ref={popoverRef}
-      className="fixed z-[70] w-[420px] rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-2xl"
-      style={{ top: menuPos.top, left: menuPos.left }}
+      data-testid="header-help-popover"
+      className="fixed z-[70] flex w-[420px] flex-col rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-2xl"
+      style={{
+        top: menuPos.top,
+        left: menuPos.left,
+        maxHeight: `calc(100vh - ${menuPos.top + 12}px)`,
+      }}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex shrink-0 items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Hilfe &amp; Demo</h2>
           <p className="mt-1 text-xs text-slate-500">
@@ -233,7 +220,7 @@ export default function HeaderHelpPopover() {
           ×
         </button>
       </div>
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex shrink-0 gap-2">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -252,10 +239,13 @@ export default function HeaderHelpPopover() {
           );
         })}
       </div>
-      <div className="mt-4 min-h-56">
+      <div
+        data-testid="header-help-content"
+        className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1"
+      >
         <TabContent activeTab={activeTab} />
       </div>
-      <div className="mt-4 border-t border-slate-100 pt-4">
+      <div className="mt-4 shrink-0 border-t border-slate-100 pt-4">
         <button
           type="button"
           className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-white"

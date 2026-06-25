@@ -101,9 +101,8 @@ export default function EffortPanel() {
       <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
           <p className="max-w-xl text-xs leading-5 text-slate-600">
-            Beim Klick auf „Aufwand quantifizieren“ werden Fallzahlen je Fallgruppe sowie
-            Lohnsatz-, Zeit- und Sachaufwände je Prozessschritt und Normadressat
-            ermittelt.
+            In diesem Schritt werden Fallzahlen je Fallgruppe sowie Lohnsatz-,
+            Zeit- und Sachaufwände je Prozessschritt und Normadressat ermittelt.
           </p>
           <StepRunButton
             onClick={handleButtonClick}

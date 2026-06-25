@@ -96,12 +96,9 @@ def _tiles_need_empty_state_rebuild(
 
 
 def _tiles_need_missing_structure_rebuild(
-    session: dict,
+    expected_tiles: list[Tile],
     tiles: list[Tile],
-    *,
-    norm_addressee: str,
 ) -> bool:
-    expected_tiles = build_session_tiles_snapshot(session, norm_addressee)
     expected_ids = {tile.id for tile in expected_tiles}
     current_ids = {tile.id for tile in tiles}
     if expected_ids == current_ids:
@@ -121,6 +118,35 @@ def _step_tiles_predate_personnel_rows(tiles: list[Tile]) -> bool:
         and "personnel_rows" not in (tile.meta_information or {})
         for tile in tiles
     )
+
+
+def _tiles_need_total_cost_rebuild(
+    expected_tiles: list[Tile],
+    tiles: list[Tile],
+) -> bool:
+    expected_total = next((tile for tile in expected_tiles if tile.id == "total_cost"), None)
+    current_total = next((tile for tile in tiles if tile.id == "total_cost"), None)
+    if expected_total is None:
+        return current_total is not None
+    if current_total is None:
+        return True
+    if (
+        current_total.title != expected_total.title
+        or current_total.text != expected_total.text
+    ):
+        return True
+    expected_meta = expected_total.meta_information or {}
+    current_meta = current_total.meta_information or {}
+    canonical_keys = (
+        "norm_addressee",
+        "total_cost",
+        "bureaucracy_cost",
+        "other_cost",
+        "total_time_minutes",
+        "total_time_hours",
+        "total_expenses",
+    )
+    return any(current_meta.get(key) != expected_meta.get(key) for key in canonical_keys)
 
 
 def _rebuild_tiles_for_session(
@@ -170,15 +196,25 @@ async def list_tiles(
             or has_process_steps
         ):
             tiles = persist_session_tiles_snapshot(session, resolved)
-    elif _tiles_need_structured_rebuild(tiles) or _tiles_need_empty_state_rebuild(
-        tiles,
-        session_id=session_id,
-        norm_addressee=resolved,
-    ) or _tiles_need_missing_structure_rebuild(
-        session,
-        tiles,
-        norm_addressee=resolved,
-    ):
+    else:
+        needs_rebuild = _tiles_need_structured_rebuild(
+            tiles
+        ) or _tiles_need_empty_state_rebuild(
+            tiles,
+            session_id=session_id,
+            norm_addressee=resolved,
+        )
+        if not needs_rebuild:
+            expected_tiles = build_session_tiles_snapshot(session, resolved)
+            needs_rebuild = _tiles_need_missing_structure_rebuild(
+                expected_tiles,
+                tiles,
+            ) or _tiles_need_total_cost_rebuild(
+                expected_tiles,
+                tiles,
+            )
+        if not needs_rebuild:
+            return TilesResponse(tiles=tiles)
         has_process_steps = bool(
             db.list_process_steps_for_session_and_addressee(session_id, resolved)
         )

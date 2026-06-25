@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import { formatCompactCurrency, formatCompactHours } from "@/lib/compactNumberFormat";
 import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
 import { getWorkflowStepActionButtonState } from "@/lib/workflowStepActionButton";
@@ -47,7 +48,7 @@ function isCompleteCostSummary(summary: CostSummary): boolean {
   return COST_SUMMARY_ADDRESSEES.every((addressee) => summary[addressee]);
 }
 
-function formatThousandEuro(
+function formatCostValue(
   value: number | null | undefined,
   options: { zeroWhenMissing?: boolean } = {}
 ): string {
@@ -57,25 +58,15 @@ function formatThousandEuro(
   if (value === 0) {
     return "0 €";
   }
-  return `${Math.round(value / 1000).toLocaleString("de-DE")} Tsd. €`;
-}
-
-function formatHours(value: number | null | undefined): string {
-  if (typeof value !== "number") {
-    return "n. v.";
-  }
-  if (Math.abs(value) >= 1_000_000) {
-    return `${(value / 1_000_000).toLocaleString("de-DE", {
-      maximumFractionDigits: 1,
-    })} Mio. h`;
-  }
-  return `${Math.round(value).toLocaleString("de-DE")} h`;
+  return formatCompactCurrency(value);
 }
 
 function formatCitizenCostValue(row: TotalCostResponse | undefined): string {
   const hours =
-    typeof row?.total_time_hours === "number" ? formatHours(row.total_time_hours) : "0 h";
-  const expenses = formatThousandEuro(row?.total_expenses, { zeroWhenMissing: true });
+    typeof row?.total_time_hours === "number"
+      ? formatCompactHours(row.total_time_hours)
+      : "0 h";
+  const expenses = formatCostValue(row?.total_expenses, { zeroWhenMissing: true });
   return `${hours} · ${expenses}`;
 }
 
@@ -84,10 +75,10 @@ function buildCostSummaryLabel(summary: CostSummary): string {
   const business = summary.business?.total_cost ?? 0;
   const total = [administration, business].reduce((sum, value) => sum + value, 0);
   return [
-    `Gesamt ${formatThousandEuro(total)}`,
+    `Gesamt ${formatCostValue(total)}`,
     `Bürger:innen ${formatCitizenCostValue(summary.citizens)}`,
-    `Wirtschaft ${formatThousandEuro(summary.business?.total_cost, { zeroWhenMissing: true })}`,
-    `Verwaltung ${formatThousandEuro(summary.administration?.total_cost, { zeroWhenMissing: true })}`,
+    `Wirtschaft ${formatCostValue(summary.business?.total_cost, { zeroWhenMissing: true })}`,
+    `Verwaltung ${formatCostValue(summary.administration?.total_cost, { zeroWhenMissing: true })}`,
   ].join(" · ");
 }
 
@@ -97,50 +88,61 @@ function CostSummaryStrip({ summary }: { summary: CostSummary }) {
   const total = administration + business;
   const citizenValue = formatCitizenCostValue(summary.citizens);
 
-  const cells = [
-    { label: "Gesamt", value: formatThousandEuro(total), emphasis: true },
+  const totalCell = { label: "Gesamt", value: formatCostValue(total) };
+  const addresseeCells = [
     { label: "Bürger:innen", value: citizenValue },
     {
       label: "Wirtschaft",
-      value: formatThousandEuro(summary.business?.total_cost, { zeroWhenMissing: true }),
+      value: formatCostValue(summary.business?.total_cost, { zeroWhenMissing: true }),
     },
     {
       label: "Verwaltung",
-      value: formatThousandEuro(summary.administration?.total_cost, { zeroWhenMissing: true }),
+      value: formatCostValue(summary.administration?.total_cost, { zeroWhenMissing: true }),
     },
   ];
 
   return (
     <div
-      className="rounded-xl border border-slate-300 bg-white px-4 py-2 shadow-sm ring-1 ring-slate-100"
+      className="w-fit max-w-full overflow-x-auto rounded-xl border border-slate-300 bg-white px-4 py-2 shadow-sm ring-1 ring-slate-100"
       aria-label={`Kostenübersicht: ${buildCostSummaryLabel(summary)}`}
     >
-      <div className="grid grid-cols-[92px_minmax(105px,0.9fr)_minmax(175px,1.35fr)_minmax(105px,0.9fr)_minmax(105px,0.9fr)] items-center gap-x-4 gap-y-1">
-        <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
-          Kosten
+      <div className="flex min-w-max items-center">
+        <div className="w-[120px] shrink-0">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Jährlicher
+          </div>
+          <div className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+            Aufwand
+          </div>
         </div>
-        {cells.map((cell) => (
+        <div className="shrink-0">
+          <div className="text-xs font-semibold text-slate-500">{totalCell.label}</div>
           <div
-            key={cell.label}
-            className="truncate text-xs font-semibold text-slate-500"
+            className="mt-1 whitespace-nowrap text-[17px] font-semibold text-slate-950"
+            title={totalCell.value}
           >
-            {cell.label}
+            {totalCell.value}
           </div>
-        ))}
-        <div className="text-xs text-slate-400">jährlich</div>
-        {cells.map((cell) => (
-          <div
-            key={cell.label}
-            className={`truncate ${
-              cell.emphasis
-                ? "text-[17px] font-semibold text-slate-950"
-                : "text-[15px] font-semibold text-slate-800"
-            }`}
-            title={cell.value}
-          >
-            {cell.value}
-          </div>
-        ))}
+        </div>
+        <div aria-hidden="true" className="w-[60px] shrink-0" />
+        <div
+          data-testid="cost-summary-addressee-group"
+          className="flex shrink-0 items-start gap-10"
+        >
+          {addresseeCells.map((cell) => (
+            <div key={cell.label} className="shrink-0">
+              <div className="text-xs font-semibold text-slate-500">
+                {cell.label}
+              </div>
+              <div
+                className="mt-1 whitespace-nowrap text-[15px] font-semibold text-slate-800"
+                title={cell.value}
+              >
+                {cell.value}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -149,7 +151,6 @@ function CostSummaryStrip({ summary }: { summary: CostSummary }) {
 export default function TotalCostPanel() {
   const { state, setCurrentTab, setTotalCostReady } = useApp();
   const [status, setStatus] = useState<string | null>(null);
-  const [statusTone, setStatusTone] = useState<"success" | "error">("success");
   const [isRunning, setIsRunning] = useState(false);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
   const costSummaryRef = useRef<CostSummary | null>(null);
@@ -202,12 +203,6 @@ export default function TotalCostPanel() {
   }, [state.appSessionId, state.totalCostReady, updateCostSummary]);
 
   useEffect(() => {
-    if (runAllCancel.isCancellingRunAll) {
-      setStatusTone("error");
-    }
-  }, [runAllCancel.isCancellingRunAll]);
-
-  useEffect(() => {
     costSummaryMutationId.current += 1;
     updateCostSummary(null);
   }, [state.appSessionId, updateCostSummary]);
@@ -245,7 +240,6 @@ export default function TotalCostPanel() {
 
   const handleCompute = async () => {
     if (isRunAllBusy) {
-      setStatusTone("error");
       await runAllCancel.cancelRunAllForStep();
       return;
     }
@@ -253,7 +247,6 @@ export default function TotalCostPanel() {
       return;
     }
     setStatus(null);
-    setStatusTone("success");
     setIsRunning(true);
     costSummaryMutationId.current += 1;
     isComputingCostSummary.current = true;
@@ -306,12 +299,10 @@ export default function TotalCostPanel() {
           }, {})
         );
         setTotalCostReady(true);
-        setStatusTone("success");
-        setStatus("Kosten fuer Verwaltung, Wirtschaft und Buerger berechnet.");
+        setStatus(null);
         setCurrentTab(6);
       } else if (successes.length === 0) {
         updateCostSummary(null);
-        setStatusTone("error");
         setStatus(
           `Gesamtkosten konnten fuer keinen Normadressaten berechnet werden.${failureLines.join("")}`
         );
@@ -319,7 +310,6 @@ export default function TotalCostPanel() {
         // Teilweiser Erfolg: totalCostReady bleibt false, damit der Nutzer
         // den fehlenden NA gezielt nachziehen kann.
         updateCostSummary(null);
-        setStatusTone("error");
         setStatus(
           `Teilweise berechnet.${successLines.join("")}${failureLines.join("")}`
         );
@@ -334,14 +324,18 @@ export default function TotalCostPanel() {
     <section className="w-full border-b border-white/60 bg-white/80 py-4 backdrop-blur">
       <div className="mx-auto max-w-7xl space-y-4 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-          <div className="min-w-0 max-w-[820px] flex-1">
+          <div
+            className={`min-w-0 flex-1 ${
+              shouldShowCostSummary ? "max-w-full" : "max-w-[820px]"
+            }`}
+          >
             {shouldShowCostSummary ? (
               <CostSummaryStrip summary={costSummary} />
             ) : (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
                 <p className="max-w-xl text-xs leading-5 text-slate-600">
-                  Beim Klick auf „Gesamtkosten berechnen“ werden Schritt-,
-                  Fallgruppen- und Prozesskosten je Normadressat berechnet.
+                  In diesem Schritt werden Schritt-, Fallgruppen- und Prozesskosten
+                  je Normadressat berechnet und als Kostenübersicht zusammengeführt.
                 </p>
                 <StepRunButton
                   onClick={handleCompute}
@@ -360,13 +354,9 @@ export default function TotalCostPanel() {
           </div>
         </div>
 
-        {status && !(shouldShowCostSummary && statusTone === "success") && (
+        {status && (
           <div
-            className={`rounded-xl px-3 py-2 text-xs font-semibold ${
-              statusTone === "success"
-                ? "ccc-status-success border border-emerald-200 bg-emerald-50 text-emerald-800"
-                : "ccc-status-warning border border-amber-200 bg-amber-50 text-amber-800"
-            }`}
+            className="ccc-status-warning rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
           >
             {status}
           </div>

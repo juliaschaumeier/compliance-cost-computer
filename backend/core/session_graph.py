@@ -6,6 +6,8 @@ from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
     ALL_NORM_ADDRESSEES,
+    BUSINESS,
+    CITIZENS,
     DISPLAY_LABELS,
     normalize_norm_addressee,
 )
@@ -29,6 +31,90 @@ def _ordered_step_ids(step_map: dict[int, dict]) -> list[int]:
     if not ordered:
         ordered = sorted(step_map.keys())
     return ordered
+
+
+def build_total_cost_tile_meta(
+    *,
+    app_session_id: str | None,
+    norm_addressee: str,
+    total_cost: float | None,
+    bureaucracy_cost: float | None,
+    total_time_minutes: float | None,
+    total_expenses: float | None,
+) -> dict:
+    meta = {
+        "norm_addressee": norm_addressee,
+        "total_cost": total_cost,
+        "bureaucracy_cost": bureaucracy_cost if norm_addressee == BUSINESS else None,
+        "other_cost": (
+            total_cost - bureaucracy_cost
+            if norm_addressee == BUSINESS
+            and total_cost is not None
+            and bureaucracy_cost is not None
+            else None
+        ),
+        "total_time_minutes": total_time_minutes,
+        "total_time_hours": (
+            total_time_minutes / 60.0 if total_time_minutes is not None else None
+        ),
+        "total_expenses": total_expenses,
+    }
+    if app_session_id:
+        meta["app_session_id"] = app_session_id
+    return meta
+
+
+def build_total_cost_tile_text(
+    *,
+    norm_addressee: str,
+    total_cost: float | None,
+    total_time_minutes: float | None,
+    total_expenses: float | None,
+) -> str:
+    if norm_addressee == CITIZENS:
+        text_lines: list[str] = []
+        if total_time_minutes is not None:
+            text_lines.append(f"Zeit: {db.format_number(total_time_minutes / 60.0)} Std.")
+        if total_expenses is not None:
+            text_lines.append(f"Sachaufwand: {db.format_currency(total_expenses)}")
+        return "\n".join(text_lines).strip()
+    return db.format_currency(total_cost or 0.0)
+
+
+def build_total_cost_tile(
+    *,
+    app_session_id: str | None,
+    norm_addressee: str,
+    total_cost: float | None,
+    bureaucracy_cost: float | None,
+    total_time_minutes: float | None,
+    total_expenses: float | None,
+    column: int,
+    row: int,
+    link_from_tile: list[str],
+) -> Tile:
+    return Tile(
+        id="total_cost",
+        title="Jährliche Kosten",
+        text=build_total_cost_tile_text(
+            norm_addressee=norm_addressee,
+            total_cost=total_cost,
+            total_time_minutes=total_time_minutes,
+            total_expenses=total_expenses,
+        ),
+        meta_information=build_total_cost_tile_meta(
+            app_session_id=app_session_id,
+            norm_addressee=norm_addressee,
+            total_cost=total_cost,
+            bureaucracy_cost=bureaucracy_cost,
+            total_time_minutes=total_time_minutes,
+            total_expenses=total_expenses,
+        ),
+        column=column,
+        row=row,
+        deletable=True,
+        link_from_tile=link_from_tile,
+    )
 
 
 def build_session_tiles_snapshot(
@@ -296,23 +382,34 @@ def build_session_tiles_snapshot(
             elif step_map:
                 last_steps.append(max(step_map.keys()))
 
-        total_cost = sum(float(process.get("cost") or 0.0) for process in processes)
-        tiles.append(
-            Tile(
-                id="total_cost",
-                title="Jährliche Kosten",
-                text=db.format_currency(total_cost),
-                meta_information=(
-                    {"app_session_id": session["app_session_id"]}
-                    if session.get("app_session_id")
-                    else {}
-                ),
-                column=total_col,
-                row=0,
-                deletable=True,
-                link_from_tile=[f"step_{step_id}" for step_id in last_steps],
-            )
+        total_row = db.get_session_total_costs_by_addressee(session_id, resolved)
+        total_cost = total_row.get("total_cost") if total_row is not None else None
+        total_time_minutes = (
+            total_row.get("total_time_minutes") if total_row is not None else None
         )
+        total_expenses = total_row.get("total_expenses") if total_row is not None else None
+        if resolved == CITIZENS:
+            has_total_cost_tile = total_time_minutes is not None or total_expenses is not None
+        else:
+            has_total_cost_tile = total_cost is not None
+        if has_total_cost_tile:
+            tiles.append(
+                build_total_cost_tile(
+                    app_session_id=session.get("app_session_id"),
+                    norm_addressee=resolved,
+                    total_cost=total_cost,
+                    bureaucracy_cost=(
+                        total_row.get("bureaucracy_cost")
+                        if total_row is not None
+                        else None
+                    ),
+                    total_time_minutes=total_time_minutes,
+                    total_expenses=total_expenses,
+                    column=total_col,
+                    row=0,
+                    link_from_tile=[f"step_{step_id}" for step_id in last_steps],
+                )
+            )
 
     return tiles
 

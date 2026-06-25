@@ -131,6 +131,7 @@ describe("TileNode", () => {
           text: "Beschreibung",
           isExpanded: true,
           metricTable: {
+            variant: "table",
             rows: [
               { label: "eD/mD", current: "12 min", proposed: "15 min" },
               { label: "Sachaufwand", current: "3 €", proposed: "4 €" },
@@ -163,6 +164,7 @@ describe("TileNode", () => {
           text: "Beschreibung",
           isExpanded: true,
           metricTable: {
+            variant: "table",
             rows: [
               { label: "Betroffene", current: "20", proposed: "25" },
               { label: "Häufigkeit/Jahr", current: "2", proposed: "3" },
@@ -188,12 +190,48 @@ describe("TileNode", () => {
     expect(screen.getByText("75")).toBeInTheDocument();
   });
 
+  it("renders compact citizen effort summaries without expansion", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("total_cost", {
+          title: "Jährlicher Erfüllungsaufwand",
+          text: "",
+          metricTable: {
+            variant: "summary",
+            alwaysVisible: true,
+            suppressTitle: true,
+            titleLikeLabels: true,
+            items: [
+              {
+                label: "Jährlicher Zeitaufwand",
+                value: "-32,7 Mio. h",
+                emphasis: true,
+              },
+              {
+                label: "Jährliche Sachkosten",
+                value: "0 €",
+              },
+            ],
+          },
+        })}
+      />
+    );
+
+    expect(screen.queryByText("Jährlicher Erfüllungsaufwand")).not.toBeInTheDocument();
+    expect(screen.getByText("Jährlicher Zeitaufwand")).toBeInTheDocument();
+    expect(screen.getByText("-32,7 Mio. h")).toBeInTheDocument();
+    expect(screen.getByText("Jährliche Sachkosten")).toBeInTheDocument();
+    expect(screen.getByText("0 €")).toBeInTheDocument();
+    expect(screen.queryByTitle("Text ausklappen")).not.toBeInTheDocument();
+  });
+
   it("keeps table content inside collapsible area for step tiles", () => {
     render(
       <TileNode
         {...buildTileNodeProps("step_13", {
           text: "Beschreibung",
           metricTable: {
+            variant: "table",
             rows: [{ label: "eD/mD", current: "12 min", proposed: "15 min" }],
           },
         })}
