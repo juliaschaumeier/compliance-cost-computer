@@ -47,6 +47,7 @@ from backend.routers._llm_router_utils import (
     query_and_stage_or_http,
     run_with_answer_apply_guard,
 )
+from backend.routers._edit_validation import validate_wage_source_kind
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
@@ -1408,11 +1409,7 @@ async def session_wage_rates_update(
     resolved = normalize_norm_addressee_or_422(payload.norm_addressee)
     if resolved == CITIZENS:
         raise HTTPException(status_code=422, detail="Citizens wage rates are not editable")
-    if payload.wage_source_kind != db.WAGE_SOURCE_KIND_BY_ADDRESSEE.get(resolved):
-        raise HTTPException(
-            status_code=422,
-            detail=f"wage_source_kind {payload.wage_source_kind!r} does not match {resolved!r}",
-        )
+    validate_wage_source_kind(payload.wage_source_kind, resolved)
     if payload.hourly_rate_edited is not None:
         if payload.hourly_rate_edited < 0:
             raise HTTPException(status_code=422, detail="hourly_rate_edited must not be negative")
@@ -1426,7 +1423,7 @@ async def session_wage_rates_update(
                     f"{payload.qualification!r} for {resolved!r}"
                 ),
             )
-    db.upsert_session_wage_rate_override(
+    changed = db.upsert_session_wage_rate_override(
         session_id=session_id,
         norm_addressee=resolved,
         wage_source_kind=payload.wage_source_kind,
@@ -1434,6 +1431,8 @@ async def session_wage_rates_update(
         qualification=payload.qualification,
         hourly_rate_edited=payload.hourly_rate_edited,
     )
+    if not changed:
+        raise HTTPException(status_code=422, detail="No changes in payload")
     return _as_session_wage_rates_response(payload.app_session_id, session_id, resolved)
 
 

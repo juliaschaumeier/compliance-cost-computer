@@ -29,6 +29,7 @@ from backend.routers._edit_validation import validate_non_negative_fields
 from backend.routers._edit_validation import validate_non_empty_rows
 from backend.routers._edit_validation import validate_non_noop_update_count
 from backend.routers._edit_validation import validate_unique_ids
+from backend.routers._edit_validation import validate_wage_source_kind
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
@@ -170,6 +171,7 @@ async def edit_personnel_effort_time(
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
     resolved = normalize_norm_addressee_or_422(payload.norm_addressee)
+    validate_wage_source_kind(payload.wage_source_kind, resolved)
     if payload.period not in ("current", "proposed"):
         raise HTTPException(status_code=422, detail="period must be 'current' or 'proposed'")
     if (
@@ -192,6 +194,7 @@ async def edit_personnel_effort_time(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    validate_non_noop_update_count(updated)
     return BulkUpdateResponse(updated=updated)
 
 

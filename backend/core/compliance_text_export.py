@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from fastapi import HTTPException
 
+from backend.core import cost_aggregation
 from backend.core import db
 from backend.core.deep_research_cases import CASE_GROUP_RESEARCH_PURPOSE
 from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
@@ -150,9 +151,6 @@ def _build_addressee_payload(
     norm_addressee: str,
     policy: UserEditPolicy,
 ) -> tuple[dict[str, Any], bool]:
-    # Lazy import keeps the core -> router dependency one-directional at import time.
-    from backend.routers import costs
-
     regulations = db.list_regulations_for_session_and_addressee(session_id, norm_addressee)
     processes = db.list_processes_for_session_and_addressee(session_id, norm_addressee)
     case_groups = db.list_case_groups_for_session_and_addressee(session_id, norm_addressee)
@@ -164,7 +162,7 @@ def _build_addressee_payload(
     # to "no cost data" rather than crashing the export.
     apply_edits = policy == USER_EDIT_USE
     try:
-        cost = costs.aggregate_addressee_costs(
+        cost = cost_aggregation.aggregate_addressee_costs(
             session_id, norm_addressee, apply_user_edits=apply_edits
         )
         if cost.get("skipped") is not None:

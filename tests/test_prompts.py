@@ -616,5 +616,3 @@ def test_effort_prompt_business_guidance_names_wirtschaftsabschnitt():
 
     assert "wirtschaftsabschnitt" in prompt.lower() or "lohnquelle" in prompt.lower()
     assert "gesamtwirtschaft" in prompt.lower()
-
-

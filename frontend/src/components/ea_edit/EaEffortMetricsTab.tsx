@@ -8,6 +8,7 @@ import { apiClient } from "@/lib/api";
 import {
   PayGradeSlot as SharedPayGradeSlot,
   getColumnLabel as sharedGetColumnLabel,
+  getVisibleSlots,
 } from "@/lib/effortLabels";
 import { logClientError } from "@/lib/errorFeedback";
 import {
@@ -239,8 +240,12 @@ function stepUsesPersonnelRows(row: EditableProcessStepRow): boolean {
 
 function buildStepCells(row: EditableProcessStepRow): EditableCell[] {
   const personnel = stepUsesPersonnelRows(row);
+  const visibleSlots = getVisibleSlots(row.norm_addressee);
   const cells: EditableCell[] = [];
   for (const field of STEP_FIELDS) {
+    if (!visibleSlots.includes(field.slot)) {
+      continue;
+    }
     if (personnel && field.slot !== "expenses") {
       continue;
     }
@@ -371,13 +376,20 @@ export default function EaEffortMetricsTab({
     cachedStepIdsByCaseGroupRef.current = cachedStepIdsByCaseGroup;
   }, [cachedStepIdsByCaseGroup]);
 
+  const visibleSlots = useMemo(() => getVisibleSlots(normAddressee), [normAddressee]);
   const currentFields = useMemo(
-    () => STEP_FIELDS.filter((field) => field.side === "current"),
-    []
+    () =>
+      STEP_FIELDS.filter(
+        (field) => field.side === "current" && visibleSlots.includes(field.slot)
+      ),
+    [visibleSlots]
   );
   const proposedFields = useMemo(
-    () => STEP_FIELDS.filter((field) => field.side === "proposed"),
-    []
+    () =>
+      STEP_FIELDS.filter(
+        (field) => field.side === "proposed" && visibleSlots.includes(field.slot)
+      ),
+    [visibleSlots]
   );
 
   const caseGroupOptions = useMemo(() => {

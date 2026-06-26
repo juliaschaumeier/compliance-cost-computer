@@ -161,6 +161,79 @@ describe("EaEffortMetricsTab", () => {
     expect(within(trK).getAllByRole("textbox")).toHaveLength(10);
   });
 
+  it("hides the reserve columns for citizens, showing only Zeit + Sach", async () => {
+    // Citizens have no qualifications/wage rates: only slot a (Zeit) and expenses
+    // are ever populated, b/c/d are structural placeholders ("Reserve B/C/D").
+    // The effort editor must not render those empty columns (Julia, PR #35).
+    mockGetEditableCaseGroups.mockResolvedValueOnce({
+      rows: [
+        {
+          case_group_id: 22,
+          norm_addressee: "citizens",
+          process_id: 1,
+          case_group: "Fallgruppe Bürger",
+        },
+      ],
+    });
+    mockGetEditableProcessSteps.mockResolvedValueOnce({
+      rows: [
+        {
+          step_id: 401,
+          case_group_id: 22,
+          norm_addressee: "citizens",
+          step: "Schritt Bürger",
+          description: "Beschreibung",
+          change_status: "geaendert",
+          time_required_in_min_a_current: 15,
+          time_required_in_min_b_current: null,
+          time_required_in_min_c_current: null,
+          time_required_in_min_d_current: null,
+          expenses_current: 0,
+          time_required_in_min_a_current_edited: null,
+          time_required_in_min_b_current_edited: null,
+          time_required_in_min_c_current_edited: null,
+          time_required_in_min_d_current_edited: null,
+          expenses_current_edited: null,
+          time_required_in_min_a_proposed: 20,
+          time_required_in_min_b_proposed: null,
+          time_required_in_min_c_proposed: null,
+          time_required_in_min_d_proposed: null,
+          expenses_proposed: 0,
+          time_required_in_min_a_proposed_edited: null,
+          time_required_in_min_b_proposed_edited: null,
+          time_required_in_min_c_proposed_edited: null,
+          time_required_in_min_d_proposed_edited: null,
+          expenses_proposed_edited: null,
+          time_required_in_min_a_current_effective: 15,
+          time_required_in_min_b_current_effective: null,
+          time_required_in_min_c_current_effective: null,
+          time_required_in_min_d_current_effective: null,
+          expenses_current_effective: 0,
+          time_required_in_min_a_proposed_effective: 20,
+          time_required_in_min_b_proposed_effective: null,
+          time_required_in_min_c_proposed_effective: null,
+          time_required_in_min_d_proposed_effective: null,
+          expenses_proposed_effective: 0,
+        },
+      ],
+    });
+
+    render(
+      <EaEffortMetricsTab normAddressee="citizens" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+    );
+
+    const tr = (await screen.findByText("Schritt Bürger")).closest("tr") as HTMLElement;
+    // Only Zeit + Sach per side = 4 inputs; the Reserve columns are gone.
+    expect(within(tr).getAllByRole("textbox")).toHaveLength(4);
+    expect(within(tr).queryByText("–")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reserve B")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reserve C")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reserve D")).not.toBeInTheDocument();
+    // The meaningful columns stay (one header per side).
+    expect(screen.getAllByText("Zeit")).toHaveLength(2);
+    expect(screen.getAllByText("Sach")).toHaveLength(2);
+  });
+
   function seedPersonnelStep(overrides: Record<string, unknown> = {}) {
     mockGetEditableProcessSteps.mockResolvedValue({
       rows: [

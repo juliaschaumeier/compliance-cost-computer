@@ -47,7 +47,7 @@ def _proposed_rows(session_id, step_id):
 
 
 def _step_cost(session_id, step_id):
-    from backend.routers.costs import _compute_step_personnel_cost_from_rows
+    from backend.core.cost_aggregation import _compute_step_personnel_cost_from_rows
 
     return _compute_step_personnel_cost_from_rows(
         _proposed_rows(session_id, step_id),

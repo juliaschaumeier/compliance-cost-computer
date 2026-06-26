@@ -94,10 +94,44 @@ def test_wage_rate_override_set_clear_and_validation(test_client):
     assert gd["hourly_rate_edited"] is None
 
 
+def test_wage_rate_override_noop_rejection_and_audit(test_client):
+    # Row wage overrides join the EA no-op/audit contract: set/clear are real changes
+    # (200 + audit row); re-posting an identical value or clearing an absent override
+    # is a no-op (422).
+    app_id, session_id, _cg, _step = _seed_session_with_rows("WAGE-C1-NOOP")
+    body = {
+        "app_session_id": app_id,
+        "norm_addressee": ADMINISTRATION,
+        "wage_source_kind": "verwaltungsebene",
+        "wage_source_value": "bund",
+        "qualification": "gehobener_dienst",
+    }
+
+    def post(rate):
+        return test_client.post("/sessions/wage-rates", json={**body, "hourly_rate_edited": rate})
+
+    assert post(55.0).status_code == 200
+    # Same value again -> no-op.
+    again = post(55.0)
+    assert again.status_code == 422
+    assert again.json()["detail"] == "No changes in payload"
+    # New value -> real change.
+    assert post(60.0).status_code == 200
+    # Clear -> real change.
+    assert post(None).status_code == 200
+    # Clear again (no override left) -> no-op.
+    assert post(None).status_code == 422
+
+    # Three real changes (set 55, set 60, clear) are audited as wage_rate.
+    audit = db.list_edit_audit_for_session(session_id)
+    assert len(audit) == 3
+    assert all(row["entity_type"] == "wage_rate" for row in audit)
+
+
 def test_wage_rate_override_flows_into_cost():
     # The override set via the db layer is picked up by the cost engine's override
     # reader and applied by the row-cost helper (the C1 <-> Phase B integration).
-    from backend.routers.costs import _compute_step_personnel_cost_from_rows
+    from backend.core.cost_aggregation import _compute_step_personnel_cost_from_rows
 
     app_id, session_id, _cg, step_id = _seed_session_with_rows("WAGE-C1-COST")
     rows = [

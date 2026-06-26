@@ -28,7 +28,7 @@ import pytest
 
 from backend.core import db
 from backend.core.norm_addressees import BUSINESS
-from backend.routers.costs import _compute_step_bureaucracy_fractions
+from backend.core.cost_aggregation import _compute_step_bureaucracy_fractions
 
 
 def _seed_business_step_with_regulations(

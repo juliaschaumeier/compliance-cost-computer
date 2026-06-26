@@ -1839,5 +1839,3 @@ def test_legacy_flat_format_rejected(test_client, monkeypatch):
     )
     assert resp.status_code == 422
     assert "stundenlohn_satz" in resp.json()["detail"].lower()
-
-
