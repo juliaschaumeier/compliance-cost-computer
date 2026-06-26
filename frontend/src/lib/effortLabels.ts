@@ -35,3 +35,13 @@ export function getColumnLabel(
 ): string {
   return COLUMN_LABELS_BY_ADDRESSEE[normAddressee][slot];
 }
+
+const ALL_SLOTS: PayGradeSlot[] = ["a", "b", "c", "d", "expenses"];
+// Citizens have no qualifications/wage rates: only slot "a" (Zeit) and expenses
+// are ever populated; b/c/d are structural placeholders ("Reserve B/C/D") that
+// stay empty. Hide them so the effort editor only shows the meaningful columns.
+const CITIZENS_SLOTS: PayGradeSlot[] = ["a", "expenses"];
+
+export function getVisibleSlots(normAddressee: NormAddressee): PayGradeSlot[] {
+  return normAddressee === "citizens" ? CITIZENS_SLOTS : ALL_SLOTS;
+}

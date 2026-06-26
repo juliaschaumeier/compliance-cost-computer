@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+from backend.core import db
+
 
 def validate_non_negative_fields(
     row: BaseModel,
@@ -60,3 +62,18 @@ def validate_non_noop_update_count(updated: int) -> None:
         status_code=422,
         detail="No changes in payload",
     )
+
+
+def validate_wage_source_kind(wage_source_kind: str, norm_addressee: str) -> None:
+    """Reject a wage_source_kind that does not match the addressee's canonical kind.
+
+    Single source of truth for the row-identity invariant shared by the row effort
+    edit API and the wage override API (administration -> verwaltungsebene, business
+    -> wirtschaftsabschnitt; citizens have no editable wage source).
+    """
+    expected = db.WAGE_SOURCE_KIND_BY_ADDRESSEE.get(norm_addressee)
+    if wage_source_kind != expected:
+        raise HTTPException(
+            status_code=422,
+            detail=f"wage_source_kind {wage_source_kind!r} does not match {norm_addressee!r}",
+        )

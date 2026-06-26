@@ -5225,23 +5225,45 @@ def upsert_personnel_effort_time_edit(
     cur = conn.cursor()
     existing = cur.execute(
         """
-        SELECT effort_id, time_required_in_min FROM process_step_personnel_effort
+        SELECT effort_id, time_required_in_min, time_required_in_min_edited
+        FROM process_step_personnel_effort
         WHERE session_id = ? AND norm_addressee = ? AND step_id = ? AND period = ?
             AND qualification = ? AND wage_source_kind = ? AND wage_source_value = ?
         """,
         (session_id, resolved, step_id, period, qualification, wage_source_kind, wage_source_value),
     ).fetchone()
 
+    # Row effort edits join the same no-op/audit contract as the other EA edits:
+    # only a real change to the edited time persists, bumps last_edited_at and writes
+    # an audit row; an unchanged payload is a no-op (returns 0, rejected as 422).
+    audit_field = f"time_required_in_min_edited[{period}/{qualification}/{wage_source_value}]"
+
+    def _audit(old_value: float | None, new_value: float | None) -> None:
+        insert_edit_audit_row(
+            cur,
+            session_id=session_id,
+            entity_type="personnel_effort",
+            entity_id=step_id,
+            field_name=audit_field,
+            old_value=old_value,
+            new_value=new_value,
+        )
+
     if time_required_in_min_edited is None:
         if existing is None:
             _maybe_close(conn)
             return 0
+        old_edited = existing["time_required_in_min_edited"]
         if existing["time_required_in_min"] is None:
             # User-created row (no model time): clearing removes it entirely.
             cur.execute(
                 "DELETE FROM process_step_personnel_effort WHERE effort_id = ?",
                 (existing["effort_id"],),
             )
+        elif old_edited is None:
+            # LLM row whose edit is already cleared: nothing changes.
+            _maybe_close(conn)
+            return 0
         else:
             cur.execute(
                 """
@@ -5251,19 +5273,26 @@ def upsert_personnel_effort_time_edit(
                 """,
                 (existing["effort_id"],),
             )
+        _audit(old_edited, None)
         _maybe_commit(conn)
         _maybe_close(conn)
         return 1
 
+    new_edited = float(time_required_in_min_edited)
     if existing is not None:
+        old_edited = existing["time_required_in_min_edited"]
+        if not value_changed(old_edited, new_edited):
+            _maybe_close(conn)
+            return 0
         cur.execute(
             """
             UPDATE process_step_personnel_effort
             SET time_required_in_min_edited = ?, last_edited_at = current_timestamp
             WHERE effort_id = ?
             """,
-            (float(time_required_in_min_edited), existing["effort_id"]),
+            (new_edited, existing["effort_id"]),
         )
+        _audit(old_edited, new_edited)
         _maybe_commit(conn)
         _maybe_close(conn)
         return 1
@@ -5297,9 +5326,10 @@ def upsert_personnel_effort_time_edit(
         (
             session_id, resolved, step_id, period, qualification,
             wage_source_kind, wage_source_value,
-            float(time_required_in_min_edited), model_rate,
+            new_edited, model_rate,
         ),
     )
+    _audit(None, new_edited)
     _maybe_commit(conn)
     _maybe_close(conn)
     return 1
@@ -5442,12 +5472,32 @@ def upsert_session_wage_rate_override(
     wage_source_value: str,
     qualification: str,
     hourly_rate_edited: float | None,
-) -> None:
-    """Set (or clear, when hourly_rate_edited is None) one row-keyed wage override."""
+) -> int:
+    """Set (or clear, when hourly_rate_edited is None) one row-keyed wage override.
+
+    Row wage overrides join the same no-op/audit contract as the other EA edits:
+    only a real change to the override persists, bumps last_edited_at and writes an
+    audit row; an unchanged payload is a no-op (returns 0, rejected as 422). Returns
+    1 when something changed, else 0.
+    """
     resolved = normalize_norm_addressee(norm_addressee)
     conn = get_conn()
     cur = conn.cursor()
-    if hourly_rate_edited is None:
+    previous = cur.execute(
+        """
+        SELECT hourly_rate_edited FROM session_wage_rate_overrides
+        WHERE session_id = ? AND norm_addressee = ? AND wage_source_kind = ?
+            AND wage_source_value = ? AND qualification = ?
+        """,
+        (session_id, resolved, wage_source_kind, wage_source_value, qualification),
+    ).fetchone()
+    old_value = previous["hourly_rate_edited"] if previous is not None else None
+    new_value = float(hourly_rate_edited) if hourly_rate_edited is not None else None
+    if not value_changed(old_value, new_value):
+        _maybe_close(conn)
+        return 0
+
+    if new_value is None:
         cur.execute(
             """
             DELETE FROM session_wage_rate_overrides
@@ -5476,11 +5526,21 @@ def upsert_session_wage_rate_override(
                 wage_source_kind,
                 wage_source_value,
                 qualification,
-                float(hourly_rate_edited),
+                new_value,
             ),
         )
+    insert_edit_audit_row(
+        cur,
+        session_id=session_id,
+        entity_type="wage_rate",
+        entity_id=None,
+        field_name=f"hourly_rate_edited[{wage_source_value}/{qualification}]",
+        old_value=old_value,
+        new_value=new_value,
+    )
     _maybe_commit(conn)
     _maybe_close(conn)
+    return 1
 
 
 def clear_session_wage_rate_overrides(session_id: int) -> int:

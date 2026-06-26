@@ -52,7 +52,7 @@ def test_editable_returns_personnel_rows(test_client):
 
 
 def test_personnel_effort_time_edit_sets_and_flows_into_cost(test_client):
-    from backend.routers.costs import _compute_step_personnel_cost_from_rows
+    from backend.core.cost_aggregation import _compute_step_personnel_cost_from_rows
 
     app_id, session_id, step_id = _seed("C2-EDIT-COST")
     resp = test_client.post("/process-steps/personnel-effort-edit", json=_edit_payload(app_id, step_id))
@@ -123,3 +123,56 @@ def test_personnel_effort_clear_removes_user_created_row(test_client):
     )
     rows = db.list_process_step_personnel_effort(session_id, ADMINISTRATION, step_id)
     assert all(r["qualification"] != "hoeherer_dienst" for r in rows)
+
+
+def test_personnel_effort_rejects_mismatched_wage_source_kind(test_client):
+    # The wage_source_kind must match the addressee (administration ->
+    # verwaltungsebene). A business kind on an admin row would create a row with a
+    # non-canonical identity, so it is rejected (422) - same invariant as the
+    # /sessions/wage-rates override path.
+    app_id, _session_id, step_id = _seed("C2-EDIT-KINDMISMATCH")
+    resp = test_client.post(
+        "/process-steps/personnel-effort-edit",
+        json=_edit_payload(app_id, step_id, wage_source_kind="wirtschaftsabschnitt"),
+    )
+    assert resp.status_code == 422
+    assert "wage_source_kind" in resp.json()["detail"]
+
+
+def test_personnel_effort_repeated_edit_is_noop_and_audited(test_client):
+    # Row effort edits join the EA no-op/audit contract: a real edit returns 200 and
+    # writes one audit row; re-posting the identical value is rejected (422), and a
+    # clear of an already-cleared edit is a no-op too.
+    app_id, session_id, step_id = _seed("C2-EDIT-NOOP")
+
+    first = test_client.post(
+        "/process-steps/personnel-effort-edit", json=_edit_payload(app_id, step_id)
+    )
+    assert first.status_code == 200
+    assert first.json()["updated"] == 1
+
+    # Same value again -> nothing changes -> rejected.
+    second = test_client.post(
+        "/process-steps/personnel-effort-edit", json=_edit_payload(app_id, step_id)
+    )
+    assert second.status_code == 422
+    assert second.json()["detail"] == "No changes in payload"
+
+    # Exactly one audit row for the single real change.
+    audit = db.list_edit_audit_for_session(session_id)
+    assert len(audit) == 1
+    assert audit[0]["entity_type"] == "personnel_effort"
+
+    # Clearing the edit is a real change (200); clearing again is a no-op (422).
+    cleared = test_client.post(
+        "/process-steps/personnel-effort-edit",
+        json=_edit_payload(app_id, step_id, time_required_in_min_edited=None),
+    )
+    assert cleared.status_code == 200
+    again = test_client.post(
+        "/process-steps/personnel-effort-edit",
+        json=_edit_payload(app_id, step_id, time_required_in_min_edited=None),
+    )
+    assert again.status_code == 422
+    # Set + clear = two real changes audited.
+    assert len(db.list_edit_audit_for_session(session_id)) == 2

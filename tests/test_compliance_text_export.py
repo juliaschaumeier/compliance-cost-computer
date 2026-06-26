@@ -172,6 +172,87 @@ def test_export_reflects_row_wage_override_and_warns(test_client):
     assert abs(step_r["kosten"]["gueltig"] - 40.4 * 20 / 60) < 0.01
 
 
+def test_reject_export_does_not_persist_model_costs(test_client):
+    # Regression: aggregate_addressee_costs() must be read-only. Building the
+    # compliance export with USER_EDIT_REJECT recomputes model-only costs; it must
+    # NOT write those back over the persisted live (user-edited) process/case
+    # costs. Before the read-only fix, the reject export re-persisted model costs,
+    # silently drifting the live session away from what the user sees.
+    seeded = _seed_completed_session("COMP-REJECT-NOPERSIST")
+    session_id = seeded["session_id"]
+    case_group_id = seeded["case_group_id"]
+    step_id = seeded["step_id"]
+
+    # A row wage override (100) that differs from the model rate (40.4), so the
+    # edited live cost is distinguishable from the model-only cost.
+    db.replace_process_step_personnel_effort(
+        session_id,
+        ADMINISTRATION,
+        step_id,
+        [
+            {
+                "period": "current",
+                "qualification": "gehobener_dienst",
+                "wage_source_kind": "verwaltungsebene",
+                "wage_source_value": "bund",
+                "time_required_in_min": 20,
+                "model_hourly_rate": 40.4,
+            },
+        ],
+    )
+    # Dual-write reality: slot columns mirror the row so the cost-input gate passes.
+    db.upsert_process_step_effort_split_by_addressee(
+        session_id=session_id,
+        step_id=step_id,
+        norm_addressee=ADMINISTRATION,
+        hourly_rates_current={"a": None, "b": 40.4, "c": None, "d": None},
+        time_required_current={"a": None, "b": 20, "c": None, "d": None},
+        expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": None, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": None, "c": None, "d": None},
+        expenses_proposed=None,
+        execution_per_case=True,
+    )
+    db.upsert_session_wage_rate_override(
+        session_id, ADMINISTRATION, "verwaltungsebene", "bund", "gehobener_dienst", 100.0
+    )
+
+    # Persist the live (edited) costs.
+    resp = test_client.post(
+        "/costs/compute", json={"app_session_id": "COMP-REJECT-NOPERSIST"}
+    )
+    assert resp.status_code == 200
+
+    process_id = db.list_processes_for_session_and_addressee(session_id, ADMINISTRATION)[0][
+        "process_id"
+    ]
+
+    def _persisted_costs():
+        conn = db.get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT cost FROM case_groups WHERE case_group_id = ?", (case_group_id,)
+        )
+        case_group_cost = cur.fetchone()["cost"]
+        cur.execute("SELECT cost FROM processes WHERE process_id = ?", (process_id,))
+        process_cost = cur.fetchone()["cost"]
+        conn.close()
+        return case_group_cost, process_cost
+
+    before = _persisted_costs()
+    # The override (100) drives the live cost, so it must differ from the model
+    # cost (40.4) the reject export would recompute - otherwise the test is blind.
+    assert before[0] is not None and before[0] != 0
+
+    build_compliance_export_context(
+        app_session_id="COMP-REJECT-NOPERSIST",
+        session_id=session_id,
+        user_edit_policy=USER_EDIT_REJECT,
+    )
+
+    assert _persisted_costs() == before
+
+
 def test_compliance_text_examples_are_seeded_from_resources(test_client):
     examples = db.list_compliance_text_examples()
 
