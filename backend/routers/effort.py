@@ -14,6 +14,7 @@ from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
     CITIZENS,
+    NORM_ADDRESSEE_ECHO_MISMATCH,
     check_norm_addressee_echo,
 )
 from backend.core.parsing import parse_first_int, parse_optional_number
@@ -64,7 +65,13 @@ def _parse_cases_payload(
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
+    echo_kinds = check_norm_addressee_echo(data, norm_addressee)
+    if NORM_ADDRESSEE_ECHO_MISMATCH in echo_kinds:
+        raise HTTPException(
+            status_code=422,
+            detail=f"normadressat mismatch (expected {norm_addressee})",
+        )
+    fallback_kinds.update(echo_kinds)
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:
@@ -576,7 +583,13 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
+    echo_kinds = check_norm_addressee_echo(data, norm_addressee)
+    if NORM_ADDRESSEE_ECHO_MISMATCH in echo_kinds:
+        raise HTTPException(
+            status_code=422,
+            detail=f"normadressat mismatch (expected {norm_addressee})",
+        )
+    fallback_kinds.update(echo_kinds)
     fallgruppen = extract_fallgruppen(data)
     parsed: list[dict] = []
     for fallgruppe in fallgruppen:

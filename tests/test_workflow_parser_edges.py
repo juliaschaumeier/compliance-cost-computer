@@ -1014,3 +1014,51 @@ def test_effort_parser_rejects_missing_step_effort():
     assert exc_info.value.status_code == 422
     assert "Missing effort for taetigkeiten_id values" in exc_info.value.detail
     assert str(step_two) in exc_info.value.detail
+
+
+def test_process_step_parser_rejects_missing_case_group():
+    # #13/#25: Schritt 5 muss zu JEDER Fallgruppe des Normadressaten Schritte
+    # liefern; laesst die KI eine aus, 422 vor der Persistenz
+    # (Schritt-5-Vollstaendigkeit, die Schritt 6 nicht zuverlaessig auffaengt).
+    session_id, process_id, _regulation_id, case_group_id, _context = (
+        _seed_process_step_context("PARSER-STEPS-MISSING-FALLGRUPPE")
+    )
+    second_case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Fallgruppe B",
+        "Beschreibung Fallgruppe B",
+        norm_addressee=ADMINISTRATION,
+    )
+    # Kontext neu bauen, damit die zweite Fallgruppe im case_group_lookup steht.
+    _prompt, context = process_steps_router.build_process_step_analysis_prompt(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+    )
+    payload = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt A", "beschreibung": "Nur erste Fallgruppe"}}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        process_steps_router.parse_process_step_analysis_answer(
+            response_text=payload,
+            norm_addressee=ADMINISTRATION,
+            context=context,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Missing process steps for fallgruppen_id values" in exc_info.value.detail
+    assert str(second_case_group_id) in exc_info.value.detail

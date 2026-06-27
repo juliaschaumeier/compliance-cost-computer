@@ -11,6 +11,7 @@ from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
+    NORM_ADDRESSEE_ECHO_MISMATCH,
     check_norm_addressee_echo,
 )
 from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
@@ -172,6 +173,19 @@ def parse_process_step_analysis_answer(
             status_code=422,
             detail="Duplicate fallgruppen_id values: "
             + ", ".join(sorted(set(duplicate_case_group_ids))),
+        )
+
+    # #13/#25: Jede Fallgruppe des Normadressaten muss Prozessschritte erhalten
+    # (Schritt-5-Vollstaendigkeit) -> 422 vor der Persistenz, statt die Luecke
+    # erst spaeter in Schritt 6 aufzudecken.
+    uncovered_case_groups = sorted(
+        str(cg_id) for cg_id in set(case_group_lookup) - seen_case_group_ids
+    )
+    if uncovered_case_groups:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing process steps for fallgruppen_id values: "
+            + ", ".join(uncovered_case_groups),
         )
 
     invalid_regulation_links: list[str] = []
@@ -357,7 +371,13 @@ def _parse_process_steps(
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
+    echo_kinds = check_norm_addressee_echo(data, norm_addressee)
+    if NORM_ADDRESSEE_ECHO_MISMATCH in echo_kinds:
+        raise HTTPException(
+            status_code=422,
+            detail=f"normadressat mismatch (expected {norm_addressee})",
+        )
+    fallback_kinds.update(echo_kinds)
 
     parsed: list[dict] = []
     processes = data.get("prozesse")

@@ -9,6 +9,7 @@ from backend.core.llm_service import query_llm
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
+    NORM_ADDRESSEE_ECHO_MISMATCH,
     check_norm_addressee_echo,
 )
 from backend.core.parsing import parse_first_int
@@ -114,6 +115,11 @@ def _parse_processes(
         error_context="process compilation",
     )
     fallback_kinds = check_norm_addressee_echo(data, norm_addressee)
+    if NORM_ADDRESSEE_ECHO_MISMATCH in fallback_kinds:
+        raise HTTPException(
+            status_code=422,
+            detail=f"normadressat mismatch (expected {norm_addressee})",
+        )
     processes = data.get("prozesse")
     if not isinstance(processes, list):
         return [], fallback_kinds
