@@ -150,9 +150,14 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
     ) in prompt
-    # Beispielgebundener Einmalposten-Hinweis an der (verbatim unveraenderten) Ueberschrift (#13/#25).
-    assert "Die im Beispiel genannten einmaligen Posten" in prompt
-    assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" in prompt
+    # #13/#25: der unzweifelhaft einmalige Posten (Nachruestung/Austausch alter
+    # Geraete) ist aus dem Methodenbeispiel entfernt; der Einmal-Disclaimer
+    # entfaellt. Die "ist-nur-ein-Beispiel"-Absicherung (oben) bleibt.
+    assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" not in prompt
+    assert "Die im Beispiel genannten einmaligen Posten" not in prompt
+    # Wiederkehrende/mehrdeutige Beispiel-Bullets bleiben erhalten.
+    assert "Durchführung von Beratungsgesprächen" in prompt
+    assert "Schulung des Personals" in prompt
     assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
     assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
 
@@ -203,6 +208,30 @@ def test_case_group_development_prompt_omits_handbook_example():
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
     ) not in prompt
+
+
+def test_business_investment_axes_are_recurring_qualified():
+    # #13/#25 (Revier-Agent Medium): Die wirtschaftsseitigen Investitionsachsen
+    # in Prozessbildung und Fallgruppenentwicklung duerfen nicht mehr zu einmaligem
+    # Investitions-/Umstellungsaufwand steuern, sondern nur zu jaehrlich
+    # wiederkehrendem Aufwand.
+    case_group = _compact(
+        _render_prompt_for_contract(PromptId.CASE_GROUP_DEVELOPMENT, BUSINESS)
+    )
+    assert "Neuanschaffung versus" not in case_group
+    assert (
+        "wiederkehrende Ersatzbeschaffung versus Umruestung bestehender Anlagen, "
+        "jeweils nur soweit der Aufwand jaehrlich wiederkehrt"
+    ) in case_group
+
+    process = _compact(
+        _render_prompt_for_contract(PromptId.PROCESS_COMPILATION, BUSINESS)
+    )
+    assert "(iv) Beschaffung oder Umruestung von Anlagen, Waren oder Material" not in process
+    assert (
+        "laufend wiederkehrende Beschaffung oder Umruestung von Anlagen, Waren oder "
+        "Material, soweit der Aufwand jaehrlich erneut anfaellt"
+    ) in process
 
 
 def test_cases_calculation_prompt_includes_verbatim_handbook_examples():

@@ -211,8 +211,9 @@ NORM_ADDRESSEE_RULES_BUSINESS: Dict[str, str] = {
         "Raster sind: (i) Anzeige-, Melde- oder Nachweispflicht gegenueber Behoerden, "
         "(ii) laufende Dokumentations- und Aufbewahrungspflicht, (iii) "
         "Informationspflicht gegenueber Kundinnen/Kunden, Beschaeftigten oder "
-        "Geschaeftspartnern, (iv) Beschaffung oder Umruestung von Anlagen, Waren oder "
-        "Material, (v) Mitwirkung bei Pruefungen durch oeffentliche Stellen "
+        "Geschaeftspartnern, (iv) laufend wiederkehrende Beschaffung oder Umruestung "
+        "von Anlagen, Waren oder Material, soweit der Aufwand jaehrlich erneut "
+        "anfaellt, (v) Mitwirkung bei Pruefungen durch oeffentliche Stellen "
         "(z.B. Betriebspruefung), (vi) fiskalische Pflichten wie Gebuehren oder "
         "Abgaben. Trennen Sie Informationspflichten von anderen Vorgaben, weil "
         "Buerokratiekosten aus Informationspflichten spaeter gesondert fuer den "
@@ -225,8 +226,9 @@ NORM_ADDRESSEE_RULES_BUSINESS: Dict[str, str] = {
     PromptId.CASE_GROUP_DEVELOPMENT: (
         "Typische wirtschaftsseitige Differenzierungsachsen sind: (i) "
         "Informationspflicht versus sonstige Vorgabe (BKI-Relevanz), (ii) "
-        "Neuanschaffung versus "
-        "Umruestung bestehender Anlagen, (iii) weitgehend automatisierter oder "
+        "wiederkehrende Ersatzbeschaffung versus Umruestung bestehender Anlagen, "
+        "jeweils nur soweit der Aufwand jaehrlich wiederkehrt, (iii) weitgehend "
+        "automatisierter oder "
         "digital gestuetzter Ablauf versus manuelle Bearbeitung, (iv) KMU versus "
         "Grossunternehmen, soweit sich der Aufwand pro Fall wesentlich "
         "unterscheidet. Bilden Sie solche Fallgruppen "
@@ -1845,10 +1847,7 @@ def _render_handbook_process_example(norm_addressee: str | None) -> str:
             PROCESS_COMPILATION_EXAMPLE,
             heading=(
                 "Methodenbeispiel aus dem Leitfaden zur Orientierung; "
-                "nicht als Sachverhalt dieses Regelungsvorhabens verwenden. "
-                "Die im Beispiel genannten einmaligen Posten (z.B. Schulung des "
-                "Personals, Nachruestung/Austausch von Geraeten) sind kein "
-                "wiederkehrender Aufwand und nicht als Prozess zu uebernehmen:"
+                "nicht als Sachverhalt dieses Regelungsvorhabens verwenden:"
             ),
         )
     return ""

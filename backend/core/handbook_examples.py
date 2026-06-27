@@ -15,7 +15,6 @@ PROCESS_COMPILATION_EXAMPLE = """
 1. Die UV-Schutz-Verordnung dient dem Schutz der menschlichen Gesundheit vor schädlichen
 UV-Strahlen bei der Benutzung von Solarien. Bei der Ermittlung des Erfüllungsaufwands wurden
 für den Normadressaten Wirtschaft die einzelnen Vorgaben zu Prozessen zusammengefasst:
-– Nachrüstung/Austausch von alten Bestrahlungsgeräten
 – Anschaffung von Schutzbrillen
 – Durchführung von Beratungsgesprächen
 – Schulung des Personals
