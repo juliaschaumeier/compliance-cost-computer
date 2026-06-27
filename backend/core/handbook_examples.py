@@ -10,26 +10,6 @@ Erfüllungsaufwands in Regelungsvorhaben der Bundesregierung", Februar 2026.
 """
 
 
-PROCESS_COMPILATION_EXAMPLE = """
-→ Beispiele für Prozesse:
-1. Die UV-Schutz-Verordnung dient dem Schutz der menschlichen Gesundheit vor schädlichen
-UV-Strahlen bei der Benutzung von Solarien. Bei der Ermittlung des Erfüllungsaufwands wurden
-für den Normadressaten Wirtschaft die einzelnen Vorgaben zu Prozessen zusammengefasst:
-– Anschaffung von Schutzbrillen
-– Durchführung von Beratungsgesprächen
-– Schulung des Personals
-2. Im Rahmen des Erfüllungsaufwandprojekts „Betriebliche Beauftragte“ wurden die gesetzli-
-chen Grundlagen aus Sicht der Normadressaten untersucht, um die Prozesse zu identifizieren,
-aus denen sich Erfüllungsaufwand ableiten lässt. Dabei wurden einzelne Prozesse weiter unter-
-gliedert, um die Ermittlung des Erfüllungsaufwands zu erleichtern.
-– Verfahren zur Bestellung der Betriebsbeauftragten
-– Materielle Unterstützung der Beauftragten durch das Unternehmen/den Betrieb (Bereitstellen
-von Hilfspersonal, Räumen etc., Teilnahme an Schulungen ermöglichen, Lohn- und Gehalts-
-kosten für die Beauftragten)
-– Beteiligung der Beauftragten an Prozessen im Unternehmen
-""".strip()
-
-
 CASES_CALCULATION_FREQUENCY_EXAMPLE = """
 → Beispiele für jährliche Häufigkeit bei periodisch zu erfüllenden Vorgaben:
 Vorgabe ist periodisch zu erfüllen

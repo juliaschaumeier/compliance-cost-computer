@@ -138,7 +138,11 @@ def test_render_prompt_ignores_contract_field_overrides():
     assert '"normadressat": "citizens"' not in prompt
 
 
-def test_process_compilation_prompt_includes_verbatim_handbook_example():
+def test_process_compilation_prompt_omits_handbook_example():
+    # #13/#25: Das Leitfaden-Prozessbeispiel (Solarien/Betriebsbeauftragte) mischte
+    # einmalige und wiederkehrende Posten und verleitete im recurring-only-Modus zu
+    # Einmal-Prozessen. Es wird daher nicht mehr eingespeist - auch nicht fuer
+    # business. Die Buendelungsmethode steht weiterhin in der BUSINESS-Regel.
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
         law_summary="Kurzfassung",
@@ -149,17 +153,11 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
     assert (
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
-    ) in prompt
-    # #13/#25: der unzweifelhaft einmalige Posten (Nachruestung/Austausch alter
-    # Geraete) ist aus dem Methodenbeispiel entfernt; der Einmal-Disclaimer
-    # entfaellt. Die "ist-nur-ein-Beispiel"-Absicherung (oben) bleibt.
-    assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" not in prompt
-    assert "Die im Beispiel genannten einmaligen Posten" not in prompt
-    # Wiederkehrende/mehrdeutige Beispiel-Bullets bleiben erhalten.
-    assert "Durchführung von Beratungsgesprächen" in prompt
-    assert "Schulung des Personals" in prompt
-    assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
-    assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
+    ) not in prompt
+    assert "Durchführung von Beratungsgesprächen" not in prompt
+    assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" not in prompt
+    # Die Buendelungsmethode bleibt ueber die BUSINESS-Regel erhalten.
+    assert "Buendeln Sie Vorgaben zu Prozessen entlang des operativen Ablaufs" in prompt
 
 
 def test_process_compilation_prompt_does_not_require_placeholder_for_no_own_action():

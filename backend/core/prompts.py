@@ -5,7 +5,6 @@ from typing import Any, Dict
 from backend.core.handbook_examples import (
     CASES_CALCULATION_CASE_EXAMPLE,
     CASES_CALCULATION_FREQUENCY_EXAMPLE,
-    PROCESS_COMPILATION_EXAMPLE,
 )
 from backend.core.handbook_tables import Appendix
 from backend.core.norm_addressees import (
@@ -679,7 +678,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
-    # - handbook_process_example
     # - norm_addressee_prompt_opening
     # - norm_addressee_rule
     PromptId.PROCESS_COMPILATION: (
@@ -700,12 +698,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         gesonderte Ausweisung EU-bedingten Erfuellungsaufwands muss anhand Ihrer Prozessstruktur weiterhin moeglich bleiben.
 
         Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Prozesse fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
-        Nicht zulaessig als Prozess ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Prozess aus.
+        Nicht zulaessig als Prozess ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Prozess aus.
         Ein durch die Regelung neu hinzukommender Prozess (aenderungsstatus "eingefuehrt") ist hingegen zulaessig, sofern er laufenden, jaehrlich wiederkehrenden Aufwand ausloest.
 
         {norm_addressee_rule}
-
-        {handbook_process_example}
 
         Ordnen Sie jede `vorgaben_id` genau einem Prozess zu; pruefen Sie vor der Ausgabe, dass keine `vorgaben_id` in mehreren Prozessen vorkommt.
         Loest eine Vorgabe sowohl eine externe Bearbeitung als auch eine interne Anpassung aus, beschreiben Sie beides im selben Prozess, statt die Vorgabe
@@ -780,7 +776,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
         Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Fallgruppen fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
-        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
+        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
         Wiederkehrende Erstbearbeitungen (z.B. die laufend neu hinzukommenden Erstantraege oder Erstanerkennungen) sind hingegen zulaessig, weil sie jaehrlich anfallen.
 
         {norm_addressee_rule}
@@ -884,11 +880,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
         Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
 
-        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung) duerfen nicht ausgegeben werden.
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung) duerfen nicht ausgegeben werden.
 
         {step_analysis_addressee_rule}
 
-        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Einarbeitung) nicht uebernehmen.
+        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung) nicht uebernehmen.
 
         {step_analysis_checklist}
 
@@ -1644,10 +1640,6 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         norm_addressee,
     )
     render_values.setdefault(
-        "handbook_process_example",
-        _render_handbook_process_example(norm_addressee),
-    )
-    render_values.setdefault(
         "handbook_cases_frequency_example",
         _render_handbook_cases_frequency_example(),
     )
@@ -1844,18 +1836,6 @@ def _render_prompt_specific_addressee_rule(prompt_id: str, norm_addressee: str |
         return NORM_ADDRESSEE_RULES_BUSINESS.get(prompt_id, "").strip()
     if norm_addressee == CITIZENS:
         return NORM_ADDRESSEE_RULES_CITIZENS.get(prompt_id, "").strip()
-    return ""
-
-
-def _render_handbook_process_example(norm_addressee: str | None) -> str:
-    if norm_addressee == BUSINESS:
-        return _render_handbook_example_block(
-            PROCESS_COMPILATION_EXAMPLE,
-            heading=(
-                "Methodenbeispiel aus dem Leitfaden zur Orientierung; "
-                "nicht als Sachverhalt dieses Regelungsvorhabens verwenden:"
-            ),
-        )
     return ""
 
 
