@@ -1,4 +1,11 @@
-from backend.core.deep_research_cases import parse_deep_research_case_metrics
+import pytest
+from fastapi import HTTPException
+
+from backend.core import db
+from backend.core.deep_research_cases import (
+    apply_deep_research_case_metrics,
+    parse_deep_research_case_metrics,
+)
 
 
 def test_parse_deep_research_case_metrics_preserves_field_evidence():
@@ -52,3 +59,42 @@ def test_parse_deep_research_case_metrics_preserves_field_evidence():
     assert entry.metadata["fallzahl_vorschlag"] == 1040
     assert entry.metadata["confidence"]["haeufigkeit_pro_jahr_vorschlag"] == "low"
     assert "destatis.de" in entry.metadata["erklaerungen"]["anzahl_betroffene_gueltig"]
+
+
+def test_apply_deep_research_rejects_duplicate_fallgruppen_id(test_client):
+    # Symmetrisch zum Hauptpfad (effort.py): dieselbe fallgruppen_id zweimal in der
+    # Deep-Research-Antwort -> 422 statt stillem last-write-wins-Ueberschreiben.
+    session_id, _ = db.upsert_session("DR-DUP", "test-model")
+    process_id = db.insert_process(session_id, "Prozess A", "Beschreibung")
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Fallgruppe A", "Beschreibung"
+    )
+
+    report_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "normadressat": "administration",
+          "prozess_id": {process_id},
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": {case_group_id},
+              "anzahl_betroffene_gueltig": 100,
+              "haeufigkeit_pro_jahr_gueltig": 1
+            }},
+            {{
+              "fallgruppen_id": {case_group_id},
+              "anzahl_betroffene_gueltig": 120,
+              "haeufigkeit_pro_jahr_gueltig": 1
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        apply_deep_research_case_metrics(session_id=session_id, report_text=report_text)
+    assert exc_info.value.status_code == 422
+    assert "Duplicate Deep Research fallgruppen_id values" in exc_info.value.detail
+    assert str(case_group_id) in exc_info.value.detail

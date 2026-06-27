@@ -21,9 +21,24 @@ from backend.core.llm_service import (
     query_llm,
 )
 from backend.core.prompt_audit import append_prompt_audit_entry
+from backend.core.prompts import PromptId
 from backend.core.request_context import get_request_context
 
 logger = logging.getLogger("uvicorn.error")
+
+# Workflow-Prompts mit struktur-kritischer JSON-Ausgabe. Fuer diese aktivieren wir
+# - wo query-Funktion und Provider es unterstuetzen - den JSON-Modus
+# (response_format) bereits am Generierungszeitpunkt. Lehnt ein Provider/Modell den
+# Parameter ab, faellt query_llm automatisch auf reines Prompting zurueck.
+STRUCTURED_JSON_PROMPT_IDS = frozenset(
+    {
+        PromptId.PROCESS_COMPILATION,
+        PromptId.CASE_GROUP_DEVELOPMENT,
+        PromptId.PROCESS_STEP_ANALYSIS,
+        PromptId.CASES_CALCULATION,
+        PromptId.EFFORT_CALCULATION,
+    }
+)
 
 
 def _provider_metadata(provider: str | None) -> dict[str, str | None]:
@@ -360,6 +375,11 @@ async def query_and_stage_llm_answer(
             )
         if supports_on_event:
             query_kwargs["on_event"] = _on_stream_event
+        if (
+            prompt_id in STRUCTURED_JSON_PROMPT_IDS
+            and _supports_keyword_argument(query_impl, "response_format")
+        ):
+            query_kwargs["response_format"] = {"type": "json_object"}
         llm_result = coerce_llm_result(
             await query_impl(
                 prompt,

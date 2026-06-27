@@ -592,7 +592,10 @@ def test_effort_parser_rejects_missing_step_id_after_empty_effort_entry():
         )
 
     assert exc_info.value.status_code == 422
-    assert exc_info.value.detail == f"Missing taetigkeiten_id values: {missing_step_id}"
+    assert (
+        exc_info.value.detail
+        == f"Missing effort for taetigkeiten_id values: {missing_step_id}"
+    )
 
 
 def test_effort_parser_rejects_citizens_roles_payload():
@@ -774,3 +777,240 @@ def test_effort_parser_keeps_row_personnel_effort_model():
     assert parsed_effort[0]["time_required_current"]["b"] == 10
     assert parsed_effort[0]["time_required_proposed"]["c"] == 8
     assert parsed_effort[0]["hourly_rates_current"]["a"] is not None
+
+
+def test_process_step_parser_rejects_duplicate_case_group_id():
+    # #13/#25: Dieselbe fallgruppen_id unter zwei Prozessen -> zwei Step-Ketten
+    # fuer eine Fallgruppe -> 422 vor der Persistenz statt stillem
+    # last-write-wins.
+    _session_id, _process_id, _regulation_id, case_group_id, context = (
+        _seed_process_step_context("PARSER-STEPS-DUP-FALLGRUPPE")
+    )
+    payload = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt A", "beschreibung": "Erste Kette"}}
+              ]
+            }}
+          ]
+        }},
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt B", "beschreibung": "Zweite Kette"}}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        process_steps_router.parse_process_step_analysis_answer(
+            response_text=payload,
+            norm_addressee=ADMINISTRATION,
+            context=context,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Duplicate fallgruppen_id values" in exc_info.value.detail
+    assert str(case_group_id) in exc_info.value.detail
+
+
+def test_effort_parser_rejects_duplicate_case_group_id():
+    # #13/#25: Dieselbe fallgruppen_id zweimal in den Kennzahlen -> 422 statt
+    # stillem last-write-wins-Ueberschreiben.
+    session_id, case_group_id, step_id, context = _seed_effort_context(
+        "PARSER-EFFORT-DUP-GROUP"
+    )
+    cases_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }},
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "12",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_text = _org_effort_payload(
+        case_group_id,
+        step_id,
+        entry_fields="""
+        "personalaufwand_vorschlag": [
+          {"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}
+        ]
+        """,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort(
+            session_id=session_id,
+            context=context,
+            cases_text=cases_text,
+            effort_text=effort_text,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Duplicate fallgruppen_id values" in exc_info.value.detail
+    assert str(case_group_id) in exc_info.value.detail
+
+
+def test_effort_parser_rejects_missing_case_group_metrics():
+    # #13/#25: Jede Fallgruppe des Normadressaten muss Kennzahlen erhalten;
+    # fehlt eine, 422 statt spaeter blockierendem effort_ready.
+    session_id, _ = db.upsert_session("PARSER-EFFORT-MISSING-GROUP", "test-model")
+    process_id = db.insert_process(
+        session_id, "Prozess A", "Beschreibung Prozess", norm_addressee=ADMINISTRATION
+    )
+    case_group_one = db.insert_case_group(
+        session_id, process_id, "Fallgruppe A", "Beschreibung Fallgruppe",
+        norm_addressee=ADMINISTRATION,
+    )
+    case_group_two = db.insert_case_group(
+        session_id, process_id, "Fallgruppe B", "Beschreibung Fallgruppe",
+        norm_addressee=ADMINISTRATION,
+    )
+    step_id = db.insert_process_step(
+        session_id, case_group_one, "Schritt A", "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+    context = effort_router.prepare_effort_calculation(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        skip_cases_calculation=False,
+    )
+    effort_text = _org_effort_payload(
+        case_group_one,
+        step_id,
+        entry_fields="""
+        "personalaufwand_vorschlag": [
+          {"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}
+        ]
+        """,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort(
+            session_id=session_id,
+            context=context,
+            cases_text=_cases_payload(case_group_one),
+            effort_text=effort_text,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Missing metrics for fallgruppen_id values" in exc_info.value.detail
+    assert str(case_group_two) in exc_info.value.detail
+
+
+def test_effort_parser_rejects_duplicate_step_id():
+    # #13/#25: Dieselbe taetigkeiten_id zweimal in den Aufwandswerten -> 422.
+    session_id, case_group_id, step_id, context = _seed_effort_context(
+        "PARSER-EFFORT-DUP-STEP"
+    )
+    effort_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ]
+                }},
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "gehobener_dienst", "lohnquelle": "laender", "zeitaufwand_in_min": "12"}}
+                  ]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort(
+            session_id=session_id,
+            context=context,
+            cases_text=_cases_payload(case_group_id),
+            effort_text=effort_text,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Duplicate taetigkeiten_id values" in exc_info.value.detail
+    assert str(step_id) in exc_info.value.detail
+
+
+def test_effort_parser_rejects_missing_step_effort():
+    # #13/#25: Jeder Schritt des Normadressaten muss einen Aufwandswert
+    # erhalten; fehlt einer, 422 (symmetrisch zu den Fallgruppen).
+    session_id, _ = db.upsert_session("PARSER-EFFORT-MISSING-STEP", "test-model")
+    process_id = db.insert_process(
+        session_id, "Prozess A", "Beschreibung Prozess", norm_addressee=ADMINISTRATION
+    )
+    case_group_id = db.insert_case_group(
+        session_id, process_id, "Fallgruppe A", "Beschreibung Fallgruppe",
+        norm_addressee=ADMINISTRATION,
+    )
+    step_one = db.insert_process_step(
+        session_id, case_group_id, "Schritt A", "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+    step_two = db.insert_process_step(
+        session_id, case_group_id, "Schritt B", "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+    context = effort_router.prepare_effort_calculation(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        skip_cases_calculation=False,
+    )
+    effort_text = _org_effort_payload(
+        case_group_id,
+        step_one,
+        entry_fields="""
+        "personalaufwand_vorschlag": [
+          {"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}
+        ]
+        """,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort(
+            session_id=session_id,
+            context=context,
+            cases_text=_cases_payload(case_group_id),
+            effort_text=effort_text,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Missing effort for taetigkeiten_id values" in exc_info.value.detail
+    assert str(step_two) in exc_info.value.detail

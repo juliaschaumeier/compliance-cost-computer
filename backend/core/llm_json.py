@@ -74,6 +74,7 @@ def require_json_object(
     *,
     error_context: str,
     required_top_level_key: str | None = None,
+    required_any_keys: tuple[str, ...] | None = None,
 ) -> tuple[dict[str, Any], str]:
     data, parse_mode = parse_json_object_with_mode(payload)
     if not isinstance(data, dict):
@@ -87,6 +88,21 @@ def require_json_object(
             detail=(
                 f"{error_context}: expected top-level key "
                 f"'{required_top_level_key}' in LLM response"
+            ),
+        )
+    # Haertet den extract_last_json_object-Fallback: bei kaputtem Top-Level-JSON
+    # (z.B. trailing comma) kann der Fallback ein inneres Objekt zurueckgeben,
+    # das nicht die erwartete Antwortstruktur hat. Statt mit so einem Fragment
+    # stillschweigend weiterzuarbeiten, verlangen wir mindestens einen der
+    # erwarteten Top-Level-Schluessel und scheitern sonst hart.
+    if required_any_keys is not None and not any(
+        key in data for key in required_any_keys
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{error_context}: expected one of "
+                f"{', '.join(required_any_keys)} as top-level key in LLM response"
             ),
         )
     return data, parse_mode

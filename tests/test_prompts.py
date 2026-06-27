@@ -536,6 +536,44 @@ def test_process_step_analysis_prompt_frames_checklist_recurring_only(norm_addre
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_demands_unique_fallgruppen_per_process(norm_addressee):
+    # #13/#25: Step 5 muss die uebergebene Prozess-/Fallgruppen-Struktur
+    # erhalten - jede fallgruppen_id genau einmal, unter ihrem Prozess
+    # (verhindert doppelte Step-Ketten fuer dieselbe Fallgruppe).
+    prompt = render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+        norm_addressee=norm_addressee,
+    )
+
+    assert "jede vorgegebene `fallgruppen_id` unter ihrem vorgegebenen Prozess" in prompt
+    assert "geben Sie sie genau einmal aus" in prompt
+    assert "unter einem fremden Prozess" in prompt
+    assert "Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf" in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_cases_calculation_prompt_demands_unique_fallgruppen(norm_addressee):
+    # #13/#25: jede fallgruppen_id genau einmal in den Kennzahlen, damit Schritt 6
+    # doppelte Fallgruppen nicht still ueberschreibt (last-write-wins).
+    prompt = _render_prompt_for_contract(PromptId.CASES_CALCULATION, norm_addressee)
+
+    assert "zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge" in prompt
+    assert "keine `fallgruppen_id` mehrfach vorkommt" in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_effort_calculation_prompt_demands_unique_taetigkeiten(norm_addressee):
+    # #13/#25: jede taetigkeiten_id genau einmal, keine auslassen (Nullwerte statt
+    # Weglassen), keine Duplikate.
+    prompt = _render_prompt_for_contract(PromptId.EFFORT_CALCULATION, norm_addressee)
+
+    assert "zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt" in prompt
+    assert "keine `taetigkeiten_id` mehrfach vorkommt" in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
 def test_process_step_analysis_prompt_does_not_set_invented_activity_limits(norm_addressee):
     # "drei bis fuenf" war selbst erfunden und widerspricht dem Leitfaden.
     # "vier bis sechs" stammt aus dem Leitfaden (Kap. 6.2.1 und 7.2.1) und ist

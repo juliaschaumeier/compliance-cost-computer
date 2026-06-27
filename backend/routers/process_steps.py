@@ -156,6 +156,24 @@ def parse_process_step_analysis_answer(
             detail="Unknown fallgruppen_id values: " + ", ".join(missing),
         )
 
+    # #13/#25: Dieselbe fallgruppen_id darf nicht unter mehreren Prozessen
+    # auftauchen (sonst zwei Step-Ketten fuer eine Fallgruppe) -> 422 vor der
+    # Persistenz statt stillem last-write-wins.
+    seen_case_group_ids: set[int] = set()
+    duplicate_case_group_ids: list[str] = []
+    for entry in parsed:
+        case_group_id = entry["case_group_id"]
+        if case_group_id in seen_case_group_ids:
+            duplicate_case_group_ids.append(str(case_group_id))
+        else:
+            seen_case_group_ids.add(case_group_id)
+    if duplicate_case_group_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate fallgruppen_id values: "
+            + ", ".join(sorted(set(duplicate_case_group_ids))),
+        )
+
     invalid_regulation_links: list[str] = []
     for entry in parsed:
         process_id = int(case_group_lookup[entry["case_group_id"]]["process_id"])
@@ -334,6 +352,7 @@ def _parse_process_steps(
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid process_step_analysis payload",
+        required_any_keys=("prozesse", "fallgruppen"),
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":

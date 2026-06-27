@@ -892,6 +892,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {step_analysis_checklist}
 
+        Belassen Sie jede vorgegebene `fallgruppen_id` unter ihrem vorgegebenen Prozess und geben Sie sie genau einmal aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach oder unter einem fremden Prozess vorkommt. Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf und uebernehmen Sie alle IDs exakt wie vorgegeben.
+
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {{
@@ -1022,6 +1024,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Soweit bestehende Regelungen geaendert werden, koennen Fallzahlen unter Umstaenden auch aus bereits vorliegenden Aufwandsschaetzungen und 
         Gesetzesbegruendungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) uebernommen werden. Bevor solche Angaben verwendet werden, sollten 
         sie ggf. aktualisiert werden.
+
+        Geben Sie zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Uebernehmen Sie alle IDs exakt wie vorgegeben.
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
@@ -1181,7 +1185,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {effort_appendix}
 
-        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck: 
+        Geben Sie zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt aus und lassen Sie keine aus; faellt fuer eine Taetigkeit kein Aufwand an, geben Sie das Objekt mit ausdruecklichen Nullwerten aus. Pruefen Sie vor der Ausgabe, dass keine `taetigkeiten_id` mehrfach vorkommt, und uebernehmen Sie alle IDs exakt wie vorgegeben.
+
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {effort_json_schema}
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
