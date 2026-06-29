@@ -630,6 +630,10 @@ def prepare_effort_calculation(
         session_id, norm_addressee
     ):
         return {"status": "skipped", "case_groups": [], "steps": []}
+    if not case_groups and db.has_no_process_path_for_addressee(
+        session_id, norm_addressee
+    ):
+        return {"status": "skipped", "case_groups": [], "steps": []}
     if not case_groups:
         raise HTTPException(
             status_code=400,

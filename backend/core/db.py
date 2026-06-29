@@ -2680,13 +2680,17 @@ def get_session_status(app_session_id: str) -> dict | None:
         addressee: has_applicable_regulations_for_addressee(session_id, addressee)
         for addressee in ALL_NORM_ADDRESSEES
     }
+    no_process_path_by_addressee = {
+        addressee: has_no_process_path_for_addressee(session_id, addressee)
+        for addressee in ALL_NORM_ADDRESSEES
+    }
     processes_ready_by_addressee: dict[str, bool] = {}
     case_groups_ready_by_addressee: dict[str, bool] = {}
     process_steps_ready_by_addressee: dict[str, bool] = {}
     for addressee in ALL_NORM_ADDRESSEES:
         addressee_is_skippable = (
             regulations_count > 0 and not regulations_present_by_addressee[addressee]
-        )
+        ) or no_process_path_by_addressee[addressee]
         cur.execute(
             "SELECT COUNT(*) AS count FROM processes WHERE session_id = ? AND norm_addressee = ?",
             (session_id, addressee),
@@ -2728,7 +2732,7 @@ def get_session_status(app_session_id: str) -> dict | None:
     for addressee in ALL_NORM_ADDRESSEES:
         addressee_is_skippable = (
             regulations_count > 0 and not regulations_present_by_addressee[addressee]
-        )
+        ) or no_process_path_by_addressee[addressee]
         effort_ready_by_addressee[addressee] = addressee_is_skippable or (
             has_effort_metrics(session_id, addressee) and case_group_research_ready
         )
@@ -2736,6 +2740,7 @@ def get_session_status(app_session_id: str) -> dict | None:
         addressee: (
             has_total_cost_for_addressee(session_id, addressee)
             or (regulations_count > 0 and not regulations_present_by_addressee[addressee])
+            or no_process_path_by_addressee[addressee]
         )
         for addressee in ALL_NORM_ADDRESSEES
     }
@@ -3463,6 +3468,44 @@ def get_llm_answer_by_id(answer_id: int) -> dict | None:
         metadata = {}
     parsed["metadata"] = metadata
     return parsed
+
+
+def has_active_empty_process_compilation_answer(
+    session_id: int,
+    norm_addressee: str,
+) -> bool:
+    resolved = normalize_norm_addressee(norm_addressee)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT answer_text
+        FROM llm_answers
+        WHERE session_id = ?
+          AND prompt_id = 'process_compilation'
+          AND answer_state = ?
+          AND norm_addressee = ?
+        ORDER BY answer_id DESC
+        LIMIT 1
+        """,
+        (session_id, LLM_ANSWER_STATE_ACTIVE, resolved),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    if row is None:
+        return False
+    try:
+        data = json.loads(str(row["answer_text"] or ""))
+    except json.JSONDecodeError:
+        return False
+    return isinstance(data, dict) and data.get("prozesse") == []
+
+
+def has_no_process_path_for_addressee(
+    session_id: int,
+    norm_addressee: str,
+) -> bool:
+    return has_active_empty_process_compilation_answer(session_id, norm_addressee)
 
 
 def list_recent_llm_answers_for_session(session_id: int, limit: int = 80) -> list[dict]:

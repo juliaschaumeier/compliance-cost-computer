@@ -809,6 +809,70 @@ def test_run_all_executes_all_addressees_end_to_end(test_client, monkeypatch):
     }
 
 
+def test_run_all_accepts_empty_processes_for_applicable_addressee(test_client, monkeypatch):
+    app_session_id = "RUNALL-EMPTY-PROCESSES"
+    db.insert_law("current_empty_processes.txt", "aktuelles gesetz")
+    db.insert_law("proposed_empty_processes.txt", "neuer entwurf")
+    _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id)
+
+    async def fake_processes_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        if addressee == CITIZENS:
+            return json.dumps({"normadressat": CITIZENS, "prozesse": []})
+        session_id = db.get_session_id_by_app_id(app_session_id)
+        assert session_id is not None
+        regulations = db.list_regulations_for_session_and_addressee(session_id, addressee)
+        assert len(regulations) == 1
+        regulation = regulations[0]
+        return json.dumps(
+            {
+                "normadressat": addressee,
+                "prozesse": [
+                    {
+                        "prozess_bezeichnung": f"Prozess {addressee}",
+                        "prozess_beschreibung": f"Beschreibung Prozess {addressee}",
+                        "vorgaben": [
+                            {
+                                "vorgaben_id": str(regulation["regulation_id"]),
+                                "normzitat": regulation["legal_citation"],
+                                "beschreibung": regulation["description"],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr(processes_router, "query_llm", fake_processes_llm)
+
+    start_response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "current_filename": "current_empty_processes.txt",
+            "proposed_filename": "proposed_empty_processes.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+
+    assert payload["status"] == "completed"
+    assert payload["ok"] is True
+    assert payload["final_status"]["processes_ready_by_addressee"][CITIZENS] is True
+    assert payload["final_status"]["case_groups_ready_by_addressee"][CITIZENS] is True
+    assert payload["final_status"]["process_steps_ready_by_addressee"][CITIZENS] is True
+    assert payload["final_status"]["effort_ready_by_addressee"][CITIZENS] is True
+    assert payload["final_status"]["total_cost_ready_by_addressee"][CITIZENS] is True
+
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    assert db.list_processes_for_session_and_addressee(session_id, CITIZENS) == []
+    assert db.list_case_groups_for_session_and_addressee(session_id, CITIZENS) == []
+    assert db.list_process_steps_for_session_and_addressee(session_id, CITIZENS) == []
+
+
 def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypatch):
     app_session_id = "RUNALL-DEEP-RESEARCH"
     db.insert_law("current_deep.txt", "aktuelles gesetz")
