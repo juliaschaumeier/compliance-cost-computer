@@ -713,6 +713,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         unterschiedlich ist, muessen getrennte Prozesse ausgewiesen werden, auch wenn die praktische Bearbeitung aehnlich erscheint. Die spaetere
         gesonderte Ausweisung EU-bedingten Erfuellungsaufwands muss anhand Ihrer Prozessstruktur weiterhin moeglich bleiben.
 
+        Wenn fuer den vorgegebenen Normadressaten zwar eine Vorgabe uebergeben wurde, diese aber keine eigene jaehrlich wiederkehrende Handlung
+        dieses Normadressaten ausloest, geben Sie trotzdem einen ausdruecklichen Platzhalter-Prozess zurueck, statt `prozesse` leer zu lassen.
+        Verknuepfen Sie darin die betroffene `vorgaben_id`, damit die Prozesskette nachvollziehbar bleibt. Benennen Sie den Platzhalter knapp,
+        z. B. bei citizens "Keine eigenstaendige Buergerpflicht oder Handlung". Spaetere Schritte koennen daraus eine Null-Aufwand-Kette bilden.
+
         {norm_addressee_rule}
 
         {handbook_process_example}

@@ -99,6 +99,32 @@ function shortAttemptId(value?: string | null): string {
   return `${attemptId.slice(0, 8)}...${attemptId.slice(-4)}`;
 }
 
+function normAddresseeLabel(value?: string | null): string | null {
+  if (value === "administration") {
+    return "Verwaltung";
+  }
+  if (value === "business") {
+    return "Wirtschaft";
+  }
+  if (value === "citizens") {
+    return "Bürger:innen";
+  }
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function NormAddresseeBadge({ value }: { value?: string | null }) {
+  const label = normAddresseeLabel(value);
+  if (!label) {
+    return null;
+  }
+  return (
+    <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+      {label}
+    </span>
+  );
+}
+
 function eventToRecentRow(event: LlmMonitorEvent): LlmMonitorRecentCall | null {
   const eventType = String(event.event_type || "");
   if (
@@ -126,6 +152,7 @@ function eventToRecentRow(event: LlmMonitorEvent): LlmMonitorRecentCall | null {
   return {
     answer_id: event.answer_id ?? null,
     prompt_id: String(event.prompt_id || ""),
+    norm_addressee: event.norm_addressee || null,
     model: String(event.model || ""),
     provider: event.provider || null,
     attempt_id: event.attempt_id || null,
@@ -500,7 +527,12 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                       className="mb-2 rounded-lg border border-slate-200 bg-white p-2"
                     >
                       <div className="flex items-center justify-between">
-                        <div className="font-semibold text-slate-800">{row.prompt_id || "-"}</div>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <span className="truncate font-semibold text-slate-800">
+                            {row.prompt_id || "-"}
+                          </span>
+                          <NormAddresseeBadge value={row.norm_addressee} />
+                        </div>
                         <div className="font-mono text-[11px] text-slate-600">
                           {formatDurationMs(row.elapsedMs)}
                         </div>
@@ -529,7 +561,12 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                   recent.map((row) => (
                     <div key={recentRowKey(row)} className="mb-2 rounded-lg border border-slate-200 bg-white p-2">
                       <div className="flex items-center justify-between">
-                        <div className="font-semibold text-slate-800">{row.prompt_id || "-"}</div>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <span className="truncate font-semibold text-slate-800">
+                            {row.prompt_id || "-"}
+                          </span>
+                          <NormAddresseeBadge value={row.norm_addressee} />
+                        </div>
                         <span
                           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
                             row.answer_state === "invalid"
@@ -579,6 +616,7 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                         <span className="text-[11px] font-semibold text-slate-800">
                           {row.prompt_id || "-"}
                         </span>
+                        <NormAddresseeBadge value={row.norm_addressee} />
                         <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
                           {`attempt ${shortAttemptId(row.attempt_id)}`}
                         </span>
@@ -622,7 +660,12 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                             : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                         }`}
                       >
-                        <div className="font-semibold">{attempt.prompt_id || "-"}</div>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <span className="truncate font-semibold">
+                            {attempt.prompt_id || "-"}
+                          </span>
+                          <NormAddresseeBadge value={attempt.norm_addressee} />
+                        </div>
                         <div className="mt-0.5 text-[10px] opacity-80">
                           {attempt.provider || "?"} · {attempt.model || "?"}
                         </div>
@@ -661,6 +704,12 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                       <div>
                         <span className="font-semibold">Prompt:</span> {selectedAttempt.prompt_id || "-"}
                       </div>
+                      {normAddresseeLabel(selectedAttempt.norm_addressee) && (
+                        <div>
+                          <span className="font-semibold">Normadressat:</span>{" "}
+                          {normAddresseeLabel(selectedAttempt.norm_addressee)}
+                        </div>
+                      )}
                       <div>
                         <span className="font-semibold">Status:</span> {selectedAttempt.status || "-"}
                       </div>

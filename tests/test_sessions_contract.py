@@ -401,6 +401,7 @@ def test_sessions_llm_monitor_snapshot_contract(test_client):
         },
         answer_state=db.LLM_ANSWER_STATE_ACTIVE,
         state_reason="session_updated",
+        norm_addressee="business",
     )
 
     resp = test_client.get(
@@ -417,6 +418,7 @@ def test_sessions_llm_monitor_snapshot_contract(test_client):
     first = parsed.recent[0]
     assert first["prompt_id"] == "regulations_identification"
     assert first["provider"] == "openai"
+    assert first["norm_addressee"] == "business"
 
 
 def test_sessions_llm_monitor_snapshot_includes_deep_research_recent(test_client):
@@ -481,10 +483,28 @@ def test_sessions_llm_monitor_stream_attempt_contract(test_client):
         llm_monitor.publish_llm_event(
             app_session_id=app_session_id,
             event={
+                "event_type": "llm_query_started",
+                "attempt_id": "attempt-stream-contract-1",
+                "session_id": db.get_session_id_by_app_id(app_session_id),
+                "prompt_id": "law_summary",
+                "norm_addressee": "citizens",
+                "model": "gpt-5",
+                "provider": "openai",
+                "request_id": "request-contract-stream-1",
+                "route_method": "POST",
+                "route_path": "/regulations/summary",
+            },
+        )
+    )
+    asyncio.run(
+        llm_monitor.publish_llm_event(
+            app_session_id=app_session_id,
+            event={
                 "event_type": "llm_stream_delta",
                 "attempt_id": "attempt-stream-contract-1",
                 "session_id": db.get_session_id_by_app_id(app_session_id),
                 "prompt_id": "law_summary",
+                "norm_addressee": "citizens",
                 "model": "gpt-5",
                 "provider": "openai",
                 "request_id": "request-contract-stream-1",
@@ -496,6 +516,8 @@ def test_sessions_llm_monitor_stream_attempt_contract(test_client):
             },
         )
     )
+    pending = asyncio.run(llm_monitor.get_pending(app_session_id))
+    assert pending[0]["norm_addressee"] == "citizens"
 
     stream_resp = test_client.get(
         "/sessions/llm-monitor/stream/attempt-stream-contract-1",
@@ -508,6 +530,7 @@ def test_sessions_llm_monitor_stream_attempt_contract(test_client):
     )
     assert parsed.app_session_id == app_session_id
     assert parsed.attempt["attempt_id"] == "attempt-stream-contract-1"
+    assert parsed.attempt["norm_addressee"] == "citizens"
 
 
 def test_sessions_llm_monitor_endpoints_disabled(test_client, monkeypatch):
