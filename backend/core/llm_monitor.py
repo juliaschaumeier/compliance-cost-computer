@@ -57,6 +57,7 @@ def _pending_from_event(event: dict[str, Any]) -> dict[str, Any]:
         "app_session_id": event.get("app_session_id"),
         "session_id": event.get("session_id"),
         "prompt_id": event.get("prompt_id"),
+        "norm_addressee": event.get("norm_addressee"),
         "model": event.get("model"),
         "provider": event.get("provider"),
         "request_id": event.get("request_id"),
@@ -87,6 +88,7 @@ def _attempt_base_from_event(event: dict[str, Any]) -> dict[str, Any]:
         "app_session_id": event.get("app_session_id"),
         "session_id": event.get("session_id"),
         "prompt_id": event.get("prompt_id"),
+        "norm_addressee": event.get("norm_addressee"),
         "model": event.get("model"),
         "provider": event.get("provider"),
         "request_id": event.get("request_id"),
@@ -178,6 +180,7 @@ def _update_stream_attempt_from_event(
     attempt["updated_at_ms"] = now_ms
     for key in [
         "answer_id",
+        "norm_addressee",
         "elapsed_ms",
         "input_tokens",
         "output_tokens",

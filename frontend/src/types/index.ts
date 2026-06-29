@@ -135,6 +135,7 @@ export interface LlmMonitorEvent {
   app_session_id?: string | null;
   session_id?: number | null;
   prompt_id?: string | null;
+  norm_addressee?: string | null;
   model?: string | null;
   provider?: string | null;
   request_id?: string | null;
@@ -159,6 +160,7 @@ export interface LlmMonitorPendingCall {
   app_session_id?: string | null;
   session_id?: number | null;
   prompt_id?: string | null;
+  norm_addressee?: string | null;
   model?: string | null;
   provider?: string | null;
   request_id?: string | null;
@@ -183,6 +185,7 @@ export interface LlmMonitorStreamAttempt {
   app_session_id?: string | null;
   session_id?: number | null;
   prompt_id?: string | null;
+  norm_addressee?: string | null;
   model?: string | null;
   provider?: string | null;
   request_id?: string | null;
@@ -215,6 +218,7 @@ export interface LlmMonitorStreamAttempt {
 export interface LlmMonitorRecentCall {
   answer_id?: number | null;
   prompt_id: string;
+  norm_addressee?: string | null;
   model: string;
   provider?: string | null;
   attempt_id?: string | null;
