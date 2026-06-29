@@ -113,6 +113,7 @@ def _parse_processes(
     data, _parse_mode = require_json_object(
         payload,
         error_context="process compilation",
+        required_top_level_key="prozesse",
     )
     fallback_kinds = check_norm_addressee_echo(data, norm_addressee)
     if NORM_ADDRESSEE_ECHO_MISMATCH in fallback_kinds:

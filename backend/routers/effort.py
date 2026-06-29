@@ -60,7 +60,7 @@ def _parse_cases_payload(
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid cases_calculation payload",
-        required_any_keys=("prozesse", "fallgruppen"),
+        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
@@ -578,7 +578,7 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     data, parse_mode = require_json_object(
         payload,
         error_context=f"Invalid effort_calculation payload for {norm_addressee}",
-        required_any_keys=("prozesse", "fallgruppen"),
+        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":

@@ -26,10 +26,6 @@ from backend.core.request_context import get_request_context
 
 logger = logging.getLogger("uvicorn.error")
 
-# Workflow-Prompts mit struktur-kritischer JSON-Ausgabe. Fuer diese aktivieren wir
-# - wo query-Funktion und Provider es unterstuetzen - den JSON-Modus
-# (response_format) bereits am Generierungszeitpunkt. Lehnt ein Provider/Modell den
-# Parameter ab, faellt query_llm automatisch auf reines Prompting zurueck.
 STRUCTURED_JSON_PROMPT_IDS = frozenset(
     {
         PromptId.PROCESS_COMPILATION,

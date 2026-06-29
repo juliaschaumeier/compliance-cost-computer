@@ -366,7 +366,7 @@ def _parse_process_steps(
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid process_step_analysis payload",
-        required_any_keys=("prozesse", "fallgruppen"),
+        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":

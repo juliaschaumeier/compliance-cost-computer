@@ -374,7 +374,10 @@ def test_process_step_parser_rejects_unknown_regulation_links():
     assert "Unknown vorgaben_ids in process steps" in exc_info.value.detail
 
 
-def test_process_step_parser_keeps_flattened_fallgruppen_fallback():
+def test_process_step_parser_rejects_flattened_fallgruppen_without_prozesse():
+    # #13/#25: Abgeflachte Form (oberstes `fallgruppen`, kein `prozesse`) wird
+    # mit der Envelope-Pflicht bewusst als 422 abgelehnt - einheitlich mit den
+    # uebrigen Parsern, die durchgaengig top-level `prozesse` verlangen.
     _session_id, _process_id, _regulation_id, case_group_id, context = (
         _seed_process_step_context("PARSER-STEPS-FALLBACK")
     )
@@ -391,14 +394,18 @@ def test_process_step_parser_keeps_flattened_fallgruppen_fallback():
     }}
     """
 
-    parsed, fallback_kinds = process_steps_router.parse_process_step_analysis_answer(
-        response_text=payload,
-        norm_addressee=ADMINISTRATION,
-        context=context,
-    )
+    with pytest.raises(HTTPException) as exc_info:
+        process_steps_router.parse_process_step_analysis_answer(
+            response_text=payload,
+            norm_addressee=ADMINISTRATION,
+            context=context,
+        )
 
-    assert parsed[0]["case_group_id"] == case_group_id
-    assert "process_steps_flattened_fallgruppen" in fallback_kinds
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Invalid process_step_analysis payload: expected top-level key "
+        "'prozesse' in LLM response"
+    )
 
 
 def test_effort_parser_logs_alias_fallbacks(monkeypatch):

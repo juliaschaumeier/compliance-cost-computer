@@ -226,9 +226,6 @@ async def query_llm(
     try:
         return await _dispatch(response_format)
     except LlmQueryError as exc:
-        # Graceful fallback: Provider/Modell lehnt response_format ab (Bad
-        # Request) -> einmal ohne strukturierte JSON-Erzwingung wiederholen,
-        # statt den Workflow-Schritt scheitern zu lassen.
         if exc.status_code == 400:
             return await _dispatch(None)
         raise
