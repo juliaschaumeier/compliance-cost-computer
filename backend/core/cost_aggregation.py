@@ -196,11 +196,12 @@ def _ensure_structure_or_skip(
     response shape, keeping HTTP shaping out of the pure aggregation.
     """
     session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    addressee_is_skippable = (
+        session_has_any_regulations
+        and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
+    ) or db.has_no_process_path_for_addressee(session_id, norm_addressee)
     if not processes:
-        if (
-            session_has_any_regulations
-            and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
-        ):
+        if addressee_is_skippable:
             return True
         raise HTTPException(
             status_code=400,
@@ -211,10 +212,7 @@ def _ensure_structure_or_skip(
             ),
         )
     if not case_groups:
-        if (
-            session_has_any_regulations
-            and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
-        ):
+        if addressee_is_skippable:
             return True
         raise HTTPException(
             status_code=400,
@@ -225,10 +223,7 @@ def _ensure_structure_or_skip(
             ),
         )
     if not steps:
-        if (
-            session_has_any_regulations
-            and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
-        ):
+        if addressee_is_skippable:
             return True
         raise HTTPException(
             status_code=400,

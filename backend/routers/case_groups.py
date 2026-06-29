@@ -94,6 +94,10 @@ def build_case_group_development_prompt(
         session_id, norm_addressee
     ):
         return None, {"status": "skipped", "processes": []}
+    if not processes and db.has_no_process_path_for_addressee(
+        session_id, norm_addressee
+    ):
+        return None, {"status": "skipped", "processes": []}
     if not processes:
         raise HTTPException(status_code=400, detail="No processes for session")
     regulations = db.list_regulations_for_session_and_addressee(

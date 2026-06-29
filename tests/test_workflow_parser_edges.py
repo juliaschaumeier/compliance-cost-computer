@@ -195,6 +195,32 @@ def test_process_parser_accepts_mismatched_text_when_id_matches():
     assert parsed[0]["vorgaben"][0]["vorgaben_id"] == regulation_id
 
 
+def test_process_parser_accepts_explicit_empty_process_list():
+    _session_id, _regulation_id, context = _seed_process_context("PARSER-PROCESSES-EMPTY")
+
+    parsed, _fallbacks = processes_router.parse_process_compilation_answer(
+        response_text='{"prozesse": []}',
+        norm_addressee=ADMINISTRATION,
+        context=context,
+    )
+
+    assert parsed == []
+
+
+def test_process_parser_rejects_unusable_non_empty_process_list():
+    _session_id, _regulation_id, context = _seed_process_context("PARSER-PROCESSES-EMPTY-OBJECT")
+
+    with pytest.raises(HTTPException) as exc_info:
+        processes_router.parse_process_compilation_answer(
+            response_text='{"prozesse": [{}]}',
+            norm_addressee=ADMINISTRATION,
+            context=context,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "No processes parsed"
+
+
 def test_process_parser_rejects_duplicate_vorgaben():
     _session_id, regulation_id, context = _seed_process_context()
     payload = f"""

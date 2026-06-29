@@ -74,9 +74,20 @@ def parse_process_compilation_answer(
 ) -> tuple[list[dict], set[str]]:
     processes, fallback_kinds = _parse_processes(response_text, norm_addressee)
     if not processes:
+        if _is_explicit_empty_process_list(response_text):
+            return [], fallback_kinds
         raise HTTPException(status_code=422, detail="No processes parsed")
     _validate_vorgaben(processes, context["regulation_lookup"])
     return processes, fallback_kinds
+
+
+def _is_explicit_empty_process_list(payload: str) -> bool:
+    data, _parse_mode = require_json_object(
+        payload,
+        error_context="process compilation",
+        required_top_level_key="prozesse",
+    )
+    return data.get("prozesse") == []
 
 
 def apply_process_compilation(

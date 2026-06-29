@@ -78,6 +78,10 @@ def build_process_step_analysis_prompt(
         session_id, norm_addressee
     ):
         return None, {"status": "skipped", "case_groups": []}
+    if not case_groups and db.has_no_process_path_for_addressee(
+        session_id, norm_addressee
+    ):
+        return None, {"status": "skipped", "case_groups": []}
     if not case_groups:
         raise HTTPException(status_code=400, detail="No case groups for session")
 

@@ -155,7 +155,7 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
     assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
 
 
-def test_process_compilation_prompt_requires_placeholder_for_no_own_action():
+def test_process_compilation_prompt_does_not_require_placeholder_for_no_own_action():
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
         law_summary="Kurzfassung",
@@ -163,10 +163,10 @@ def test_process_compilation_prompt_requires_placeholder_for_no_own_action():
         norm_addressee=CITIZENS,
     )
 
-    assert "statt `prozesse` leer zu lassen" in prompt
-    assert "Platzhalter-Prozess" in prompt
-    assert "Keine eigenstaendige Buergerpflicht oder Handlung" in prompt
-    assert "Verknuepfen Sie darin die betroffene `vorgaben_id`" in prompt
+    assert "statt `prozesse` leer zu lassen" not in prompt
+    assert "Platzhalter-Prozess" not in prompt
+    assert "Keine eigenstaendige Buergerpflicht oder Handlung" not in prompt
+    assert "Verknuepfen Sie darin die betroffene `vorgaben_id`" not in prompt
 
 
 def test_case_group_development_prompt_includes_verbatim_handbook_example():
