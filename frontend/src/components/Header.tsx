@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import EaEditDrawerShell from "@/components/ea_edit/EaEditDrawerShell";
 import ModelSelector from "@/components/ModelSelector";
@@ -10,6 +10,12 @@ export default function Header() {
   const { state, setSelectedNormAddressee } = useApp();
   const [eaEditOpen, setEaEditOpen] = useState(false);
   const canOpenEditor = state.totalCostReady;
+
+  useEffect(() => {
+    if (!canOpenEditor) {
+      setEaEditOpen(false);
+    }
+  }, [canOpenEditor]);
 
   return (
     <header className="border-b border-white/20 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 text-white shadow-xl">

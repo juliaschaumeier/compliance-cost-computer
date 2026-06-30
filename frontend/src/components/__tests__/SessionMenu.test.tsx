@@ -222,6 +222,34 @@ describe("SessionMenu", () => {
     expect(mockUndoLastStep).toHaveBeenCalledWith("ABC123");
   });
 
+  it("shows the activity conflict reason when undo is blocked by EA editing", async () => {
+    const error = new Error("Conflict") as Error & {
+      status?: number;
+      details?: unknown;
+    };
+    error.status = 409;
+    error.details = {
+      error: "session_activity_conflict",
+      active_type: "ea_edit",
+      message:
+        "Diese Aktion ist während einer laufenden EA-Bearbeitung in derselben Session nicht möglich. Bitte die Bearbeitung zuerst abschließen.",
+    };
+    mockUndoLastStep.mockRejectedValueOnce(error);
+    const user = await openMenu();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /aufwand berechnen/i,
+      })
+    );
+
+    expect(
+      await screen.findByText(
+        /laufenden ea-bearbeitung in derselben session nicht möglich/i
+      )
+    ).toBeInTheDocument();
+  });
+
   it("prepares pending uploads before starting run-all", async () => {
     mockUseApp.mockReturnValue({
       state: {

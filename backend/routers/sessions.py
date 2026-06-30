@@ -51,6 +51,15 @@ from backend.core.norm_addressees import SUPPORTED_NORM_ADDRESSEES
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.request_context import get_request_context
+from backend.core.session_activity import (
+    EA_EDIT_LEASE_SECONDS,
+    SessionActivityConflict,
+    SessionActivityUnavailable,
+    WORKFLOW_LEASE_SECONDS,
+    begin_session_activity,
+    refresh_session_activity,
+    release_session_activity,
+)
 from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
@@ -63,6 +72,11 @@ from backend.routers._llm_router_utils import (
 )
 from backend.routers._edit_validation import validate_wage_source_kind
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
+from backend.routers._session_activity_guard import (
+    guarded_session_activity,
+    raise_session_activity_conflict,
+    raise_session_activity_unavailable,
+)
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -140,6 +154,7 @@ class SessionStatusResponse(BaseModel):
 class SessionPayRatesUpdateRequest(BaseModel):
     app_session_id: AppSessionId
     norm_addressee: str | None = None
+    ea_activity_id: str | None = None
     administration_level: str | None = None
     edited_a: float | None
     edited_b: float | None
@@ -175,6 +190,7 @@ class SessionWageRatesResponse(BaseModel):
 class SessionWageRateUpdateRequest(BaseModel):
     app_session_id: AppSessionId
     norm_addressee: str | None = None
+    ea_activity_id: str | None = None
     wage_source_kind: str
     wage_source_value: str
     qualification: str
@@ -199,12 +215,25 @@ class SessionEditAuditResponse(BaseModel):
 
 class SessionEaEditResetRequest(BaseModel):
     app_session_id: AppSessionId
+    ea_activity_id: str | None = None
 
 
 class SessionEaEditResetResponse(BaseModel):
     app_session_id: str
     reset_counts: dict[str, int]
     recomputed_norm_addressees: list[str]
+
+
+class SessionEaEditActivityRequest(BaseModel):
+    app_session_id: AppSessionId
+    activity_id: str | None = None
+
+
+class SessionEaEditActivityResponse(BaseModel):
+    app_session_id: str
+    activity_id: str
+    lease_seconds: float
+    expires_at: float | None = None
 
 
 class CaseGroupResearchSettingsRequest(BaseModel):
@@ -2053,6 +2082,85 @@ async def session_status(
     return _as_session_status_response(app_session_id)
 
 
+def _session_id_or_404(app_session_id: str) -> int:
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session_id
+
+
+def _ensure_ea_edit_allowed(app_session_id: str) -> None:
+    status = db.get_session_status(app_session_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not bool(status.get("total_cost_ready")):
+        raise HTTPException(
+            status_code=409,
+            detail="EA-Bearbeitung ist erst nach berechneten Gesamtkosten möglich.",
+        )
+
+
+@router.post("/ea-edit-activity/acquire", response_model=SessionEaEditActivityResponse)
+async def acquire_ea_edit_activity(
+    payload: SessionEaEditActivityRequest,
+) -> SessionEaEditActivityResponse:
+    session_id = _session_id_or_404(payload.app_session_id)
+    _ensure_ea_edit_allowed(payload.app_session_id)
+    try:
+        activity = begin_session_activity(
+            session_id=session_id,
+            activity_type="ea_edit",
+            label="EA bearbeiten",
+            ttl_seconds=EA_EDIT_LEASE_SECONDS,
+        )
+    except SessionActivityConflict as exc:
+        raise_session_activity_conflict(exc)
+    except SessionActivityUnavailable as exc:
+        raise_session_activity_unavailable(exc)
+    return SessionEaEditActivityResponse(
+        app_session_id=payload.app_session_id,
+        activity_id=activity.activity_id,
+        lease_seconds=EA_EDIT_LEASE_SECONDS,
+        expires_at=activity.expires_at,
+    )
+
+
+@router.post("/ea-edit-activity/heartbeat", response_model=SessionEaEditActivityResponse)
+async def heartbeat_ea_edit_activity(
+    payload: SessionEaEditActivityRequest,
+) -> SessionEaEditActivityResponse:
+    session_id = _session_id_or_404(payload.app_session_id)
+    try:
+        activity = refresh_session_activity(
+            session_id=session_id,
+            activity_id=payload.activity_id or "",
+            activity_type="ea_edit",
+            ttl_seconds=EA_EDIT_LEASE_SECONDS,
+        )
+    except SessionActivityConflict as exc:
+        raise_session_activity_conflict(exc)
+    except SessionActivityUnavailable as exc:
+        raise_session_activity_unavailable(exc)
+    return SessionEaEditActivityResponse(
+        app_session_id=payload.app_session_id,
+        activity_id=activity.activity_id,
+        lease_seconds=EA_EDIT_LEASE_SECONDS,
+        expires_at=activity.expires_at,
+    )
+
+
+@router.post("/ea-edit-activity/release")
+async def release_ea_edit_activity(payload: SessionEaEditActivityRequest) -> dict:
+    session_id = _session_id_or_404(payload.app_session_id)
+    if payload.activity_id:
+        release_session_activity(
+            session_id=session_id,
+            activity_id=payload.activity_id,
+            activity_type="ea_edit",
+        )
+    return {"ok": True}
+
+
 @router.get("/pay-rates", response_model=SessionPayRatesResponse)
 async def session_pay_rates(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
@@ -2069,20 +2177,26 @@ async def session_pay_rates_update(
     session_id = db.get_session_id_by_app_id(payload.app_session_id)
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    try:
-        changed = db.update_session_pay_rate_edits_for_addressee(
-            session_id=session_id,
-            norm_addressee=normalize_norm_addressee_or_422(payload.norm_addressee),
-            administration_level=payload.administration_level,
-            edited={
-                "a": payload.edited_a,
-                "b": payload.edited_b,
-                "c": payload.edited_c,
-                "d": payload.edited_d,
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    async with guarded_session_activity(
+        session_id=session_id,
+        activity_type="ea_edit",
+        label="EA bearbeiten",
+        owner_activity_id=payload.ea_activity_id,
+    ):
+        try:
+            changed = db.update_session_pay_rate_edits_for_addressee(
+                session_id=session_id,
+                norm_addressee=normalize_norm_addressee_or_422(payload.norm_addressee),
+                administration_level=payload.administration_level,
+                edited={
+                    "a": payload.edited_a,
+                    "b": payload.edited_b,
+                    "c": payload.edited_c,
+                    "d": payload.edited_d,
+                },
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not changed:
         raise HTTPException(status_code=422, detail="No changes in payload")
     return _as_session_pay_rates_response(
@@ -2138,14 +2252,20 @@ async def session_wage_rates_update(
                     f"{payload.qualification!r} for {resolved!r}"
                 ),
             )
-    changed = db.upsert_session_wage_rate_override(
+    async with guarded_session_activity(
         session_id=session_id,
-        norm_addressee=resolved,
-        wage_source_kind=payload.wage_source_kind,
-        wage_source_value=payload.wage_source_value,
-        qualification=payload.qualification,
-        hourly_rate_edited=payload.hourly_rate_edited,
-    )
+        activity_type="ea_edit",
+        label="EA bearbeiten",
+        owner_activity_id=payload.ea_activity_id,
+    ):
+        changed = db.upsert_session_wage_rate_override(
+            session_id=session_id,
+            norm_addressee=resolved,
+            wage_source_kind=payload.wage_source_kind,
+            wage_source_value=payload.wage_source_value,
+            qualification=payload.qualification,
+            hourly_rate_edited=payload.hourly_rate_edited,
+        )
     if not changed:
         raise HTTPException(status_code=422, detail="No changes in payload")
     return _as_session_wage_rates_response(payload.app_session_id, session_id, resolved)
@@ -2170,20 +2290,26 @@ async def reset_session_ea_edits(
     session_id = db.get_session_id_by_app_id(payload.app_session_id)
     if session_id is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    status = db.get_session_status(payload.app_session_id) or {}
-    ready_by_addressee = status.get("total_cost_ready_by_addressee")
-    if not isinstance(ready_by_addressee, dict):
-        ready_by_addressee = {}
-    reset_counts = db.reset_all_ea_edit_overrides(session_id)
-    recomputed: list[str] = []
-    for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
-        if not bool(ready_by_addressee.get(norm_addressee)):
-            continue
-        costs_router.compute_total_cost_for_session(
-            app_session_id=payload.app_session_id,
-            norm_addressee=norm_addressee,
-        )
-        recomputed.append(norm_addressee)
+    async with guarded_session_activity(
+        session_id=session_id,
+        activity_type="ea_edit",
+        label="EA bearbeiten",
+        owner_activity_id=payload.ea_activity_id,
+    ):
+        status = db.get_session_status(payload.app_session_id) or {}
+        ready_by_addressee = status.get("total_cost_ready_by_addressee")
+        if not isinstance(ready_by_addressee, dict):
+            ready_by_addressee = {}
+        reset_counts = db.reset_all_ea_edit_overrides(session_id)
+        recomputed: list[str] = []
+        for norm_addressee in SUPPORTED_NORM_ADDRESSEES:
+            if not bool(ready_by_addressee.get(norm_addressee)):
+                continue
+            costs_router.compute_total_cost_for_session(
+                app_session_id=payload.app_session_id,
+                norm_addressee=norm_addressee,
+            )
+            recomputed.append(norm_addressee)
     return SessionEaEditResetResponse(
         app_session_id=payload.app_session_id,
         reset_counts=reset_counts,
@@ -2957,8 +3083,14 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     if not step:
         return SessionUndoResponse(status="no-op", message="No completed steps")
 
-    with db.transaction():
-        undo_step(session_id, step.key)
+    async with guarded_session_activity(
+        session_id=session_id,
+        activity_type="workflow",
+        label=f"{step.label} zurücksetzen",
+        ttl_seconds=WORKFLOW_LEASE_SECONDS,
+    ):
+        with db.transaction():
+            undo_step(session_id, step.key)
 
     return SessionUndoResponse(
         status="ok",
@@ -3007,88 +3139,98 @@ async def _mark_background_run_terminal(
     await _trim_finished_runs()
 
 
+def _release_workflow_activity(session_id: int | None, activity_id: str) -> None:
+    if session_id is not None:
+        db.clear_session_activity(session_id, activity_id)
+
+
 async def _run_all_background(
     run_id: str,
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    workflow_activity_id: str,
 ) -> None:
-    trace_token = None
-    if llm_trace.trace_enabled_by_env():
-        trace_token = llm_trace.start_run(
-            request_id=run_id,
-            route_method="BACKGROUND",
-            route_path=f"/sessions/{payload.app_session_id}/run-all",
-            app_session_id=payload.app_session_id,
-        )
-    lock = _get_run_all_lock(payload.app_session_id)
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
     try:
-        start_record = await _get_run_record(run_id)
+        trace_token = None
+        if llm_trace.trace_enabled_by_env():
+            trace_token = llm_trace.start_run(
+                request_id=run_id,
+                route_method="BACKGROUND",
+                route_path=f"/sessions/{payload.app_session_id}/run-all",
+                app_session_id=payload.app_session_id,
+            )
+        lock = _get_run_all_lock(payload.app_session_id)
+        try:
+            start_record = await _get_run_record(run_id)
+            await _publish_run_event(
+                run_id,
+                "snapshot",
+                _run_snapshot_payload(start_record),
+            )
+            async with lock:
+                steps, final_status, ok = await _execute_run_all_steps(
+                    payload=payload,
+                    api_keys=api_keys,
+                    model=model,
+                    event_hook=lambda event, data: _publish_run_event(run_id, event, data),
+                )
+        except asyncio.CancelledError:
+            _promote_effort_answers_for_retry(payload.app_session_id)
+            await _mark_background_run_terminal(
+                run_id=run_id,
+                app_session_id=payload.app_session_id,
+                status="cancelled",
+                event_name="run_cancelled",
+                message="Run cancelled by user",
+            )
+            if trace_token is not None:
+                try:
+                    llm_trace.flush_run(trace_token, status_code=499)
+                except Exception:
+                    pass
+            return
+        except Exception as exc:
+            await _mark_background_run_terminal(
+                run_id=run_id,
+                app_session_id=payload.app_session_id,
+                status="failed",
+                event_name="run_failed",
+                message=_step_error_message(exc),
+            )
+            if trace_token is not None:
+                try:
+                    llm_trace.flush_run(trace_token, status_code=500)
+                except Exception:
+                    pass
+            return
+
+        async with _RUN_REGISTRY_LOCK:
+            record = _RUNS_BY_ID.get(run_id)
+            if record is not None:
+                record.steps = steps
+                record.final_status = final_status
+                record.ok = ok
+                record.status = "completed" if ok else "failed"
+                record.updated_at = time.time()
+                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
+                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
+
+        record_after = await _get_run_record(run_id)
         await _publish_run_event(
             run_id,
             "snapshot",
-            _run_snapshot_payload(start_record),
+            _run_snapshot_payload(record_after),
         )
-        async with lock:
-            steps, final_status, ok = await _execute_run_all_steps(
-                payload=payload,
-                api_keys=api_keys,
-                model=model,
-                event_hook=lambda event, data: _publish_run_event(run_id, event, data),
-            )
-    except asyncio.CancelledError:
-        _promote_effort_answers_for_retry(payload.app_session_id)
-        await _mark_background_run_terminal(
-            run_id=run_id,
-            app_session_id=payload.app_session_id,
-            status="cancelled",
-            event_name="run_cancelled",
-            message="Run cancelled by user",
-        )
+        await _trim_finished_runs()
         if trace_token is not None:
             try:
-                llm_trace.flush_run(trace_token, status_code=499)
+                llm_trace.flush_run(trace_token, status_code=200 if ok else 500)
             except Exception:
                 pass
-        return
-    except Exception as exc:
-        await _mark_background_run_terminal(
-            run_id=run_id,
-            app_session_id=payload.app_session_id,
-            status="failed",
-            event_name="run_failed",
-            message=_step_error_message(exc),
-        )
-        if trace_token is not None:
-            try:
-                llm_trace.flush_run(trace_token, status_code=500)
-            except Exception:
-                pass
-        return
-
-    async with _RUN_REGISTRY_LOCK:
-        record = _RUNS_BY_ID.get(run_id)
-        if record is not None:
-            record.steps = steps
-            record.final_status = final_status
-            record.ok = ok
-            record.status = "completed" if ok else "failed"
-            record.updated_at = time.time()
-            if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-
-    record_after = await _get_run_record(run_id)
-    await _publish_run_event(
-        run_id,
-        "snapshot",
-        _run_snapshot_payload(record_after),
-    )
-    await _trim_finished_runs()
-    if trace_token is not None:
-        try:
-            llm_trace.flush_run(trace_token, status_code=200 if ok else 500)
-        except Exception:
-            pass
+    finally:
+        _release_workflow_activity(session_id, workflow_activity_id)
 
 
 async def _run_single_step_background(
@@ -3097,61 +3239,66 @@ async def _run_single_step_background(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    workflow_activity_id: str,
 ) -> None:
-    lock = _get_run_all_lock(payload.app_session_id)
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
     try:
-        start_record = await _get_run_record(run_id)
+        lock = _get_run_all_lock(payload.app_session_id)
+        try:
+            start_record = await _get_run_record(run_id)
+            await _publish_run_event(
+                run_id,
+                "snapshot",
+                _run_snapshot_payload(start_record),
+            )
+            async with lock:
+                steps, final_status, ok = await _execute_single_step(
+                    step_key=step_key,
+                    payload=payload,
+                    api_keys=api_keys,
+                    model=model,
+                    event_hook=lambda event, data: _publish_run_event(run_id, event, data),
+                )
+        except asyncio.CancelledError:
+            _promote_effort_answers_for_retry(payload.app_session_id)
+            await _mark_background_run_terminal(
+                run_id=run_id,
+                app_session_id=payload.app_session_id,
+                status="cancelled",
+                event_name="run_cancelled",
+                message="Run cancelled by user",
+            )
+            return
+        except Exception as exc:
+            await _mark_background_run_terminal(
+                run_id=run_id,
+                app_session_id=payload.app_session_id,
+                status="failed",
+                event_name="run_failed",
+                message=_step_error_message(exc),
+            )
+            return
+
+        async with _RUN_REGISTRY_LOCK:
+            record = _RUNS_BY_ID.get(run_id)
+            if record is not None:
+                record.steps = steps
+                record.final_status = final_status
+                record.ok = ok
+                record.status = "completed" if ok else "failed"
+                record.updated_at = time.time()
+                if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
+                    _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
+
+        record_after = await _get_run_record(run_id)
         await _publish_run_event(
             run_id,
             "snapshot",
-            _run_snapshot_payload(start_record),
+            _run_snapshot_payload(record_after),
         )
-        async with lock:
-            steps, final_status, ok = await _execute_single_step(
-                step_key=step_key,
-                payload=payload,
-                api_keys=api_keys,
-                model=model,
-                event_hook=lambda event, data: _publish_run_event(run_id, event, data),
-            )
-    except asyncio.CancelledError:
-        _promote_effort_answers_for_retry(payload.app_session_id)
-        await _mark_background_run_terminal(
-            run_id=run_id,
-            app_session_id=payload.app_session_id,
-            status="cancelled",
-            event_name="run_cancelled",
-            message="Run cancelled by user",
-        )
-        return
-    except Exception as exc:
-        await _mark_background_run_terminal(
-            run_id=run_id,
-            app_session_id=payload.app_session_id,
-            status="failed",
-            event_name="run_failed",
-            message=_step_error_message(exc),
-        )
-        return
-
-    async with _RUN_REGISTRY_LOCK:
-        record = _RUNS_BY_ID.get(run_id)
-        if record is not None:
-            record.steps = steps
-            record.final_status = final_status
-            record.ok = ok
-            record.status = "completed" if ok else "failed"
-            record.updated_at = time.time()
-            if _ACTIVE_RUN_BY_SESSION.get(record.app_session_id) == run_id:
-                _ACTIVE_RUN_BY_SESSION.pop(record.app_session_id, None)
-
-    record_after = await _get_run_record(run_id)
-    await _publish_run_event(
-        run_id,
-        "snapshot",
-        _run_snapshot_payload(record_after),
-    )
-    await _trim_finished_runs()
+        await _trim_finished_runs()
+    finally:
+        _release_workflow_activity(session_id, workflow_activity_id)
 
 
 @router.post("/step-runs/start", response_model=SessionRunAllStartResponse)
@@ -3165,6 +3312,7 @@ async def start_step_run(
         payload.app_session_id,
         payload.model,
     )
+    workflow_activity_id: str | None = None
 
     async with _RUN_REGISTRY_LOCK:
         active_run_id = _ACTIVE_RUN_BY_SESSION.get(payload.app_session_id)
@@ -3178,6 +3326,19 @@ async def start_step_run(
                     status="running",
                 )
             _ACTIVE_RUN_BY_SESSION.pop(payload.app_session_id, None)
+
+        try:
+            workflow_activity = begin_session_activity(
+                session_id=_session_id,
+                activity_type="workflow",
+                label=RUN_ALL_STEP_BY_KEY[payload.step_key][0],
+                ttl_seconds=WORKFLOW_LEASE_SECONDS,
+            )
+            workflow_activity_id = workflow_activity.activity_id
+        except SessionActivityConflict as exc:
+            raise_session_activity_conflict(exc)
+        except SessionActivityUnavailable as exc:
+            raise_session_activity_unavailable(exc)
 
         run_id = uuid.uuid4().hex
         record = _RunRecord(
@@ -3201,6 +3362,7 @@ async def start_step_run(
             run_payload,
             api_keys,
             model,
+            workflow_activity_id,
         )
     )
     async with _RUN_REGISTRY_LOCK:
@@ -3242,6 +3404,7 @@ async def start_run_all_steps(
         payload.app_session_id,
         payload.model,
     )
+    workflow_activity_id: str | None = None
 
     async with _RUN_REGISTRY_LOCK:
         active_run_id = _ACTIVE_RUN_BY_SESSION.get(payload.app_session_id)
@@ -3256,6 +3419,19 @@ async def start_run_all_steps(
                 )
             _ACTIVE_RUN_BY_SESSION.pop(payload.app_session_id, None)
 
+        try:
+            workflow_activity = begin_session_activity(
+                session_id=_session_id,
+                activity_type="workflow",
+                label="Alle Schritte ausführen",
+                ttl_seconds=WORKFLOW_LEASE_SECONDS,
+            )
+            workflow_activity_id = workflow_activity.activity_id
+        except SessionActivityConflict as exc:
+            raise_session_activity_conflict(exc)
+        except SessionActivityUnavailable as exc:
+            raise_session_activity_unavailable(exc)
+
         run_id = uuid.uuid4().hex
         record = _RunRecord(
             run_id=run_id,
@@ -3264,7 +3440,9 @@ async def start_run_all_steps(
         _RUNS_BY_ID[run_id] = record
         _ACTIVE_RUN_BY_SESSION[payload.app_session_id] = run_id
 
-    task = asyncio.create_task(_run_all_background(run_id, payload, api_keys, model))
+    task = asyncio.create_task(
+        _run_all_background(run_id, payload, api_keys, model, workflow_activity_id)
+    )
     async with _RUN_REGISTRY_LOCK:
         active = _RUNS_BY_ID.get(run_id)
         if active is not None:

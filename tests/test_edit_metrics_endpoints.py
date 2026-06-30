@@ -1,6 +1,7 @@
 import json
 
 from backend.core import db
+from tests.activity_helpers import ea_payload_for_session
 
 
 def _seed_case_group(session_id: int) -> tuple[int, int]:
@@ -44,14 +45,14 @@ def test_sessions_pay_rates_get_and_post(test_client):
 
     post_response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-RATES",
             "administration_level": "bund",
             "edited_a": 99.5,
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert post_response.status_code == 200
     updated = post_response.json()
@@ -73,17 +74,17 @@ def test_sessions_pay_rates_get_and_post(test_client):
 
 
 def test_sessions_pay_rates_reject_unknown_level(test_client):
-    db.upsert_session("EDIT-RATES-UNKNOWN", "test-model")
+    session_id, _ = db.upsert_session("EDIT-RATES-UNKNOWN", "test-model")
     response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-RATES-UNKNOWN",
             "administration_level": "invalid-level",
             "edited_a": None,
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert response.status_code == 422
     assert "Unknown administration_level" in response.json()["detail"]
@@ -108,7 +109,7 @@ def test_sessions_pay_rates_support_business_overrides(test_client):
 
     post_response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-RATES-BUSINESS",
             "norm_addressee": "business",
             "administration_level": None,
@@ -116,7 +117,7 @@ def test_sessions_pay_rates_support_business_overrides(test_client):
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert post_response.status_code == 200
     updated = post_response.json()
@@ -132,10 +133,10 @@ def test_sessions_pay_rates_support_business_overrides(test_client):
 
 
 def test_sessions_pay_rates_reject_administration_level_for_business(test_client):
-    db.upsert_session("EDIT-RATES-BUSINESS-LEVEL", "test-model")
+    session_id, _ = db.upsert_session("EDIT-RATES-BUSINESS-LEVEL", "test-model")
     response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-RATES-BUSINESS-LEVEL",
             "norm_addressee": "business",
             "administration_level": "bund",
@@ -143,14 +144,14 @@ def test_sessions_pay_rates_reject_administration_level_for_business(test_client
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert response.status_code == 422
     assert "only supported for administration" in response.json()["detail"]
 
 
 def test_sessions_pay_rates_reject_citizens_updates(test_client):
-    db.upsert_session("EDIT-RATES-CITIZENS", "test-model")
+    session_id, _ = db.upsert_session("EDIT-RATES-CITIZENS", "test-model")
 
     get_response = test_client.get(
         "/sessions/pay-rates",
@@ -167,31 +168,31 @@ def test_sessions_pay_rates_reject_citizens_updates(test_client):
 
     post_response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-RATES-CITIZENS",
             "norm_addressee": "citizens",
             "edited_a": 1.0,
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert post_response.status_code == 422
     assert "not editable" in post_response.json()["detail"]
 
 
 def test_sessions_pay_rates_reject_negative_edited_value(test_client):
-    db.upsert_session("EDIT-RATES-NEG", "test-model")
+    session_id, _ = db.upsert_session("EDIT-RATES-NEG", "test-model")
     response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-RATES-NEG",
             "administration_level": "bund",
             "edited_a": -1,
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert response.status_code == 422
     assert "must be non-negative" in response.json()["detail"]
@@ -201,14 +202,14 @@ def test_sessions_pay_rates_reject_noop_payload(test_client):
     session_id, _ = db.upsert_session("EDIT-RATES-NOOP", "test-model")
     response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-RATES-NOOP",
             "administration_level": "bund",
             "edited_a": None,
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "No changes in payload"
@@ -216,17 +217,17 @@ def test_sessions_pay_rates_reject_noop_payload(test_client):
 
 
 def test_sessions_edit_audit_returns_logged_changes(test_client):
-    db.upsert_session("EDIT-AUDIT", "test-model")
+    session_id, _ = db.upsert_session("EDIT-AUDIT", "test-model")
     update_response = test_client.post(
         "/sessions/pay-rates",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-AUDIT",
             "administration_level": "bund",
             "edited_a": 88.0,
             "edited_b": None,
             "edited_c": None,
             "edited_d": None,
-        },
+        }),
     )
     assert update_response.status_code == 200
 
@@ -266,7 +267,7 @@ def test_case_groups_editable_and_bulk_update(test_client):
 
     update_response = test_client.post(
         "/case-groups/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-CASES",
             "rows": [
                 {
@@ -277,7 +278,7 @@ def test_case_groups_editable_and_bulk_update(test_client):
                     "annual_frequency_proposed": 4,
                 }
             ],
-        },
+        }),
     )
     assert update_response.status_code == 200
     assert update_response.json()["updated"] == 1
@@ -310,10 +311,10 @@ def test_case_groups_audit_logs_effective_values(test_client):
 
     response = test_client.post(
         "/case-groups/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-CASES-AUDIT-EFFECTIVE",
             "rows": [{"case_group_id": case_group_id, "addressees_current": 13}],
-        },
+        }),
     )
     assert response.status_code == 200
 
@@ -335,7 +336,7 @@ def test_case_groups_bulk_update_rejects_negative_values(test_client):
 
     response = test_client.post(
         "/case-groups/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-CASES-NEG",
             "rows": [
                 {
@@ -343,7 +344,7 @@ def test_case_groups_bulk_update_rejects_negative_values(test_client):
                     "addressees_current": -1,
                 }
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "must be non-negative" in response.json()["detail"]
@@ -358,10 +359,10 @@ def test_case_groups_editable_rejects_invalid_app_session_id(test_client):
 
 
 def test_case_groups_bulk_update_rejects_unknown_case_group_ids(test_client):
-    db.upsert_session("EDIT-CASES-MISSING", "test-model")
+    session_id, _ = db.upsert_session("EDIT-CASES-MISSING", "test-model")
     response = test_client.post(
         "/case-groups/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-CASES-MISSING",
             "rows": [
                 {
@@ -369,7 +370,7 @@ def test_case_groups_bulk_update_rejects_unknown_case_group_ids(test_client):
                     "addressees_current": 1,
                 }
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "Unknown case_group_id values for this session" in response.json()["detail"]
@@ -378,11 +379,11 @@ def test_case_groups_bulk_update_rejects_unknown_case_group_ids(test_client):
 def test_case_groups_bulk_update_rejects_case_group_from_other_session(test_client):
     session_a_id, _ = db.upsert_session("EDIT-CASES-A", "test-model")
     _process_id, case_group_id = _seed_case_group(session_a_id)
-    db.upsert_session("EDIT-CASES-B", "test-model")
+    session_b_id, _ = db.upsert_session("EDIT-CASES-B", "test-model")
 
     response = test_client.post(
         "/case-groups/bulk-update",
-        json={
+        json=ea_payload_for_session(session_b_id, {
             "app_session_id": "EDIT-CASES-B",
             "rows": [
                 {
@@ -390,7 +391,7 @@ def test_case_groups_bulk_update_rejects_case_group_from_other_session(test_clie
                     "addressees_current": 1,
                 }
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "Unknown case_group_id values for this session" in response.json()["detail"]
@@ -401,23 +402,23 @@ def test_case_groups_bulk_update_rejects_duplicate_ids(test_client):
     _process_id, case_group_id = _seed_case_group(session_id)
     response = test_client.post(
         "/case-groups/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-CASES-DUP",
             "rows": [
                 {"case_group_id": case_group_id, "addressees_current": 1},
                 {"case_group_id": case_group_id, "addressees_current": 2},
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "Duplicate case_group_id values in payload" in response.json()["detail"]
 
 
 def test_case_groups_bulk_update_rejects_empty_rows(test_client):
-    db.upsert_session("EDIT-CASES-EMPTY", "test-model")
+    session_id, _ = db.upsert_session("EDIT-CASES-EMPTY", "test-model")
     response = test_client.post(
         "/case-groups/bulk-update",
-        json={"app_session_id": "EDIT-CASES-EMPTY", "rows": []},
+        json=ea_payload_for_session(session_id, {"app_session_id": "EDIT-CASES-EMPTY", "rows": []}),
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "rows must not be empty"
@@ -428,10 +429,10 @@ def test_case_groups_bulk_update_rejects_noop_payload(test_client):
     _process_id, case_group_id = _seed_case_group(session_id)
     response = test_client.post(
         "/case-groups/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-CASES-NOOP",
             "rows": [{"case_group_id": case_group_id}],
-        },
+        }),
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "No changes in payload"
@@ -467,7 +468,7 @@ def test_process_steps_editable_and_bulk_update(test_client):
 
     update_response = test_client.post(
         "/process-steps/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-STEPS",
             "rows": [
                 {
@@ -478,7 +479,7 @@ def test_process_steps_editable_and_bulk_update(test_client):
                     "expenses_proposed": 10,
                 }
             ],
-        },
+        }),
     )
     assert update_response.status_code == 200
     assert update_response.json()["updated"] == 1
@@ -517,10 +518,10 @@ def test_process_steps_audit_logs_effective_values(test_client):
 
     response = test_client.post(
         "/process-steps/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-STEPS-AUDIT-EFFECTIVE",
             "rows": [{"step_id": step_id, "time_required_in_min_a_current": 7}],
-        },
+        }),
     )
     assert response.status_code == 200
 
@@ -543,7 +544,7 @@ def test_process_steps_bulk_update_rejects_negative_values(test_client):
 
     response = test_client.post(
         "/process-steps/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-STEPS-NEG",
             "rows": [
                 {
@@ -551,7 +552,7 @@ def test_process_steps_bulk_update_rejects_negative_values(test_client):
                     "time_required_in_min_a_current": -2,
                 }
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "must be non-negative" in response.json()["detail"]
@@ -566,10 +567,10 @@ def test_process_steps_editable_rejects_invalid_app_session_id(test_client):
 
 
 def test_process_steps_bulk_update_rejects_unknown_step_ids(test_client):
-    db.upsert_session("EDIT-STEPS-MISSING", "test-model")
+    session_id, _ = db.upsert_session("EDIT-STEPS-MISSING", "test-model")
     response = test_client.post(
         "/process-steps/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-STEPS-MISSING",
             "rows": [
                 {
@@ -577,7 +578,7 @@ def test_process_steps_bulk_update_rejects_unknown_step_ids(test_client):
                     "time_required_in_min_a_current": 1,
                 }
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "Unknown step_id values for this session" in response.json()["detail"]
@@ -587,11 +588,11 @@ def test_process_steps_bulk_update_rejects_step_from_other_session(test_client):
     session_a_id, _ = db.upsert_session("EDIT-STEPS-A", "test-model")
     _process_id, case_group_id = _seed_case_group(session_a_id)
     step_id = _seed_step(session_a_id, case_group_id)
-    db.upsert_session("EDIT-STEPS-B", "test-model")
+    session_b_id, _ = db.upsert_session("EDIT-STEPS-B", "test-model")
 
     response = test_client.post(
         "/process-steps/bulk-update",
-        json={
+        json=ea_payload_for_session(session_b_id, {
             "app_session_id": "EDIT-STEPS-B",
             "rows": [
                 {
@@ -599,7 +600,7 @@ def test_process_steps_bulk_update_rejects_step_from_other_session(test_client):
                     "time_required_in_min_a_current": 1,
                 }
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "Unknown step_id values for this session" in response.json()["detail"]
@@ -611,23 +612,23 @@ def test_process_steps_bulk_update_rejects_duplicate_ids(test_client):
     step_id = _seed_step(session_id, case_group_id)
     response = test_client.post(
         "/process-steps/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-STEPS-DUP",
             "rows": [
                 {"step_id": step_id, "time_required_in_min_a_current": 1},
                 {"step_id": step_id, "time_required_in_min_a_current": 2},
             ],
-        },
+        }),
     )
     assert response.status_code == 422
     assert "Duplicate step_id values in payload" in response.json()["detail"]
 
 
 def test_process_steps_bulk_update_rejects_empty_rows(test_client):
-    db.upsert_session("EDIT-STEPS-EMPTY", "test-model")
+    session_id, _ = db.upsert_session("EDIT-STEPS-EMPTY", "test-model")
     response = test_client.post(
         "/process-steps/bulk-update",
-        json={"app_session_id": "EDIT-STEPS-EMPTY", "rows": []},
+        json=ea_payload_for_session(session_id, {"app_session_id": "EDIT-STEPS-EMPTY", "rows": []}),
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "rows must not be empty"
@@ -639,10 +640,10 @@ def test_process_steps_bulk_update_rejects_noop_payload(test_client):
     step_id = _seed_step(session_id, case_group_id)
     response = test_client.post(
         "/process-steps/bulk-update",
-        json={
+        json=ea_payload_for_session(session_id, {
             "app_session_id": "EDIT-STEPS-NOOP",
             "rows": [{"step_id": step_id}],
-        },
+        }),
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "No changes in payload"

@@ -60,6 +60,11 @@ def _detect_addressee_from_prompt(prompt: str) -> str:
     return ADMINISTRATION
 
 
+def _json_for_prompt(prompt: str, payload: dict) -> str:
+    payload.setdefault("normadressat", _detect_addressee_from_prompt(prompt))
+    return json.dumps(payload)
+
+
 def _personalaufwand_row(addressee: str, minutes: str) -> dict:
     """Build a single row-based personnel-effort entry for org addressees.
 
@@ -177,11 +182,12 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
             )
         return json.dumps({"title": "Kurz", "blurb": "Ein Satz."})
 
-    async def fake_processes_llm(*_args, **_kwargs):
+    async def fake_processes_llm(prompt, *_args, **_kwargs):
         session_id = db.get_session_id_by_app_id(app_session_id)
         assert session_id is not None
         regulations = db.list_regulations_for_session(session_id)
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -210,11 +216,12 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
             }
         )
 
-    async def fake_case_groups_llm(*_args, **_kwargs):
+    async def fake_case_groups_llm(prompt, *_args, **_kwargs):
         session_id = db.get_session_id_by_app_id(app_session_id)
         assert session_id is not None
         processes = db.list_processes_for_session(session_id)
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -243,12 +250,13 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
             }
         )
 
-    async def fake_steps_llm(*_args, **_kwargs):
+    async def fake_steps_llm(prompt, *_args, **_kwargs):
         session_id = db.get_session_id_by_app_id(app_session_id)
         assert session_id is not None
         processes = db.list_processes_for_session(session_id)
         case_groups = db.list_case_groups_for_session(session_id)
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -297,7 +305,8 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
         for step in steps:
             steps_by_group.setdefault(int(step["case_group_id"]), []).append(step)
         if not _is_effort_prompt(prompt):
-            return json.dumps(
+            return _json_for_prompt(
+                prompt,
                 {
                     "prozesse": [
                         {
@@ -347,7 +356,8 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
                     "taetigkeiten": taetigkeiten,
                 }
             )
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -403,7 +413,8 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         regulations = db.list_regulations_for_session_and_addressee(session_id, addressee)
         assert len(regulations) == 1
         regulation = regulations[0]
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -428,7 +439,8 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         assert len(processes) == 1
         process = processes[0]
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -454,7 +466,8 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         assert len(processes) == 1
         assert len(case_groups) == 1
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -486,7 +499,8 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         assert len(case_groups) == 1
         assert len(steps) == 1
         if not _is_effort_prompt(prompt):
-            return json.dumps(
+            return _json_for_prompt(
+                prompt,
                 {
                     "prozesse": [
                         {
@@ -520,7 +534,8 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
                 ],
                 "sachaufwand_vorschlag": "10",
             }
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -567,7 +582,8 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
         regulations = db.list_regulations_for_session_and_addressee(session_id, addressee)
         assert len(regulations) == 1
         regulation = regulations[0]
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -592,7 +608,8 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
         processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         assert len(processes) == 1
         process = processes[0]
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -618,7 +635,8 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         assert len(processes) == 1
         assert len(case_groups) == 1
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {
@@ -650,7 +668,8 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
         assert len(case_groups) == 1
         assert len(steps) == 1
         if not _is_effort_prompt(prompt):
-            return json.dumps(
+            return _json_for_prompt(
+                prompt,
                 {
                     "prozesse": [
                         {
@@ -666,7 +685,8 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
                     ]
                 }
             )
-        return json.dumps(
+        return _json_for_prompt(
+            prompt,
             {
                 "prozesse": [
                     {

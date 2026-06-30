@@ -11,12 +11,14 @@ type UseDebouncedSessionRecomputeOptions = {
   // Required: without it /costs/compute silently defaults to administration, so an
   // edit of another addressee would recompute the wrong total. Enforced, not optional.
   normAddressee: NormAddressee;
+  eaActivityId: string | null;
   debounceMs?: number;
 };
 
 export function useDebouncedSessionRecompute({
   appSessionId,
   normAddressee,
+  eaActivityId,
   debounceMs = 400,
 }: UseDebouncedSessionRecomputeOptions) {
   const [recomputeStatus, setRecomputeStatus] = useState<string | null>(null);
@@ -65,7 +67,11 @@ export function useDebouncedSessionRecompute({
       return;
     }
     const request = (async () => {
-      await apiClient.computeTotalCost({ appSessionId, normAddressee });
+      await apiClient.computeTotalCost({
+        appSessionId,
+        normAddressee,
+        eaActivityId: eaActivityId ?? undefined,
+      });
       window.dispatchEvent(new Event("tiles-updated"));
     })();
     recomputeInFlightRef.current = request;
@@ -80,7 +86,7 @@ export function useDebouncedSessionRecompute({
     } finally {
       recomputeInFlightRef.current = null;
     }
-  }, [appSessionId, normAddressee, waitForDebounce]);
+  }, [appSessionId, normAddressee, eaActivityId, waitForDebounce]);
 
   return {
     recomputeStatus,

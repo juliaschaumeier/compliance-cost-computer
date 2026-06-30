@@ -125,7 +125,13 @@ async function parseErrorPayload(response: Response): Promise<{
 }
 
 function resolveDetailMessage(detail: unknown, rawText: string): string | null {
-  return (typeof detail === "string" ? detail : null) || rawText || null;
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (isRecord(detail) && typeof detail.message === "string") {
+    return detail.message;
+  }
+  return rawText || null;
 }
 
 function extractDetailError(detail: unknown): string | null {
@@ -636,9 +642,66 @@ export const apiClient = {
     }
     return response.json();
   },
-  async computeTotalCost(
-    options: { appSessionId: string; normAddressee?: NormAddressee }
-  ): Promise<TotalCostResponse> {
+  async acquireEaEditActivity(options: {
+    appSessionId: string;
+  }): Promise<{ app_session_id: string; activity_id: string; lease_seconds: number; expires_at?: number | null }> {
+    const response = await fetch(`${API_BASE_URL}/sessions/ea-edit-activity/acquire`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to acquire EA edit activity");
+    }
+    return response.json();
+  },
+  async heartbeatEaEditActivity(options: {
+    appSessionId: string;
+    activityId: string;
+  }): Promise<{ app_session_id: string; activity_id: string; lease_seconds: number; expires_at?: number | null }> {
+    const response = await fetch(`${API_BASE_URL}/sessions/ea-edit-activity/heartbeat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        activity_id: options.activityId,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to refresh EA edit activity");
+    }
+    return response.json();
+  },
+  async releaseEaEditActivity(options: {
+    appSessionId: string;
+    activityId: string;
+  }): Promise<{ ok: boolean }> {
+    const response = await fetch(`${API_BASE_URL}/sessions/ea-edit-activity/release`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_session_id: options.appSessionId,
+        activity_id: options.activityId,
+      }),
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to release EA edit activity");
+    }
+    return response.json();
+  },
+  async computeTotalCost(options: {
+    appSessionId: string;
+    normAddressee?: NormAddressee;
+    eaActivityId?: string;
+  }): Promise<TotalCostResponse> {
     const response = await fetch(`${API_BASE_URL}/costs/compute`, {
       method: "POST",
       headers: {
@@ -647,6 +710,7 @@ export const apiClient = {
       body: JSON.stringify({
         app_session_id: options.appSessionId,
         norm_addressee: options.normAddressee,
+        ea_activity_id: options.eaActivityId,
       }),
     });
     if (!response.ok) {
@@ -657,6 +721,7 @@ export const apiClient = {
 
   async resetSessionEaEdits(options: {
     appSessionId: string;
+    eaActivityId?: string;
   }): Promise<{
     app_session_id: string;
     reset_counts: Record<string, number>;
@@ -669,6 +734,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        ea_activity_id: options.eaActivityId,
       }),
     });
     if (!response.ok) {
@@ -696,6 +762,7 @@ export const apiClient = {
   async updateSessionWageRate(options: {
     appSessionId: string;
     normAddressee?: NormAddressee;
+    eaActivityId?: string;
     wageSourceKind: string;
     wageSourceValue: string;
     qualification: string;
@@ -709,6 +776,7 @@ export const apiClient = {
       body: JSON.stringify({
         app_session_id: options.appSessionId,
         norm_addressee: options.normAddressee,
+        ea_activity_id: options.eaActivityId,
         wage_source_kind: options.wageSourceKind,
         wage_source_value: options.wageSourceValue,
         qualification: options.qualification,
@@ -753,6 +821,7 @@ export const apiClient = {
 
   async bulkUpdateCaseGroups(options: {
     appSessionId: string;
+    eaActivityId?: string;
     rows: Array<{
       case_group_id: number;
       addressees_current: number | null;
@@ -768,6 +837,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        ea_activity_id: options.eaActivityId,
         rows: options.rows,
       }),
     });
@@ -795,6 +865,7 @@ export const apiClient = {
 
   async bulkUpdateProcessSteps(options: {
     appSessionId: string;
+    eaActivityId?: string;
     rows: Array<{
       step_id: number;
       time_required_in_min_a_current: number | null;
@@ -816,6 +887,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        ea_activity_id: options.eaActivityId,
         rows: options.rows,
       }),
     });
@@ -827,6 +899,7 @@ export const apiClient = {
 
   async updatePersonnelEffortTime(options: {
     appSessionId: string;
+    eaActivityId?: string;
     normAddressee: NormAddressee;
     stepId: number;
     period: "current" | "proposed";
@@ -842,6 +915,7 @@ export const apiClient = {
       },
       body: JSON.stringify({
         app_session_id: options.appSessionId,
+        ea_activity_id: options.eaActivityId,
         norm_addressee: options.normAddressee,
         step_id: options.stepId,
         period: options.period,

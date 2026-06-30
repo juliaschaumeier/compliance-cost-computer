@@ -26,6 +26,7 @@ from backend.routers._edit_validation import validate_non_noop_update_count
 from backend.routers._edit_validation import validate_unique_ids
 from backend.routers._edit_validation import validate_wage_source_kind
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
+from backend.routers._session_activity_guard import guarded_session_activity
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -50,11 +51,13 @@ class ProcessStepEditRow(BaseModel):
 
 class ProcessStepBulkUpdateRequest(BaseModel):
     app_session_id: AppSessionId
+    ea_activity_id: str | None = None
     rows: list[ProcessStepEditRow]
 
 
 class PersonnelEffortTimeEditRequest(BaseModel):
     app_session_id: AppSessionId
+    ea_activity_id: str | None = None
     norm_addressee: str
     step_id: int
     period: str
@@ -262,18 +265,24 @@ async def bulk_update_process_steps(
             entity_label="step_id",
         )
         updates.append(row.model_dump())
-    with db.transaction():
-        updated, missing_ids = db.bulk_update_process_step_edits(session_id, updates)
-        if missing_ids:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Unknown step_id values for this session: "
-                    + ", ".join(str(step_id) for step_id in missing_ids)
-                ),
-            )
-        validate_non_noop_update_count(updated)
-        refresh_step_tiles(session_id, db.list_process_steps_for_session(session_id))
+    async with guarded_session_activity(
+        session_id=session_id,
+        activity_type="ea_edit",
+        label="EA bearbeiten",
+        owner_activity_id=payload.ea_activity_id,
+    ):
+        with db.transaction():
+            updated, missing_ids = db.bulk_update_process_step_edits(session_id, updates)
+            if missing_ids:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Unknown step_id values for this session: "
+                        + ", ".join(str(step_id) for step_id in missing_ids)
+                    ),
+                )
+            validate_non_noop_update_count(updated)
+            refresh_step_tiles(session_id, db.list_process_steps_for_session(session_id))
     return BulkUpdateResponse(updated=updated)
 
 
@@ -296,16 +305,22 @@ async def edit_personnel_effort_time(
             status_code=422, detail="time_required_in_min_edited must not be negative"
         )
     try:
-        updated = db.upsert_personnel_effort_time_edit(
+        async with guarded_session_activity(
             session_id=session_id,
-            norm_addressee=resolved,
-            step_id=payload.step_id,
-            period=payload.period,
-            qualification=payload.qualification,
-            wage_source_kind=payload.wage_source_kind,
-            wage_source_value=payload.wage_source_value,
-            time_required_in_min_edited=payload.time_required_in_min_edited,
-        )
+            activity_type="ea_edit",
+            label="EA bearbeiten",
+            owner_activity_id=payload.ea_activity_id,
+        ):
+            updated = db.upsert_personnel_effort_time_edit(
+                session_id=session_id,
+                norm_addressee=resolved,
+                step_id=payload.step_id,
+                period=payload.period,
+                qualification=payload.qualification,
+                wage_source_kind=payload.wage_source_kind,
+                wage_source_value=payload.wage_source_value,
+                time_required_in_min_edited=payload.time_required_in_min_edited,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     validate_non_noop_update_count(updated)

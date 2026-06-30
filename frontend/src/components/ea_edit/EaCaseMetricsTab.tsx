@@ -24,6 +24,8 @@ type EaCaseMetricsTabProps = {
   active: boolean;
   appSessionId: string;
   normAddressee: NormAddressee;
+  eaActivityId?: string | null;
+  readOnly?: boolean;
   runAutoRecompute: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -159,6 +161,8 @@ export default function EaCaseMetricsTab({
   active,
   appSessionId,
   normAddressee,
+  eaActivityId = null,
+  readOnly = false,
   runAutoRecompute,
   onDirtyChange,
 }: EaCaseMetricsTabProps) {
@@ -290,15 +294,27 @@ export default function EaCaseMetricsTab({
   );
 
   useEffect(() => {
-    onDirtyChange?.(changes.length > 0);
-  }, [changes.length, onDirtyChange]);
+    onDirtyChange?.(!readOnly && changes.length > 0);
+  }, [changes.length, onDirtyChange, readOnly]);
+
+  useEffect(() => {
+    if (!readOnly) {
+      return;
+    }
+    setDraft({});
+    setReviewMode(false);
+  }, [readOnly, setReviewMode]);
 
   const handleSave = async () => {
+    if (readOnly || changes.length === 0 || invalidCellCount > 0) {
+      return;
+    }
     try {
       await runSave(
         async () => {
           await apiClient.bulkUpdateCaseGroups({
             appSessionId,
+            eaActivityId: eaActivityId ?? undefined,
             rows: changes.map((item) => {
               const payloadRow = { case_group_id: item.row.case_group_id } as {
                 case_group_id: number;
@@ -326,7 +342,7 @@ export default function EaCaseMetricsTab({
   };
 
   const handleResetToModelValues = async () => {
-    if (rows.length === 0 || !hasEditedOverrides) {
+    if (readOnly || rows.length === 0 || !hasEditedOverrides) {
       return;
     }
     try {
@@ -334,6 +350,7 @@ export default function EaCaseMetricsTab({
         async () => {
           await apiClient.bulkUpdateCaseGroups({
             appSessionId,
+            eaActivityId: eaActivityId ?? undefined,
             rows: rows.map((row) => {
               const payloadRow = { case_group_id: row.case_group_id } as {
                 case_group_id: number;
@@ -431,6 +448,9 @@ export default function EaCaseMetricsTab({
                       : "border border-red-400 bg-red-50"
                   }`;
                 const updateField = (fieldKey: CaseFieldKey, value: string) => {
+                  if (readOnly) {
+                    return;
+                  }
                   setStatus(null);
                   setDraft((prev) => ({
                     ...prev,
@@ -450,6 +470,7 @@ export default function EaCaseMetricsTab({
                         <input
                           value={draftRow[field.key]}
                           onChange={(event) => updateField(field.key, event.target.value)}
+                          disabled={readOnly}
                           className={inputClass(draftRow[field.key])}
                         />
                         <EvidenceDisclosure
@@ -477,6 +498,7 @@ export default function EaCaseMetricsTab({
                         <input
                           value={draftRow[field.key]}
                           onChange={(event) => updateField(field.key, event.target.value)}
+                          disabled={readOnly}
                           className={inputClass(draftRow[field.key])}
                         />
                         <EvidenceDisclosure
@@ -502,14 +524,16 @@ export default function EaCaseMetricsTab({
           <div className="flex justify-end gap-2">
             <button
               onClick={handleResetToModelValues}
-              disabled={isSaving || rows.length === 0 || !hasEditedOverrides}
+              disabled={
+                isSaving || readOnly || !eaActivityId || rows.length === 0 || !hasEditedOverrides
+              }
               className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Auf Modellwerte zurücksetzen
             </button>
             <button
               onClick={() => setReviewMode(true)}
-              disabled={changes.length === 0 || invalidCellCount > 0}
+              disabled={readOnly || !eaActivityId || changes.length === 0 || invalidCellCount > 0}
               className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Prüfen
@@ -531,7 +555,13 @@ export default function EaCaseMetricsTab({
             </button>
             <button
               onClick={handleSave}
-              disabled={isSaving || changes.length === 0 || invalidCellCount > 0}
+              disabled={
+                isSaving ||
+                readOnly ||
+                !eaActivityId ||
+                changes.length === 0 ||
+                invalidCellCount > 0
+              }
               className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {isSaving ? "Speichert..." : "Änderungen speichern"}
