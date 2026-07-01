@@ -538,6 +538,63 @@ def test_effort_parser_rejects_unknown_step_id():
     assert "Unknown taetigkeiten_id values: 999" == exc_info.value.detail
 
 
+def test_effort_parser_rejects_missing_step_id_after_empty_effort_entry():
+    session_id, case_group_id, step_id, _context = _seed_effort_context(
+        "PARSER-EFFORT-MISSING-STEP"
+    )
+    missing_step_id = db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Schritt ohne Aufwand",
+        "Beschreibung Schritt ohne Aufwand",
+        norm_addressee=ADMINISTRATION,
+    )
+    context = effort_router.prepare_effort_calculation(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        skip_cases_calculation=False,
+    )
+    effort_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ]
+                }},
+                {{
+                  "taetigkeiten_id": "{missing_step_id}",
+                  "personalaufwand_gueltig": [],
+                  "personalaufwand_vorschlag": [],
+                  "sachaufwand_gueltig": "",
+                  "sachaufwand_vorschlag": ""
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort(
+            session_id=session_id,
+            context=context,
+            cases_text=_cases_payload(case_group_id),
+            effort_text=effort_text,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == f"Missing taetigkeiten_id values: {missing_step_id}"
+
+
 def test_effort_parser_rejects_citizens_roles_payload():
     session_id, case_group_id, step_id, context = _seed_effort_context(
         "PARSER-EFFORT-CITIZENS-ROLES",

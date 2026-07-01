@@ -113,6 +113,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
     appSessionId: state.appSessionId,
     normAddressee: state.selectedNormAddressee,
     eaActivityId,
+    enabled: state.totalCostReady,
     debounceMs: 400,
   });
   const {
@@ -286,7 +287,9 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
       setResetVersion((value) => value + 1);
       window.dispatchEvent(new Event("tiles-updated"));
       setResetStatus(
-        "Alle EA-Bearbeitungen wurden auf Modellwerte zurückgesetzt und die Gesamtkosten neu berechnet."
+        state.totalCostReady
+          ? "Alle EA-Bearbeitungen wurden auf Modellwerte zurückgesetzt und die Gesamtkosten neu berechnet."
+          : "Alle EA-Bearbeitungen wurden auf Modellwerte zurückgesetzt."
       );
     } catch (error) {
       logClientError("EaEditDrawerShell.resetAllEaEdits", error, {
@@ -491,7 +494,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                   Alle EA-Werte aller Normadressaten zurücksetzen?
                 </div>
                 <p className="mt-2 text-xs text-slate-600">
-                  Dies setzt Lohnsätze, Fallzahlen und Schrittkosten für alle Normadressaten dieser Session zurück. Anschließend werden die Gesamtkosten neu berechnet.
+                  Dies setzt Lohnsätze, Fallzahlen und Schrittkosten für alle Normadressaten dieser Session zurück. Wenn Gesamtkosten bereits berechnet wurden, werden sie anschließend neu berechnet.
                 </p>
                 <div className="mt-4 flex flex-wrap justify-end gap-2">
                   <button

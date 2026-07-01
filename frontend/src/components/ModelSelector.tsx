@@ -11,6 +11,7 @@ import { Model, OrganizedModels, ProviderModels } from "@/types";
 
 const emptyProvider: ProviderModels = { recommended: [], additional: [] };
 const isLikelyValidApiKey = (value: string) => value.trim().length > 10;
+const modelMenuWidth = 340;
 const flattenModels = (organized: OrganizedModels) => [
   ...organized.openai.recommended,
   ...organized.openai.additional,
@@ -71,7 +72,7 @@ export default function ModelSelector() {
   const { position: menuPos } = useAnchoredPopoverPosition({
     open,
     triggerRef,
-    width: 320,
+    width: modelMenuWidth,
     align: "right",
     offset: 12,
     padding: 12,
@@ -218,8 +219,8 @@ export default function ModelSelector() {
     <div
       ref={menuRef}
       data-testid="model-selector-modal"
-      className="fixed z-[70] w-[340px] rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-2xl"
-      style={{ top: menuPos.top, left: menuPos.left }}
+      className="fixed z-[70] rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-2xl"
+      style={{ top: menuPos.top, left: menuPos.left, width: modelMenuWidth }}
     >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">LLM-Auswahl</h3>

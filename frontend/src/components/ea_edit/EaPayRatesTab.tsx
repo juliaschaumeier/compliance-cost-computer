@@ -20,7 +20,7 @@ type EaPayRatesTabProps = {
   normAddressee: NormAddressee;
   eaActivityId?: string | null;
   readOnly?: boolean;
-  runAutoRecompute: () => Promise<void>;
+  runAutoRecompute: () => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -205,12 +205,15 @@ export default function EaPayRatesTab({
               hourlyRateEdited: parseNullableNumber(editedInputs[rowKey(row)] ?? ""),
             });
           }
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           await loadRows();
+          return recomputed;
         },
         {
-          successMessage:
-            "Lohnsätze gespeichert. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Lohnsätze gespeichert. Gesamtkosten wurden automatisch neu berechnet."
+              : "Lohnsätze gespeichert.",
           errorMessage: "Speichern fehlgeschlagen. Bitte Eingaben prüfen und erneut versuchen.",
         }
       );
@@ -237,12 +240,15 @@ export default function EaPayRatesTab({
               hourlyRateEdited: null,
             });
           }
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           await loadRows();
+          return recomputed;
         },
         {
-          successMessage:
-            "Bearbeitete Lohnsätze zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Bearbeitete Lohnsätze zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet."
+              : "Bearbeitete Lohnsätze zurückgesetzt.",
           errorMessage: "Zurücksetzen fehlgeschlagen. Bitte erneut versuchen.",
         }
       );

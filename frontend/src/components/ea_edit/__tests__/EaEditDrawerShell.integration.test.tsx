@@ -47,6 +47,7 @@ describe("EaEditDrawerShell integration", () => {
       state: {
         appSessionId: "EA-INTEGRATION",
         selectedNormAddressee: "administration",
+        totalCostReady: true,
       },
     });
     mockGetSessionWageRates.mockResolvedValue({
@@ -92,6 +93,7 @@ describe("EaEditDrawerShell integration", () => {
       state: {
         appSessionId: "EA-INTEGRATION",
         selectedNormAddressee: "business",
+        totalCostReady: true,
       },
     });
     const businessRows = [

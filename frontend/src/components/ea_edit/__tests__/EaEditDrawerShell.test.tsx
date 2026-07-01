@@ -33,7 +33,7 @@ jest.mock("@/components/ea_edit/EaPayRatesTab", () => ({
   }: {
     active: boolean;
     readOnly?: boolean;
-    runAutoRecompute: () => Promise<void>;
+    runAutoRecompute: () => Promise<boolean>;
     onDirtyChange?: (dirty: boolean) => void;
   }) =>
     active ? (
@@ -136,6 +136,7 @@ describe("EaEditDrawerShell", () => {
         appSessionId: "EA-TEST",
         selectedNormAddressee: "administration",
         isComplianceExportRunning: false,
+        totalCostReady: true,
       },
     });
   });
@@ -195,6 +196,28 @@ describe("EaEditDrawerShell", () => {
     } finally {
       window.removeEventListener("tiles-updated", onTilesUpdated);
     }
+  });
+
+  it("does not recompute totals before step 7 is ready", async () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        appSessionId: "EA-TEST",
+        selectedNormAddressee: "administration",
+        isComplianceExportRunning: false,
+        totalCostReady: false,
+      },
+    });
+    mockSuccessfulActivityAcquire();
+    render(<EaEditDrawerShell open onClose={jest.fn()} />);
+    await waitForEaActivity();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    await user.click(screen.getByRole("button", { name: /trigger recompute/i }));
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(mockComputeTotalCost).not.toHaveBeenCalled();
   });
 
   it("releases the EA activity when the drawer closes", async () => {
@@ -554,6 +577,9 @@ describe("EaEditDrawerShell", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/lohnsätze, fallzahlen und schrittkosten für alle normadressaten/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/wenn gesamtkosten bereits berechnet wurden/i)
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^zurücksetzen$/i }));

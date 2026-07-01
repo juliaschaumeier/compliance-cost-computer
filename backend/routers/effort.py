@@ -764,6 +764,15 @@ def parse_effort_calculation_outputs(
             detail="Unknown taetigkeiten_id values: " + ", ".join(missing_steps),
         )
 
+    parsed_step_ids = {int(entry["step_id"]) for entry in parsed_effort}
+    omitted_steps = sorted(step_ids - parsed_step_ids)
+    if omitted_steps:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing taetigkeiten_id values: "
+            + ", ".join(str(step_id) for step_id in omitted_steps),
+        )
+
     return parsed_cases, parsed_effort
 
 

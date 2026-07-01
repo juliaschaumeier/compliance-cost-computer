@@ -49,15 +49,22 @@ export function useEaReviewSave({ logLabel, logContext }: UseEaReviewSaveOptions
   const [status, setStatus] = useState<string | null>(null);
 
   const runSave = useCallback(
-    async (
-      saveFn: () => Promise<void>,
-      options: { successMessage: string; errorMessage: string }
+    async <TResult,>(
+      saveFn: () => Promise<TResult>,
+      options: {
+        successMessage: string | ((result: TResult) => string);
+        errorMessage: string;
+      }
     ) => {
       setIsSaving(true);
       setStatus(null);
       try {
-        await saveFn();
-        setStatus(options.successMessage);
+        const result = await saveFn();
+        setStatus(
+          typeof options.successMessage === "function"
+            ? options.successMessage(result)
+            : options.successMessage
+        );
       } catch (error) {
         logClientError(logLabel, error, logContext);
         setStatus(formatSaveErrorMessage(options.errorMessage, error));

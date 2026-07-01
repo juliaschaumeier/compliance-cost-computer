@@ -79,7 +79,7 @@ describe("TotalCostPanel", () => {
 
     expect(
       await screen.findByText(
-        /Gesamtkosten konnten fuer keinen Normadressaten berechnet werden.*Verwaltung.*Wirtschaft.*Buerger/
+        /Gesamtkosten konnten für keinen Normadressaten berechnet werden.*Verwaltung.*Wirtschaft.*Bürger/
       )
     ).toBeInTheDocument();
   });
@@ -111,7 +111,7 @@ describe("TotalCostPanel", () => {
     );
 
     expect(
-      await screen.findByText(/Teilweise berechnet.*Verwaltung.*Wirtschaft.*Buerger.*Fehler/)
+      await screen.findByText(/Teilweise berechnet.*Verwaltung.*Wirtschaft.*Bürger.*Fehler/)
     ).toBeInTheDocument();
     // totalCostReady darf bei Teilfehler NICHT auf true gesetzt werden,
     // damit der Nutzer den fehlenden NA nachziehen kann.

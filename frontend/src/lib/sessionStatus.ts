@@ -27,9 +27,17 @@ export function getVisibleFailedStepStatus(
   status: FailedStepStatusSource,
   stepKey: string,
   isStepReady: boolean,
-  activeStatusText: string | null
+  options: {
+    activeStatusText?: string | null;
+    isStepActive?: boolean;
+  } = {}
 ): string | null {
-  if (activeStatusText || isStepReady || status.lastFailedStep !== stepKey) {
+  if (
+    options.isStepActive ||
+    options.activeStatusText ||
+    isStepReady ||
+    status.lastFailedStep !== stepKey
+  ) {
     return null;
   }
   return status.lastFailedMessage || null;

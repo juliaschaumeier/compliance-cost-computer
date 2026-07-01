@@ -95,7 +95,11 @@ def build_total_cost_tile(
 ) -> Tile:
     return Tile(
         id="total_cost",
-        title="Jährliche Kosten",
+        title=(
+            "Jährlicher Aufwand"
+            if norm_addressee == CITIZENS
+            else "Jährliche Kosten"
+        ),
         text=build_total_cost_tile_text(
             norm_addressee=norm_addressee,
             total_cost=total_cost,

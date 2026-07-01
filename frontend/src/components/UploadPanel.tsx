@@ -284,7 +284,10 @@ export default function UploadPanel() {
     state,
     "summary",
     state.summaryReady,
-    visibleStepRunStatus
+    {
+      activeStatusText: visibleStepRunStatus,
+      isStepActive: stepRun.isRunning,
+    }
   );
 
   return (

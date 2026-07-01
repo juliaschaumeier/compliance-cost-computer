@@ -49,7 +49,10 @@ describe("HeaderHelpPopover", () => {
       screen.getByText(/Am Ende zeigt die App eine kompakte Übersicht/)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Über „EA bearbeiten“ können Sie anschließend/)
+      screen.getByText(/Nach „Aufwand quantifizieren“ können Sie über „EA bearbeiten“/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/nach bereits berechneten Gesamtkosten werden sie automatisch neu berechnet/)
     ).toBeInTheDocument();
     expect(
       screen.queryByText(/Nach „Gesamtkosten berechnen“/)
@@ -80,6 +83,9 @@ describe("HeaderHelpPopover", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/globale Lohnsätze, Fallzahlen und Schrittkosten/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Der Button öffnet nach „Aufwand quantifizieren“/)
     ).toBeInTheDocument();
   });
 

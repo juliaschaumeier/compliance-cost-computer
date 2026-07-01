@@ -36,7 +36,7 @@ export default function EffortPanel() {
     onCompleted: () => {
       window.dispatchEvent(new Event("tiles-updated"));
       setEffortReady(true);
-      setStatus("Aufwand fuer Verwaltung, Wirtschaft und Buerger berechnet.");
+      setStatus("Aufwand für Verwaltung, Wirtschaft und Bürger berechnet.");
       setCurrentTab(6);
     },
     onCancelled: () => {
@@ -93,7 +93,10 @@ export default function EffortPanel() {
     state,
     "effort",
     state.effortReady,
-    visibleStepRunStatus
+    {
+      activeStatusText: visibleStepRunStatus,
+      isStepActive: stepRun.isRunning,
+    }
   );
 
   return (

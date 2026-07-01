@@ -90,7 +90,10 @@ export default function CaseGroupsPanel() {
     state,
     "case_groups",
     state.caseGroupsReady,
-    visibleStepRunStatus
+    {
+      activeStatusText: visibleStepRunStatus,
+      isStepActive: stepRun.isRunning,
+    }
   );
 
   return (

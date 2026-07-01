@@ -271,6 +271,19 @@ class SessionUndoResponse(BaseModel):
     message: str | None = None
 
 
+UNDO_MESSAGES: dict[str, str] = {
+    "total_cost": (
+        "Gesamtkosten zurückgesetzt. Manuell bearbeitete EA-Werte bleiben "
+        "erhalten und werden beim erneuten Ausführen von Schritt 7 wieder "
+        "berücksichtigt."
+    ),
+    "effort": (
+        "Aufwand quantifizieren zurückgesetzt. Die zugehörigen EA-Werte und "
+        "manuellen EA-Bearbeitungen wurden gelöscht."
+    ),
+}
+
+
 class SessionRunAllRequest(BaseModel):
     app_session_id: AppSessionId
     current_filename: str | None = None
@@ -3104,6 +3117,7 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
         status="ok",
         undone_step=step.key,
         undone_label=step.label,
+        message=UNDO_MESSAGES.get(step.key),
     )
 
 

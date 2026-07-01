@@ -26,7 +26,7 @@ type EaCaseMetricsTabProps = {
   normAddressee: NormAddressee;
   eaActivityId?: string | null;
   readOnly?: boolean;
-  runAutoRecompute: () => Promise<void>;
+  runAutoRecompute: () => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -325,14 +325,17 @@ export default function EaCaseMetricsTab({
               return payloadRow;
             }),
           });
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           setDraft({});
           setReviewMode(false);
           await loadRows();
+          return recomputed;
         },
         {
-          successMessage:
-            "Fallzahlen gespeichert. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Fallzahlen gespeichert. Gesamtkosten wurden automatisch neu berechnet."
+              : "Fallzahlen gespeichert.",
           errorMessage: "Speichern fehlgeschlagen. Bitte Eingaben prüfen und erneut versuchen.",
         }
       );
@@ -361,14 +364,17 @@ export default function EaCaseMetricsTab({
               return payloadRow;
             }),
           });
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           setDraft({});
           setReviewMode(false);
           await loadRows();
+          return recomputed;
         },
         {
-          successMessage:
-            "Fallzahlen auf Modellwerte zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Fallzahlen auf Modellwerte zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet."
+              : "Fallzahlen auf Modellwerte zurückgesetzt.",
           errorMessage: "Zurücksetzen fehlgeschlagen. Bitte erneut versuchen.",
         }
       );

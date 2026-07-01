@@ -254,7 +254,7 @@ export default function TotalCostPanel() {
     const labels: Record<(typeof addressees)[number], string> = {
       administration: "Verwaltung",
       business: "Wirtschaft",
-      citizens: "Buerger",
+      citizens: "Bürger",
     };
     try {
       const settled = await Promise.allSettled(
@@ -304,7 +304,7 @@ export default function TotalCostPanel() {
       } else if (successes.length === 0) {
         updateCostSummary(null);
         setStatus(
-          `Gesamtkosten konnten fuer keinen Normadressaten berechnet werden.${failureLines.join("")}`
+          `Gesamtkosten konnten für keinen Normadressaten berechnet werden.${failureLines.join("")}`
         );
       } else {
         // Teilweiser Erfolg: totalCostReady bleibt false, damit der Nutzer

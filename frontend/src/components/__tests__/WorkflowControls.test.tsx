@@ -24,6 +24,7 @@ describe("WorkflowControls", () => {
     mockUseApp.mockReturnValue({
       state: {
         selectedNormAddressee: "administration",
+        effortReady: false,
         totalCostReady: false,
       },
       setSelectedNormAddressee: jest.fn(),
@@ -35,6 +36,7 @@ describe("WorkflowControls", () => {
     mockUseApp.mockReturnValue({
       state: {
         selectedNormAddressee: "administration",
+        effortReady: false,
         totalCostReady: false,
       },
       setSelectedNormAddressee,
@@ -68,7 +70,7 @@ describe("WorkflowControls", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
-  it("enables the EA button only when total cost is ready", () => {
+  it("enables the EA button once effort is ready", () => {
     const { rerender } = render(<WorkflowControls />);
 
     expect(
@@ -81,7 +83,8 @@ describe("WorkflowControls", () => {
     mockUseApp.mockReturnValue({
       state: {
         selectedNormAddressee: "citizens",
-        totalCostReady: true,
+        effortReady: true,
+        totalCostReady: false,
       },
       setSelectedNormAddressee: jest.fn(),
     });
@@ -96,11 +99,12 @@ describe("WorkflowControls", () => {
     ).not.toHaveClass("opacity-60");
   });
 
-  it("closes the EA drawer when total cost readiness is reset", async () => {
+  it("keeps the EA drawer open when only total cost readiness is reset", async () => {
     const setSelectedNormAddressee = jest.fn();
     mockUseApp.mockReturnValue({
       state: {
         selectedNormAddressee: "administration",
+        effortReady: true,
         totalCostReady: true,
       },
       setSelectedNormAddressee,
@@ -114,6 +118,36 @@ describe("WorkflowControls", () => {
     mockUseApp.mockReturnValue({
       state: {
         selectedNormAddressee: "administration",
+        effortReady: true,
+        totalCostReady: false,
+      },
+      setSelectedNormAddressee,
+    });
+    rerender(<WorkflowControls />);
+
+    expect(screen.getByTestId("ea-drawer")).toHaveAttribute("data-open", "true");
+  });
+
+  it("closes the EA drawer when effort readiness is reset", async () => {
+    const setSelectedNormAddressee = jest.fn();
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedNormAddressee: "administration",
+        effortReady: true,
+        totalCostReady: false,
+      },
+      setSelectedNormAddressee,
+    });
+    const user = userEvent.setup();
+    const { rerender } = render(<WorkflowControls />);
+
+    await user.click(screen.getByRole("button", { name: /ea bearbeiten/i }));
+    expect(screen.getByTestId("ea-drawer")).toHaveAttribute("data-open", "true");
+
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedNormAddressee: "administration",
+        effortReady: false,
         totalCostReady: false,
       },
       setSelectedNormAddressee,

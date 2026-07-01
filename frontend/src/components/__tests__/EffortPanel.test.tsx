@@ -199,7 +199,7 @@ describe("EffortPanel", () => {
 
     expect(
       await screen.findByText(
-        "Aufwand fuer Verwaltung, Wirtschaft und Buerger berechnet.",
+        "Aufwand für Verwaltung, Wirtschaft und Bürger berechnet.",
         {},
         { timeout: 2000 }
       )

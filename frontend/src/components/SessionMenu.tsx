@@ -454,7 +454,10 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
       const sessionStatus = await apiClient.getSessionStatus(state.appSessionId);
       applySessionMenuStatus(sessionStatus);
       window.dispatchEvent(new Event("tiles-updated"));
-      setStatus(`Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`);
+      setStatus(
+        result.message ||
+          `Letzter Schritt zurückgesetzt: ${result.undone_label || lastStepLabel}`
+      );
     } catch (error) {
       logClientError("SessionMenu.undoLastStep", error, {
         appSessionId: state.appSessionId,

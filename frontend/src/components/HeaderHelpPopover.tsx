@@ -46,11 +46,12 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
           Zeitaufwand und Sachkosten ausgewiesen.
         </p>
         <p>
-          Über „EA bearbeiten“ können Sie anschließend die berechneten Werte
-          prüfen und anpassen: globale Lohnsätze, Fallzahlen und Schrittkosten
-          wie Zeitaufwand und Sachkosten. Dort sehen Sie auch Begründungen und
-          Konfidenzangaben. Gespeicherte Änderungen berechnen die Gesamtkosten
-          automatisch neu.
+          Nach „Aufwand quantifizieren“ können Sie über „EA bearbeiten“ die
+          berechneten Werte prüfen und anpassen: globale Lohnsätze, Fallzahlen
+          und Schrittkosten wie Zeitaufwand und Sachkosten. Dort sehen Sie auch
+          Begründungen und Konfidenzangaben. Die bearbeiteten Werte werden beim
+          Schritt „Gesamtkosten berechnen“ berücksichtigt; nach bereits
+          berechneten Gesamtkosten werden sie automatisch neu berechnet.
         </p>
         <p>
           Deep Research kann im Session-Menü für Fallzahlen aktiviert werden.
@@ -113,7 +114,7 @@ function TabContent({ activeTab }: { activeTab: HelpTab }) {
         </p>
         <p>
           <strong className="font-semibold text-slate-900">EA bearbeiten:</strong>{" "}
-          Der Button öffnet nach „Gesamtkosten berechnen“ die berechneten Werte
+          Der Button öffnet nach „Aufwand quantifizieren“ die berechneten Werte
           zum Erfüllungsaufwand. Dort können Sie globale Lohnsätze, Fallzahlen
           und Schrittkosten wie Zeitaufwand und Sachaufwand prüfen und
           bearbeiten. Soweit vorhanden, zeigt der Dialog auch die vom Modell

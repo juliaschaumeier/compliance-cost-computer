@@ -35,7 +35,7 @@ type EaEffortMetricsTabProps = {
   normAddressee: NormAddressee;
   eaActivityId?: string | null;
   readOnly?: boolean;
-  runAutoRecompute: () => Promise<void>;
+  runAutoRecompute: () => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -804,15 +804,19 @@ export default function EaEffortMetricsTab({
               timeRequiredInMinEdited: edit.next,
             });
           }
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           setDraft({});
           setCachedStepRowsById({});
           setCachedStepIdsByCaseGroup({});
           setReviewMode(false);
           await loadSteps(selectedCaseGroupId);
+          return recomputed;
         },
         {
-          successMessage: "Schrittkosten gespeichert. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Schrittkosten gespeichert. Gesamtkosten wurden automatisch neu berechnet."
+              : "Schrittkosten gespeichert.",
           errorMessage: "Speichern fehlgeschlagen. Bitte Eingaben prüfen und erneut versuchen.",
         }
       );
@@ -864,16 +868,19 @@ export default function EaEffortMetricsTab({
               });
             }
           }
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           setDraft({});
           setCachedStepRowsById({});
           setCachedStepIdsByCaseGroup({});
           setReviewMode(false);
           await loadSteps(selectedCaseGroupId);
+          return recomputed;
         },
         {
-          successMessage:
-            "Schrittkosten auf Modellwerte zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Schrittkosten auf Modellwerte zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet."
+              : "Schrittkosten auf Modellwerte zurückgesetzt.",
           errorMessage: "Zurücksetzen fehlgeschlagen. Bitte erneut versuchen.",
         }
       );

@@ -215,7 +215,7 @@ def test_undo_regulations_clears_all_downstream_artifacts_and_wage_overrides():
 
 
 def test_undo_total_cost_clears_costs_only(test_client):
-    """Undoing step 7 clears costs but keeps effort metrics intact."""
+    """Undoing step 7 clears costs but keeps effort metrics and EA edits intact."""
     seeded = _seed_flow("UNDO-COST")
     session_id = seeded["session_id"]
 
@@ -246,11 +246,25 @@ def test_undo_total_cost_clears_costs_only(test_client):
         total_time_minutes=None,
         total_expenses=None,
     )
+    db.upsert_session_wage_rate_override(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        wage_source_kind="verwaltungsebene",
+        wage_source_value="bund",
+        qualification="gehobener_dienst",
+        hourly_rate_edited=55.0,
+    )
 
     resp = test_client.post("/sessions/undo", json={"app_session_id": "UNDO-COST"})
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["undone_step"] == "total_cost"
+    assert (
+        payload["message"]
+        == "Gesamtkosten zurückgesetzt. Manuell bearbeitete EA-Werte bleiben "
+        "erhalten und werden beim erneuten Ausführen von Schritt 7 wieder "
+        "berücksichtigt."
+    )
 
     conn = db.get_conn()
     cur = conn.cursor()
@@ -306,11 +320,14 @@ def test_undo_total_cost_clears_costs_only(test_client):
     assert step["hourly_rate_a_current"] is None
     assert step["time_required_in_min_a_current"] is None
     assert step["expenses_current"] is None
+    assert db.get_session_wage_rate_overrides(session_id, ADMINISTRATION) == {
+        ("verwaltungsebene", "bund", "gehobener_dienst"): 55.0
+    }
     conn.close()
 
 
 def test_undo_effort_clears_metrics(test_client):
-    """Undoing step 6 clears effort metrics while keeping steps."""
+    """Undoing step 6 clears effort metrics and manual EA edits while keeping steps."""
     seeded = _seed_flow("UNDO-EFFORT")
     session_id = seeded["session_id"]
 
@@ -330,6 +347,14 @@ def test_undo_effort_clears_metrics(test_client):
         time_required_proposed={"a": 30, "b": None, "c": None, "d": None},
         expenses_proposed=5,
     )
+    db.upsert_session_wage_rate_override(
+        session_id=session_id,
+        norm_addressee=ADMINISTRATION,
+        wage_source_kind="verwaltungsebene",
+        wage_source_value="bund",
+        qualification="gehobener_dienst",
+        hourly_rate_edited=55.0,
+    )
 
     resp = test_client.post(
         "/sessions/undo", json={"app_session_id": "UNDO-EFFORT"}
@@ -337,6 +362,11 @@ def test_undo_effort_clears_metrics(test_client):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["undone_step"] == "effort"
+    assert (
+        payload["message"]
+        == "Aufwand quantifizieren zurückgesetzt. Die zugehörigen EA-Werte und "
+        "manuellen EA-Bearbeitungen wurden gelöscht."
+    )
 
     conn = db.get_conn()
     cur = conn.cursor()
@@ -369,6 +399,7 @@ def test_undo_effort_clears_metrics(test_client):
     assert step["hourly_rate_a_proposed"] is None
     assert step["time_required_in_min_a_proposed"] is None
     assert step["expenses_proposed"] is None
+    assert db.get_session_wage_rate_overrides(session_id, ADMINISTRATION) == {}
     conn.close()
 
 

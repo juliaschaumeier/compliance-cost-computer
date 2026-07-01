@@ -1047,6 +1047,7 @@ def test_compute_costs_citizens_ignores_persisted_hourly_rates(test_client):
     assert session is not None
     rebuilt_tiles = build_session_tiles_snapshot(session, CITIZENS)
     total_tile = next(tile for tile in rebuilt_tiles if tile.id == "total_cost")
+    assert total_tile.title == "Jährlicher Aufwand"
     assert total_tile.text == "Zeit: 1 Std.\nSachaufwand: 10 €"
     assert total_tile.meta_information["total_time_minutes"] == pytest.approx(60.0)
     assert total_tile.meta_information["total_time_hours"] == pytest.approx(1.0)

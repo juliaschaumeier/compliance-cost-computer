@@ -164,6 +164,8 @@ describe("SessionMenu", () => {
       status: "ok",
       undone_step: "effort",
       undone_label: "Aufwand quantifizieren",
+      message:
+        "Aufwand quantifizieren zurückgesetzt. Die zugehörigen EA-Werte und manuellen EA-Bearbeitungen wurden gelöscht.",
     });
     mockGetCaseGroupResearchSettings.mockResolvedValue({
       app_session_id: "ABC123",
@@ -268,6 +270,9 @@ describe("SessionMenu", () => {
       expect(mockRebuildTiles).toHaveBeenCalledWith("ABC123", "business")
     );
     expect(mockUndoLastStep).toHaveBeenCalledWith("ABC123");
+    expect(
+      screen.getByText(/zugehörigen EA-Werte und manuellen EA-Bearbeitungen/i)
+    ).toBeInTheDocument();
   });
 
   it("shows the activity conflict reason when undo is blocked by EA editing", async () => {

@@ -90,7 +90,10 @@ export default function ProcessStepsPanel() {
     state,
     "process_steps",
     state.processStepsReady,
-    visibleStepRunStatus
+    {
+      activeStatusText: visibleStepRunStatus,
+      isStepActive: stepRun.isRunning,
+    }
   );
 
   return (

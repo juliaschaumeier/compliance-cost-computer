@@ -33,7 +33,7 @@ export default function WorkflowControls() {
   const [isMounted, setIsMounted] = useState(false);
   const viewButtonRef = useRef<HTMLButtonElement | null>(null);
   const viewMenuRef = useRef<HTMLDivElement | null>(null);
-  const canOpenEditor = state.totalCostReady;
+  const canOpenEditor = state.effortReady;
   const selectedNormAddressee =
     state.selectedNormAddressee ?? "administration";
 
@@ -216,7 +216,7 @@ export default function WorkflowControls() {
           title={
             canOpenEditor
               ? "EA-Editor öffnen"
-              : "EA-Editor ist nach Gesamtkosten-Berechnung verfügbar"
+              : "EA-Editor ist nach Aufwand-Quantifizierung verfügbar"
           }
         >
           <svg

@@ -91,7 +91,10 @@ export default function RegulationsPanel() {
     state,
     "regulations",
     state.regulationsReady,
-    visibleStepRunStatus
+    {
+      activeStatusText: visibleStepRunStatus,
+      isStepActive: stepRun.isRunning,
+    }
   );
 
   return (
