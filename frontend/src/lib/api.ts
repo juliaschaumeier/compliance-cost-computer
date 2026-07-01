@@ -319,19 +319,6 @@ export const apiClient = {
     }
     return response.json();
   },
-  async exportSession(
-    appSessionId: string
-  ): Promise<{ filename: string; markdown: string }> {
-    const response = await fetch(
-      `${API_BASE_URL}/sessions/export?app_session_id=${encodeURIComponent(
-        appSessionId
-      )}`
-    );
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to export session");
-    }
-    return response.json();
-  },
   async getCaseGroupResearchSettings(
     appSessionId: string
   ): Promise<CaseGroupResearchSettingsResponse> {

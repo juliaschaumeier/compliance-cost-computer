@@ -56,6 +56,78 @@ def test_get_cost_totals_returns_persisted_addressee_totals(test_client):
     assert payload["citizens"] is None
 
 
+def test_get_cost_totals_returns_skipped_rows_for_non_applicable_addressees(test_client):
+    session_id, _ = db.upsert_session("COST-TOTALS-SKIPPED", "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        BUSINESS,
+        total_cost=87249.4,
+        bureaucracy_cost=0.0,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    resp = test_client.get(
+        "/costs/totals", params={"app_session_id": "COST-TOTALS-SKIPPED"}
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["business"]["total_cost"] == pytest.approx(87249.4)
+    assert payload["administration"]["total_cost"] == 0
+    assert payload["citizens"]["total_time_hours"] == 0
+    assert payload["citizens"]["total_expenses"] == 0
+
+
+def test_compute_costs_persists_skipped_rows_for_non_applicable_addressees(test_client):
+    session_id, _ = db.upsert_session("COST-COMPUTE-SKIPPED", "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+
+    admin_resp = test_client.post(
+        "/costs/compute",
+        json={
+            "app_session_id": "COST-COMPUTE-SKIPPED",
+            "norm_addressee": ADMINISTRATION,
+        },
+    )
+    citizen_resp = test_client.post(
+        "/costs/compute",
+        json={
+            "app_session_id": "COST-COMPUTE-SKIPPED",
+            "norm_addressee": CITIZENS,
+        },
+    )
+
+    assert admin_resp.status_code == 200
+    assert citizen_resp.status_code == 200
+    assert admin_resp.json()["total_cost"] == 0
+    assert citizen_resp.json()["total_time_hours"] == 0
+    assert citizen_resp.json()["total_expenses"] == 0
+
+    admin_row = db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION)
+    citizen_row = db.get_session_total_costs_by_addressee(session_id, CITIZENS)
+    assert admin_row is not None
+    assert admin_row["total_cost"] == 0
+    assert citizen_row is not None
+    assert citizen_row["total_time_minutes"] == 0
+    assert citizen_row["total_expenses"] == 0
+
+
 def test_total_cost_readiness_requires_explicit_total_row():
     session_id, _ = db.upsert_session("COST-READY-EXPLICIT", "test-model")
     db.update_session_summary(

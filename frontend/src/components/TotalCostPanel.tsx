@@ -13,6 +13,8 @@ import WorkflowControls from "@/components/WorkflowControls";
 import { NormAddressee, TotalCostResponse, TotalCostSummaryResponse } from "@/types";
 
 type CostSummary = Partial<Record<NormAddressee, TotalCostResponse>>;
+const INCOMPLETE_COST_SUMMARY_STATUS =
+  "Kostenübersicht ist unvollständig. Bitte Gesamtkosten erneut berechnen.";
 const COST_SUMMARY_ADDRESSEES: NormAddressee[] = [
   "administration",
   "business",
@@ -21,7 +23,7 @@ const COST_SUMMARY_ADDRESSEES: NormAddressee[] = [
 
 function normalizeCostSummary(summary: TotalCostSummaryResponse): CostSummary | null {
   const hasAnyPersistedEntry = COST_SUMMARY_ADDRESSEES.some(
-    (addressee) => summary[addressee] !== undefined
+    (addressee) => summary[addressee] != null
   );
   if (!hasAnyPersistedEntry) {
     return null;
@@ -29,14 +31,9 @@ function normalizeCostSummary(summary: TotalCostSummaryResponse): CostSummary | 
   const normalized = COST_SUMMARY_ADDRESSEES.reduce<CostSummary>(
     (next, addressee) => {
       const row = summary[addressee];
-      next[addressee] =
-        row ?? {
-          norm_addressee: addressee,
-          total_cost: null,
-          bureaucracy_cost: null,
-          total_time_hours: null,
-          total_expenses: null,
-        };
+      if (row) {
+        next[addressee] = row;
+      }
       return next;
     },
     {}
@@ -70,36 +67,41 @@ function formatCitizenCostValue(row: TotalCostResponse | undefined): string {
   return `${hours} · ${expenses}`;
 }
 
-function buildCostSummaryLabel(summary: CostSummary): string {
+function buildCostSummaryCells(summary: CostSummary): {
+  totalCell: { label: string; value: string };
+  addresseeCells: { label: string; value: string }[];
+} {
   const administration = summary.administration?.total_cost ?? 0;
   const business = summary.business?.total_cost ?? 0;
-  const total = [administration, business].reduce((sum, value) => sum + value, 0);
+  return {
+    totalCell: {
+      label: "Gesamt",
+      value: formatCostValue(administration + business),
+    },
+    addresseeCells: [
+      { label: "Bürger:innen", value: formatCitizenCostValue(summary.citizens) },
+      {
+        label: "Wirtschaft",
+        value: formatCostValue(summary.business?.total_cost, { zeroWhenMissing: true }),
+      },
+      {
+        label: "Verwaltung",
+        value: formatCostValue(summary.administration?.total_cost, { zeroWhenMissing: true }),
+      },
+    ],
+  };
+}
+
+function buildCostSummaryLabel(summary: CostSummary): string {
+  const { totalCell, addresseeCells } = buildCostSummaryCells(summary);
   return [
-    `Gesamt ${formatCostValue(total)}`,
-    `Bürger:innen ${formatCitizenCostValue(summary.citizens)}`,
-    `Wirtschaft ${formatCostValue(summary.business?.total_cost, { zeroWhenMissing: true })}`,
-    `Verwaltung ${formatCostValue(summary.administration?.total_cost, { zeroWhenMissing: true })}`,
+    `${totalCell.label} ${totalCell.value}`,
+    ...addresseeCells.map((cell) => `${cell.label} ${cell.value}`),
   ].join(" · ");
 }
 
 function CostSummaryStrip({ summary }: { summary: CostSummary }) {
-  const administration = summary.administration?.total_cost ?? 0;
-  const business = summary.business?.total_cost ?? 0;
-  const total = administration + business;
-  const citizenValue = formatCitizenCostValue(summary.citizens);
-
-  const totalCell = { label: "Gesamt", value: formatCostValue(total) };
-  const addresseeCells = [
-    { label: "Bürger:innen", value: citizenValue },
-    {
-      label: "Wirtschaft",
-      value: formatCostValue(summary.business?.total_cost, { zeroWhenMissing: true }),
-    },
-    {
-      label: "Verwaltung",
-      value: formatCostValue(summary.administration?.total_cost, { zeroWhenMissing: true }),
-    },
-  ];
+  const { totalCell, addresseeCells } = buildCostSummaryCells(summary);
 
   return (
     <div
@@ -156,6 +158,7 @@ export default function TotalCostPanel() {
   const costSummaryRef = useRef<CostSummary | null>(null);
   const costSummaryLoadId = useRef(0);
   const costSummaryMutationId = useRef(0);
+  const totalCostReadyRef = useRef(state.totalCostReady);
   const isComputingCostSummary = useRef(false);
   const runAllCancel = useRunAllStepCancel({
     stepKey: "total_cost",
@@ -173,9 +176,24 @@ export default function TotalCostPanel() {
     setCostSummary(summary);
   }, []);
 
+  useEffect(() => {
+    totalCostReadyRef.current = state.totalCostReady;
+    if (!state.totalCostReady) {
+      costSummaryLoadId.current += 1;
+      updateCostSummary(null);
+      setStatus((current) =>
+        current === INCOMPLETE_COST_SUMMARY_STATUS ? null : current
+      );
+    }
+  }, [state.totalCostReady, updateCostSummary]);
+
   const loadCostSummary = useCallback(async () => {
     if (!state.appSessionId || !state.totalCostReady) {
+      costSummaryLoadId.current += 1;
       updateCostSummary(null);
+      setStatus((current) =>
+        current === INCOMPLETE_COST_SUMMARY_STATUS ? null : current
+      );
       return;
     }
     const loadId = ++costSummaryLoadId.current;
@@ -185,15 +203,27 @@ export default function TotalCostPanel() {
       const summary = await apiClient.getTotalCostSummary(state.appSessionId);
       if (
         loadId !== costSummaryLoadId.current ||
-        mutationId !== costSummaryMutationId.current
+        mutationId !== costSummaryMutationId.current ||
+        !totalCostReadyRef.current
       ) {
         return;
       }
       const normalized = normalizeCostSummary(summary);
       if (normalized) {
         updateCostSummary(normalized);
+        const isCompleteSummary = isCompleteCostSummary(normalized);
+        if (!isCompleteSummary && !computingAtStart) {
+          setStatus(INCOMPLETE_COST_SUMMARY_STATUS);
+        } else if (isCompleteSummary) {
+          setStatus((current) =>
+            current === INCOMPLETE_COST_SUMMARY_STATUS ? null : current
+          );
+        }
       } else if (!computingAtStart && costSummaryRef.current) {
         updateCostSummary(null);
+        setStatus(INCOMPLETE_COST_SUMMARY_STATUS);
+      } else if (!computingAtStart) {
+        setStatus(INCOMPLETE_COST_SUMMARY_STATUS);
       }
     } catch (error) {
       logClientError("TotalCostPanel.loadCostSummary", error, {

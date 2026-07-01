@@ -2337,31 +2337,6 @@ def get_session_law_texts(session_id: int) -> tuple[str, str]:
     return current_text, proposed_text
 
 
-def get_session_export_info(app_session_id: str) -> dict | None:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-            s.app_session_id,
-            s.created_at,
-            s.llm_model,
-            current.file_name AS current_file_name,
-            proposed.file_name AS proposed_file_name
-        FROM sessions s
-        LEFT JOIN laws AS current ON current.document_id = s.current_law_id
-        LEFT JOIN laws AS proposed ON proposed.document_id = s.proposed_law_id
-        WHERE s.app_session_id = ?
-        """,
-        (app_session_id,),
-    )
-    row = cur.fetchone()
-    _maybe_close(conn)
-    if row is None:
-        return None
-    return dict(row)
-
-
 def get_latest_session() -> dict | None:
     conn = get_conn()
     cur = conn.cursor()

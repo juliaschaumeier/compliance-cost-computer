@@ -179,6 +179,14 @@ def _compute_step_bureaucracy_fractions(
     return fractions
 
 
+def should_skip_addressee_costs(session_id: int, norm_addressee: str) -> bool:
+    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
+    return (
+        session_has_any_regulations
+        and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
+    ) or db.has_no_process_path_for_addressee(session_id, norm_addressee)
+
+
 def _ensure_structure_or_skip(
     *,
     session_id: int,
@@ -195,11 +203,7 @@ def _ensure_structure_or_skip(
     raises a 400 instead. The router turns a ``True`` here into the skipped cost
     response shape, keeping HTTP shaping out of the pure aggregation.
     """
-    session_has_any_regulations = bool(db.list_regulations_for_session(session_id))
-    addressee_is_skippable = (
-        session_has_any_regulations
-        and not db.has_applicable_regulations_for_addressee(session_id, norm_addressee)
-    ) or db.has_no_process_path_for_addressee(session_id, norm_addressee)
+    addressee_is_skippable = should_skip_addressee_costs(session_id, norm_addressee)
     if not processes:
         if addressee_is_skippable:
             return True

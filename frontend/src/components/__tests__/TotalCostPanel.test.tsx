@@ -354,7 +354,7 @@ describe("TotalCostPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the cost summary when a completed session has no citizen total row", async () => {
+  it("does not invent a zero citizen total when a completed summary is missing the citizen row", async () => {
     mockGetTotalCostSummary.mockResolvedValue({
       administration: { norm_addressee: "administration", total_cost: 5793.68 },
       business: { norm_addressee: "business", total_cost: 42606.82 },
@@ -369,9 +369,85 @@ describe("TotalCostPanel", () => {
     render(<TotalCostPanel />);
 
     expect(
-      await screen.findByLabelText(/Kostenübersicht: Gesamt 48,4 Tsd. €/i)
+      await screen.findByText(/Kostenübersicht ist unvollständig/i)
     ).toBeInTheDocument();
-    expect(screen.getByText("0 h · 0 €")).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/Kostenübersicht:/i)
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("0 h · 0 €")).not.toBeInTheDocument();
+  });
+
+  it("clears the incomplete-summary warning when total costs are reset", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 5793.68 },
+      business: { norm_addressee: "business", total_cost: 42606.82 },
+      citizens: null,
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    const { rerender } = render(<TotalCostPanel />);
+
+    expect(
+      await screen.findByText(/Kostenübersicht ist unvollständig/i)
+    ).toBeInTheDocument();
+
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: false },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+    rerender(<TotalCostPanel />);
+
+    expect(
+      screen.queryByText(/Kostenübersicht ist unvollständig/i)
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ausführen/i })).toBeInTheDocument();
+  });
+
+  it("ignores an in-flight incomplete summary after total costs are reset", async () => {
+    let resolveSummary: (
+      value: Awaited<ReturnType<typeof apiClient.getTotalCostSummary>>
+    ) => void = () => {};
+    mockGetTotalCostSummary.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSummary = resolve;
+      })
+    );
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    const { rerender } = render(<TotalCostPanel />);
+
+    await waitFor(() =>
+      expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123")
+    );
+
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: false },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+    rerender(<TotalCostPanel />);
+
+    await act(async () => {
+      resolveSummary({
+        administration: { norm_addressee: "administration", total_cost: 5793.68 },
+        business: { norm_addressee: "business", total_cost: 42606.82 },
+        citizens: null,
+      });
+    });
+
+    expect(
+      screen.queryByText(/Kostenübersicht ist unvollständig/i)
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ausführen/i })).toBeInTheDocument();
   });
 
   it("does not load or show persisted totals before the total-cost step is ready", async () => {
@@ -438,5 +514,8 @@ describe("TotalCostPanel", () => {
     await waitFor(() =>
       expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123")
     );
+    expect(
+      await screen.findByText(/Kostenübersicht ist unvollständig/i)
+    ).toBeInTheDocument();
   });
 });

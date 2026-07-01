@@ -12,7 +12,14 @@ import StepRunButton from "@/components/StepRunButton";
 import WorkflowControls from "@/components/WorkflowControls";
 
 export default function CaseGroupsPanel() {
-  const { state, setCurrentTab, setCaseGroupsReady } = useApp();
+  const {
+    state,
+    setCurrentTab,
+    setCaseGroupsReady,
+    setLastFailedStep,
+    setLastFailedLabel,
+    setLastFailedMessage,
+  } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
     stepKey: "case_groups",
@@ -37,6 +44,11 @@ export default function CaseGroupsPanel() {
       window.dispatchEvent(new Event("tiles-updated"));
       setCaseGroupsReady(true);
       setCurrentTab(4);
+    },
+    onStarted: () => {
+      setLastFailedStep(null);
+      setLastFailedLabel(null);
+      setLastFailedMessage(null);
     },
     onCancelled: () => {
       window.dispatchEvent(new Event("tiles-updated"));
@@ -92,7 +104,7 @@ export default function CaseGroupsPanel() {
     state.caseGroupsReady,
     {
       activeStatusText: visibleStepRunStatus,
-      isStepActive: stepRun.isRunning,
+      isStepActive: stepRun.isRunning || isRunAllBusy,
     }
   );
 

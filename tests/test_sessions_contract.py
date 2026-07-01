@@ -13,17 +13,6 @@ def _parse_contract(model_cls, payload):
     return parsed
 
 
-def _seed_exportable_session(app_session_id: str) -> None:
-    current_name = f"{app_session_id}_current.txt"
-    proposed_name = f"{app_session_id}_proposed.txt"
-    db.insert_law(current_name, f"{app_session_id} current text")
-    db.insert_law(proposed_name, f"{app_session_id} proposed text")
-    session_id, _ = db.upsert_session(app_session_id, "test-model")
-    db.update_session_documents(app_session_id, current_name, proposed_name)
-    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
-    db.insert_regulation(session_id, "§ 1", "Beschreibung")
-
-
 def test_sessions_upsert_and_list_contract(test_client):
     upsert_resp = test_client.post(
         "/sessions",
@@ -296,19 +285,6 @@ def test_pay_rates_save_and_reset_for_laender_session_no_422(test_client):
         ),
     )
     assert reset_resp.status_code == 200
-
-
-def test_sessions_export_contract(test_client):
-    _seed_exportable_session("CONTRACT-EXPORT")
-
-    resp = test_client.get(
-        "/sessions/export", params={"app_session_id": "CONTRACT-EXPORT"}
-    )
-    assert resp.status_code == 200
-    payload = resp.json()
-    exported = _parse_contract(sessions_router.SessionExportResponse, payload)
-    assert exported.filename == "ccc_session_CONTRACT-EXPORT.md"
-    assert "Titel" in exported.markdown
 
 
 def test_sessions_undo_contract(test_client):

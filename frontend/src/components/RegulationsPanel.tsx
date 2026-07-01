@@ -12,7 +12,15 @@ import StepRunButton from "@/components/StepRunButton";
 import WorkflowControls from "@/components/WorkflowControls";
 
 export default function RegulationsPanel() {
-  const { state, setCurrentTab, setRegulationsReady, setProcessesReady } = useApp();
+  const {
+    state,
+    setCurrentTab,
+    setRegulationsReady,
+    setProcessesReady,
+    setLastFailedStep,
+    setLastFailedLabel,
+    setLastFailedMessage,
+  } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
     stepKey: "regulations",
@@ -38,6 +46,11 @@ export default function RegulationsPanel() {
       setRegulationsReady(true);
       setProcessesReady(false);
       setCurrentTab(2);
+    },
+    onStarted: () => {
+      setLastFailedStep(null);
+      setLastFailedLabel(null);
+      setLastFailedMessage(null);
     },
     onCancelled: () => {
       window.dispatchEvent(new Event("tiles-updated"));
@@ -93,7 +106,7 @@ export default function RegulationsPanel() {
     state.regulationsReady,
     {
       activeStatusText: visibleStepRunStatus,
-      isStepActive: stepRun.isRunning,
+      isStepActive: stepRun.isRunning || isRunAllBusy,
     }
   );
 

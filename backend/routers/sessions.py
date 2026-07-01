@@ -60,7 +60,6 @@ from backend.core.session_activity import (
     refresh_session_activity,
     release_session_activity,
 )
-from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
     undo_step,
@@ -247,11 +246,6 @@ class CaseGroupResearchSettingsResponse(BaseModel):
     status: str = "idle"
     locked: bool = False
     elapsed_seconds: int | None = None
-
-
-class SessionExportResponse(BaseModel):
-    filename: str
-    markdown: str
 
 
 class ComplianceTextExportRequest(BaseModel):
@@ -2111,10 +2105,10 @@ def _ensure_ea_edit_allowed(app_session_id: str) -> None:
     status = db.get_session_status(app_session_id)
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not bool(status.get("total_cost_ready")):
+    if not bool(status.get("effort_ready")):
         raise HTTPException(
             status_code=409,
-            detail="EA-Bearbeitung ist erst nach berechneten Gesamtkosten möglich.",
+            detail="EA-Bearbeitung ist erst nach quantifiziertem Aufwand möglich.",
         )
 
 
@@ -2390,90 +2384,6 @@ async def case_group_research_settings_update(
         )
     db.update_case_group_research_enabled(session_id, payload.enabled)
     return _research_settings_response(payload.app_session_id)
-
-
-@router.get("/export", response_model=SessionExportResponse)
-async def export_session(
-    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
-) -> SessionExportResponse:
-    # Currently not exposed in the frontend. The Mermaid/Markdown export needs
-    # rework before becoming user-facing again: it renders only the Verwaltung
-    # view and the Markdown output is not polished enough for users.
-    session = db.get_session_by_app_id(app_session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    info = db.get_session_export_info(app_session_id)
-    if not info:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    tiles = build_session_tiles_snapshot(session)
-
-    def escape_label(value: str) -> str:
-        escaped = (
-            value.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("[", "&#91;")
-            .replace("]", "&#93;")
-        )
-        return escaped.replace("\n", "<br/>")
-
-    tiles_by_column: dict[int, list] = {}
-    for tile in tiles:
-        tiles_by_column.setdefault(tile.column, []).append(tile)
-    for column_tiles in tiles_by_column.values():
-        column_tiles.sort(key=lambda t: (t.row, t.id))
-
-    column_labels = {
-        0: "Gesetz",
-        1: "Vorgaben",
-        2: "Prozesse",
-        3: "Fallgruppen",
-    }
-
-    mermaid_lines = ["```mermaid", "flowchart LR"]
-    for column in sorted(tiles_by_column.keys()):
-        column_tiles = tiles_by_column[column]
-        if not column_tiles:
-            continue
-        if any(tile.id == "total_cost" for tile in column_tiles):
-            label = "Kosten"
-        else:
-            label = column_labels.get(column, "Prozessschritte")
-        mermaid_lines.append(f'  subgraph col_{column}["{label}"]')
-        mermaid_lines.append("    direction TB")
-        for tile in column_tiles:
-            title = escape_label(tile.title)
-            text = escape_label(tile.text or "")
-            label_text = f"<b>{title}</b>"
-            if text:
-                label_text = f"{label_text}<br/>{text}"
-            mermaid_lines.append(f'    {tile.id}["{label_text}"]')
-        mermaid_lines.append("  end")
-
-    edges = set()
-    for tile in tiles:
-        for source in tile.link_from_tile:
-            edges.add((source, tile.id))
-    for source, target in sorted(edges):
-        mermaid_lines.append(f"  {source} --> {target}")
-    mermaid_lines.append("```")
-
-    export_title = f"Session {info['app_session_id']} Export"
-    model_name = info.get("llm_model") or "-"
-    markdown = "\n\n".join(
-        [
-            f"## {export_title}",
-            f"**LLM-Modell:** {model_name}",
-            f"**Aktuelles Gesetz:** {info.get('current_file_name') or '-'}",
-            f"**Gesetzesvorschlag:** {info.get('proposed_file_name') or '-'}",
-            "\n".join(mermaid_lines),
-        ]
-    ).strip()
-
-    filename = f"ccc_session_{info['app_session_id']}.md"
-    return SessionExportResponse(filename=filename, markdown=markdown)
 
 
 def _compliance_export_filename(app_session_id: str, user_edit_policy: str) -> str:

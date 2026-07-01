@@ -4,7 +4,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.core import db
-from backend.core.cost_aggregation import aggregate_addressee_costs
+from backend.core.cost_aggregation import (
+    aggregate_addressee_costs,
+    should_skip_addressee_costs,
+)
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
@@ -72,13 +75,37 @@ def _total_cost_row_to_response(row: dict | None, norm_addressee: str) -> dict |
 
 
 def _skipped_cost_response(norm_addressee: str) -> dict:
+    if norm_addressee == CITIZENS:
+        return _build_cost_response(
+            norm_addressee=norm_addressee,
+            total_cost=None,
+            bureaucracy_cost=None,
+            total_time_minutes=0.0,
+            total_expenses=0.0,
+        )
     return _build_cost_response(
         norm_addressee=norm_addressee,
-        total_cost=None,
-        bureaucracy_cost=None,
+        total_cost=0.0,
+        bureaucracy_cost=0.0 if norm_addressee == BUSINESS else None,
         total_time_minutes=None,
         total_expenses=None,
     )
+
+
+def _persist_skipped_total_cost(
+    session_id: int,
+    norm_addressee: str,
+) -> dict:
+    response = _skipped_cost_response(norm_addressee)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=norm_addressee,
+        total_cost=response["total_cost"],
+        bureaucracy_cost=response["bureaucracy_cost"],
+        total_time_minutes=response["total_time_minutes"],
+        total_expenses=response["total_expenses"],
+    )
+    return response
 
 
 def _refresh_process_tiles(
@@ -125,8 +152,6 @@ def _persist_step_costs(
     norm_addressee: str,
     step_costs_current: dict[int, float],
     step_costs_proposed: dict[int, float],
-    step_bureaucracy_current: dict[int, float],
-    step_bureaucracy_proposed: dict[int, float],
 ) -> None:
     for idx, step in enumerate(steps):
         step_id = int(step["step_id"])
@@ -172,7 +197,8 @@ def compute_total_cost_for_session(
 
     agg = aggregate_addressee_costs(session_id, norm_addressee, apply_user_edits=True)
     if agg.get("skipped"):
-        return _skipped_cost_response(norm_addressee)
+        with db.transaction():
+            return _persist_skipped_total_cost(session_id, norm_addressee)
 
     processes = agg["processes"]
     case_groups = agg["case_groups"]
@@ -191,8 +217,6 @@ def compute_total_cost_for_session(
             norm_addressee=norm_addressee,
             step_costs_current=agg["step_costs_current"],
             step_costs_proposed=agg["step_costs_proposed"],
-            step_bureaucracy_current=agg["step_bureaucracy_current"],
-            step_bureaucracy_proposed=agg["step_bureaucracy_proposed"],
         )
         for case_group_id, case_group_cost in case_group_costs.items():
             db.upsert_case_group_cost_by_addressee(
@@ -278,9 +302,16 @@ async def get_cost_totals(app_session_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Session not found")
     session_id = int(session["session_id"])
     return {
-        norm_addressee: _total_cost_row_to_response(
-            db.get_session_total_costs_by_addressee(session_id, norm_addressee),
-            norm_addressee,
+        norm_addressee: (
+            _total_cost_row_to_response(
+                db.get_session_total_costs_by_addressee(session_id, norm_addressee),
+                norm_addressee,
+            )
+            or (
+                _skipped_cost_response(norm_addressee)
+                if should_skip_addressee_costs(session_id, norm_addressee)
+                else None
+            )
         )
         for norm_addressee in (ADMINISTRATION, BUSINESS, CITIZENS)
     }

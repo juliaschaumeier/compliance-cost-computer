@@ -45,16 +45,6 @@ def test_list_sessions_response_shape(test_client):
     )
 
 
-def test_export_rejects_invalid_app_session_id_query(test_client):
-    resp = test_client.get("/sessions/export", params={"app_session_id": "bad id"})
-    assert resp.status_code == 422
-
-
-def test_export_requires_app_session_id_query(test_client):
-    resp = test_client.get("/sessions/export")
-    assert resp.status_code == 422
-
-
 def test_undo_noop_response_shape(test_client):
     test_client.post("/sessions", json={"app_session_id": "UNDO00", "llm_model": "gpt-5"})
     resp = test_client.post("/sessions/undo", json={"app_session_id": "UNDO00"})

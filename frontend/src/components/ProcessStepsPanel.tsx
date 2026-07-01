@@ -12,7 +12,14 @@ import StepRunButton from "@/components/StepRunButton";
 import WorkflowControls from "@/components/WorkflowControls";
 
 export default function ProcessStepsPanel() {
-  const { state, setCurrentTab, setProcessStepsReady } = useApp();
+  const {
+    state,
+    setCurrentTab,
+    setProcessStepsReady,
+    setLastFailedStep,
+    setLastFailedLabel,
+    setLastFailedMessage,
+  } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
     stepKey: "process_steps",
@@ -37,6 +44,11 @@ export default function ProcessStepsPanel() {
       window.dispatchEvent(new Event("tiles-updated"));
       setProcessStepsReady(true);
       setCurrentTab(5);
+    },
+    onStarted: () => {
+      setLastFailedStep(null);
+      setLastFailedLabel(null);
+      setLastFailedMessage(null);
     },
     onCancelled: () => {
       window.dispatchEvent(new Event("tiles-updated"));
@@ -92,7 +104,7 @@ export default function ProcessStepsPanel() {
     state.processStepsReady,
     {
       activeStatusText: visibleStepRunStatus,
-      isStepActive: stepRun.isRunning,
+      isStepActive: stepRun.isRunning || isRunAllBusy,
     }
   );
 

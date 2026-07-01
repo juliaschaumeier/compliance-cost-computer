@@ -3,7 +3,6 @@ import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 
 import "./globals.css";
 import Header from "@/components/Header";
-import PaletteVariantLoader from "@/components/PaletteVariantLoader";
 import TabBar from "@/components/TabBar";
 import { AppProvider } from "@/contexts/AppContext";
 
@@ -33,7 +32,6 @@ export default function RootLayout({
   return (
     <html lang="de" className={`${spaceGrotesk.variable} ${jetBrainsMono.variable}`}>
       <body>
-        <PaletteVariantLoader />
         <AppProvider>
           <div className="min-h-screen flex flex-col">
             <div className="sticky top-0 z-40">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { buildLlmRequestOptions } from "@/lib/api";
@@ -11,8 +11,17 @@ import { getWorkflowStepActionButtonState } from "@/lib/workflowStepActionButton
 import StepRunButton from "@/components/StepRunButton";
 import WorkflowControls from "@/components/WorkflowControls";
 
+const EFFORT_SUCCESS_STATUS = "Aufwand für Verwaltung, Wirtschaft und Bürger berechnet.";
+
 export default function EffortPanel() {
-  const { state, setCurrentTab, setEffortReady } = useApp();
+  const {
+    state,
+    setCurrentTab,
+    setEffortReady,
+    setLastFailedStep,
+    setLastFailedLabel,
+    setLastFailedMessage,
+  } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
     stepKey: "effort",
@@ -36,14 +45,27 @@ export default function EffortPanel() {
     onCompleted: () => {
       window.dispatchEvent(new Event("tiles-updated"));
       setEffortReady(true);
-      setStatus("Aufwand für Verwaltung, Wirtschaft und Bürger berechnet.");
+      setStatus(EFFORT_SUCCESS_STATUS);
       setCurrentTab(6);
+    },
+    onStarted: () => {
+      setLastFailedStep(null);
+      setLastFailedLabel(null);
+      setLastFailedMessage(null);
     },
     onCancelled: () => {
       window.dispatchEvent(new Event("tiles-updated"));
     },
   });
   const isBusy = stepRun.isRunning || isRunAllBusy;
+
+  useEffect(() => {
+    if (!state.effortReady) {
+      setStatus((current) =>
+        current === EFFORT_SUCCESS_STATUS ? null : current
+      );
+    }
+  }, [state.effortReady]);
 
   const canRun =
     state.processStepsReady &&
@@ -95,7 +117,7 @@ export default function EffortPanel() {
     state.effortReady,
     {
       activeStatusText: visibleStepRunStatus,
-      isStepActive: stepRun.isRunning,
+      isStepActive: stepRun.isRunning || isRunAllBusy,
     }
   );
 

@@ -58,10 +58,7 @@ export function formatCompactCurrency(value: number): string {
   return `${formatCompactUnit(value, promotedUnit)} €`;
 }
 
-export function formatCompactHours(value: number | null): string {
-  if (value === null) {
-    return "-";
-  }
+export function formatCompactHours(value: number): string {
   const unit = resolveCompactUnit(value, HOUR_UNITS);
   if (!unit) {
     return `${WHOLE_NUMBER_FORMAT.format(value)} h`;

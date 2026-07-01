@@ -20,7 +20,6 @@ jest.mock("@/lib/api", () => ({
     listSessions: jest.fn(),
     getSessionStatus: jest.fn(),
     undoLastStep: jest.fn(),
-    exportSession: jest.fn(),
     getCaseGroupResearchSettings: jest.fn(),
     updateCaseGroupResearchSettings: jest.fn(),
     downloadDeepResearchReport: jest.fn(),

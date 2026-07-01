@@ -19,6 +19,7 @@ type UseCancellableStepRunOptions = {
   provider?: string;
   keys?: ApiKeys;
   onFinalStatus?: (status: SessionStatus) => void;
+  onStarted?: () => void;
   onCompleted?: (status: RunAllStatusResponse) => void;
   onFailed?: (message: string) => void;
   onCancelled?: () => void;
@@ -47,6 +48,7 @@ export function useCancellableStepRun({
   provider,
   keys,
   onFinalStatus,
+  onStarted,
   onCompleted,
   onFailed,
   onCancelled,
@@ -126,6 +128,7 @@ export function useCancellableStepRun({
 
   const start = async (overrides: StepRunStartOverrides = {}) => {
     setStatusText(null);
+    onStarted?.();
     setIsRunning(true);
     try {
       const response = await apiClient.startStepRun({
