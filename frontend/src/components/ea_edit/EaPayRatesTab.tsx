@@ -18,6 +18,8 @@ type EaPayRatesTabProps = {
   active: boolean;
   appSessionId: string;
   normAddressee: NormAddressee;
+  eaActivityId?: string | null;
+  readOnly?: boolean;
   runAutoRecompute: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -98,6 +100,8 @@ export default function EaPayRatesTab({
   active,
   appSessionId,
   normAddressee,
+  eaActivityId = null,
+  readOnly = false,
   runAutoRecompute,
   onDirtyChange,
 }: EaPayRatesTabProps) {
@@ -137,8 +141,15 @@ export default function EaPayRatesTab({
   );
 
   useEffect(() => {
-    onDirtyChange?.(dirtyRows.length > 0);
-  }, [dirtyRows, onDirtyChange]);
+    onDirtyChange?.(!readOnly && dirtyRows.length > 0);
+  }, [dirtyRows, onDirtyChange, readOnly]);
+
+  useEffect(() => {
+    if (!readOnly) {
+      return;
+    }
+    setEditedInputs({});
+  }, [readOnly]);
 
   const loadRows = useCallback(async () => {
     setIsLoading(true);
@@ -177,7 +188,7 @@ export default function EaPayRatesTab({
   }, [open, active, normAddressee, loadRows, loadedKey, loadKey]);
 
   const handleSave = async () => {
-    if (dirtyRows.length === 0 || hasInvalidInput) {
+    if (readOnly || dirtyRows.length === 0 || hasInvalidInput) {
       return;
     }
     try {
@@ -187,6 +198,7 @@ export default function EaPayRatesTab({
             await apiClient.updateSessionWageRate({
               appSessionId,
               normAddressee,
+              eaActivityId: eaActivityId ?? undefined,
               wageSourceKind: row.wage_source_kind,
               wageSourceValue: row.wage_source_value,
               qualification: row.qualification,
@@ -208,7 +220,7 @@ export default function EaPayRatesTab({
   };
 
   const handleResetEdited = async () => {
-    if (!hasActiveEdited) {
+    if (readOnly || !hasActiveEdited) {
       return;
     }
     try {
@@ -218,6 +230,7 @@ export default function EaPayRatesTab({
             await apiClient.updateSessionWageRate({
               appSessionId,
               normAddressee,
+              eaActivityId: eaActivityId ?? undefined,
               wageSourceKind: row.wage_source_kind,
               wageSourceValue: row.wage_source_value,
               qualification: row.qualification,
@@ -341,12 +354,16 @@ export default function EaPayRatesTab({
                               : ""
                           }
                           onChange={(event) => {
+                            if (readOnly) {
+                              return;
+                            }
                             setStatus(null);
                             setEditedInputs((prev) => ({
                               ...prev,
                               [key]: event.target.value,
                             }));
                           }}
+                          disabled={readOnly}
                           className={inputClass(editedInputs[key] ?? "")}
                         />
                       </td>
@@ -361,14 +378,14 @@ export default function EaPayRatesTab({
       <div className="flex justify-end gap-2">
         <button
           onClick={handleResetEdited}
-          disabled={isSaving || !hasActiveEdited}
+          disabled={isSaving || readOnly || !eaActivityId || !hasActiveEdited}
           className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Auf Modellwerte zurücksetzen
         </button>
         <button
           onClick={handleSave}
-          disabled={isSaving || hasInvalidInput || dirtyRows.length === 0}
+          disabled={isSaving || readOnly || !eaActivityId || hasInvalidInput || dirtyRows.length === 0}
           className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           {isSaving ? "Speichert..." : "Lohnsätze speichern"}

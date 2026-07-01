@@ -80,4 +80,30 @@ describe("Header norm addressee switch", () => {
       screen.getByRole("button", { name: /ea bearbeiten/i })
     ).toBeEnabled();
   });
+
+  it("closes the EA drawer when total cost readiness is reset", async () => {
+    const user = userEvent.setup();
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedNormAddressee: "administration",
+        totalCostReady: true,
+      },
+      setSelectedNormAddressee: jest.fn(),
+    });
+    const { rerender } = render(<Header />);
+
+    await user.click(screen.getByRole("button", { name: /ea bearbeiten/i }));
+    expect(screen.getByTestId("ea-drawer")).toHaveAttribute("data-open", "true");
+
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedNormAddressee: "administration",
+        totalCostReady: false,
+      },
+      setSelectedNormAddressee: jest.fn(),
+    });
+    rerender(<Header />);
+
+    expect(screen.getByTestId("ea-drawer")).toHaveAttribute("data-open", "false");
+  });
 });

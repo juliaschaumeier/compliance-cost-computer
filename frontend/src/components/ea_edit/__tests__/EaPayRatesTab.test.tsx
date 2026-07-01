@@ -13,6 +13,7 @@ jest.mock("@/lib/api", () => ({
 
 const mockGetSessionWageRates = apiClient.getSessionWageRates as jest.Mock;
 const mockUpdateSessionWageRate = apiClient.updateSessionWageRate as jest.Mock;
+const EA_ACTIVITY_ID = "ea_edit:test";
 
 const ADMIN_ROWS = [
   {
@@ -61,7 +62,7 @@ describe("EaPayRatesTab", () => {
 
   it("groups rows under their wage source", async () => {
     render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
     expect(await screen.findByText("Bund")).toBeInTheDocument();
     expect(screen.getByText(/Gehobener Dienst \(gD\)/i)).toBeInTheDocument();
@@ -70,7 +71,7 @@ describe("EaPayRatesTab", () => {
   it("saves a single (source, qualification) override and recomputes", async () => {
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
     );
     await screen.findByText("Bund");
     const user = userEvent.setup();
@@ -85,6 +86,7 @@ describe("EaPayRatesTab", () => {
       wageSourceValue: "bund",
       qualification: "einfacher_und_mittlerer_dienst",
       hourlyRateEdited: 99,
+      eaActivityId: EA_ACTIVITY_ID,
     });
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
@@ -92,7 +94,7 @@ describe("EaPayRatesTab", () => {
   it("clears a previous save status when the user edits again", async () => {
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
     );
 
     const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
@@ -124,7 +126,7 @@ describe("EaPayRatesTab", () => {
         window.dispatchEvent(new Event("tiles-updated"));
       });
       render(
-        <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+        <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
       );
 
       const row = await screen.findByText(/Einfacher\/Mittlerer Dienst \(eD\/mD\)/i);
@@ -146,7 +148,7 @@ describe("EaPayRatesTab", () => {
 
   it("disables save for invalid numeric input", async () => {
     render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
     await screen.findByText("Bund");
     const user = userEvent.setup();
@@ -157,7 +159,7 @@ describe("EaPayRatesTab", () => {
 
   it("disables save when there are no changes", async () => {
     render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
     await screen.findByText("Bund");
     expect(screen.getByRole("button", { name: /lohnsätze speichern/i })).toBeDisabled();
@@ -170,7 +172,7 @@ describe("EaPayRatesTab", () => {
     });
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" runAutoRecompute={runAutoRecompute} />
+      <EaPayRatesTab normAddressee="administration" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
     );
     await screen.findByText("Bund");
     const user = userEvent.setup();
@@ -184,6 +186,7 @@ describe("EaPayRatesTab", () => {
       wageSourceValue: "bund",
       qualification: "einfacher_und_mittlerer_dienst",
       hourlyRateEdited: null,
+      eaActivityId: EA_ACTIVITY_ID,
     });
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
   });
@@ -202,7 +205,7 @@ describe("EaPayRatesTab", () => {
       ],
     });
     render(
-      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" runAutoRecompute={jest.fn()} />
+      <EaPayRatesTab normAddressee="business" open active appSessionId="PAY-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
     expect(
       await screen.findByText(/K · Finanz- und Versicherungsdienstleistungen/i)

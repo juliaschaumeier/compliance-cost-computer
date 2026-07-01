@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type TabInfo = { title: string };
 
@@ -18,6 +18,7 @@ type UseDrawerCloseGuardResult<TTab extends string> = {
   closeGuardHint: string | null;
   dirtyTabs: TTab[];
   markTabDirty: (tab: TTab, dirty: boolean) => void;
+  resetDirtyState: () => void;
   requestClose: () => void;
   continueEditing: () => void;
   discardAndClose: () => void;
@@ -77,14 +78,20 @@ export function useDrawerCloseGuard<TTab extends string>({
     );
   }, [closeGuardHint, dirtyTabs, tabs]);
 
-  const markTabDirty = (tab: TTab, dirty: boolean) => {
+  const markTabDirty = useCallback((tab: TTab, dirty: boolean) => {
     setUnsavedByTab((prev) => {
       if (prev[tab] === dirty) {
         return prev;
       }
       return { ...prev, [tab]: dirty };
     });
-  };
+  }, []);
+
+  const resetDirtyState = useCallback(() => {
+    setCloseConfirmOpen(false);
+    setCloseGuardHint(null);
+    setUnsavedByTab(emptyUnsavedByTab);
+  }, [emptyUnsavedByTab]);
 
   const requestClose = () => {
     if (!hasUnsavedChanges) {
@@ -126,6 +133,7 @@ export function useDrawerCloseGuard<TTab extends string>({
     closeGuardHint,
     dirtyTabs,
     markTabDirty,
+    resetDirtyState,
     requestClose,
     continueEditing,
     discardAndClose,

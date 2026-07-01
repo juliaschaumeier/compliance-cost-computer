@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import type { ApiClientError } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
 import { useMounted } from "@/lib/useMounted";
 import type { NormAddressee } from "@/types";
@@ -21,6 +22,13 @@ type EaEditDrawerShellProps = {
 };
 
 type EditorTab = "pay_rates" | "case_metrics" | "effort_metrics";
+type EaActivityState =
+  | "idle"
+  | "acquiring"
+  | "owned"
+  | "blocked_ea"
+  | "blocked_workflow"
+  | "unavailable";
 
 const NORM_ADDRESSEE_LABELS: Record<NormAddressee, string> = {
   administration: "Verwaltung",
@@ -43,10 +51,58 @@ const TAB_COPY: Record<EditorTab, { title: string; hint: string }> = {
   },
 };
 
+const EA_ACTIVITY_HEARTBEAT_MS = 30_000;
+
+function detailRecord(error: unknown): Record<string, unknown> | null {
+  const details = (error as ApiClientError | undefined)?.details;
+  if (typeof details !== "object" || details === null || Array.isArray(details)) {
+    return null;
+  }
+  return details as Record<string, unknown>;
+}
+
+function classifyEaActivityError(error: unknown): {
+  state: EaActivityState;
+  message: string;
+} {
+  const detail = detailRecord(error);
+  if (detail?.error === "session_activity_conflict") {
+    if (detail.active_type === "ea_edit") {
+      return {
+        state: "blocked_ea",
+        message:
+          "EA-Bearbeitung ist in dieser Session gerade in einem anderen Tab oder Fenster geöffnet. Bitte später erneut versuchen.",
+      };
+    }
+    if (detail.active_type === "workflow") {
+      return {
+        state: "blocked_workflow",
+        message:
+          "EA-Bearbeitung ist während einer laufenden Ausführung in dieser Session gesperrt. Bitte warten Sie, bis der Lauf abgeschlossen ist.",
+      };
+    }
+  }
+  if (detail?.error === "session_activity_unavailable") {
+    return {
+      state: "unavailable",
+      message:
+        "EA-Bearbeitung ist nicht mehr aktiv. Bitte den Editor schließen und erneut öffnen.",
+    };
+  }
+  return {
+    state: "unavailable",
+    message:
+      "EA-Bearbeitung ist in dieser Session gerade nicht möglich. Bitte später erneut versuchen.",
+  };
+}
+
 export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellProps) {
   const isMounted = useMounted();
   const { state } = useApp();
   const [activeTab, setActiveTab] = useState<EditorTab>("pay_rates");
+  const [activityState, setActivityState] = useState<EaActivityState>("idle");
+  const [eaActivityId, setEaActivityId] = useState<string | null>(null);
+  const [activityStatus, setActivityStatus] = useState<string | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [isResettingAllEaEdits, setIsResettingAllEaEdits] = useState(false);
   const [resetStatus, setResetStatus] = useState<string | null>(null);
@@ -56,6 +112,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
   const { recomputeStatus, runAutoRecompute } = useDebouncedSessionRecompute({
     appSessionId: state.appSessionId,
     normAddressee: state.selectedNormAddressee,
+    eaActivityId,
     debounceMs: 400,
   });
   const {
@@ -66,6 +123,7 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
     continueEditing,
     discardAndClose,
     leadToSave,
+    resetDirtyState,
   } = useDrawerCloseGuard({
     open,
     sessionKey: state.appSessionId,
@@ -92,12 +150,121 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
     if (!open) {
       setResetConfirmOpen(false);
       setResetStatus(null);
+      setActivityState("idle");
       return;
     }
     setResetStatus(null);
   }, [open, state.appSessionId]);
 
+  useEffect(() => {
+    if (activityState !== "owned") {
+      resetDirtyState();
+    }
+  }, [activityState, resetDirtyState]);
+
+  useEffect(() => {
+    if (!open) {
+      setEaActivityId(null);
+      setActivityStatus(null);
+      setActivityState("idle");
+      return;
+    }
+
+    let cancelled = false;
+    let acquiredActivityId: string | null = null;
+    let heartbeatTimer: number | null = null;
+
+    const stopHeartbeat = () => {
+      if (heartbeatTimer !== null) {
+        window.clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    };
+
+    const release = (activityId: string | null) => {
+      if (!activityId) {
+        return;
+      }
+      void apiClient
+        .releaseEaEditActivity({
+          appSessionId: state.appSessionId,
+          activityId,
+        })
+        .catch((error) => {
+          logClientError("EaEditDrawerShell.releaseActivity", error, {
+            appSessionId: state.appSessionId,
+          });
+        });
+    };
+
+    const heartbeat = async (activityId: string) => {
+      try {
+        await apiClient.heartbeatEaEditActivity({
+          appSessionId: state.appSessionId,
+          activityId,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        stopHeartbeat();
+        logClientError("EaEditDrawerShell.heartbeatActivity", error, {
+          appSessionId: state.appSessionId,
+        });
+        setEaActivityId(null);
+        setActivityState("unavailable");
+        setActivityStatus(
+          "EA-Bearbeitung ist nicht mehr aktiv. Bitte den Editor schließen und erneut öffnen."
+        );
+      }
+    };
+
+    setEaActivityId(null);
+    setActivityState("acquiring");
+    setActivityStatus("EA-Bearbeitung wird gesperrt...");
+    apiClient
+      .acquireEaEditActivity({ appSessionId: state.appSessionId })
+      .then((payload) => {
+        acquiredActivityId = payload.activity_id;
+        if (cancelled) {
+          release(acquiredActivityId);
+          return;
+        }
+        setEaActivityId(payload.activity_id);
+        setActivityState("owned");
+        setActivityStatus(null);
+        heartbeatTimer = window.setInterval(() => {
+          void heartbeat(payload.activity_id);
+        }, EA_ACTIVITY_HEARTBEAT_MS);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        logClientError("EaEditDrawerShell.acquireActivity", error, {
+          appSessionId: state.appSessionId,
+        });
+        setEaActivityId(null);
+        const classified = classifyEaActivityError(error);
+        setActivityState(classified.state);
+        setActivityStatus(classified.message);
+      });
+
+    return () => {
+      cancelled = true;
+      stopHeartbeat();
+      release(acquiredActivityId);
+    };
+  }, [open, state.appSessionId]);
+
+  const ownsEaActivity = activityState === "owned" && Boolean(eaActivityId);
+  const drawerReadOnly = !ownsEaActivity;
+
   const handleTabDirtyChange = (tab: EditorTab, dirty: boolean) => {
+    if (drawerReadOnly) {
+      markTabDirty(tab, false);
+      return;
+    }
     if (dirty) {
       setResetStatus(null);
     }
@@ -105,10 +272,16 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
   };
 
   const handleResetAllEaEdits = async () => {
+    if (drawerReadOnly || !eaActivityId) {
+      return;
+    }
     setIsResettingAllEaEdits(true);
     setResetStatus(null);
     try {
-      await apiClient.resetSessionEaEdits({ appSessionId: state.appSessionId });
+      await apiClient.resetSessionEaEdits({
+        appSessionId: state.appSessionId,
+        eaActivityId: eaActivityId ?? undefined,
+      });
       setResetConfirmOpen(false);
       setResetVersion((value) => value + 1);
       window.dispatchEvent(new Event("tiles-updated"));
@@ -130,6 +303,10 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
   }
 
   const normAddresseeLabel = NORM_ADDRESSEE_LABELS[state.selectedNormAddressee];
+  const activityStatusClass =
+    activityState === "blocked_ea"
+      ? "border-amber-300 bg-amber-100 text-amber-800"
+      : "border-slate-200 bg-slate-100 text-slate-700";
 
   const body = (
     <div className="pointer-events-none fixed inset-0 z-[85]">
@@ -153,7 +330,12 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                 <button
                   type="button"
                   onClick={() => setResetConfirmOpen(true)}
-                  disabled={state.isComplianceExportRunning || isResettingAllEaEdits}
+                  disabled={
+                    state.isComplianceExportRunning ||
+                    isResettingAllEaEdits ||
+                    drawerReadOnly ||
+                    !eaActivityId
+                  }
                   className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Alle EA-Werte auf Modellwerte zurücksetzen
@@ -195,6 +377,13 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                 Vorblatt/Begründung wird gerade erzeugt. EA-Werte sind bis zum Abschluss gesperrt.
               </div>
             )}
+            {activityStatus && (
+              <div
+                className={`mt-2 rounded-xl border px-3 py-2 text-xs font-semibold ${activityStatusClass}`}
+              >
+                {activityStatus}
+              </div>
+            )}
             {resetStatus && (
               <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
                 {resetStatus}
@@ -214,6 +403,8 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                   active={activeTab === "pay_rates"}
                   appSessionId={state.appSessionId}
                   normAddressee={state.selectedNormAddressee}
+                  eaActivityId={eaActivityId}
+                  readOnly={drawerReadOnly}
                   runAutoRecompute={runAutoRecompute}
                   onDirtyChange={(dirty) => handleTabDirtyChange("pay_rates", dirty)}
                 />
@@ -223,6 +414,8 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                   active={activeTab === "case_metrics"}
                   appSessionId={state.appSessionId}
                   normAddressee={state.selectedNormAddressee}
+                  eaActivityId={eaActivityId}
+                  readOnly={drawerReadOnly}
                   runAutoRecompute={runAutoRecompute}
                   onDirtyChange={(dirty) => handleTabDirtyChange("case_metrics", dirty)}
                 />
@@ -232,6 +425,8 @@ export default function EaEditDrawerShell({ open, onClose }: EaEditDrawerShellPr
                   active={activeTab === "effort_metrics"}
                   appSessionId={state.appSessionId}
                   normAddressee={state.selectedNormAddressee}
+                  eaActivityId={eaActivityId}
+                  readOnly={drawerReadOnly}
                   runAutoRecompute={runAutoRecompute}
                   onDirtyChange={(dirty) => handleTabDirtyChange("effort_metrics", dirty)}
                 />

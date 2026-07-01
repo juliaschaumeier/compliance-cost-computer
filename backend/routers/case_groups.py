@@ -28,6 +28,7 @@ from backend.routers._edit_validation import validate_non_empty_rows
 from backend.routers._edit_validation import validate_non_noop_update_count
 from backend.routers._edit_validation import validate_unique_ids
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
+from backend.routers._session_activity_guard import guarded_session_activity
 from backend.routers._session_validation import (
     APP_SESSION_ID_QUERY_VALIDATION,
     AppSessionId,
@@ -46,6 +47,7 @@ class CaseGroupEditRow(BaseModel):
 
 class CaseGroupBulkUpdateRequest(BaseModel):
     app_session_id: AppSessionId
+    ea_activity_id: str | None = None
     rows: list[CaseGroupEditRow]
 
 
@@ -226,18 +228,24 @@ async def bulk_update_case_groups(payload: CaseGroupBulkUpdateRequest) -> BulkUp
     edited_case_group_ids = {
         int(row.case_group_id) for row in payload.rows if row.case_group_id is not None
     }
-    with db.transaction():
-        updated, missing_ids = db.bulk_update_case_group_edits(session_id, updates)
-        if missing_ids:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Unknown case_group_id values for this session: "
-                    + ", ".join(str(case_group_id) for case_group_id in missing_ids)
-                ),
-            )
-        validate_non_noop_update_count(updated)
-        refresh_case_group_tiles(session_id, db.list_case_groups_for_session(session_id))
+    async with guarded_session_activity(
+        session_id=session_id,
+        activity_type="ea_edit",
+        label="EA bearbeiten",
+        owner_activity_id=payload.ea_activity_id,
+    ):
+        with db.transaction():
+            updated, missing_ids = db.bulk_update_case_group_edits(session_id, updates)
+            if missing_ids:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Unknown case_group_id values for this session: "
+                        + ", ".join(str(case_group_id) for case_group_id in missing_ids)
+                    ),
+                )
+            validate_non_noop_update_count(updated)
+            refresh_case_group_tiles(session_id, db.list_case_groups_for_session(session_id))
     return BulkUpdateResponse(updated=updated)
 
 

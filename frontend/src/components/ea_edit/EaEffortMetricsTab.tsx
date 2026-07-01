@@ -33,6 +33,8 @@ type EaEffortMetricsTabProps = {
   active: boolean;
   appSessionId: string;
   normAddressee: NormAddressee;
+  eaActivityId?: string | null;
+  readOnly?: boolean;
   runAutoRecompute: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -343,6 +345,8 @@ export default function EaEffortMetricsTab({
   active,
   appSessionId,
   normAddressee,
+  eaActivityId = null,
+  readOnly = false,
   runAutoRecompute,
   onDirtyChange,
 }: EaEffortMetricsTabProps) {
@@ -732,10 +736,21 @@ export default function EaEffortMetricsTab({
   );
 
   useEffect(() => {
-    onDirtyChange?.(changes.length > 0);
-  }, [changes.length, onDirtyChange]);
+    onDirtyChange?.(!readOnly && changes.length > 0);
+  }, [changes.length, onDirtyChange, readOnly]);
+
+  useEffect(() => {
+    if (!readOnly) {
+      return;
+    }
+    setDraft({});
+    setReviewMode(false);
+  }, [readOnly, setReviewMode]);
 
   const handleSave = async () => {
+    if (readOnly || changes.length === 0 || invalidCellCount > 0) {
+      return;
+    }
     try {
       await runSave(
         async () => {
@@ -770,11 +785,16 @@ export default function EaEffortMetricsTab({
             }
           }
           if (bulkRows.length > 0) {
-            await apiClient.bulkUpdateProcessSteps({ appSessionId, rows: bulkRows });
+            await apiClient.bulkUpdateProcessSteps({
+              appSessionId,
+              eaActivityId: eaActivityId ?? undefined,
+              rows: bulkRows,
+            });
           }
           for (const edit of personnelEdits) {
             await apiClient.updatePersonnelEffortTime({
               appSessionId,
+              eaActivityId: eaActivityId ?? undefined,
               normAddressee: edit.row.norm_addressee,
               stepId: edit.row.step_id,
               period: edit.save.period,
@@ -802,7 +822,7 @@ export default function EaEffortMetricsTab({
   };
 
   const handleResetToModelValues = async () => {
-    if (stepRowsForChanges.length === 0 || !hasEditedOverrides) {
+    if (readOnly || stepRowsForChanges.length === 0 || !hasEditedOverrides) {
       return;
     }
     try {
@@ -814,6 +834,7 @@ export default function EaEffortMetricsTab({
           if (hasBulkEdited) {
             await apiClient.bulkUpdateProcessSteps({
               appSessionId,
+              eaActivityId: eaActivityId ?? undefined,
               rows: stepRowsForChanges.map((row) => {
                 const payloadRow = { step_id: row.step_id } as {
                   step_id: number;
@@ -832,6 +853,7 @@ export default function EaEffortMetricsTab({
               }
               await apiClient.updatePersonnelEffortTime({
                 appSessionId,
+                eaActivityId: eaActivityId ?? undefined,
                 normAddressee: row.norm_addressee,
                 stepId: row.step_id,
                 period: cell.save.period,
@@ -982,6 +1004,9 @@ export default function EaEffortMetricsTab({
                       : "border border-red-400 bg-red-50"
                   }`;
                 const updateField = (cellKey: string, value: string) => {
+                  if (readOnly) {
+                    return;
+                  }
                   setStatus(null);
                   setDraft((prev) => ({
                     ...prev,
@@ -1007,6 +1032,7 @@ export default function EaEffortMetricsTab({
                               <input
                                 value={draftRow[cell.key] ?? ""}
                                 onChange={(event) => updateField(cell.key, event.target.value)}
+                                disabled={readOnly}
                                 className={inputClass(draftRow[cell.key] ?? "")}
                               />
                               {columnCells.length > 1 && cell.sourceTag && (
@@ -1050,7 +1076,13 @@ export default function EaEffortMetricsTab({
           <div className="flex justify-end">
             <button
               onClick={handleResetToModelValues}
-              disabled={isSaving || stepRowsForChanges.length === 0 || !hasEditedOverrides}
+              disabled={
+                isSaving ||
+                readOnly ||
+                !eaActivityId ||
+                stepRowsForChanges.length === 0 ||
+                !hasEditedOverrides
+              }
               className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Auf Modellwerte zurücksetzen
@@ -1059,7 +1091,7 @@ export default function EaEffortMetricsTab({
           <div className="flex justify-end">
             <button
               onClick={() => setReviewMode(true)}
-              disabled={changes.length === 0 || invalidCellCount > 0}
+              disabled={readOnly || !eaActivityId || changes.length === 0 || invalidCellCount > 0}
               className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Prüfen
@@ -1082,7 +1114,13 @@ export default function EaEffortMetricsTab({
             </button>
             <button
               onClick={handleSave}
-              disabled={isSaving || changes.length === 0 || invalidCellCount > 0}
+              disabled={
+                isSaving ||
+                readOnly ||
+                !eaActivityId ||
+                changes.length === 0 ||
+                invalidCellCount > 0
+              }
               className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {isSaving ? "Speichert..." : "Änderungen speichern"}

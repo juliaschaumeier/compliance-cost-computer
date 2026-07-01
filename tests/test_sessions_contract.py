@@ -4,6 +4,7 @@ import time
 from backend.core import db, llm_monitor
 from backend.core.config import settings
 from backend.routers import sessions as sessions_router
+from tests.activity_helpers import ea_payload_for_session
 
 
 def _parse_contract(model_cls, payload):
@@ -138,14 +139,17 @@ def test_sessions_edit_audit_contract(test_client):
 
     update_resp = test_client.post(
         "/sessions/pay-rates",
-        json={
-            "app_session_id": app_session_id,
-            "administration_level": "bund",
-            "edited_a": 77,
-            "edited_b": None,
-            "edited_c": None,
-            "edited_d": None,
-        },
+        json=ea_payload_for_session(
+            db.get_session_id_by_app_id(app_session_id),
+            {
+                "app_session_id": app_session_id,
+                "administration_level": "bund",
+                "edited_a": 77,
+                "edited_b": None,
+                "edited_c": None,
+                "edited_d": None,
+            },
+        ),
     )
     assert update_resp.status_code == 200
 
@@ -262,28 +266,34 @@ def test_pay_rates_save_and_reset_for_laender_session_no_422(test_client):
     # Saving with the used level must NOT raise 422.
     save_resp = test_client.post(
         "/sessions/pay-rates",
-        json={
-            "app_session_id": app_session_id,
-            "administration_level": "laender",
-            "edited_a": 50,
-            "edited_b": None,
-            "edited_c": None,
-            "edited_d": None,
-        },
+        json=ea_payload_for_session(
+            session_id,
+            {
+                "app_session_id": app_session_id,
+                "administration_level": "laender",
+                "edited_a": 50,
+                "edited_b": None,
+                "edited_c": None,
+                "edited_d": None,
+            },
+        ),
     )
     assert save_resp.status_code == 200
 
     # Resetting with the same level: also no 422.
     reset_resp = test_client.post(
         "/sessions/pay-rates",
-        json={
-            "app_session_id": app_session_id,
-            "administration_level": "laender",
-            "edited_a": None,
-            "edited_b": None,
-            "edited_c": None,
-            "edited_d": None,
-        },
+        json=ea_payload_for_session(
+            session_id,
+            {
+                "app_session_id": app_session_id,
+                "administration_level": "laender",
+                "edited_a": None,
+                "edited_b": None,
+                "edited_c": None,
+                "edited_d": None,
+            },
+        ),
     )
     assert reset_resp.status_code == 200
 

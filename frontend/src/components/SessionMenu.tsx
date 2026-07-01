@@ -62,6 +62,15 @@ function formatElapsedDuration(totalSeconds: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")} min`;
 }
 
+function getApiDetailMessage(error: unknown): string | null {
+  const details = (error as ApiClientError | undefined)?.details;
+  if (typeof details !== "object" || details === null || Array.isArray(details)) {
+    return null;
+  }
+  const message = (details as Record<string, unknown>).message;
+  return typeof message === "string" && message.trim() ? message : null;
+}
+
 export default function SessionMenu({ compact }: SessionMenuProps) {
   const {
     state,
@@ -372,7 +381,10 @@ export default function SessionMenu({ compact }: SessionMenuProps) {
         appSessionId: state.appSessionId,
         lastStepLabel,
       });
-      setStatus("Letzter Schritt konnte nicht zurückgesetzt werden.");
+      setStatus(
+        getApiDetailMessage(error) ||
+          "Letzter Schritt konnte nicht zurückgesetzt werden."
+      );
     } finally {
       setIsUndoing(false);
     }

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -26,6 +28,8 @@ from .norm_addressees import (
     SUPPORTED_NORM_ADDRESSEES,
     normalize_norm_addressee,
 )
+
+logger = logging.getLogger(__name__)
 
 _TX_CONN: ContextVar[sqlite3.Connection | None] = ContextVar("tx_conn", default=None)
 
@@ -467,6 +471,32 @@ def _create_session_cc_cost_triggers(cur: sqlite3.Cursor) -> None:
         BEGIN
             {recompute.format(sid='OLD.session_id')}
         END
+        """
+    )
+
+
+def _create_session_activities_table(cur: sqlite3.Cursor) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_activities (
+            session_id      INTEGER PRIMARY KEY,
+            activity_id     TEXT NOT NULL UNIQUE,
+            activity_type   TEXT NOT NULL CHECK (activity_type IN ('workflow', 'ea_edit')),
+            label           TEXT NOT NULL,
+            created_at      REAL NOT NULL,
+            updated_at      REAL NOT NULL,
+            expires_at      REAL,
+            FOREIGN KEY (session_id)
+            REFERENCES sessions(session_id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_session_activities_expires_at
+        ON session_activities(expires_at)
         """
     )
 
@@ -1650,6 +1680,7 @@ def init_db() -> None:
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_app_session_id ON sessions(app_session_id)"
     )
+    _create_session_activities_table(cur)
     _create_session_total_costs_by_addressee_table(cur)
     _create_session_pay_rate_overrides_by_addressee_table(cur)
     _create_compliance_text_examples_table(cur)
@@ -2100,6 +2131,175 @@ def get_session_by_id(session_id: int) -> dict | None:
     if row is None:
         return None
     return dict(row)
+
+
+def _activity_row_to_dict(row: sqlite3.Row | None) -> dict | None:
+    return dict(row) if row is not None else None
+
+
+def purge_expired_session_activity(session_id: int | None = None) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    now = time.time()
+    if session_id is None:
+        params = (now,)
+        cur.execute(
+            """
+            SELECT session_id, activity_id, activity_type, label, created_at, updated_at, expires_at
+            FROM session_activities
+            WHERE expires_at IS NOT NULL AND expires_at <= ?
+            """,
+            params,
+        )
+        expired_rows = cur.fetchall()
+        cur.execute(
+            """
+            DELETE FROM session_activities
+            WHERE expires_at IS NOT NULL AND expires_at <= ?
+            """,
+            params,
+        )
+    else:
+        params = (int(session_id), now)
+        cur.execute(
+            """
+            SELECT session_id, activity_id, activity_type, label, created_at, updated_at, expires_at
+            FROM session_activities
+            WHERE session_id = ?
+              AND expires_at IS NOT NULL
+              AND expires_at <= ?
+            """,
+            params,
+        )
+        expired_rows = cur.fetchall()
+        cur.execute(
+            """
+            DELETE FROM session_activities
+            WHERE session_id = ?
+              AND expires_at IS NOT NULL
+              AND expires_at <= ?
+            """,
+            params,
+        )
+    deleted = len(expired_rows)
+    for row in expired_rows:
+        logger.warning(
+            "Purged expired session activity | session=%s activity=%s type=%s label=%s "
+            "created_at=%s updated_at=%s expires_at=%s",
+            row["session_id"],
+            row["activity_id"],
+            row["activity_type"],
+            row["label"],
+            row["created_at"],
+            row["updated_at"],
+            row["expires_at"],
+        )
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return deleted
+
+
+def get_session_activity(session_id: int) -> dict | None:
+    purge_expired_session_activity(session_id)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT session_id, activity_id, activity_type, label, created_at, updated_at, expires_at
+        FROM session_activities
+        WHERE session_id = ?
+        LIMIT 1
+        """,
+        (int(session_id),),
+    )
+    row = cur.fetchone()
+    _maybe_close(conn)
+    return _activity_row_to_dict(row)
+
+
+def begin_session_activity(
+    *,
+    session_id: int,
+    activity_id: str,
+    activity_type: str,
+    label: str,
+    ttl_seconds: float | None = None,
+) -> tuple[dict | None, dict | None]:
+    purge_expired_session_activity(session_id)
+    conn = get_conn()
+    cur = conn.cursor()
+    now = time.time()
+    expires_at = None if ttl_seconds is None else now + float(ttl_seconds)
+    try:
+        cur.execute(
+            """
+            INSERT INTO session_activities (
+                session_id, activity_id, activity_type, label,
+                created_at, updated_at, expires_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (int(session_id), activity_id, activity_type, label, now, now, expires_at),
+        )
+        _maybe_commit(conn)
+    except sqlite3.IntegrityError:
+        _maybe_close(conn)
+        return None, get_session_activity(session_id)
+    activity = get_session_activity(session_id)
+    _maybe_close(conn)
+    return activity, None
+
+
+def refresh_session_activity(
+    *,
+    session_id: int,
+    activity_id: str,
+    ttl_seconds: float,
+) -> dict | None:
+    purge_expired_session_activity(session_id)
+    conn = get_conn()
+    cur = conn.cursor()
+    now = time.time()
+    cur.execute(
+        """
+        UPDATE session_activities
+        SET updated_at = ?, expires_at = ?
+        WHERE session_id = ? AND activity_id = ?
+        """,
+        (now, now + float(ttl_seconds), int(session_id), activity_id),
+    )
+    updated = int(cur.rowcount or 0)
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    if updated == 0:
+        return None
+    return get_session_activity(session_id)
+
+
+def clear_session_activity(session_id: int, activity_id: str) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM session_activities
+        WHERE session_id = ? AND activity_id = ?
+        """,
+        (int(session_id), activity_id),
+    )
+    deleted = int(cur.rowcount or 0) > 0
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return deleted
+
+
+def clear_all_session_activities() -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM session_activities")
+    deleted = int(cur.rowcount or 0)
+    _maybe_commit(conn)
+    _maybe_close(conn)
+    return deleted
 
 
 def get_session_law_texts(session_id: int) -> tuple[str, str]:

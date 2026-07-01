@@ -17,6 +17,7 @@ const mockGetEditableCaseGroups = apiClient.getEditableCaseGroups as jest.Mock;
 const mockGetEditableProcessSteps = apiClient.getEditableProcessSteps as jest.Mock;
 const mockBulkUpdateProcessSteps = apiClient.bulkUpdateProcessSteps as jest.Mock;
 const mockUpdatePersonnelEffortTime = apiClient.updatePersonnelEffortTime as jest.Mock;
+const EA_ACTIVITY_ID = "ea_edit:test";
 
 describe("EaEffortMetricsTab", () => {
   beforeEach(() => {
@@ -148,7 +149,7 @@ describe("EaEffortMetricsTab", () => {
       ],
     });
     render(
-      <EaEffortMetricsTab normAddressee="business" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+      <EaEffortMetricsTab normAddressee="business" open active appSessionId="STEP-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
 
     const trR = (await screen.findByText("Schritt Kunst")).closest("tr") as HTMLElement;
@@ -219,7 +220,7 @@ describe("EaEffortMetricsTab", () => {
     });
 
     render(
-      <EaEffortMetricsTab normAddressee="citizens" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+      <EaEffortMetricsTab normAddressee="citizens" open active appSessionId="STEP-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
 
     const tr = (await screen.findByText("Schritt Bürger")).closest("tr") as HTMLElement;
@@ -304,7 +305,7 @@ describe("EaEffortMetricsTab", () => {
   it("renders all qualifications editable under the step's single source", async () => {
     seedPersonnelStep();
     render(
-      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
 
     const row = await screen.findByText("Schritt R");
@@ -325,7 +326,7 @@ describe("EaEffortMetricsTab", () => {
     seedPersonnelStep();
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={runAutoRecompute} />
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
     );
 
     const row = await screen.findByText("Schritt R");
@@ -348,6 +349,7 @@ describe("EaEffortMetricsTab", () => {
       wageSourceKind: "verwaltungsebene",
       wageSourceValue: "laender",
       timeRequiredInMinEdited: 5,
+      eaActivityId: EA_ACTIVITY_ID,
     });
     expect(mockBulkUpdateProcessSteps).not.toHaveBeenCalled();
     expect(runAutoRecompute).toHaveBeenCalledTimes(1);
@@ -358,7 +360,7 @@ describe("EaEffortMetricsTab", () => {
     // empty hD column upserts a row under the step's source.
     seedPersonnelStep();
     render(
-      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={jest.fn()} />
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={jest.fn()} />
     );
 
     const row = await screen.findByText("Schritt R");
@@ -380,6 +382,7 @@ describe("EaEffortMetricsTab", () => {
       wageSourceKind: "verwaltungsebene",
       wageSourceValue: "laender",
       timeRequiredInMinEdited: 20,
+      eaActivityId: EA_ACTIVITY_ID,
     });
   });
 
@@ -398,7 +401,7 @@ describe("EaEffortMetricsTab", () => {
     });
     const runAutoRecompute = jest.fn().mockResolvedValue(undefined);
     render(
-      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" runAutoRecompute={runAutoRecompute} />
+      <EaEffortMetricsTab normAddressee="administration" open active appSessionId="STEP-TAB" eaActivityId={EA_ACTIVITY_ID} runAutoRecompute={runAutoRecompute} />
     );
 
     await screen.findByText("Schritt R");
@@ -411,6 +414,7 @@ describe("EaEffortMetricsTab", () => {
         stepId: 201,
         period: "current",
         timeRequiredInMinEdited: null,
+        eaActivityId: EA_ACTIVITY_ID,
       })
     );
     // No step-level edits exist, so the slot bulk-update is skipped entirely.
@@ -425,6 +429,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={runAutoRecompute}
       />
     );
@@ -449,6 +454,7 @@ describe("EaEffortMetricsTab", () => {
     await waitFor(() => expect(mockBulkUpdateProcessSteps).toHaveBeenCalledTimes(1));
     expect(mockBulkUpdateProcessSteps).toHaveBeenCalledWith({
       appSessionId: "STEP-TAB",
+      eaActivityId: EA_ACTIVITY_ID,
       rows: [
         {
           step_id: 101,
@@ -517,6 +523,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -539,6 +546,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -556,6 +564,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -624,6 +633,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={runAutoRecompute}
       />
     );
@@ -637,6 +647,7 @@ describe("EaEffortMetricsTab", () => {
     await waitFor(() => expect(mockBulkUpdateProcessSteps).toHaveBeenCalledTimes(1));
     expect(mockBulkUpdateProcessSteps).toHaveBeenCalledWith({
       appSessionId: "STEP-TAB",
+      eaActivityId: EA_ACTIVITY_ID,
       rows: [
         {
           step_id: 101,
@@ -662,6 +673,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -698,6 +710,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -822,6 +835,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={runAutoRecompute}
       />
     );
@@ -877,6 +891,7 @@ describe("EaEffortMetricsTab", () => {
     await waitFor(() => expect(mockBulkUpdateProcessSteps).toHaveBeenCalledTimes(1));
     const call = mockBulkUpdateProcessSteps.mock.calls[0][0];
     expect(call.appSessionId).toBe("STEP-TAB");
+    expect(call.eaActivityId).toBe(EA_ACTIVITY_ID);
     expect(call.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -898,6 +913,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -918,6 +934,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active={false}
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -926,6 +943,7 @@ describe("EaEffortMetricsTab", () => {
         open
         active
         appSessionId="STEP-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );

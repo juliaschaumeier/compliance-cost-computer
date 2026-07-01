@@ -8,6 +8,7 @@ import pytest
 
 from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION
+from tests.activity_helpers import ea_activity_id_for_session
 
 
 def _seed_session_with_rows(app_id="WAGE-C1"):
@@ -54,13 +55,15 @@ def test_wage_rates_lists_used_source_with_all_qualifications(test_client):
 
 
 def test_wage_rate_override_set_clear_and_validation(test_client):
-    app_id, _session_id, _cg, _step = _seed_session_with_rows("WAGE-C1-SET")
+    app_id, session_id, _cg, _step = _seed_session_with_rows("WAGE-C1-SET")
+    ea_activity_id = ea_activity_id_for_session(session_id)
 
     # set override
     resp = test_client.post(
         "/sessions/wage-rates",
         json={
             "app_session_id": app_id, "norm_addressee": ADMINISTRATION,
+            "ea_activity_id": ea_activity_id,
             "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
             "qualification": "gehobener_dienst", "hourly_rate_edited": 55.0,
         },
@@ -74,6 +77,7 @@ def test_wage_rate_override_set_clear_and_validation(test_client):
         "/sessions/wage-rates",
         json={
             "app_session_id": app_id, "norm_addressee": ADMINISTRATION,
+            "ea_activity_id": ea_activity_id,
             "wage_source_kind": "verwaltungsebene", "wage_source_value": "nonexistent",
             "qualification": "gehobener_dienst", "hourly_rate_edited": 55.0,
         },
@@ -85,6 +89,7 @@ def test_wage_rate_override_set_clear_and_validation(test_client):
         "/sessions/wage-rates",
         json={
             "app_session_id": app_id, "norm_addressee": ADMINISTRATION,
+            "ea_activity_id": ea_activity_id,
             "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
             "qualification": "gehobener_dienst", "hourly_rate_edited": None,
         },
@@ -102,6 +107,7 @@ def test_wage_rate_override_noop_rejection_and_audit(test_client):
     body = {
         "app_session_id": app_id,
         "norm_addressee": ADMINISTRATION,
+        "ea_activity_id": ea_activity_id_for_session(session_id),
         "wage_source_kind": "verwaltungsebene",
         "wage_source_value": "bund",
         "qualification": "gehobener_dienst",

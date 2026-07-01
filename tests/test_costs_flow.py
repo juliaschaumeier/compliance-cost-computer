@@ -5,6 +5,7 @@ import pytest
 from backend.core import db
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from tests.activity_helpers import ea_payload_for_session
 
 
 def test_upsert_process_step_cost_by_addressee_has_no_dead_breakdown_params():
@@ -992,8 +993,12 @@ def _set_admin_pay_rate_override(test_client, app_session_id: str, **edited: flo
         "edited_c": edited.get("c"),
         "edited_d": edited.get("d"),
     }
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    payload = ea_payload_for_session(session_id, payload)
     resp = test_client.post("/sessions/pay-rates", json=payload)
     assert resp.status_code == 200, resp.text
+    db.clear_session_activity(session_id, payload["ea_activity_id"])
     return resp.json()
 
 
@@ -1290,8 +1295,12 @@ def _set_business_pay_rate_override(test_client, app_session_id: str, **edited: 
         "edited_c": edited.get("c"),
         "edited_d": edited.get("d"),
     }
+    session_id = db.get_session_id_by_app_id(app_session_id)
+    assert session_id is not None
+    payload = ea_payload_for_session(session_id, payload)
     resp = test_client.post("/sessions/pay-rates", json=payload)
     assert resp.status_code == 200, resp.text
+    db.clear_session_activity(session_id, payload["ea_activity_id"])
     return resp.json()
 
 

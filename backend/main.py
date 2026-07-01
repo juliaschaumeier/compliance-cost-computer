@@ -162,6 +162,7 @@ async def log_backend_communication(request: Request, call_next):
 @app.on_event("startup")
 def startup() -> None:
     db.ensure_db()
+    db.clear_all_session_activities()
 
 
 app.include_router(tiles.router)

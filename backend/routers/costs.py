@@ -12,8 +12,17 @@ from backend.core.norm_addressees import (
     BUSINESS,
     CITIZENS,
 )
+from backend.core.session_activity import (
+    SessionActivityConflict,
+    SessionActivityUnavailable,
+    use_existing_session_activity,
+)
 from backend.core.tile_refresh import refresh_case_group_tiles, refresh_step_tiles
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
+from backend.routers._session_activity_guard import (
+    raise_session_activity_conflict,
+    raise_session_activity_unavailable,
+)
 
 
 router = APIRouter(prefix="/costs", tags=["costs"])
@@ -22,6 +31,7 @@ router = APIRouter(prefix="/costs", tags=["costs"])
 class CostComputationRequest(BaseModel):
     app_session_id: str
     norm_addressee: str | None = None
+    ea_activity_id: str | None = None
 
 
 def _build_cost_response(
@@ -282,6 +292,24 @@ def compute_total_cost_for_session(
 
 @router.post("/compute")
 async def compute_costs(payload: CostComputationRequest) -> dict:
+    session_id = db.get_session_id_by_app_id(payload.app_session_id)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    active_activity = db.get_session_activity(session_id)
+    requires_ea_owner = payload.ea_activity_id or (
+        active_activity is not None and active_activity["activity_type"] == "ea_edit"
+    )
+    if requires_ea_owner:
+        try:
+            use_existing_session_activity(
+                session_id=session_id,
+                activity_id=payload.ea_activity_id,
+                activity_type="ea_edit",
+            )
+        except SessionActivityConflict as exc:
+            raise_session_activity_conflict(exc)
+        except SessionActivityUnavailable as exc:
+            raise_session_activity_unavailable(exc)
     return compute_total_cost_for_session(
         app_session_id=payload.app_session_id,
         norm_addressee=payload.norm_addressee,

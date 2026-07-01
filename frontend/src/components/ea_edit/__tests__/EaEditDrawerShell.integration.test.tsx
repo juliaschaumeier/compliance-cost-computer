@@ -15,6 +15,9 @@ jest.mock("@/lib/useMounted", () => ({
 
 jest.mock("@/lib/api", () => ({
   apiClient: {
+    acquireEaEditActivity: jest.fn(),
+    heartbeatEaEditActivity: jest.fn(),
+    releaseEaEditActivity: jest.fn(),
     computeTotalCost: jest.fn(),
     getSessionWageRates: jest.fn(),
     updateSessionWageRate: jest.fn(),
@@ -24,6 +27,9 @@ jest.mock("@/lib/api", () => ({
 }));
 
 const mockUseApp = useApp as jest.Mock;
+const mockAcquireEaEditActivity = apiClient.acquireEaEditActivity as jest.Mock;
+const mockHeartbeatEaEditActivity = apiClient.heartbeatEaEditActivity as jest.Mock;
+const mockReleaseEaEditActivity = apiClient.releaseEaEditActivity as jest.Mock;
 const mockGetSessionWageRates = apiClient.getSessionWageRates as jest.Mock;
 const mockUpdateSessionWageRate = apiClient.updateSessionWageRate as jest.Mock;
 const mockComputeTotalCost = apiClient.computeTotalCost as jest.Mock;
@@ -47,6 +53,19 @@ describe("EaEditDrawerShell integration", () => {
       app_session_id: "EA-INTEGRATION",
       rows: ADMIN_WAGE_ROWS,
     });
+    mockAcquireEaEditActivity.mockResolvedValue({
+      app_session_id: "EA-INTEGRATION",
+      activity_id: "ea_edit:integration",
+      lease_seconds: 120,
+      expires_at: 123,
+    });
+    mockHeartbeatEaEditActivity.mockResolvedValue({
+      app_session_id: "EA-INTEGRATION",
+      activity_id: "ea_edit:integration",
+      lease_seconds: 120,
+      expires_at: 456,
+    });
+    mockReleaseEaEditActivity.mockResolvedValue({ ok: true });
   });
 
   it("opens close guard after real pay-rate edit", async () => {

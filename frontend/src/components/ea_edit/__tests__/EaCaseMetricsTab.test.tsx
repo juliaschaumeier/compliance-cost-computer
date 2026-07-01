@@ -13,6 +13,7 @@ jest.mock("@/lib/api", () => ({
 
 const mockGetEditableCaseGroups = apiClient.getEditableCaseGroups as jest.Mock;
 const mockBulkUpdateCaseGroups = apiClient.bulkUpdateCaseGroups as jest.Mock;
+const EA_ACTIVITY_ID = "ea_edit:test";
 
 describe("EaCaseMetricsTab", () => {
   beforeEach(() => {
@@ -58,6 +59,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={runAutoRecompute}
       />
     );
@@ -82,6 +84,7 @@ describe("EaCaseMetricsTab", () => {
     await waitFor(() => expect(mockBulkUpdateCaseGroups).toHaveBeenCalledTimes(1));
     expect(mockBulkUpdateCaseGroups).toHaveBeenCalledWith({
       appSessionId: "CASE-TAB",
+      eaActivityId: EA_ACTIVITY_ID,
       rows: [
         {
           case_group_id: 11,
@@ -131,6 +134,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -193,6 +197,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -251,6 +256,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -298,6 +304,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -317,6 +324,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -372,6 +380,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={runAutoRecompute}
       />
     );
@@ -390,6 +399,7 @@ describe("EaCaseMetricsTab", () => {
     await waitFor(() => expect(mockBulkUpdateCaseGroups).toHaveBeenCalledTimes(1));
     expect(mockBulkUpdateCaseGroups).toHaveBeenCalledWith({
       appSessionId: "CASE-TAB",
+      eaActivityId: EA_ACTIVITY_ID,
       rows: [
         {
           case_group_id: 11,
@@ -409,6 +419,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -425,6 +436,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -444,6 +456,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active={false}
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );
@@ -452,6 +465,7 @@ describe("EaCaseMetricsTab", () => {
         open
         active
         appSessionId="CASE-TAB"
+        eaActivityId={EA_ACTIVITY_ID}
         runAutoRecompute={jest.fn()}
       />
     );

@@ -4,6 +4,7 @@ import pytest
 
 from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION
+from tests.activity_helpers import ea_activity_id_for_session
 
 
 def _seed(app_id="C2-EDIT"):
@@ -23,8 +24,11 @@ def _seed(app_id="C2-EDIT"):
 
 
 def _edit_payload(app_id, step_id, **overrides):
+    session_id = db.get_session_id_by_app_id(app_id)
+    assert session_id is not None
     payload = {
         "app_session_id": app_id, "norm_addressee": ADMINISTRATION, "step_id": step_id,
+        "ea_activity_id": ea_activity_id_for_session(session_id),
         "period": "proposed", "qualification": "gehobener_dienst",
         "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
         "time_required_in_min_edited": 10.0,

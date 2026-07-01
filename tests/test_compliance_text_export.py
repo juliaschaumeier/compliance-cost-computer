@@ -9,6 +9,7 @@ from backend.core.deep_research_cases import CASE_GROUP_RESEARCH_PURPOSE
 from backend.core.llm_service import LlmResult
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION
+from tests.activity_helpers import ea_payload_for_session
 from backend.routers import sessions as sessions_router
 
 
@@ -549,7 +550,10 @@ def test_reset_session_ea_edits_clears_overrides_for_export(test_client):
 
     response = test_client.post(
         "/sessions/ea-edits/reset",
-        json={"app_session_id": "COMP-RESET-EA"},
+        json=ea_payload_for_session(
+            seeded["session_id"],
+            {"app_session_id": "COMP-RESET-EA"},
+        ),
     )
 
     assert response.status_code == 200
