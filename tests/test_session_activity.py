@@ -9,6 +9,7 @@ from backend.core.auth import ApiKeys
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.session_activity import WORKFLOW_LEASE_SECONDS, begin_session_activity
+from backend.main import startup
 from backend.routers import sessions as sessions_router
 
 
@@ -271,6 +272,21 @@ def test_expired_session_activity_purge_logs_recovery(caplog):
     assert db.get_session_activity(session_id) is None
     assert "Purged expired session activity" in caplog.text
     assert "workflow:expired-test" in caplog.text
+
+
+def test_startup_clears_orphaned_session_activities_after_restart():
+    session_id = _seed_total_cost_ready("EA-ACT-STARTUP-CLEAR")
+    begin_session_activity(
+        session_id=session_id,
+        activity_type="workflow",
+        label="Testlauf",
+        ttl_seconds=WORKFLOW_LEASE_SECONDS,
+    )
+    assert db.get_session_activity(session_id) is not None
+
+    startup()
+
+    assert db.get_session_activity(session_id) is None
 
 
 def test_single_step_workflow_activity_released_when_final_publish_fails(monkeypatch):
