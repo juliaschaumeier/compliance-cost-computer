@@ -832,6 +832,159 @@ def test_process_step_parser_rejects_duplicate_case_group_id():
     assert str(case_group_id) in exc_info.value.detail
 
 
+def test_process_step_invariant_violation_rolls_back_inserts():
+    # #64 (AC4): Schlaegt die Post-Insert-Invariante INNERHALB der Transaktion zu,
+    # duerfen die bereits eingefuegten Schritte NICHT persistiert werden. Damit
+    # bleibt nach einer malformed Step-5-Antwort kein partieller Stand zurueck.
+    session_id, _process_id, _regulation_id, case_group_id, _context = (
+        _seed_process_step_context("PARSER-STEPS-ROLLBACK")
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        with db.transaction():
+            db.insert_process_step(
+                session_id=session_id,
+                case_group_id=case_group_id,
+                step="Root 1",
+                description="",
+                previous_id=None,
+                norm_addressee=ADMINISTRATION,
+            )
+            db.insert_process_step(
+                session_id=session_id,
+                case_group_id=case_group_id,
+                step="Root 2",
+                description="",
+                previous_id=None,
+                norm_addressee=ADMINISTRATION,
+            )
+            process_steps_router._assert_single_chain_start_per_case_group(
+                session_id, ADMINISTRATION
+            )
+
+    assert exc_info.value.status_code == 500
+    # Rollback: keine Schritte persistiert.
+    assert (
+        db.list_process_steps_for_session_and_addressee(session_id, ADMINISTRATION)
+        == []
+    )
+
+
+def test_process_step_persist_guard_rejects_two_chains_per_case_group():
+    # #64 (P5): Verteidigung in der Tiefe. Liegen fuer eine Fallgruppe zwei
+    # Ketten-Anfaenge (previous_id IS NULL) in der DB, muss die Invariante nach
+    # dem Insert zuschlagen -> 500 -> Rollback, statt eine fuer Schritt 6
+    # unvollstaendige Session zu persistieren.
+    session_id, _process_id, _regulation_id, case_group_id, _context = (
+        _seed_process_step_context("PARSER-STEPS-TWO-CHAINS")
+    )
+    db.insert_process_step(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        step="Kette 1 Start",
+        description="",
+        previous_id=None,
+        norm_addressee=ADMINISTRATION,
+    )
+    db.insert_process_step(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        step="Kette 2 Start",
+        description="",
+        previous_id=None,
+        norm_addressee=ADMINISTRATION,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        process_steps_router._assert_single_chain_start_per_case_group(
+            session_id, ADMINISTRATION
+        )
+
+    assert exc_info.value.status_code == 500
+    assert "multiple process-step chains" in exc_info.value.detail
+    assert str(case_group_id) in exc_info.value.detail
+
+
+def test_process_step_persist_guard_allows_single_chain_per_case_group():
+    # #64 (P5): Der Normalfall (genau ein Ketten-Anfang je Fallgruppe) darf die
+    # Invariante nicht ausloesen.
+    session_id, _process_id, _regulation_id, case_group_id, _context = (
+        _seed_process_step_context("PARSER-STEPS-ONE-CHAIN")
+    )
+    root_id = db.insert_process_step(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        step="Kette Start",
+        description="",
+        previous_id=None,
+        norm_addressee=ADMINISTRATION,
+    )
+    db.insert_process_step(
+        session_id=session_id,
+        case_group_id=case_group_id,
+        step="Kette Folge",
+        description="",
+        previous_id=root_id,
+        norm_addressee=ADMINISTRATION,
+    )
+
+    # Darf nicht werfen.
+    process_steps_router._assert_single_chain_start_per_case_group(
+        session_id, ADMINISTRATION
+    )
+
+
+def test_process_step_parser_rejects_duplicate_case_group_id_same_process():
+    # #64: Reproduziert die gemeldete O9EBJR-Form: dieselbe fallgruppen_id
+    # taucht ZWEIMAL im SELBEN Prozessblock auf, mit identischen Wrapper-Metadaten
+    # (Bezeichnung/Beschreibung/aenderungsstatus), aber unterschiedlichen
+    # Taetigkeiten. Der Parser appended je Fallgruppe -> der Duplikat-Guard muss
+    # auch diese Same-Process-Form vor der Persistenz mit 422 abweisen.
+    _session_id, process_id, _regulation_id, case_group_id, context = (
+        _seed_process_step_context("PARSER-STEPS-DUP-SAME-PROCESS")
+    )
+    payload = f"""
+    {{
+      "prozesse": [
+        {{
+          "prozess_id": {process_id},
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "fallgruppe_bezeichnung": "Identische Fallgruppe",
+              "fallgruppe_beschreibung": "Gleiche Metadaten",
+              "aenderungsstatus": "eingefuehrt",
+              "taetigkeiten": [
+                {{"taetigkeit": "Block 1 - Schritt A", "beschreibung": "Erste Kette"}}
+              ]
+            }},
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "fallgruppe_bezeichnung": "Identische Fallgruppe",
+              "fallgruppe_beschreibung": "Gleiche Metadaten",
+              "aenderungsstatus": "eingefuehrt",
+              "taetigkeiten": [
+                {{"taetigkeit": "Block 2 - Schritt X", "beschreibung": "Zweite Kette"}}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        process_steps_router.parse_process_step_analysis_answer(
+            response_text=payload,
+            norm_addressee=ADMINISTRATION,
+            context=context,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Duplicate fallgruppen_id values" in exc_info.value.detail
+    assert str(case_group_id) in exc_info.value.detail
+
+
 def test_effort_parser_rejects_duplicate_case_group_id():
     # #13/#25: Dieselbe fallgruppen_id zweimal in den Kennzahlen -> 422 statt
     # stillem last-write-wins-Ueberschreiben.

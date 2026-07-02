@@ -590,7 +590,43 @@ def _add_step_tiles(
                 }
             )
             prev_step_id = step_id
+    _assert_single_chain_start_per_case_group(session_id, norm_addressee)
     return created
+
+
+def _assert_single_chain_start_per_case_group(
+    session_id: int,
+    norm_addressee: str,
+) -> None:
+    """#64 (P5): Verteidigung in der Tiefe nach dem Step-Insert.
+
+    Jede Fallgruppe darf hoechstens eine Prozessschritt-Kette besitzen, also
+    genau einen Schritt mit ``previous_id IS NULL``. Der Parse-Guard weist
+    doppelte ``fallgruppen_id`` bereits vor der Persistenz ab; sollte dieser je
+    umgangen werden, faengt diese Invariante den stillen Zwei-Ketten-Fall noch
+    innerhalb der laufenden Transaktion ab und erzwingt einen Rollback statt
+    einer halb gespeicherten, fuer Schritt 6 unvollstaendigen Session.
+    """
+    chain_starts: dict[int, int] = {}
+    for row in db.list_process_steps_for_session_and_addressee(
+        session_id, norm_addressee
+    ):
+        if row.get("previous_id") is None:
+            case_group_id = int(row["case_group_id"])
+            chain_starts[case_group_id] = chain_starts.get(case_group_id, 0) + 1
+    multi_chain = sorted(
+        str(case_group_id)
+        for case_group_id, count in chain_starts.items()
+        if count > 1
+    )
+    if multi_chain:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Invariant violated: multiple process-step chains for "
+                "fallgruppen_id values: " + ", ".join(multi_chain)
+            ),
+        )
 
 
 def _parse_regulation_ids(raw_value: object) -> list[int]:
