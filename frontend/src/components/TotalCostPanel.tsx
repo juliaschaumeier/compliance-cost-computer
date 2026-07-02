@@ -123,7 +123,7 @@ function CostSummaryStrip({ summary }: { summary: CostSummary }) {
       className="w-fit max-w-full overflow-x-auto rounded-xl border border-slate-300 bg-white px-4 py-2 shadow-sm ring-1 ring-slate-100"
       aria-label={`Kostenübersicht: ${buildCostSummaryLabel(summary)}`}
     >
-      <div className="flex min-w-max items-center">
+      <div className="flex min-w-max items-start">
         <div className="w-[120px] shrink-0">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
             Jährlicher
