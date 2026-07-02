@@ -69,7 +69,11 @@ function formatCitizenCostValue(row: TotalCostResponse | undefined): string {
 
 function buildCostSummaryCells(summary: CostSummary): {
   totalCell: { label: string; value: string };
-  addresseeCells: { label: string; value: string }[];
+  addresseeCells: {
+    label: string;
+    value: string;
+    sub?: { label: string; value: string };
+  }[];
 } {
   const administration = summary.administration?.total_cost ?? 0;
   const business = summary.business?.total_cost ?? 0;
@@ -83,6 +87,13 @@ function buildCostSummaryCells(summary: CostSummary): {
       {
         label: "Wirtschaft",
         value: formatCostValue(summary.business?.total_cost, { zeroWhenMissing: true }),
+        // Bürokratiekosten aus Informationspflichten als "davon"-Anteil der Wirtschaft.
+        sub: {
+          label: "davon IP",
+          value: formatCostValue(summary.business?.bureaucracy_cost, {
+            zeroWhenMissing: true,
+          }),
+        },
       },
       {
         label: "Verwaltung",
@@ -96,7 +107,11 @@ function buildCostSummaryLabel(summary: CostSummary): string {
   const { totalCell, addresseeCells } = buildCostSummaryCells(summary);
   return [
     `${totalCell.label} ${totalCell.value}`,
-    ...addresseeCells.map((cell) => `${cell.label} ${cell.value}`),
+    ...addresseeCells.map((cell) =>
+      cell.sub
+        ? `${cell.label} ${cell.value} (${cell.sub.label} ${cell.sub.value})`
+        : `${cell.label} ${cell.value}`
+    ),
   ].join(" · ");
 }
 
@@ -142,6 +157,14 @@ function CostSummaryStrip({ summary }: { summary: CostSummary }) {
               >
                 {cell.value}
               </div>
+              {cell.sub && (
+                <div
+                  className="mt-0.5 whitespace-nowrap text-[11px] font-medium text-slate-500"
+                  title={`${cell.sub.label} ${cell.sub.value}`}
+                >
+                  {cell.sub.label} {cell.sub.value}
+                </div>
+              )}
             </div>
           ))}
         </div>
