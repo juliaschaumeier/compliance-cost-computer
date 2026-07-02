@@ -18,11 +18,11 @@ class WorkflowStep:
 
 WORKFLOW_STEPS: tuple[WorkflowStep, ...] = (
     WorkflowStep("total_cost", "Gesamtkosten berechnen", "total_cost_ready"),
-    WorkflowStep("effort", "Aufwand berechnen", "effort_ready"),
+    WorkflowStep("effort", "Aufwand quantifizieren", "effort_ready"),
     WorkflowStep("process_steps", "Prozessschritte bestimmen", "process_steps_ready"),
     WorkflowStep("case_groups", "Fallgruppen entwickeln", "case_groups_ready"),
     WorkflowStep("processes", "Prozesse bündeln", "processes_ready"),
-    WorkflowStep("regulations", "Vorgaben bestimmen", "regulations_ready"),
+    WorkflowStep("regulations", "Vorgaben identifizieren", "regulations_ready"),
     WorkflowStep("summary", "CCC starten", "summary_ready"),
 )
 
@@ -50,10 +50,10 @@ def _undo_total_cost(session_id: int) -> None:
 
 
 def _undo_effort(session_id: int) -> None:
+    db.reset_all_ea_edit_overrides(session_id)
     for addressee in SUPPORTED_NORM_ADDRESSEES:
         db.clear_effort_metrics(session_id, norm_addressee=addressee)
     db.clear_case_group_research(session_id)
-    db.clear_session_wage_rate_overrides(session_id)
     db.invalidate_llm_answers(
         session_id,
         [PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION],

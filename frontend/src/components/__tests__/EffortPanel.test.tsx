@@ -69,7 +69,16 @@ const baseState = {
 };
 
 describe("EffortPanel", () => {
+  const baseActions = {
+    setCurrentTab: jest.fn(),
+    setEffortReady: jest.fn(),
+    setLastFailedStep: jest.fn(),
+    setLastFailedLabel: jest.fn(),
+    setLastFailedMessage: jest.fn(),
+  };
+
   beforeEach(() => {
+    jest.clearAllMocks();
     mockStartStepRun.mockReset();
     mockGetStepRunStatus.mockReset();
     mockCancelStepRun.mockReset();
@@ -81,13 +90,12 @@ describe("EffortPanel", () => {
   it("disables the button when process steps are not ready", () => {
     mockUseApp.mockReturnValue({
       state: { ...baseState, processStepsReady: false },
-      setCurrentTab: jest.fn(),
-      setEffortReady: jest.fn(),
+      ...baseActions,
     });
 
     render(<EffortPanel />);
 
-    const button = screen.getByRole("button", { name: /Aufwand berechnen/i });
+    const button = screen.getByRole("button", { name: /Ausführen/i });
     expect(button).toBeDisabled();
   });
 
@@ -96,6 +104,7 @@ describe("EffortPanel", () => {
     const setEffortReady = jest.fn();
     mockUseApp.mockReturnValue({
       state: baseState,
+      ...baseActions,
       setCurrentTab,
       setEffortReady,
     });
@@ -111,14 +120,14 @@ describe("EffortPanel", () => {
       app_session_id: "ABC123",
       status: "completed",
       ok: true,
-      steps: [{ key: "effort", label: "Aufwand berechnen", status: "completed" }],
+      steps: [{ key: "effort", label: "Aufwand quantifizieren", status: "completed" }],
       final_status: { ...baseState, effort_ready: true },
     });
 
     render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
 
     await waitFor(() => {
       expect(mockStartStepRun).toHaveBeenCalledTimes(1);
@@ -146,6 +155,7 @@ describe("EffortPanel", () => {
     const setEffortReady = jest.fn();
     mockUseApp.mockReturnValue({
       state: baseState,
+      ...baseActions,
       setCurrentTab,
       setEffortReady,
     });
@@ -154,7 +164,7 @@ describe("EffortPanel", () => {
     render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
 
     expect(
       await screen.findByText("Aufwand konnte nicht gestartet werden.")
@@ -167,6 +177,7 @@ describe("EffortPanel", () => {
     const setEffortReady = jest.fn();
     mockUseApp.mockReturnValue({
       state: baseState,
+      ...baseActions,
       setCurrentTab,
       setEffortReady,
     });
@@ -184,7 +195,7 @@ describe("EffortPanel", () => {
       steps: [
         {
           key: "effort",
-          label: "Aufwand berechnen",
+          label: "Aufwand quantifizieren",
           status: "skipped",
           message: "Step already complete",
         },
@@ -192,14 +203,14 @@ describe("EffortPanel", () => {
       final_status: { ...baseState, effort_ready: true },
     });
 
-    render(<EffortPanel />);
+    const { rerender } = render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /Aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
 
     expect(
       await screen.findByText(
-        "Aufwand fuer Verwaltung, Wirtschaft und Buerger berechnet.",
+        "Aufwand für Verwaltung, Wirtschaft und Bürger berechnet.",
         {},
         { timeout: 2000 }
       )
@@ -207,13 +218,34 @@ describe("EffortPanel", () => {
     expect(mockStartStepRun).toHaveBeenCalledTimes(1);
     expect(setEffortReady).toHaveBeenCalledWith(true);
     expect(setCurrentTab).toHaveBeenCalledWith(6);
+
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, effortReady: true },
+      ...baseActions,
+      setCurrentTab,
+      setEffortReady,
+    });
+    rerender(<EffortPanel />);
+
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, effortReady: false },
+      ...baseActions,
+      setCurrentTab,
+      setEffortReady,
+    });
+    rerender(<EffortPanel />);
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Aufwand für Verwaltung, Wirtschaft und Bürger berechnet.")
+      ).not.toBeInTheDocument()
+    );
   });
 
   it("cancels the active run-all when run-all is executing effort", async () => {
     mockUseApp.mockReturnValue({
       state: baseState,
-      setCurrentTab: jest.fn(),
-      setEffortReady: jest.fn(),
+      ...baseActions,
     });
     mockCancelRunAll.mockResolvedValue({
       run_id: "run-all-1",
@@ -236,13 +268,20 @@ describe("EffortPanel", () => {
     expect(mockCancelRunAll).toHaveBeenCalledWith("run-all-1");
     expect(apiClient.cancelStepRun).not.toHaveBeenCalled();
     expect(await screen.findByText("Abbruch angefordert...")).toBeInTheDocument();
+
+    act(() => {
+      emitRunAllStepCleared();
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText("Abbruch angefordert...")).not.toBeInTheDocument()
+    );
   });
 
   it("does not send duplicate run-all cancel requests after cancellation starts", async () => {
     mockUseApp.mockReturnValue({
       state: baseState,
-      setCurrentTab: jest.fn(),
-      setEffortReady: jest.fn(),
+      ...baseActions,
     });
     mockCancelRunAll.mockResolvedValue({
       run_id: "run-all-1",
@@ -269,8 +308,7 @@ describe("EffortPanel", () => {
   it("cancels a manual effort run via the step-run endpoint, not run-all", async () => {
     mockUseApp.mockReturnValue({
       state: baseState,
-      setCurrentTab: jest.fn(),
-      setEffortReady: jest.fn(),
+      ...baseActions,
     });
     mockStartStepRun.mockResolvedValue({
       app_session_id: "ABC123",
@@ -283,8 +321,8 @@ describe("EffortPanel", () => {
       app_session_id: "ABC123",
       status: "running",
       ok: null,
-      current_label: "Aufwand berechnen",
-      steps: [{ key: "effort", label: "Aufwand berechnen", status: "running" }],
+      current_label: "Aufwand quantifizieren",
+      steps: [{ key: "effort", label: "Aufwand quantifizieren", status: "running" }],
     });
     mockCancelStepRun.mockResolvedValue({
       run_id: "manual-run-1",
@@ -297,7 +335,7 @@ describe("EffortPanel", () => {
     render(<EffortPanel />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /aufwand berechnen/i }));
+    await user.click(screen.getByRole("button", { name: /Ausführen/i }));
     const cancelButton = await screen.findByRole("button", { name: /abbrechen/i });
     await user.click(cancelButton);
 

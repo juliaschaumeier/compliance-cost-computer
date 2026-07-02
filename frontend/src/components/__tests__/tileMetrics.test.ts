@@ -79,7 +79,7 @@ describe("tileMetrics", () => {
     });
 
     expect(buildTileHeaderMetrics(tile)).toEqual({
-      left: "Δ 2,94 Tsd. €",
+      left: "Δ 2,9 Tsd. €",
       right: null,
     });
   });
@@ -95,7 +95,7 @@ describe("tileMetrics", () => {
     });
 
     expect(buildTileHeaderMetrics(tile)).toEqual({
-      left: "Δ -2,94 Tsd. €",
+      left: "Δ -2,9 Tsd. €",
       right: null,
     });
   });
@@ -130,10 +130,13 @@ describe("tileMetrics", () => {
     });
 
     const table = buildTileMetricTable(tile);
-    expect(table?.rows.map((row) => row.label)).toEqual([
-      "Betroffene",
-      "Häufigkeit/Jahr",
-    ]);
+    expect(table).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Betroffene" },
+        { label: "Häufigkeit/Jahr" },
+      ],
+    });
   });
 
   it("adds 'Kosten/Jahr' for step metrics when costs exist", () => {
@@ -150,11 +153,14 @@ describe("tileMetrics", () => {
     });
 
     const table = buildTileMetricTable(tile);
-    expect(table?.rows.map((row) => row.label)).toEqual([
-      "eD/mD",
-      "Sachaufwand",
-      "Kosten/Jahr",
-    ]);
+    expect(table).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "eD/mD" },
+        { label: "Sachaufwand" },
+        { label: "Kosten/Jahr" },
+      ],
+    });
   });
 
   it("uses business labels for step metrics when norm addressee is business", () => {
@@ -169,13 +175,134 @@ describe("tileMetrics", () => {
     });
 
     const table = buildTileMetricTable(tile, "business");
-    expect(table?.rows.map((row) => row.label)).toEqual([
-      "Niedrig",
-      "Mittel",
-      "Hoch",
-      "Ø",
-      "Kosten/Jahr",
-    ]);
+    expect(table).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Niedrig" },
+        { label: "Mittel" },
+        { label: "Hoch" },
+        { label: "Ø" },
+        { label: "Kosten/Jahr" },
+      ],
+    });
+  });
+
+  it("formats citizen total-cost tiles as compact annual effort summaries", () => {
+    const tile = buildTile({
+      id: "total_cost",
+      title: "Jährlicher Erfüllungsaufwand",
+      text: "Zeit: -32706666.6667 Std.\nSachaufwand: 0 €",
+      meta_information: {
+        total_time_hours: -32706666.6667,
+        total_expenses: 0,
+      },
+    });
+
+    expect(buildTileBodyText(tile)).toBe("");
+    expect(buildTileMetricTable(tile, "citizens")).toEqual({
+      variant: "summary",
+      alwaysVisible: true,
+      suppressTitle: true,
+      titleLikeLabels: true,
+      items: [
+        {
+          label: "Jährlicher Zeitaufwand",
+          value: "-32,7 Mio. h",
+          emphasis: true,
+        },
+        {
+          label: "Jährliche Sachkosten",
+          value: "0 €",
+        },
+      ],
+    });
+  });
+
+  it("formats non-citizen total-cost tile text from metadata instead of stored backend text", () => {
+    const tile = buildTile({
+      id: "total_cost",
+      title: "Jährliche Kosten",
+      text: "-1,66 Mrd. €",
+      meta_information: {
+        total_cost: -1655330000,
+      },
+    });
+
+    expect(buildTileBodyText(tile)).toBe("-1,7 Mrd. €");
+  });
+
+  it("ignores stored backend text for total-cost tiles without numeric metadata", () => {
+    const tile = buildTile({
+      id: "total_cost",
+      title: "Jährliche Kosten",
+      text: "-1,66 Mrd. €",
+      meta_information: {},
+    });
+
+    expect(buildTileBodyText(tile)).toBe("");
+  });
+
+  it("formats explicit zero citizen totals as zero time and zero Sachkosten", () => {
+    const tile = buildTile({
+      id: "total_cost",
+      title: "Jährliche Kosten",
+      meta_information: {
+        total_time_minutes: 0,
+        total_expenses: 0,
+      },
+    });
+
+    expect(buildTileMetricTable(tile, "citizens")).toEqual({
+      variant: "summary",
+      alwaysVisible: true,
+      suppressTitle: true,
+      titleLikeLabels: true,
+      items: [
+        {
+          label: "Jährlicher Zeitaufwand",
+          value: "0 h",
+          emphasis: true,
+        },
+        {
+          label: "Jährliche Sachkosten",
+          value: "0 €",
+        },
+      ],
+    });
+  });
+
+  it("shows citizen step tile time deltas without a zero-euro header metric", () => {
+    const tile = buildTile({
+      id: "step_44",
+      meta_information: {
+        time_required_current: { a: 10, b: null, c: null, d: null },
+        time_required_proposed: { a: 12, b: null, c: null, d: null },
+        cost_current: 0,
+        cost_proposed: 0,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile, "citizens")).toEqual({
+      left: "Δ +2 min",
+      right: null,
+    });
+  });
+
+  it("keeps citizen step tile euro deltas when Sachaufwand changes", () => {
+    const tile = buildTile({
+      id: "step_44",
+      meta_information: {
+        time_required_current: { a: 10, b: null, c: null, d: null },
+        time_required_proposed: { a: 12, b: null, c: null, d: null },
+        cost_current: 5,
+        cost_proposed: 9,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile, "citizens")).toEqual({
+      left: "Δ +2 min",
+      right: "Δ 4 €",
+    });
   });
 
   it("uses personnel_rows with wage provenance for step metrics", () => {
@@ -243,15 +370,17 @@ describe("tileMetrics", () => {
     expect(body).toBe("Analyse der wirtschaftlichen Komponenten");
 
     const table = buildTileMetricTable(tile);
-    expect(table?.rows.map((row) => row.label)).toEqual([
-      "hD",
-      "Sachaufwand",
-      "Kosten/Jahr",
-    ]);
-    expect(table?.rows.find((row) => row.label === "hD")).toMatchObject({
-      label: "hD",
-      current: "-",
-      proposed: "240 min",
+    expect(table).toMatchObject({
+      variant: "table",
+      rows: [
+        {
+          label: "hD",
+          current: "-",
+          proposed: "240 min",
+        },
+        { label: "Sachaufwand" },
+        { label: "Kosten/Jahr" },
+      ],
     });
   });
 });

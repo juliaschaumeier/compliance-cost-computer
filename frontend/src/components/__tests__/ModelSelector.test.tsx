@@ -47,13 +47,15 @@ describe("ModelSelector", () => {
     render(<ModelSelector />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /GPT-5/i }));
+    await user.click(screen.getByRole("button", { name: /llm-auswahl öffnen/i }));
 
     const modal = await screen.findByTestId("model-selector-modal");
     expect(modal.className).toContain("fixed");
     expect(modal.className).toContain("z-[70]");
 
-    await user.click(screen.getByRole("button", { name: /Schließen/i }));
+    await user.click(
+      screen.getByRole("button", { name: "LLM-Dialog schließen" })
+    );
     expect(screen.queryByText("LLM-Auswahl")).not.toBeInTheDocument();
   });
 
@@ -81,7 +83,7 @@ describe("ModelSelector", () => {
     render(<ModelSelector />);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole("button", { name: /modell/i }));
+    await user.click(screen.getByRole("button", { name: /llm-auswahl öffnen/i }));
     await screen.findByTestId("model-selector-modal");
 
     expect(screen.queryByRole("option", { name: "GPT-5" })).not.toBeInTheDocument();
@@ -136,7 +138,7 @@ describe("ModelSelector", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /GPT-5 \(OpenAI\)/i })
+        screen.getByRole("button", { name: /llm-auswahl öffnen/i })
       ).toBeInTheDocument()
     );
     const visibleLabel = screen.getByText("GPT-5");
@@ -145,5 +147,33 @@ describe("ModelSelector", () => {
     expect(visibleLabel).not.toHaveClass("sm:inline-block");
     expect(setSelectedModel).not.toHaveBeenCalledWith("");
     expect(setAvailableModels).toHaveBeenCalled();
+  });
+
+  it("only opens from the chevron control in the header split button", async () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedModel: "gpt-5",
+        availableModels: [{ id: "gpt-5", name: "GPT-5", provider: "OpenAI" }],
+      },
+      setAvailableModels: jest.fn(),
+      setSelectedModel: jest.fn(),
+    });
+    mockFetchModels.mockResolvedValue({
+      organized: {
+        openai: { recommended: [], additional: [] },
+        deepinfra: { recommended: [], additional: [] },
+        gemini: { recommended: [], additional: [] },
+      },
+      default: "gpt-5",
+    });
+
+    render(<ModelSelector />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("LLM:"));
+    expect(screen.queryByTestId("model-selector-modal")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /llm-auswahl öffnen/i }));
+    expect(await screen.findByTestId("model-selector-modal")).toBeInTheDocument();
   });
 });

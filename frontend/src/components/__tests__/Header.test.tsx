@@ -1,20 +1,10 @@
-"use client";
-
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
 import Header from "@/components/Header";
-import { useApp } from "@/contexts/AppContext";
 
-jest.mock("@/contexts/AppContext", () => ({
-  useApp: jest.fn(),
-}));
-
-jest.mock("@/components/ea_edit/EaEditDrawerShell", () => ({
+jest.mock("@/components/SessionMenu", () => ({
   __esModule: true,
-  default: ({ open }: { open: boolean }) => (
-    <div data-testid="ea-drawer" data-open={open ? "true" : "false"} />
-  ),
+  default: () => <div data-testid="session-menu" />,
 }));
 
 jest.mock("@/components/ModelSelector", () => ({
@@ -22,88 +12,27 @@ jest.mock("@/components/ModelSelector", () => ({
   default: () => <div data-testid="model-selector" />,
 }));
 
-const mockUseApp = useApp as jest.Mock;
+jest.mock("@/components/HeaderHelpPopover", () => ({
+  __esModule: true,
+  default: () => <button type="button">Hilfe und Demo</button>,
+}));
 
-describe("Header norm addressee switch", () => {
-  beforeEach(() => {
-    mockUseApp.mockReturnValue({
-      state: {
-        selectedNormAddressee: "administration",
-        totalCostReady: false,
-      },
-      setSelectedNormAddressee: jest.fn(),
-    });
-  });
-
-  it("renders all three norm addressee options and switches to the clicked one", async () => {
-    const setSelectedNormAddressee = jest.fn();
-    mockUseApp.mockReturnValue({
-      state: {
-        selectedNormAddressee: "administration",
-        totalCostReady: false,
-      },
-      setSelectedNormAddressee,
-    });
-
+describe("Header", () => {
+  it("renders app context and global session tools", () => {
     render(<Header />);
-    const user = userEvent.setup();
-
-    expect(screen.getByRole("button", { name: "Verwaltung" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Wirtschaft" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Bürger" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Wirtschaft" }));
-    await user.click(screen.getByRole("button", { name: "Bürger" }));
-
-    expect(setSelectedNormAddressee).toHaveBeenNthCalledWith(1, "business");
-    expect(setSelectedNormAddressee).toHaveBeenNthCalledWith(2, "citizens");
-  });
-
-  it("enables the EA button only when total cost is ready", () => {
-    const { rerender } = render(<Header />);
 
     expect(
-      screen.getByRole("button", { name: /ea bearbeiten/i })
-    ).toBeDisabled();
-
-    mockUseApp.mockReturnValue({
-      state: {
-        selectedNormAddressee: "citizens",
-        totalCostReady: true,
-      },
-      setSelectedNormAddressee: jest.fn(),
-    });
-
-    rerender(<Header />);
-
+      screen.getByRole("heading", { name: "Compliance-Cost Computer" })
+    ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /ea bearbeiten/i })
-    ).toBeEnabled();
-  });
-
-  it("closes the EA drawer when total cost readiness is reset", async () => {
-    const user = userEvent.setup();
-    mockUseApp.mockReturnValue({
-      state: {
-        selectedNormAddressee: "administration",
-        totalCostReady: true,
-      },
-      setSelectedNormAddressee: jest.fn(),
-    });
-    const { rerender } = render(<Header />);
-
-    await user.click(screen.getByRole("button", { name: /ea bearbeiten/i }));
-    expect(screen.getByTestId("ea-drawer")).toHaveAttribute("data-open", "true");
-
-    mockUseApp.mockReturnValue({
-      state: {
-        selectedNormAddressee: "administration",
-        totalCostReady: false,
-      },
-      setSelectedNormAddressee: jest.fn(),
-    });
-    rerender(<Header />);
-
-    expect(screen.getByTestId("ea-drawer")).toHaveAttribute("data-open", "false");
+      screen.getByText(
+        "Errechnet den jährlichen Erfüllungsaufwand einer Gesetzesänderung."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("session-menu")).toBeInTheDocument();
+    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Hilfe und Demo" })
+    ).toBeInTheDocument();
   });
 });

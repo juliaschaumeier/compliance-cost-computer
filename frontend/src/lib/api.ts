@@ -5,6 +5,7 @@ import {
   TilesResponse,
   VorgabenResponse,
   TotalCostResponse,
+  TotalCostSummaryResponse,
   SessionsResponse,
   SessionStatus,
   UndoStepResponse,
@@ -318,19 +319,6 @@ export const apiClient = {
     }
     return response.json();
   },
-  async exportSession(
-    appSessionId: string
-  ): Promise<{ filename: string; markdown: string }> {
-    const response = await fetch(
-      `${API_BASE_URL}/sessions/export?app_session_id=${encodeURIComponent(
-        appSessionId
-      )}`
-    );
-    if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to export session");
-    }
-    return response.json();
-  },
   async getCaseGroupResearchSettings(
     appSessionId: string
   ): Promise<CaseGroupResearchSettingsResponse> {
@@ -406,7 +394,7 @@ export const apiClient = {
     if (!response.ok) {
       await throwApiClientErrorFromResponse(
         response,
-        "Failed to download Vorblatt/Begründung export"
+        "Failed to download Vorblatt und Begründung export"
       );
     }
     return response.blob();
@@ -715,6 +703,18 @@ export const apiClient = {
     });
     if (!response.ok) {
       await throwApiClientErrorFromResponse(response, "Failed to compute total cost");
+    }
+    return response.json();
+  },
+
+  async getTotalCostSummary(
+    appSessionId: string
+  ): Promise<TotalCostSummaryResponse> {
+    const params = new URLSearchParams();
+    params.set("app_session_id", appSessionId);
+    const response = await fetch(`${API_BASE_URL}/costs/totals?${params.toString()}`);
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(response, "Failed to load total costs");
     }
     return response.json();
   },

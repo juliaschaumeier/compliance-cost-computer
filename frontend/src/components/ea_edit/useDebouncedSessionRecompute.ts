@@ -12,6 +12,7 @@ type UseDebouncedSessionRecomputeOptions = {
   // edit of another addressee would recompute the wrong total. Enforced, not optional.
   normAddressee: NormAddressee;
   eaActivityId: string | null;
+  enabled: boolean;
   debounceMs?: number;
 };
 
@@ -19,6 +20,7 @@ export function useDebouncedSessionRecompute({
   appSessionId,
   normAddressee,
   eaActivityId,
+  enabled,
   debounceMs = 400,
 }: UseDebouncedSessionRecomputeOptions) {
   const [recomputeStatus, setRecomputeStatus] = useState<string | null>(null);
@@ -61,10 +63,13 @@ export function useDebouncedSessionRecompute({
 
   const runAutoRecompute = useCallback(async () => {
     setRecomputeStatus(null);
+    if (!enabled) {
+      return false;
+    }
     await waitForDebounce();
     if (recomputeInFlightRef.current) {
       await recomputeInFlightRef.current;
-      return;
+      return true;
     }
     const request = (async () => {
       await apiClient.computeTotalCost({
@@ -77,6 +82,7 @@ export function useDebouncedSessionRecompute({
     recomputeInFlightRef.current = request;
     try {
       await request;
+      return true;
     } catch (error) {
       logClientError("useDebouncedSessionRecompute.runAutoRecompute", error, {
         appSessionId,
@@ -86,7 +92,7 @@ export function useDebouncedSessionRecompute({
     } finally {
       recomputeInFlightRef.current = null;
     }
-  }, [appSessionId, normAddressee, eaActivityId, waitForDebounce]);
+  }, [appSessionId, normAddressee, eaActivityId, enabled, waitForDebounce]);
 
   return {
     recomputeStatus,

@@ -276,6 +276,10 @@ export interface TotalCostResponse {
   total_expenses?: number | null;
 }
 
+export type TotalCostSummaryResponse = Partial<
+  Record<NormAddressee, TotalCostResponse | null>
+>;
+
 export interface SessionWageRateRow {
   wage_source_kind: string;
   wage_source_value: string;

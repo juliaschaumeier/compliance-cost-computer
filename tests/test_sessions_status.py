@@ -47,7 +47,7 @@ def test_session_status_formats_persisted_cancelled_query_as_user_message(test_c
     payload = resp.json()
     assert payload["effort_ready"] is False
     assert payload["last_failed_step"] == "effort"
-    assert payload["last_failed_label"] == "Aufwand berechnen"
+    assert payload["last_failed_label"] == "Aufwand quantifizieren"
     assert (
         payload["last_failed_message"]
         == "Der Schritt wurde abgebrochen. Bitte führen Sie ihn erneut aus."
@@ -136,6 +136,68 @@ def test_session_status_treats_empty_process_answer_as_completed_no_op(test_clie
     assert db.list_processes_for_session_and_addressee(session_id, "administration") == []
 
 
+def test_session_status_does_not_surface_stale_failed_prompt(test_client):
+    session_id, _ = db.upsert_session("STATUS-STALE-FAILED-STEP", "test-model")
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="law_summary",
+        model="test-model",
+        answer_text="",
+        answer_state=db.LLM_ANSWER_STATE_INVALID,
+        state_reason="query_failed",
+        metadata={"error": "old max_tokens failure"},
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="law_summary",
+        model="test-model",
+        answer_text="",
+        answer_state=db.LLM_ANSWER_STATE_INVALID,
+        state_reason="session_reverted",
+    )
+
+    resp = test_client.get(
+        "/sessions/status", params={"app_session_id": "STATUS-STALE-FAILED-STEP"}
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["summary_ready"] is False
+    assert payload["last_failed_step"] is None
+    assert payload["last_failed_message"] is None
+
+
+def test_session_status_active_prompt_suppresses_older_failure(test_client):
+    session_id, _ = db.upsert_session("STATUS-ACTIVE-AFTER-FAILED", "test-model")
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="law_summary",
+        model="test-model",
+        answer_text="",
+        answer_state=db.LLM_ANSWER_STATE_INVALID,
+        state_reason="query_failed",
+        metadata={"error": "old max_tokens failure"},
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="law_summary",
+        model="test-model",
+        answer_text='{"title":"Titel","summary":"Zusammenfassung"}',
+        answer_state=db.LLM_ANSWER_STATE_ACTIVE,
+        state_reason="session_updated",
+    )
+
+    resp = test_client.get(
+        "/sessions/status", params={"app_session_id": "STATUS-ACTIVE-AFTER-FAILED"}
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["summary_ready"] is False
+    assert payload["last_failed_step"] is None
+    assert payload["last_failed_message"] is None
+
+
 def test_session_status_progression(test_client):
     """Reflects readiness flags as session data accumulates."""
     session_id, _ = db.upsert_session("STATUS-OK", "test-model")
@@ -197,10 +259,24 @@ def test_session_status_progression(test_client):
     assert payload["effort_ready"] is True
     assert payload["total_cost_ready"] is False
     assert payload["last_completed_step"] == "effort"
-    assert payload["last_completed_label"] == "Aufwand berechnen"
+    assert payload["last_completed_label"] == "Aufwand quantifizieren"
     assert reg_id is not None
 
     db.update_process_cost(session_id, process_id, 123.0)
+    resp = test_client.get("/sessions/status", params={"app_session_id": "STATUS-OK"})
+    payload = resp.json()
+    assert payload["total_cost_ready"] is False
+    assert payload["last_completed_step"] == "effort"
+    assert payload["last_completed_label"] == "Aufwand quantifizieren"
+
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee="administration",
+        total_cost=123.0,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
     resp = test_client.get("/sessions/status", params={"app_session_id": "STATUS-OK"})
     payload = resp.json()
     assert payload["total_cost_ready"] is True

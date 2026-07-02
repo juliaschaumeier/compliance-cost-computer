@@ -2337,31 +2337,6 @@ def get_session_law_texts(session_id: int) -> tuple[str, str]:
     return current_text, proposed_text
 
 
-def get_session_export_info(app_session_id: str) -> dict | None:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-            s.app_session_id,
-            s.created_at,
-            s.llm_model,
-            current.file_name AS current_file_name,
-            proposed.file_name AS proposed_file_name
-        FROM sessions s
-        LEFT JOIN laws AS current ON current.document_id = s.current_law_id
-        LEFT JOIN laws AS proposed ON proposed.document_id = s.proposed_law_id
-        WHERE s.app_session_id = ?
-        """,
-        (app_session_id,),
-    )
-    row = cur.fetchone()
-    _maybe_close(conn)
-    if row is None:
-        return None
-    return dict(row)
-
-
 def get_latest_session() -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
@@ -3110,23 +3085,8 @@ def has_total_cost_for_addressee(session_id: int, norm_addressee: str = ADMINIST
     ):
         _maybe_close(conn)
         return True
-    cur.execute(
-        """
-        SELECT
-            COUNT(*) AS total_count,
-            SUM(CASE WHEN cost IS NOT NULL THEN 1 ELSE 0 END) AS priced_count
-        FROM processes
-        WHERE session_id = ? AND norm_addressee = ?
-        """,
-        (session_id, resolved),
-    )
-    row = cur.fetchone()
     _maybe_close(conn)
-    return bool(
-        row
-        and int(row["total_count"] or 0) > 0
-        and int(row["priced_count"] or 0) == int(row["total_count"] or 0)
-    )
+    return False
 
 
 def get_session_id_by_app_id(app_session_id: str) -> int | None:

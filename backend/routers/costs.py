@@ -4,8 +4,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.core import db
-from backend.core.cost_aggregation import aggregate_addressee_costs
-from backend.core.db_formatting import format_currency, format_number
+from backend.core.cost_aggregation import (
+    aggregate_addressee_costs,
+    should_skip_addressee_costs,
+)
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
@@ -17,6 +19,7 @@ from backend.core.session_activity import (
     SessionActivityUnavailable,
     use_existing_session_activity,
 )
+from backend.core.session_graph import build_total_cost_tile
 from backend.core.tile_refresh import refresh_case_group_tiles, refresh_step_tiles
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_activity_guard import (
@@ -59,56 +62,50 @@ def _build_cost_response(
     }
 
 
-def _skipped_cost_response(norm_addressee: str) -> dict:
+def _total_cost_row_to_response(row: dict | None, norm_addressee: str) -> dict | None:
+    if row is None:
+        return None
     return _build_cost_response(
         norm_addressee=norm_addressee,
-        total_cost=None,
-        bureaucracy_cost=None,
+        total_cost=row.get("total_cost"),
+        bureaucracy_cost=row.get("bureaucracy_cost"),
+        total_time_minutes=row.get("total_time_minutes"),
+        total_expenses=row.get("total_expenses"),
+    )
+
+
+def _skipped_cost_response(norm_addressee: str) -> dict:
+    if norm_addressee == CITIZENS:
+        return _build_cost_response(
+            norm_addressee=norm_addressee,
+            total_cost=None,
+            bureaucracy_cost=None,
+            total_time_minutes=0.0,
+            total_expenses=0.0,
+        )
+    return _build_cost_response(
+        norm_addressee=norm_addressee,
+        total_cost=0.0,
+        bureaucracy_cost=0.0 if norm_addressee == BUSINESS else None,
         total_time_minutes=None,
         total_expenses=None,
     )
 
 
-def _build_total_meta(
-    *,
-    app_session_id: str,
+def _persist_skipped_total_cost(
+    session_id: int,
     norm_addressee: str,
-    total_cost: float | None,
-    bureaucracy_cost: float | None,
-    total_time_minutes: float | None,
-    total_expenses: float | None,
 ) -> dict:
-    return {
-        "app_session_id": app_session_id,
-        "bureaucracy_cost": bureaucracy_cost if norm_addressee == BUSINESS else None,
-        "other_cost": (
-            total_cost - bureaucracy_cost
-            if norm_addressee == BUSINESS and total_cost is not None and bureaucracy_cost is not None
-            else None
-        ),
-        "total_time_minutes": total_time_minutes,
-        "total_time_hours": (
-            total_time_minutes / 60.0 if total_time_minutes is not None else None
-        ),
-        "total_expenses": total_expenses,
-    }
-
-
-def _build_total_tile_text(
-    *,
-    norm_addressee: str,
-    total_cost: float | None,
-    total_time_minutes: float | None,
-    total_expenses: float | None,
-) -> str:
-    if norm_addressee == CITIZENS:
-        lines: list[str] = []
-        if total_time_minutes is not None:
-            lines.append(f"Zeit: {format_number(total_time_minutes / 60.0)} Std.")
-        if total_expenses is not None:
-            lines.append(f"Sachaufwand: {format_currency(total_expenses)}")
-        return "\n".join(lines).strip()
-    return format_currency(total_cost or 0.0)
+    response = _skipped_cost_response(norm_addressee)
+    db.upsert_session_total_costs_by_addressee(
+        session_id=session_id,
+        norm_addressee=norm_addressee,
+        total_cost=response["total_cost"],
+        bureaucracy_cost=response["bureaucracy_cost"],
+        total_time_minutes=response["total_time_minutes"],
+        total_expenses=response["total_expenses"],
+    )
+    return response
 
 
 def _refresh_process_tiles(
@@ -155,8 +152,6 @@ def _persist_step_costs(
     norm_addressee: str,
     step_costs_current: dict[int, float],
     step_costs_proposed: dict[int, float],
-    step_bureaucracy_current: dict[int, float],
-    step_bureaucracy_proposed: dict[int, float],
 ) -> None:
     for idx, step in enumerate(steps):
         step_id = int(step["step_id"])
@@ -202,7 +197,8 @@ def compute_total_cost_for_session(
 
     agg = aggregate_addressee_costs(session_id, norm_addressee, apply_user_edits=True)
     if agg.get("skipped"):
-        return _skipped_cost_response(norm_addressee)
+        with db.transaction():
+            return _persist_skipped_total_cost(session_id, norm_addressee)
 
     processes = agg["processes"]
     case_groups = agg["case_groups"]
@@ -221,8 +217,6 @@ def compute_total_cost_for_session(
             norm_addressee=norm_addressee,
             step_costs_current=agg["step_costs_current"],
             step_costs_proposed=agg["step_costs_proposed"],
-            step_bureaucracy_current=agg["step_bureaucracy_current"],
-            step_bureaucracy_proposed=agg["step_bureaucracy_proposed"],
         )
         for case_group_id, case_group_cost in case_group_costs.items():
             db.upsert_case_group_cost_by_addressee(
@@ -253,30 +247,15 @@ def compute_total_cost_for_session(
         max_col = max((tile.column for tile in tiles), default=0)
         total_col = (max_step_col if max_step_col is not None else max_col) + 1
         link_from = [f"step_{step_id}" for step_id in _last_step_ids(steps)]
-        total_tile = Tile(
-            id="total_cost",
-            title=(
-                "Jährlicher Erfüllungsaufwand"
-                if norm_addressee == CITIZENS
-                else "Jährliche Kosten"
-            ),
-            text=_build_total_tile_text(
-                norm_addressee=norm_addressee,
-                total_cost=total_cost,
-                total_time_minutes=total_time_minutes,
-                total_expenses=total_expenses,
-            ),
-            meta_information=_build_total_meta(
-                app_session_id=app_session_id,
-                norm_addressee=norm_addressee,
-                total_cost=total_cost,
-                bureaucracy_cost=bureaucracy_cost,
-                total_time_minutes=total_time_minutes,
-                total_expenses=total_expenses,
-            ),
+        total_tile = build_total_cost_tile(
+            app_session_id=app_session_id,
+            norm_addressee=norm_addressee,
+            total_cost=total_cost,
+            bureaucracy_cost=bureaucracy_cost,
+            total_time_minutes=total_time_minutes,
+            total_expenses=total_expenses,
             column=total_col,
             row=0,
-            deletable=True,
             link_from_tile=link_from,
         )
         db.upsert_tile(total_tile, session_id=session_id, norm_addressee=norm_addressee)
@@ -314,3 +293,25 @@ async def compute_costs(payload: CostComputationRequest) -> dict:
         app_session_id=payload.app_session_id,
         norm_addressee=payload.norm_addressee,
     )
+
+
+@router.get("/totals")
+async def get_cost_totals(app_session_id: str) -> dict:
+    session = db.get_session_by_app_id(app_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = int(session["session_id"])
+    return {
+        norm_addressee: (
+            _total_cost_row_to_response(
+                db.get_session_total_costs_by_addressee(session_id, norm_addressee),
+                norm_addressee,
+            )
+            or (
+                _skipped_cost_response(norm_addressee)
+                if should_skip_addressee_costs(session_id, norm_addressee)
+                else None
+            )
+        )
+        for norm_addressee in (ADMINISTRATION, BUSINESS, CITIZENS)
+    }

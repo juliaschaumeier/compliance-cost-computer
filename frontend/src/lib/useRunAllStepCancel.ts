@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
@@ -9,9 +9,11 @@ import { RunAllStepKey, useRunAllStepRun } from "@/lib/runAllStepEvents";
 type UseRunAllStepCancelOptions = {
   stepKey: RunAllStepKey;
   appSessionId: string;
-  setStatus: (status: string | null) => void;
+  setStatus: Dispatch<SetStateAction<string | null>>;
   logScope: string;
 };
+
+const CANCEL_REQUESTED_STATUS = "Abbruch angefordert...";
 
 export function useRunAllStepCancel({
   stepKey,
@@ -28,8 +30,11 @@ export function useRunAllStepCancel({
     if (!isRunAllBusy) {
       isCancellingRunAllRef.current = false;
       setIsCancellingRunAll(false);
+      setStatus((current) =>
+        current === CANCEL_REQUESTED_STATUS ? null : current
+      );
     }
-  }, [isRunAllBusy]);
+  }, [isRunAllBusy, setStatus]);
 
   const cancelRunAllForStep = async () => {
     if (!runAllStep.runId) {
@@ -41,7 +46,7 @@ export function useRunAllStepCancel({
     }
     isCancellingRunAllRef.current = true;
     setIsCancellingRunAll(true);
-    setStatus("Abbruch angefordert...");
+    setStatus(CANCEL_REQUESTED_STATUS);
     try {
       await apiClient.cancelRunAll(runAllStep.runId);
     } catch (error) {

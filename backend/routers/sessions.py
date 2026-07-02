@@ -60,7 +60,6 @@ from backend.core.session_activity import (
     refresh_session_activity,
     release_session_activity,
 )
-from backend.core.session_graph import build_session_tiles_snapshot
 from backend.core.workflow import (
     get_last_completed_step,
     undo_step,
@@ -249,11 +248,6 @@ class CaseGroupResearchSettingsResponse(BaseModel):
     elapsed_seconds: int | None = None
 
 
-class SessionExportResponse(BaseModel):
-    filename: str
-    markdown: str
-
-
 class ComplianceTextExportRequest(BaseModel):
     app_session_id: AppSessionId
     model: str | None = None
@@ -269,6 +263,19 @@ class SessionUndoResponse(BaseModel):
     undone_step: str | None = None
     undone_label: str | None = None
     message: str | None = None
+
+
+UNDO_MESSAGES: dict[str, str] = {
+    "total_cost": (
+        "Gesamtkosten zurückgesetzt. Manuell bearbeitete EA-Werte bleiben "
+        "erhalten und werden beim erneuten Ausführen von Schritt 7 wieder "
+        "berücksichtigt."
+    ),
+    "effort": (
+        "Aufwand quantifizieren zurückgesetzt. Die zugehörigen EA-Werte und "
+        "manuellen EA-Bearbeitungen wurden gelöscht."
+    ),
+}
 
 
 class SessionRunAllRequest(BaseModel):
@@ -333,11 +340,11 @@ class SessionLlmMonitorStreamAttemptResponse(BaseModel):
 
 RUN_ALL_STEPS: tuple[tuple[str, str, str], ...] = (
     ("summary", "CCC starten", "summary_ready"),
-    ("regulations", "Vorgaben bestimmen", "regulations_ready"),
+    ("regulations", "Vorgaben identifizieren", "regulations_ready"),
     ("processes", "Prozesse bündeln", "processes_ready"),
     ("case_groups", "Fallgruppen entwickeln", "case_groups_ready"),
     ("process_steps", "Prozessschritte bestimmen", "process_steps_ready"),
-    ("effort", "Aufwand berechnen", "effort_ready"),
+    ("effort", "Aufwand quantifizieren", "effort_ready"),
     ("total_cost", "Gesamtkosten berechnen", "total_cost_ready"),
 )
 RUN_ALL_STEP_BY_KEY = {key: (label, status_flag) for key, label, status_flag in RUN_ALL_STEPS}
@@ -518,7 +525,7 @@ _FAILED_PROMPT_STEP: dict[str, tuple[str, str, str]] = {
     "law_summary": ("summary", "CCC starten", "summary_ready"),
     "regulations_identification": (
         "regulations",
-        "Vorgaben bestimmen",
+        "Vorgaben identifizieren",
         "regulations_ready",
     ),
     "process_compilation": ("processes", "Prozesse bündeln", "processes_ready"),
@@ -532,8 +539,8 @@ _FAILED_PROMPT_STEP: dict[str, tuple[str, str, str]] = {
         "Prozessschritte bestimmen",
         "process_steps_ready",
     ),
-    "cases_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
-    "effort_calculation": ("effort", "Aufwand berechnen", "effort_ready"),
+    "cases_calculation": ("effort", "Aufwand quantifizieren", "effort_ready"),
+    "effort_calculation": ("effort", "Aufwand quantifizieren", "effort_ready"),
 }
 
 
@@ -585,11 +592,16 @@ def _get_latest_failed_step_status(
     session_id = db.get_session_id_by_app_id(app_session_id)
     if session_id is None:
         return None
+    seen_prompts: set[str] = set()
     for row in db.list_recent_llm_answers_for_session(session_id, limit=50):
-        if row.get("answer_state") != "invalid":
-            continue
-        mapping = _FAILED_PROMPT_STEP.get(str(row.get("prompt_id") or ""))
+        prompt_id = str(row.get("prompt_id") or "")
+        mapping = _FAILED_PROMPT_STEP.get(prompt_id)
         if mapping is None:
+            continue
+        if prompt_id in seen_prompts:
+            continue
+        seen_prompts.add(prompt_id)
+        if row.get("answer_state") != "invalid":
             continue
         step_key, label, ready_flag = mapping
         if bool(status.get(ready_flag)):
@@ -2093,10 +2105,10 @@ def _ensure_ea_edit_allowed(app_session_id: str) -> None:
     status = db.get_session_status(app_session_id)
     if not status:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not bool(status.get("total_cost_ready")):
+    if not bool(status.get("effort_ready")):
         raise HTTPException(
             status_code=409,
-            detail="EA-Bearbeitung ist erst nach berechneten Gesamtkosten möglich.",
+            detail="EA-Bearbeitung ist erst nach quantifiziertem Aufwand möglich.",
         )
 
 
@@ -2374,87 +2386,6 @@ async def case_group_research_settings_update(
     return _research_settings_response(payload.app_session_id)
 
 
-@router.get("/export", response_model=SessionExportResponse)
-async def export_session(
-    app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
-) -> SessionExportResponse:
-    session = db.get_session_by_app_id(app_session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    info = db.get_session_export_info(app_session_id)
-    if not info:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    tiles = build_session_tiles_snapshot(session)
-
-    def escape_label(value: str) -> str:
-        escaped = (
-            value.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("[", "&#91;")
-            .replace("]", "&#93;")
-        )
-        return escaped.replace("\n", "<br/>")
-
-    tiles_by_column: dict[int, list] = {}
-    for tile in tiles:
-        tiles_by_column.setdefault(tile.column, []).append(tile)
-    for column_tiles in tiles_by_column.values():
-        column_tiles.sort(key=lambda t: (t.row, t.id))
-
-    column_labels = {
-        0: "Gesetz",
-        1: "Vorgaben",
-        2: "Prozesse",
-        3: "Fallgruppen",
-    }
-
-    mermaid_lines = ["```mermaid", "flowchart LR"]
-    for column in sorted(tiles_by_column.keys()):
-        column_tiles = tiles_by_column[column]
-        if not column_tiles:
-            continue
-        if any(tile.id == "total_cost" for tile in column_tiles):
-            label = "Kosten"
-        else:
-            label = column_labels.get(column, "Prozessschritte")
-        mermaid_lines.append(f'  subgraph col_{column}["{label}"]')
-        mermaid_lines.append("    direction TB")
-        for tile in column_tiles:
-            title = escape_label(tile.title)
-            text = escape_label(tile.text or "")
-            label_text = f"<b>{title}</b>"
-            if text:
-                label_text = f"{label_text}<br/>{text}"
-            mermaid_lines.append(f'    {tile.id}["{label_text}"]')
-        mermaid_lines.append("  end")
-
-    edges = set()
-    for tile in tiles:
-        for source in tile.link_from_tile:
-            edges.add((source, tile.id))
-    for source, target in sorted(edges):
-        mermaid_lines.append(f"  {source} --> {target}")
-    mermaid_lines.append("```")
-
-    export_title = f"Session {info['app_session_id']} Export"
-    model_name = info.get("llm_model") or "-"
-    markdown = "\n\n".join(
-        [
-            f"## {export_title}",
-            f"**LLM-Modell:** {model_name}",
-            f"**Aktuelles Gesetz:** {info.get('current_file_name') or '-'}",
-            f"**Gesetzesvorschlag:** {info.get('proposed_file_name') or '-'}",
-            "\n".join(mermaid_lines),
-        ]
-    ).strip()
-
-    filename = f"ccc_session_{info['app_session_id']}.md"
-    return SessionExportResponse(filename=filename, markdown=markdown)
-
-
 def _compliance_export_filename(app_session_id: str, user_edit_policy: str) -> str:
     suffix = ""
     if user_edit_policy == USER_EDIT_USE:
@@ -2524,7 +2455,7 @@ async def export_compliance_text(
             status_code=409,
             detail={
                 "error": "session_not_complete",
-                "message": "Vorblatt/Begründung export requires a completed session.",
+                "message": "Vorblatt und Begründung export requires a completed session.",
             },
         )
     user_edit_policy = normalize_user_edit_policy(payload.user_edit_policy)
@@ -2575,7 +2506,7 @@ async def export_compliance_text(
         )
         pdf = _render_research_report_pdf(
             str(cached["generated_markdown"]),
-            f"Vorblatt/Begründung {payload.app_session_id}",
+            f"Vorblatt und Begründung {payload.app_session_id}",
             metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
         )
         filename = _compliance_export_filename(payload.app_session_id, user_edit_policy)
@@ -2663,7 +2594,7 @@ async def export_compliance_text(
     )
     pdf = _render_research_report_pdf(
         llm_result.text,
-        f"Vorblatt/Begründung {payload.app_session_id}",
+        f"Vorblatt und Begründung {payload.app_session_id}",
         metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
     )
     filename = _compliance_export_filename(payload.app_session_id, user_edit_policy)
@@ -3096,6 +3027,7 @@ async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
         status="ok",
         undone_step=step.key,
         undone_label=step.label,
+        message=UNDO_MESSAGES.get(step.key),
     )
 
 

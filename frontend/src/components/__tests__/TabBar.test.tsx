@@ -90,4 +90,29 @@ describe("TabBar LLM console button", () => {
       screen.queryByRole("button", { name: /llm konsole/i })
     ).not.toBeInTheDocument();
   });
+
+  it("does not strongly highlight the final step once total costs are ready", () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        currentTab: 6,
+        summaryReady: true,
+        regulationsReady: true,
+        processesReady: true,
+        caseGroupsReady: true,
+        processStepsReady: true,
+        effortReady: true,
+        totalCostReady: true,
+      },
+      setCurrentTab: jest.fn(),
+    });
+
+    render(<TabBar />);
+
+    const finalStep = screen.getByRole("button", {
+      name: /gesamtkosten berechnen/i,
+    });
+    expect(finalStep).not.toHaveClass("bg-slate-800");
+    expect(finalStep).toHaveClass("bg-white");
+    expect(finalStep).toHaveClass("opacity-50");
+  });
 });

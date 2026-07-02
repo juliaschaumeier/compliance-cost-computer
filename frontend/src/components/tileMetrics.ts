@@ -1,5 +1,6 @@
 import { getColumnLabel } from "@/lib/effortLabels";
 import { normalizeChangeStatus } from "@/lib/changeStatus";
+import { formatCompactCurrency, formatCompactHours } from "@/lib/compactNumberFormat";
 import { NormAddressee, Tile } from "@/types";
 
 export type TileTableRow = {
@@ -9,13 +10,43 @@ export type TileTableRow = {
   emphasizeTop?: boolean;
 };
 
-export type TileMetricTable = {
-  rows: TileTableRow[];
+export type TileSummaryItem = {
+  label: string;
+  value: string;
+  emphasis?: boolean;
 };
+
+export type TileMetricTable =
+  | {
+      variant: "table";
+      rows: TileTableRow[];
+    }
+  | {
+      variant: "summary";
+      items: TileSummaryItem[];
+      alwaysVisible?: boolean;
+      suppressTitle?: boolean;
+      titleLikeLabels?: boolean;
+    };
 
 type ParsedLegacyTable = {
   description: string;
   rows: TileTableRow[];
+};
+
+type CitizenTotalValues = {
+  totalHours: number | null;
+  totalExpenses: number | null;
+};
+
+type CitizenTotalSummary = {
+  items: TileSummaryItem[];
+};
+
+type TileSummaryOptions = {
+  alwaysVisible?: boolean;
+  suppressTitle?: boolean;
+  titleLikeLabels?: boolean;
 };
 
 export function toFiniteNumber(value: unknown): number | null {
@@ -46,6 +77,15 @@ function formatMinutes(value: number | null): string {
     return "-";
   }
   return `${formatCount(value)} min`;
+}
+
+function formatMinutesDeltaCompact(value: number): string {
+  const prefix = value > 0 ? "+" : "";
+  const absolute = Math.abs(value);
+  if (absolute >= 60) {
+    return `${prefix}${formatCompactHours(value / 60)}`;
+  }
+  return `${prefix}${formatMinutes(value)}`;
 }
 
 function formatEuro(value: number | null): string {
@@ -79,36 +119,6 @@ function resolveDeltaValues(
     return { current, proposed: 0 };
   }
   return null;
-}
-
-function formatCurrencyCompact(value: number): string {
-  const sign = value < 0 ? "-" : "";
-  const absolute = Math.abs(value);
-  const compact = (divisor: number, suffix: string): string => {
-    const scaled = absolute / divisor;
-    const digits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
-    const text = new Intl.NumberFormat("de-DE", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: digits,
-    }).format(scaled);
-    return `${sign}${text} ${suffix} €`;
-  };
-
-  if (absolute >= 1_000_000_000) {
-    return compact(1_000_000_000, "Mrd.");
-  }
-  if (absolute >= 1_000_000) {
-    return compact(1_000_000, "Mio.");
-  }
-  if (absolute >= 1_000) {
-    return compact(1_000, "Tsd.");
-  }
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: Number.isInteger(absolute) ? 0 : 2,
-    maximumFractionDigits: Number.isInteger(absolute) ? 0 : 2,
-  }).format(value);
 }
 
 function normalizeStepLabel(raw: string): string | null {
@@ -317,7 +327,63 @@ function parseLegacyTable(tile: Tile): ParsedLegacyTable {
   return { description: tile.text || "", rows: [] };
 }
 
+function getCitizenTotalValues(tile: Tile): CitizenTotalValues {
+  const meta = tile.meta_information || {};
+  const totalTimeMinutes = toFiniteNumber(meta.total_time_minutes);
+  const totalHours =
+    toFiniteNumber(meta.total_time_hours) ??
+    (totalTimeMinutes !== null ? totalTimeMinutes / 60 : null);
+  return {
+    totalHours,
+    totalExpenses: toFiniteNumber(meta.total_expenses),
+  };
+}
+
+function buildCitizenTotalSummary(tile: Tile): CitizenTotalSummary | null {
+  const values = getCitizenTotalValues(tile);
+  const items: TileSummaryItem[] = [];
+  if (values.totalHours !== null) {
+    items.push({
+      label: "Jährlicher Zeitaufwand",
+      value: formatCompactHours(values.totalHours),
+      emphasis: true,
+    });
+  }
+  if (values.totalExpenses !== null) {
+    items.push({
+      label: "Jährliche Sachkosten",
+      value: formatCompactCurrency(values.totalExpenses),
+    });
+  }
+  return items.length > 0 ? { items } : null;
+}
+
+function buildSummaryMetricTable(
+  items: TileSummaryItem[],
+  options: TileSummaryOptions = {},
+): TileMetricTable {
+  return {
+    variant: "summary",
+    items,
+    ...options,
+  };
+}
+
+function buildTableMetricTable(rows: TileTableRow[]): TileMetricTable {
+  return {
+    variant: "table",
+    rows,
+  };
+}
+
 export function buildTileBodyText(tile: Tile): string {
+  if (tile.id === "total_cost") {
+    if (buildCitizenTotalSummary(tile) !== null) {
+      return "";
+    }
+    const totalCost = toFiniteNumber(tile.meta_information?.total_cost);
+    return totalCost === null ? "" : formatCompactCurrency(totalCost);
+  }
   if (
     (tile.id.startsWith("step_") || tile.id.startsWith("case_group_")) &&
     typeof tile.meta_information?.description === "string"
@@ -335,17 +401,41 @@ export function buildTileBodyText(tile: Tile): string {
 }
 
 export function buildTileHeaderMetrics(
-  tile: Tile
+  tile: Tile,
+  normAddressee: NormAddressee = "administration",
 ): { left: string | null; right: string | null } {
   const meta = tile.meta_information || {};
   if (tile.id.startsWith("process_")) {
     const processCost = toFiniteNumber(meta.cost);
     return {
-      left: processCost === null ? null : `Σ ${formatCurrencyCompact(processCost)}`,
+      left: processCost === null ? null : `Σ ${formatCompactCurrency(processCost)}`,
       right: null,
     };
   }
   if (tile.id.startsWith("step_")) {
+    if (normAddressee === "citizens") {
+      const timeCurrent = meta.time_required_current as Record<string, unknown> | undefined;
+      const timeProposed = meta.time_required_proposed as Record<string, unknown> | undefined;
+      const timeValues = resolveDeltaValues(
+        timeCurrent?.a,
+        timeProposed?.a,
+        meta.change_status,
+      );
+      const costValues = resolveDeltaValues(
+        meta.cost_current,
+        meta.cost_proposed,
+        meta.change_status,
+      );
+      const timeDelta = timeValues ? timeValues.proposed - timeValues.current : null;
+      const costDelta = costValues ? costValues.proposed - costValues.current : null;
+      return {
+        left: timeDelta === null ? null : `Δ ${formatMinutesDeltaCompact(timeDelta)}`,
+        right:
+          costDelta === null || costDelta === 0
+            ? null
+            : `Δ ${formatCompactCurrency(costDelta)}`,
+      };
+    }
     const deltaValues = resolveDeltaValues(
       meta.cost_current,
       meta.cost_proposed,
@@ -355,7 +445,7 @@ export function buildTileHeaderMetrics(
       return { left: null, right: null };
     }
     return {
-      left: `Δ ${formatCurrencyCompact(deltaValues.proposed - deltaValues.current)}`,
+      left: `Δ ${formatCompactCurrency(deltaValues.proposed - deltaValues.current)}`,
       right: null,
     };
   }
@@ -383,6 +473,17 @@ export function buildTileMetricTable(
   normAddressee: NormAddressee = "administration",
 ): TileMetricTable | null {
   const meta = tile.meta_information || {};
+  if (tile.id === "total_cost" && normAddressee === "citizens") {
+    const summary = buildCitizenTotalSummary(tile);
+    return summary
+      ? buildSummaryMetricTable(summary.items, {
+          alwaysVisible: true,
+          suppressTitle: true,
+          titleLikeLabels: true,
+        })
+      : null;
+  }
+
   if (tile.id.startsWith("case_group_")) {
     const addresseesCurrent = toFiniteNumber(meta.addressees_current);
     const annualFrequencyCurrent = toFiniteNumber(meta.annual_frequency_current);
@@ -419,7 +520,7 @@ export function buildTileMetricTable(
       mergeRows(rows, fallbackRows),
       ["Betroffene", "Häufigkeit/Jahr", "Fälle/Jahr"]
     );
-    return mergedRows.length > 0 ? { rows: mergedRows } : null;
+    return mergedRows.length > 0 ? buildTableMetricTable(mergedRows) : null;
   }
 
   if (tile.id.startsWith("step_")) {
@@ -500,7 +601,7 @@ export function buildTileMetricTable(
     }
     const fallbackRows = parseLegacyStepText(tile.text || "").rows;
     const mergedRows = orderRows(mergeRows(rows, fallbackRows), order);
-    return mergedRows.length > 0 ? { rows: mergedRows } : null;
+    return mergedRows.length > 0 ? buildTableMetricTable(mergedRows) : null;
   }
 
   return null;

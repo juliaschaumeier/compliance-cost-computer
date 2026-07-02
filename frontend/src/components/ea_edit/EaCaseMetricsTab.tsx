@@ -26,7 +26,7 @@ type EaCaseMetricsTabProps = {
   normAddressee: NormAddressee;
   eaActivityId?: string | null;
   readOnly?: boolean;
-  runAutoRecompute: () => Promise<void>;
+  runAutoRecompute: () => Promise<boolean>;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -325,14 +325,17 @@ export default function EaCaseMetricsTab({
               return payloadRow;
             }),
           });
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           setDraft({});
           setReviewMode(false);
           await loadRows();
+          return recomputed;
         },
         {
-          successMessage:
-            "Fallzahlen gespeichert. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Fallzahlen gespeichert. Gesamtkosten wurden automatisch neu berechnet."
+              : "Fallzahlen gespeichert.",
           errorMessage: "Speichern fehlgeschlagen. Bitte Eingaben prüfen und erneut versuchen.",
         }
       );
@@ -361,14 +364,17 @@ export default function EaCaseMetricsTab({
               return payloadRow;
             }),
           });
-          await runAutoRecompute();
+          const recomputed = await runAutoRecompute();
           setDraft({});
           setReviewMode(false);
           await loadRows();
+          return recomputed;
         },
         {
-          successMessage:
-            "Fallzahlen auf Modellwerte zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet.",
+          successMessage: (recomputed) =>
+            recomputed
+              ? "Fallzahlen auf Modellwerte zurückgesetzt. Gesamtkosten wurden automatisch neu berechnet."
+              : "Fallzahlen auf Modellwerte zurückgesetzt.",
           errorMessage: "Zurücksetzen fehlgeschlagen. Bitte erneut versuchen.",
         }
       );
@@ -403,11 +409,11 @@ export default function EaCaseMetricsTab({
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-slate-200 text-left text-slate-600">
                 <th className="px-2 py-2">Fallgruppe</th>
-                <th className="bg-sky-50 px-2 py-2 text-sky-900" colSpan={3}>
+                <th className="ea-current-head bg-sky-50 px-2 py-2 text-sky-900" colSpan={3}>
                   Aktuelles Gesetz
                 </th>
                 <th
-                  className="border-l border-slate-200 bg-emerald-50 px-2 py-2 text-emerald-900"
+                  className="ea-proposed-head border-l border-slate-200 bg-emerald-50 px-2 py-2 text-emerald-900"
                   colSpan={3}
                 >
                   Gesetzesentwurf
@@ -416,22 +422,22 @@ export default function EaCaseMetricsTab({
               <tr className="border-b border-slate-200 text-left text-slate-500">
                 <th className="px-2 py-2" />
                 {currentFields.map((field) => (
-                  <th key={field.key} className="bg-sky-50/70 px-2 py-2 text-sky-800">
+                  <th key={field.key} className="ea-current-subhead bg-sky-50/70 px-2 py-2 text-sky-800">
                     {field.columnLabel}
                   </th>
                 ))}
-                <th className="bg-sky-50/70 px-2 py-2 text-sky-800">Fälle/Jahr</th>
+                <th className="ea-current-subhead bg-sky-50/70 px-2 py-2 text-sky-800">Fälle/Jahr</th>
                 {proposedFields.map((field) => (
                   <th
                     key={field.key}
-                    className={`bg-emerald-50/70 px-2 py-2 text-emerald-800 ${
+                    className={`ea-proposed-subhead bg-emerald-50/70 px-2 py-2 text-emerald-800 ${
                       field === proposedFields[0] ? "border-l border-slate-200" : ""
                     }`}
                   >
                     {field.columnLabel}
                   </th>
                 ))}
-                <th className="bg-emerald-50/70 px-2 py-2 text-emerald-800">Fälle/Jahr</th>
+                <th className="ea-proposed-subhead bg-emerald-50/70 px-2 py-2 text-emerald-800">Fälle/Jahr</th>
               </tr>
             </thead>
             <tbody>
@@ -445,7 +451,7 @@ export default function EaCaseMetricsTab({
                       ? `border border-slate-300 ${
                           isZeroInputValue(value) ? "text-slate-400" : "text-slate-900"
                         }`
-                      : "border border-red-400 bg-red-50"
+                      : "ea-invalid-input border border-red-400 bg-red-50"
                   }`;
                 const updateField = (fieldKey: CaseFieldKey, value: string) => {
                   if (readOnly) {
@@ -464,7 +470,7 @@ export default function EaCaseMetricsTab({
                       <td
                         key={`${row.case_group_id}-${field.key}`}
                         className={`px-2 py-2 ${
-                          changedCellsByField?.[field.key] ? "bg-amber-50" : ""
+                          changedCellsByField?.[field.key] ? "ea-review-cell bg-amber-50" : ""
                         }`}
                       >
                         <input
@@ -492,7 +498,7 @@ export default function EaCaseMetricsTab({
                       <td
                         key={`${row.case_group_id}-${field.key}`}
                         className={`px-2 py-2 ${
-                          changedCellsByField?.[field.key] ? "bg-amber-50" : ""
+                          changedCellsByField?.[field.key] ? "ea-review-cell bg-amber-50" : ""
                         } ${field === proposedFields[0] ? "border-l border-slate-200" : ""}`}
                       >
                         <input
@@ -570,12 +576,12 @@ export default function EaCaseMetricsTab({
         </>
       )}
       {invalidCellCount > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">
+        <div className="ea-alert rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">
           Bitte ungültige Zahlenformate korrigieren ({invalidCellCount}).
         </div>
       )}
       {status && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+        <div className="ea-notice rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
           {status}
         </div>
       )}

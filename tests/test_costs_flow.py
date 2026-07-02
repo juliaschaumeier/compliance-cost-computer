@@ -6,6 +6,7 @@ from backend.core import db
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from tests.activity_helpers import ea_payload_for_session
+from backend.core.session_graph import build_session_tiles_snapshot
 
 
 def test_upsert_process_step_cost_by_addressee_has_no_dead_breakdown_params():
@@ -24,6 +25,139 @@ def test_upsert_process_step_cost_by_addressee_has_no_dead_breakdown_params():
         "cost_current",
         "cost_proposed",
     }
+
+
+def test_get_cost_totals_returns_persisted_addressee_totals(test_client):
+    session_id, _ = db.upsert_session("COST-TOTALS", "test-model")
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        ADMINISTRATION,
+        total_cost=35305.2,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        BUSINESS,
+        total_cost=78202.0,
+        bureaucracy_cost=78202.0,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    resp = test_client.get("/costs/totals", params={"app_session_id": "COST-TOTALS"})
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["administration"]["total_cost"] == pytest.approx(35305.2)
+    assert payload["business"]["total_cost"] == pytest.approx(78202.0)
+    assert payload["business"]["bureaucracy_cost"] == pytest.approx(78202.0)
+    assert payload["citizens"] is None
+
+
+def test_get_cost_totals_returns_skipped_rows_for_non_applicable_addressees(test_client):
+    session_id, _ = db.upsert_session("COST-TOTALS-SKIPPED", "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        BUSINESS,
+        total_cost=87249.4,
+        bureaucracy_cost=0.0,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    resp = test_client.get(
+        "/costs/totals", params={"app_session_id": "COST-TOTALS-SKIPPED"}
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["business"]["total_cost"] == pytest.approx(87249.4)
+    assert payload["administration"]["total_cost"] == 0
+    assert payload["citizens"]["total_time_hours"] == 0
+    assert payload["citizens"]["total_expenses"] == 0
+
+
+def test_compute_costs_persists_skipped_rows_for_non_applicable_addressees(test_client):
+    session_id, _ = db.upsert_session("COST-COMPUTE-SKIPPED", "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+    )
+
+    admin_resp = test_client.post(
+        "/costs/compute",
+        json={
+            "app_session_id": "COST-COMPUTE-SKIPPED",
+            "norm_addressee": ADMINISTRATION,
+        },
+    )
+    citizen_resp = test_client.post(
+        "/costs/compute",
+        json={
+            "app_session_id": "COST-COMPUTE-SKIPPED",
+            "norm_addressee": CITIZENS,
+        },
+    )
+
+    assert admin_resp.status_code == 200
+    assert citizen_resp.status_code == 200
+    assert admin_resp.json()["total_cost"] == 0
+    assert citizen_resp.json()["total_time_hours"] == 0
+    assert citizen_resp.json()["total_expenses"] == 0
+
+    admin_row = db.get_session_total_costs_by_addressee(session_id, ADMINISTRATION)
+    citizen_row = db.get_session_total_costs_by_addressee(session_id, CITIZENS)
+    assert admin_row is not None
+    assert admin_row["total_cost"] == 0
+    assert citizen_row is not None
+    assert citizen_row["total_time_minutes"] == 0
+    assert citizen_row["total_expenses"] == 0
+
+
+def test_total_cost_readiness_requires_explicit_total_row():
+    session_id, _ = db.upsert_session("COST-READY-EXPLICIT", "test-model")
+    db.update_session_summary(
+        "COST-READY-EXPLICIT",
+        "Titel",
+        "Zusammenfassung",
+    )
+    db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Vorgabe Verwaltung",
+        applies_to_administration=True,
+        applies_to_business=False,
+        applies_to_citizens=False,
+    )
+    db.insert_process(
+        session_id,
+        "Prozess Verwaltung",
+        "Beschreibung",
+        cost=123.0,
+        norm_addressee=ADMINISTRATION,
+    )
+
+    status = db.get_session_status("COST-READY-EXPLICIT")
+
+    assert status is not None
+    assert status["total_cost_ready_by_addressee"][ADMINISTRATION] is False
+    assert status["total_cost_ready_by_addressee"][BUSINESS] is True
+    assert status["total_cost_ready_by_addressee"][CITIZENS] is True
+    assert status["total_cost_ready"] is False
 
 
 def _seed_flow(session_id: int) -> dict:
@@ -980,6 +1114,100 @@ def test_compute_costs_citizens_ignores_persisted_hourly_rates(test_client):
     assert totals["bureaucracy_cost"] is None
     assert totals["total_time_minutes"] == pytest.approx(60.0)
     assert totals["total_expenses"] == pytest.approx(10.0)
+
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    rebuilt_tiles = build_session_tiles_snapshot(session, CITIZENS)
+    total_tile = next(tile for tile in rebuilt_tiles if tile.id == "total_cost")
+    assert total_tile.title == "Jährlicher Aufwand"
+    assert total_tile.text == "Zeit: 1 Std.\nSachaufwand: 10 €"
+    assert total_tile.meta_information["total_time_minutes"] == pytest.approx(60.0)
+    assert total_tile.meta_information["total_time_hours"] == pytest.approx(1.0)
+    assert total_tile.meta_information["total_expenses"] == pytest.approx(10.0)
+
+
+def test_rebuild_non_citizen_tiles_omits_total_without_stored_total_row():
+    session_id, _ = db.upsert_session("COST-REBUILD-TOTAL-META", "test-model")
+    db.update_session_summary(
+        "COST-REBUILD-TOTAL-META",
+        "Titel",
+        "Zusammenfassung",
+    )
+    process_id = db.insert_process(
+        session_id,
+        "Administration Process",
+        "Beschreibung Prozess",
+        cost=-1655330000.0,
+        norm_addressee=ADMINISTRATION,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Administration Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=ADMINISTRATION,
+    )
+    db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Administration Step",
+        "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    rebuilt_tiles = build_session_tiles_snapshot(session, ADMINISTRATION)
+
+    assert not any(tile.id == "total_cost" for tile in rebuilt_tiles)
+
+
+def test_rebuild_non_citizen_total_tile_includes_numeric_metadata():
+    session_id, _ = db.upsert_session("COST-REBUILD-TOTAL-META-READY", "test-model")
+    db.update_session_summary(
+        "COST-REBUILD-TOTAL-META-READY",
+        "Titel",
+        "Zusammenfassung",
+    )
+    process_id = db.insert_process(
+        session_id,
+        "Administration Process",
+        "Beschreibung Prozess",
+        cost=-1655330000.0,
+        norm_addressee=ADMINISTRATION,
+    )
+    case_group_id = db.insert_case_group(
+        session_id,
+        process_id,
+        "Administration Case Group",
+        "Beschreibung Fallgruppe",
+        norm_addressee=ADMINISTRATION,
+    )
+    db.insert_process_step(
+        session_id,
+        case_group_id,
+        "Administration Step",
+        "Beschreibung Schritt",
+        norm_addressee=ADMINISTRATION,
+    )
+    db.upsert_session_total_costs_by_addressee(
+        session_id,
+        ADMINISTRATION,
+        total_cost=-1655330000.0,
+        bureaucracy_cost=None,
+        total_time_minutes=None,
+        total_expenses=None,
+    )
+
+    session = db.get_session_by_id(session_id)
+    assert session is not None
+    rebuilt_tiles = build_session_tiles_snapshot(session, ADMINISTRATION)
+
+    total_tile = next(tile for tile in rebuilt_tiles if tile.id == "total_cost")
+    assert total_tile.meta_information["norm_addressee"] == ADMINISTRATION
+    assert total_tile.meta_information["total_cost"] == pytest.approx(-1655330000.0)
+    assert total_tile.meta_information["total_time_minutes"] is None
+    assert total_tile.meta_information["total_expenses"] is None
 
 
 def _set_admin_pay_rate_override(test_client, app_session_id: str, **edited: float | None):

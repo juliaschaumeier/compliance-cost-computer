@@ -14,7 +14,7 @@ from backend.routers import sessions as sessions_router
 
 
 def _seed_total_cost_ready(app_session_id: str) -> int:
-    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    session_id = _seed_effort_ready(app_session_id)
     for addressee in (ADMINISTRATION, BUSINESS, CITIZENS):
         db.upsert_session_total_costs_by_addressee(
             session_id=session_id,
@@ -23,6 +23,55 @@ def _seed_total_cost_ready(app_session_id: str) -> int:
             bureaucracy_cost=1.0 if addressee == BUSINESS else None,
             total_time_minutes=0.0 if addressee == CITIZENS else None,
             total_expenses=0.0 if addressee == CITIZENS else None,
+        )
+    return session_id
+
+
+def _seed_effort_ready(app_session_id: str) -> int:
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    for addressee in (ADMINISTRATION, BUSINESS, CITIZENS):
+        process_id = db.insert_process(
+            session_id,
+            f"Prozess {addressee}",
+            "Beschreibung Prozess",
+            norm_addressee=addressee,
+        )
+        case_group_id = db.insert_case_group(
+            session_id,
+            process_id,
+            f"Fallgruppe {addressee}",
+            "Beschreibung Fallgruppe",
+            norm_addressee=addressee,
+        )
+        step_id = db.insert_process_step(
+            session_id,
+            case_group_id,
+            f"Schritt {addressee}",
+            "Beschreibung Schritt",
+            norm_addressee=addressee,
+        )
+        db.upsert_case_group_metrics_by_addressee(
+            session_id=session_id,
+            case_group_id=case_group_id,
+            norm_addressee=addressee,
+            addressees_proposed=10,
+            annual_frequency_proposed=1,
+        )
+        proposed_rates = (
+            {}
+            if addressee == CITIZENS
+            else {"a": 60, "b": None, "c": None, "d": None}
+        )
+        db.upsert_process_step_effort_split_by_addressee(
+            session_id=session_id,
+            step_id=step_id,
+            norm_addressee=addressee,
+            hourly_rates_current={},
+            time_required_current={},
+            expenses_current=None,
+            hourly_rates_proposed=proposed_rates,
+            time_required_proposed={"a": 10, "b": None, "c": None, "d": None},
+            expenses_proposed=0,
         )
     return session_id
 
@@ -109,6 +158,22 @@ def test_ea_activity_owner_can_write_wage_rate(test_client):
     )
 
     assert response.status_code == 200
+
+
+def test_ea_activity_can_be_acquired_after_effort_before_total_cost(test_client):
+    _seed_effort_ready("EA-ACT-EFFORT-READY")
+    status = db.get_session_status("EA-ACT-EFFORT-READY")
+    assert status is not None
+    assert status["effort_ready"] is True
+    assert status["total_cost_ready"] is False
+
+    response = test_client.post(
+        "/sessions/ea-edit-activity/acquire",
+        json={"app_session_id": "EA-ACT-EFFORT-READY"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["activity_id"].startswith("ea_edit:")
 
 
 def test_ea_write_without_owner_activity_is_rejected(test_client):

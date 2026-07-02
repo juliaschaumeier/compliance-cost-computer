@@ -25,8 +25,18 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
   const isLawTile = id === "law_tile";
   const bodyText = data.text;
   const isExpanded = isLawTile || data.isExpanded;
+  const metricTable = data.metricTable;
+  const summaryMetric = metricTable?.variant === "summary" ? metricTable : null;
+  const tableMetric = metricTable?.variant === "table" ? metricTable : null;
+  const metricTableAlwaysVisible = Boolean(summaryMetric?.alwaysVisible);
+  const suppressTitle = Boolean(summaryMetric?.suppressTitle);
+  const showHeaderMeta = Boolean(
+    data.changeStatus || data.headerMetricLeft || data.headerMetricRight
+  );
+  const showTitle = Boolean(data.title) && !suppressTitle;
   const canExpand =
     !isLawTile &&
+    !metricTableAlwaysVisible &&
     (Boolean(data.metricTable) || (Boolean(bodyText) && data.textHasOverflow));
   const { onNodeRef, onBodyRef } = data;
   const setNodeRef = useCallback(
@@ -49,32 +59,40 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
   return (
     <div ref={setNodeRef} className={`tile-node ${highlightClass}`}>
       <Handle type="target" position={Position.Left} />
-      <div className="tile-header">
-        {(data.changeStatus || data.headerMetricLeft || data.headerMetricRight) && (
-          <div className="tile-meta-row">
-            {data.changeStatus ? (
-              <span className={`tile-status tile-status-${data.changeStatus}`}>
-                {getChangeStatusLabel(data.changeStatus)}
-              </span>
-            ) : (
-              <span />
-            )}
-            {(data.headerMetricLeft || data.headerMetricRight) && (
-              <div className="tile-actions">
-                {data.headerMetricLeft && (
-                  <span className="tile-metric tile-metric-left">{data.headerMetricLeft}</span>
-                )}
-                {data.headerMetricRight && (
-                  <span className="tile-metric tile-metric-right">{data.headerMetricRight}</span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        <div className="tile-title-wrap">
-          <h4>{data.title}</h4>
+      {(showHeaderMeta || showTitle) && (
+        <div className="tile-header">
+          {showHeaderMeta && (
+            <div className="tile-meta-row">
+              {data.changeStatus ? (
+                <span className={`tile-status tile-status-${data.changeStatus}`}>
+                  {getChangeStatusLabel(data.changeStatus)}
+                </span>
+              ) : (
+                <span />
+              )}
+              {(data.headerMetricLeft || data.headerMetricRight) && (
+                <div className="tile-actions">
+                  {data.headerMetricLeft && (
+                    <span className="tile-metric tile-metric-left">
+                      {data.headerMetricLeft}
+                    </span>
+                  )}
+                  {data.headerMetricRight && (
+                    <span className="tile-metric tile-metric-right">
+                      {data.headerMetricRight}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {showTitle && (
+            <div className="tile-title-wrap">
+              <h4>{data.title}</h4>
+            </div>
+          )}
         </div>
-      </div>
+      )}
       {(bodyText || canExpand) && (
         <div className="tile-body-row">
           {bodyText ? (
@@ -104,7 +122,28 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
           )}
         </div>
       )}
-      {data.metricTable && (isExpanded || isLawTile) && (
+      {summaryMetric && (metricTableAlwaysVisible || isExpanded || isLawTile) && (
+        <div
+          className={`tile-summary-strip ${
+            summaryMetric.titleLikeLabels ? "tile-summary-strip-title-like" : ""
+          }`}
+          aria-label="Erfüllungsaufwand Übersicht"
+        >
+          {summaryMetric.items.map((item) => (
+            <div key={item.label} className="tile-summary-item">
+              <span className="tile-summary-label">{item.label}</span>
+              <span
+                className={`tile-summary-value ${
+                  item.emphasis ? "tile-summary-value-emphasis" : ""
+                }`}
+              >
+                {item.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {tableMetric && (isExpanded || isLawTile) && (
         <div className="tile-data-table-wrap">
           <table className="tile-data-table">
             <thead>
@@ -115,7 +154,7 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
               </tr>
             </thead>
             <tbody>
-              {data.metricTable.rows.map((row) => (
+              {tableMetric.rows.map((row) => (
                 <tr
                   key={row.label}
                   className={row.emphasizeTop ? "tile-data-table-row-break" : undefined}

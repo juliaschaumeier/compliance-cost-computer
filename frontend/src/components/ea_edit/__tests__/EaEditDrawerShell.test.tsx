@@ -33,7 +33,7 @@ jest.mock("@/components/ea_edit/EaPayRatesTab", () => ({
   }: {
     active: boolean;
     readOnly?: boolean;
-    runAutoRecompute: () => Promise<void>;
+    runAutoRecompute: () => Promise<boolean>;
     onDirtyChange?: (dirty: boolean) => void;
   }) =>
     active ? (
@@ -136,6 +136,7 @@ describe("EaEditDrawerShell", () => {
         appSessionId: "EA-TEST",
         selectedNormAddressee: "administration",
         isComplianceExportRunning: false,
+        totalCostReady: true,
       },
     });
   });
@@ -148,7 +149,7 @@ describe("EaEditDrawerShell", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("button", {
-          name: /alle ea-werte auf modellwerte zurücksetzen/i,
+          name: /alle ea-werte.*zurücksetzen/i,
         })
       ).toBeEnabled()
     );
@@ -166,25 +167,57 @@ describe("EaEditDrawerShell", () => {
   it("debounces recompute calls to a single provider call", async () => {
     mockSuccessfulActivityAcquire();
     mockComputeTotalCost.mockResolvedValue({ total_cost: 1 });
+    let tilesUpdatedCount = 0;
+    const onTilesUpdated = () => {
+      tilesUpdatedCount += 1;
+    };
+    window.addEventListener("tiles-updated", onTilesUpdated);
     render(<EaEditDrawerShell open onClose={jest.fn()} />);
     await waitForEaActivity();
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     const button = screen.getByRole("button", { name: /trigger recompute/i });
 
-    await user.click(button);
-    await user.click(button);
-    await user.click(button);
+    try {
+      await user.click(button);
+      await user.click(button);
+      await user.click(button);
 
-    expect(mockComputeTotalCost).toHaveBeenCalledTimes(0);
+      expect(mockComputeTotalCost).toHaveBeenCalledTimes(0);
+      await act(async () => {
+        jest.advanceTimersByTime(400);
+      });
+      await waitFor(() => expect(mockComputeTotalCost).toHaveBeenCalledTimes(1));
+      expect(mockComputeTotalCost).toHaveBeenCalledWith({
+        appSessionId: "EA-TEST",
+        normAddressee: "administration",
+        eaActivityId: "ea_edit:test",
+      });
+      expect(tilesUpdatedCount).toBe(1);
+    } finally {
+      window.removeEventListener("tiles-updated", onTilesUpdated);
+    }
+  });
+
+  it("does not recompute totals before step 7 is ready", async () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        appSessionId: "EA-TEST",
+        selectedNormAddressee: "administration",
+        isComplianceExportRunning: false,
+        totalCostReady: false,
+      },
+    });
+    mockSuccessfulActivityAcquire();
+    render(<EaEditDrawerShell open onClose={jest.fn()} />);
+    await waitForEaActivity();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+
+    await user.click(screen.getByRole("button", { name: /trigger recompute/i }));
     await act(async () => {
       jest.advanceTimersByTime(400);
     });
-    await waitFor(() => expect(mockComputeTotalCost).toHaveBeenCalledTimes(1));
-    expect(mockComputeTotalCost).toHaveBeenCalledWith({
-      appSessionId: "EA-TEST",
-      normAddressee: "administration",
-      eaActivityId: "ea_edit:test",
-    });
+
+    expect(mockComputeTotalCost).not.toHaveBeenCalled();
   });
 
   it("releases the EA activity when the drawer closes", async () => {
@@ -244,7 +277,7 @@ describe("EaEditDrawerShell", () => {
     expect(screen.getByRole("button", { name: /mark dirty/i })).toBeDisabled();
     expect(
       screen.getByRole("button", {
-        name: /alle ea-werte auf modellwerte zurücksetzen/i,
+        name: /alle ea-werte.*zurücksetzen/i,
       })
     ).toBeDisabled();
 
@@ -279,11 +312,11 @@ describe("EaEditDrawerShell", () => {
 
   it("keeps one in-flight recompute request per session", async () => {
     mockSuccessfulActivityAcquire();
-    let resolveFirst: (() => void) | null = null;
+    const resolvers: Array<() => void> = [];
     mockComputeTotalCost.mockImplementation(
       () =>
         new Promise<void>((resolve) => {
-          resolveFirst = resolve;
+          resolvers.push(resolve);
         })
     );
 
@@ -304,7 +337,7 @@ describe("EaEditDrawerShell", () => {
     });
     expect(mockComputeTotalCost).toHaveBeenCalledTimes(1);
 
-    resolveFirst?.();
+    resolvers.forEach((resolve) => resolve());
     await waitFor(() => expect(mockComputeTotalCost).toHaveBeenCalledTimes(1));
   });
 
@@ -514,7 +547,7 @@ describe("EaEditDrawerShell", () => {
     render(<EaEditDrawerShell open onClose={jest.fn()} />);
 
     expect(
-      screen.getByText(/vorblatt\/begründung wird gerade erzeugt/i)
+      screen.getByText(/vorblatt und begründung werden gerade erzeugt/i)
     ).toBeInTheDocument();
     expect(
       screen.getByText(/bitte warte, bis die pdf-erstellung abgeschlossen ist/i)
@@ -533,17 +566,20 @@ describe("EaEditDrawerShell", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: /alle ea-werte auf modellwerte zurücksetzen/i,
+        name: /alle ea-werte aller normadressaten zurücksetzen/i,
       })
     );
 
     expect(
       await screen.findByRole("dialog", {
-        name: /alle ea-werte auf modellwerte zurücksetzen/i,
+        name: /alle ea-werte aller normadressaten zurücksetzen/i,
       })
     ).toBeInTheDocument();
     expect(
       screen.getByText(/lohnsätze, fallzahlen und schrittkosten für alle normadressaten/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/wenn gesamtkosten bereits berechnet wurden/i)
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^zurücksetzen$/i }));
@@ -569,7 +605,7 @@ describe("EaEditDrawerShell", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: /alle ea-werte auf modellwerte zurücksetzen/i,
+        name: /alle ea-werte aller normadressaten zurücksetzen/i,
       })
     );
     await user.click(screen.getByRole("button", { name: /^zurücksetzen$/i }));
