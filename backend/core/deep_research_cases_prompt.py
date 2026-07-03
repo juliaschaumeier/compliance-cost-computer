@@ -124,6 +124,7 @@ Wichtig:
 - Formulieren Sie die gesamte Antwort auf Deutsch.
 - Liefern Sie konkrete Zahlen, nicht nur qualitative Einordnungen.
 - Der Auftrag ist gesetzesagnostisch formuliert: Leiten Sie die fachliche Fragestellung aus dem Session-Kontext ab und vermeiden Sie Annahmen, die dort nicht angelegt sind.
+- Betrachten Sie ausschliesslich jaehrlich wiederkehrenden Erfuellungsaufwand: Quantifizieren Sie Fallzahlen nur fuer regelmaessig pro Jahr wiederkehrende Fallgruppen. Einmaligen Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung nicht als jaehrliche Fallzahl ansetzen.
 
 Ziel der Recherche
 
@@ -180,7 +181,7 @@ Arbeiten Sie fuer jede wesentliche Mengenannahme mindestens entlang dieser Frage
 
 1. Welche externe Grundgesamtheit ist fachlich einschlaegig?
 2. Welche Teilmenge faellt tatsaechlich unter die konkrete Vorgabe, den Prozess oder die Fallgruppe?
-3. Ist der Vorgang periodisch, anlassbezogen, einmalig oder bestandsbezogen?
+3. Ist der Vorgang periodisch, anlassbezogen oder bestandsbezogen?
 4. Ist die Fallzahl besser ueber Bestand mal Haeufigkeit oder direkt ueber jaehrliche Ereignisse/Antraege/Faelle zu modellieren?
 5. Aendert die Gesetzesaenderung nur den Aufwand pro Fall oder auch die Menge der Faelle?
 6. Gibt es Nachfrage-, Verhaltens-, Klarstellungs-, Adressatenkreis- oder Vollzugseffekte, die unterschiedliche Werte fuer geltendes Recht und Vorschlag rechtfertigen?
@@ -210,6 +211,7 @@ Was Sie nicht tun sollen
 - Nicht automatisch annehmen, dass geltendes Recht exakt 0 Faelle hat.
 - Nicht automatisch annehmen, dass der Gesetzesvorschlag sehr hohe Fallzahlen erzeugt.
 - Keine Software-, App- oder Datenbankimplementierung beschreiben.
+- Keine einmaligen Vorgaenge, die nur bei Einfuehrung der Regelung anfallen (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung), als jaehrliche Fallzahl ansetzen.
 
 Verbindliche Ausgabeanforderungen
 

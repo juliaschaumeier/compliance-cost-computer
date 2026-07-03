@@ -514,3 +514,63 @@ def test_build_step_analysis_payload_omits_effort_fields_when_present():
     assert "zeitaufwand_in_min_d_vorschlag" not in taetigkeit
     assert "sachaufwand_vorschlag" not in taetigkeit
     assert "ausfuehrung_pro_einzelfall" not in taetigkeit
+
+
+def test_build_step_analysis_payload_keeps_all_steps_with_multiple_roots():
+    processes = [
+        {
+            "process_id": 10,
+            "process": "Prozess A",
+            "description": "Beschreibung A",
+            "change_status": "geaendert",
+        }
+    ]
+    case_groups = [
+        {
+            "case_group_id": 20,
+            "process_id": 10,
+            "case_group": "Fallgruppe A",
+            "description": "Beschreibung Fallgruppe A",
+            "change_status": "geaendert",
+        }
+    ]
+    steps = [
+        {
+            "step_id": 40,
+            "case_group_id": 20,
+            "step": "Schritt 1",
+            "description": "",
+            "change_status": "geaendert",
+            "previous_id": None,
+            "next_id": 41,
+        },
+        {
+            "step_id": 41,
+            "case_group_id": 20,
+            "step": "Schritt 2",
+            "description": "",
+            "change_status": "geaendert",
+            "previous_id": 40,
+            "next_id": None,
+        },
+        {
+            "step_id": 42,
+            "case_group_id": 20,
+            "step": "Schritt 3",
+            "description": "",
+            "change_status": "geaendert",
+            "previous_id": None,
+            "next_id": None,
+        },
+    ]
+
+    payload = build_step_analysis_payload(
+        processes=processes,
+        case_groups=case_groups,
+        steps=steps,
+        regulations=[],
+    )
+
+    taetigkeiten = payload[0]["fallgruppen"][0]["taetigkeiten"]
+    step_ids = [taetigkeit["taetigkeiten_id"] for taetigkeit in taetigkeiten]
+    assert step_ids == [40, 41, 42]

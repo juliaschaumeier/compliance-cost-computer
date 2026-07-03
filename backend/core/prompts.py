@@ -3,10 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from backend.core.handbook_examples import (
-    CASE_GROUP_DEVELOPMENT_EXAMPLE,
     CASES_CALCULATION_CASE_EXAMPLE,
     CASES_CALCULATION_FREQUENCY_EXAMPLE,
-    PROCESS_COMPILATION_EXAMPLE,
 )
 from backend.core.handbook_tables import Appendix
 from backend.core.norm_addressees import (
@@ -65,9 +63,8 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         Vorgang. Typische Auspraegungen sind Antragsbearbeitung und Bescheidung,
         Anerkennung/Genehmigung/Registrierung, turnusmaessige oder anlassbezogene
         Pruefung und Aufsicht, Erstattungs- und Auszahlungsverfahren, Register- und
-        Aktenfuehrung, Rechtsbehelfs- und Widerspruchsbearbeitung sowie einmalige
-        Umstellungsaufwaende (Schulung, IT-Anpassung, Formular- und Merkblatt-
-        pflege). Der verwaltungsseitige Erfuellungsaufwand entsteht dort, wo die
+        Aktenfuehrung sowie Rechtsbehelfs- und Widerspruchsbearbeitung. Der
+        verwaltungsseitige Erfuellungsaufwand entsteht dort, wo die
         Behoerde tatsaechlich taetig wird.
 
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Verwaltung.
@@ -86,8 +83,8 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         Beruecksichtigen Sie ausschliesslich den Erfuellungsaufwand der Wirtschaft.
         Analysieren Sie nur wirtschaftsbezogene Prozesse, Fallgruppen, Taetigkeiten,
         Fallzahlen und Werte. Uebernehmen Sie keine Verwaltungslogik, Verwaltungswerte
-        oder buergerbezogenen Inhalte. Informationspflichten der Wirtschaft, interne
-        Umstellungen, externe Dienstleistungen sowie wirtschaftsspezifische Pruef-,
+        oder buergerbezogenen Inhalte. Informationspflichten der Wirtschaft, externe
+        Dienstleistungen sowie wirtschaftsspezifische Pruef-,
         Melde-, Nachweis- und Dokumentationspflichten sind mitzudenken.
         """
     ),
@@ -102,8 +99,7 @@ NORM_ADDRESSEE_PROMPT_OPENINGS: Dict[str, str] = {
         Zeitaufwand und privater Sachaufwand im Vordergrund; eine generelle Monetarisierung
         des Zeitaufwands findet nicht statt. Achten Sie besonders auf alltagsnahe
         Pflichterfuellung, persoenliches Erscheinen, Beschaffung von Nachweisen oder Material,
-        Einschaltung Dritter, Gebuehren, Porto- und Fahrtkosten sowie auf einmalige
-        Einfuehrungsaufwaende im privaten Bereich. Beschreiben Sie niemals interne
+        Einschaltung Dritter, Gebuehren sowie Porto- und Fahrtkosten. Beschreiben Sie niemals interne
         Verwaltungspruefungen, verwaltungsinterne Abstimmungen, Bearbeitungsschritte der
         Behoerde, Unternehmensorganisation oder fachliche Schritte Dritter als Taetigkeiten
         der Buergerinnen und Buerger. Wenn eine Handlung von einer Behoerde, einem
@@ -157,8 +153,7 @@ NORM_ADDRESSEE_RULES_ADMINISTRATION: Dict[str, str] = {
         "Kontrolle, (iii) anlassbezogene Einzelfallpruefung (z.B. Verdacht, "
         "Stichprobe, Beschwerde), (iv) Rechtsbehelfs-/Widerspruchsverfahren, "
         "(v) Erstattungs-, Auszahlungs- oder Foerderverfahren, (vi) Register-, "
-        "Melde- und Aktenfuehrung, (vii) einmalige interne Umstellung "
-        "(IT-Anpassung, Formular- und Merkblattpflege, Schulung). Vorgaben, "
+        "Melde- und Aktenfuehrung. Vorgaben, "
         "die praktisch innerhalb desselben Verfahrensganges erfuellt werden, "
         "gehoeren in denselben Prozess; fachlich klar getrennte Verfahren "
         "bleiben getrennt. Fuehren Sie Vollzugsaufwand auch dann aus, wenn er "
@@ -176,9 +171,8 @@ NORM_ADDRESSEE_RULES_ADMINISTRATION: Dict[str, str] = {
         "Sonderpruefung mit Rueckfragen, Anhoerung oder Gutachtenbedarf, "
         "(iii) weitgehend automatisierter oder digital gestuetzter Vollzug "
         "versus manuelle Einzelbearbeitung, (iv) Massengeschaeft mit "
-        "standardisierter Pruefung versus aufwaendige Einzelpruefung, "
-        "(v) einmaliger Umstellungsaufwand (Schulung, IT-Anpassung, "
-        "Formularpflege) versus laufender Vollzug. Bilden Sie solche "
+        "standardisierter Pruefung versus aufwaendige Einzelpruefung. "
+        "Bilden Sie solche "
         "Fallgruppen nur, wenn daraus wesentliche Unterschiede im "
         "Bearbeitungsaufwand pro Fall folgen - ausgedrueckt in Zeit pro "
         "Vorgang, erforderlicher Lohngruppe oder benoetigter "
@@ -216,10 +210,10 @@ NORM_ADDRESSEE_RULES_BUSINESS: Dict[str, str] = {
         "Raster sind: (i) Anzeige-, Melde- oder Nachweispflicht gegenueber Behoerden, "
         "(ii) laufende Dokumentations- und Aufbewahrungspflicht, (iii) "
         "Informationspflicht gegenueber Kundinnen/Kunden, Beschaeftigten oder "
-        "Geschaeftspartnern, (iv) Beschaffung oder Umruestung von Anlagen, Waren oder "
-        "Material, (v) interne Prozess- und IT-Umstellung inklusive Schulung des "
-        "Personals, (vi) Mitwirkung bei Pruefungen durch oeffentliche Stellen "
-        "(z.B. Betriebspruefung), (vii) fiskalische Pflichten wie Gebuehren oder "
+        "Geschaeftspartnern, (iv) laufend wiederkehrende Beschaffung oder Umruestung "
+        "von Anlagen, Waren oder Material, soweit der Aufwand jaehrlich erneut "
+        "anfaellt, (v) Mitwirkung bei Pruefungen durch oeffentliche Stellen "
+        "(z.B. Betriebspruefung), (vi) fiskalische Pflichten wie Gebuehren oder "
         "Abgaben. Trennen Sie Informationspflichten von anderen Vorgaben, weil "
         "Buerokratiekosten aus Informationspflichten spaeter gesondert fuer den "
         "Buerokratiekostenindex (BKI) auszuweisen sind. Benennen Sie wo moeglich die "
@@ -231,13 +225,12 @@ NORM_ADDRESSEE_RULES_BUSINESS: Dict[str, str] = {
     PromptId.CASE_GROUP_DEVELOPMENT: (
         "Typische wirtschaftsseitige Differenzierungsachsen sind: (i) "
         "Informationspflicht versus sonstige Vorgabe (BKI-Relevanz), (ii) "
-        "Ersterfuellung mit Einarbeitung versus Routineerfuellung (Einarbeitung "
-        "faellt bei Routine in der Regel weg), (iii) Neuanschaffung versus "
-        "Umruestung bestehender Anlagen, (iv) weitgehend automatisierter oder "
-        "digital gestuetzter Ablauf versus manuelle Bearbeitung, (v) KMU versus "
+        "wiederkehrende Ersatzbeschaffung versus Umruestung bestehender Anlagen, "
+        "jeweils nur soweit der Aufwand jaehrlich wiederkehrt, (iii) weitgehend "
+        "automatisierter oder "
+        "digital gestuetzter Ablauf versus manuelle Bearbeitung, (iv) KMU versus "
         "Grossunternehmen, soweit sich der Aufwand pro Fall wesentlich "
-        "unterscheidet, (vi) einmaliger Umstellungsaufwand (IT, Schulung, "
-        "Formularpflege) versus laufender Aufwand. Bilden Sie solche Fallgruppen "
+        "unterscheidet. Bilden Sie solche Fallgruppen "
         "nur, wenn daraus wesentliche Unterschiede im Personal- oder Sachaufwand "
         "pro Fall folgen. Bilden Sie keine Fallgruppen nur deshalb, weil "
         "unterschiedliche Paragraphen oder Behoerden beruehrt sind, solange der "
@@ -253,9 +246,7 @@ NORM_ADDRESSEE_RULES_BUSINESS: Dict[str, str] = {
         "Bei anlassbezogenen Vorgaben ist die jaehrlich zu erwartende Zahl der "
         "Faelle zugrunde zu legen; bei Ueberwachungs- und Kontrollmassnahmen ist "
         "die Fallzahl oft deutlich geringer als die Zahl der Betroffenen "
-        "(Stichproben). Einmaliger Erfuellungsaufwand bei Einfuehrung der Regelung "
-        "(z.B. IT-Umstellung, Austausch von Anlagen, Erstschulung) ist gesondert "
-        "auszuweisen und nicht mit laufenden jaehrlichen Faellen zu vermischen. "
+        "(Stichproben). "
         "Bei Ersatzinvestitionen, die ohnehin im Rahmen der wirtschaftlichen "
         "Nutzungsdauer faellig geworden waeren, sind nur 50 Prozent der "
         "Anschaffungskosten als Erfuellungsaufwand anzusetzen (Sowieso-Anteil), "
@@ -287,8 +278,7 @@ NORM_ADDRESSEE_RULES_CITIZENS: Dict[str, str] = {
         "nach erstmaliger Erfuellung versus wiederkehrender Erfuellung, digitalem "
         "Verfahren versus Postweg oder persoenlichem Erscheinen, einfacher Standardlage "
         "versus zusaetzlichem Nachweis- oder Beratungsbedarf, eigener Vornahme versus "
-        "Beauftragung Dritter sowie nach einmaligem Einfuehrungsaufwand versus "
-        "laufendem Aufwand. Bilden Sie solche Fallgruppen aber nur, wenn daraus "
+        "Beauftragung Dritter. Bilden Sie solche Fallgruppen aber nur, wenn daraus "
         "wesentlich unterschiedliche Zeit- oder Sachaufwaende folgen. Bilden Sie keine "
         "Fallgruppen nur deshalb, weil unterschiedliche Behoerden oder Drittstellen "
         "beteiligt sind, sofern sich der buergerseitige Aufwand dadurch nicht merklich "
@@ -298,9 +288,7 @@ NORM_ADDRESSEE_RULES_CITIZENS: Dict[str, str] = {
         "Bei periodisch zu erfuellenden privaten Pflichten von Buergerinnen und Buergern ergibt sich die Fallzahl "
         "grundsaetzlich aus der Multiplikation von Betroffenen und Haeufigkeit pro Jahr. "
         "Bei anlassbezogenen Pflichten ist die jaehrlich zu erwartende Zahl der Faelle "
-        "zugrunde zu legen. Einmaliger Erfuellungsaufwand im privaten Bereich ist "
-        "gesondert auszuweisen und nicht mit laufenden jaehrlichen Faellen zu "
-        "vermischen. Beruecksichtigen Sie plausible Sowieso-Anteile, wenn ein Teil der "
+        "zugrunde zu legen. Beruecksichtigen Sie plausible Sowieso-Anteile, wenn ein Teil der "
         "Betroffenen die Handlung auch ohne die Gesetzesaenderung vorgenommen haette. "
         "Veraendern Sie Fallzahlen nicht kuenstlich, wenn sich tatsaechlich nur der "
         "Zeit- oder Sachaufwand pro Fall aendert."
@@ -491,8 +479,7 @@ EFFORT_JSON_SCHEMA_DEFAULT = """
                             "zeitaufwand_in_min": ""
                         }
                     ],
-                    "sachaufwand_vorschlag": "",
-                    "ausfuehrung_pro_einzelfall": "0 | 1"
+                    "sachaufwand_vorschlag": ""
                 }
             ]
         }
@@ -538,8 +525,7 @@ EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
                     "zeitaufwand_in_min_gueltig": "",
                     "sachaufwand_gueltig": "",
                     "zeitaufwand_in_min_vorschlag": "",
-                    "sachaufwand_vorschlag": "",
-                    "ausfuehrung_pro_einzelfall": "0 | 1"
+                    "sachaufwand_vorschlag": ""
                 }
             ]
         }
@@ -658,8 +644,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Wichtig fuer den Normadressaten `administration` (Verwaltung): Uebersehen Sie die Verwaltung nicht. Pruefen Sie bei jeder Vorgabe ausdruecklich,
         ob sie der zustaendigen Behoerde einen konkreten Vollzugsauftrag auferlegt – typische Ausloeser sind Antrags-, Anzeige-, Genehmigungs-,
         Anerkennungs-, Melde-, Register- oder Nachweisverfahren, laufende Aufsicht und Kontrollen, anlassbezogene Einzelfallpruefungen,
-        Bescheidung und Rechtsbehelfsverfahren, Auszahlungs- oder Foerderverfahren sowie einmalige interne Umstellungen (IT, Formulare,
-        Schulung). Wenn die Erfuellung einer Vorgabe durch Wirtschaft oder Buergerinnen/Buerger praktisch nur moeglich ist, weil die
+        Bescheidung und Rechtsbehelfsverfahren sowie Auszahlungs- oder Foerderverfahren. Wenn die Erfuellung einer Vorgabe durch Wirtschaft oder Buergerinnen/Buerger praktisch nur moeglich ist, weil die
         Verwaltung etwas pruefen, bescheiden, registrieren, kontrollieren oder auszahlen muss, ist `administration` zusaetzlich als
         betroffener Normadressat auszuweisen. Ein bloss mittelbarer Mehraufwand ohne
         konkreten Vollzugsauftrag ist hingegen nicht der Verwaltung zuzuordnen – erfinden Sie keine Verwaltungsvorgaben, wo keine sind.
@@ -693,7 +678,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
-    # - handbook_process_example
     # - norm_addressee_prompt_opening
     # - norm_addressee_rule
     PromptId.PROCESS_COMPILATION: (
@@ -713,9 +697,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         unterschiedlich ist, muessen getrennte Prozesse ausgewiesen werden, auch wenn die praktische Bearbeitung aehnlich erscheint. Die spaetere
         gesonderte Ausweisung EU-bedingten Erfuellungsaufwands muss anhand Ihrer Prozessstruktur weiterhin moeglich bleiben.
 
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Prozesse fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
+        Nicht zulaessig als Prozess ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Prozess aus.
+        Ein durch die Regelung neu hinzukommender Prozess (aenderungsstatus "eingefuehrt") ist hingegen zulaessig, sofern er laufenden, jaehrlich wiederkehrenden Aufwand ausloest.
+
         {norm_addressee_rule}
 
-        {handbook_process_example}
+        Ordnen Sie jede `vorgaben_id` genau einem Prozess zu; pruefen Sie vor der Ausgabe, dass keine `vorgaben_id` in mehreren Prozessen vorkommt.
+        Loest eine Vorgabe sowohl eine externe Bearbeitung als auch eine interne Anpassung aus, beschreiben Sie beides im selben Prozess, statt die Vorgabe
+        auf mehrere Prozesse aufzuteilen; eine feinere Untergliederung erfolgt spaeter in Fallgruppen und Prozessschritten.
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
@@ -767,7 +757,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
-    # - handbook_case_group_example
     # - norm_addressee_prompt_opening
     # - norm_addressee_rule
     PromptId.CASE_GROUP_DEVELOPMENT: (
@@ -786,9 +775,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht moeglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. 
         Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
-        {norm_addressee_rule}
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Fallgruppen fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten.
+        Nicht zulaessig als Fallgruppe ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Fallgruppe aus.
+        Wiederkehrende Erstbearbeitungen (z.B. die laufend neu hinzukommenden Erstantraege oder Erstanerkennungen) sind hingegen zulaessig, weil sie jaehrlich anfallen.
 
-        {handbook_case_group_example}
+        {norm_addressee_rule}
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
@@ -889,9 +880,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere
         Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
 
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Geben Sie ausschliesslich regelmaessig pro Jahr wiederkehrende Prozessschritte aus. Taetigkeiten mit Einmalcharakter (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung) duerfen nicht ausgegeben werden.
+
         {step_analysis_addressee_rule}
 
+        Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus; einmalige Posten (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung) nicht uebernehmen.
+
         {step_analysis_checklist}
+
+        Belassen Sie jede vorgegebene `fallgruppen_id` unter ihrem vorgegebenen Prozess und geben Sie sie genau einmal aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach oder unter einem fremden Prozess vorkommt. Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf und uebernehmen Sie alle IDs exakt wie vorgegeben.
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
@@ -1011,8 +1008,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Aufwand entsteht. Bei Vorgaben oder Prozessen, die aufgrund der Bearbeitung von Antraegen anlassbezogen erfuellt werden, sollte die Zahl der
         jaehrlich zu erwartenden Antraege als Fallzahl zugrunde gelegt werden. Bei Schwankungen ist ein sachgerechter Mittelwert zu verwenden. Die Fallzahl
         fuer Ueberwachungs- und Kontrollmassnahmen ist in der Regel wesentlich geringer.
-        Aufwand, der aufgrund der Anpassung an das neue Regelungsvorhaben nur einmal innerhalb einer Organisationseinheit des betroffenen Normadressaten anfaellt, wird als
-        einmaliger Erfuellungsaufwand bzw. Umstellungsaufwand bezeichnet und ist gesondert auszuweisen.
+
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Quantifizieren Sie Fallzahlen ausschliesslich fuer regelmaessig pro Jahr wiederkehrende Fallgruppen. Einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung darf hier nicht quantifiziert werden.
 
         {norm_addressee_rule}
 
@@ -1023,6 +1020,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Soweit bestehende Regelungen geaendert werden, koennen Fallzahlen unter Umstaenden auch aus bereits vorliegenden Aufwandsschaetzungen und 
         Gesetzesbegruendungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) uebernommen werden. Bevor solche Angaben verwendet werden, sollten 
         sie ggf. aktualisiert werden.
+
+        Geben Sie zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Uebernehmen Sie alle IDs exakt wie vorgegeben.
 
         Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
@@ -1174,9 +1173,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         aendert, darf nicht automatisch der gesamte Schritt neu und vollumfaenglich angesetzt werden. Unveraenderte Aufwaende sollten in _gueltig und
         _vorschlag gleich bleiben; nur geaenderte Mehr- oder Minderaufwaende sind abweichend auszuweisen.
 
-        Ausserdem soll angegeben werden, ob die Taetigkeit pro Einzelfall (=1) oder lediglich einmal pro gesamte Fallgruppe (z.B. Einarbeitung in die Vorgabe) ausgefuehrt wird (=0).
-        Waehlen Sie =0 immer dann, wenn es sich um einmaligen Umstellungs-, Einfuehrungs-, Abstimmungs- oder Einarbeitungsaufwand handelt, der nicht fuer jeden
-        einzelnen Fall erneut anfaellt.
+        Nur jaehrlich wiederkehrender Erfuellungsaufwand: Berechnen Sie ausschliesslich den regelmaessig wiederkehrenden Aufwand pro Einzelfall und Jahr. Einmaliger Umstellungs-, Einfuehrungs- oder Einarbeitungsaufwand darf nicht in Zeit-, Personal- oder Sachaufwand einfliessen.
 
         Eine Reihe von Taetigkeiten laeuft bei Nutzung entsprechender Informationstechnologie automatisch ab. Aus automatisch ablaufenden Prozessen resultiert zunaechst kein Zeitaufwand.
 
@@ -1184,7 +1181,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {effort_appendix}
 
-        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck: 
+        Geben Sie zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt aus und lassen Sie keine aus; faellt fuer eine Taetigkeit kein Aufwand an, geben Sie das Objekt mit ausdruecklichen Nullwerten aus. Pruefen Sie vor der Ausgabe, dass keine `taetigkeiten_id` mehrfach vorkommt, und uebernehmen Sie alle IDs exakt wie vorgegeben.
+
+        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
 
         {effort_json_schema}
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
@@ -1641,14 +1640,6 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         norm_addressee,
     )
     render_values.setdefault(
-        "handbook_process_example",
-        _render_handbook_process_example(norm_addressee),
-    )
-    render_values.setdefault(
-        "handbook_case_group_example",
-        _render_handbook_case_group_example(norm_addressee),
-    )
-    render_values.setdefault(
         "handbook_cases_frequency_example",
         _render_handbook_cases_frequency_example(),
     )
@@ -1845,18 +1836,6 @@ def _render_prompt_specific_addressee_rule(prompt_id: str, norm_addressee: str |
         return NORM_ADDRESSEE_RULES_BUSINESS.get(prompt_id, "").strip()
     if norm_addressee == CITIZENS:
         return NORM_ADDRESSEE_RULES_CITIZENS.get(prompt_id, "").strip()
-    return ""
-
-
-def _render_handbook_process_example(norm_addressee: str | None) -> str:
-    if norm_addressee == BUSINESS:
-        return _render_handbook_example_block(PROCESS_COMPILATION_EXAMPLE)
-    return ""
-
-
-def _render_handbook_case_group_example(norm_addressee: str | None) -> str:
-    if norm_addressee == BUSINESS:
-        return _render_handbook_example_block(CASE_GROUP_DEVELOPMENT_EXAMPLE)
     return ""
 
 

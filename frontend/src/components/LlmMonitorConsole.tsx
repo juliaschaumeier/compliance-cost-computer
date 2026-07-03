@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
+import { selectVisibleRecent } from "@/lib/llmMonitor";
 import {
   LlmMonitorEvent,
   LlmMonitorPendingCall,
@@ -259,6 +260,15 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
   );
   const [showRawChunks, setShowRawChunks] = useState(false);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  // #64 (P7): Der Debug-Monitor blendet ueberholte (superseded) Fehlversuche
+  // nach einem erneuten Lauf standardmaessig aus. Der vollstaendige Verlauf
+  // bleibt per Umschalter erreichbar, damit der Log-Charakter erhalten bleibt.
+  const [hideStaleRecent, setHideStaleRecent] = useState(true);
+
+  const { visibleRecent, staleRecentCount } = useMemo(
+    () => selectVisibleRecent(recent, hideStaleRecent),
+    [recent, hideStaleRecent]
+  );
 
   useEffect(() => {
     selectedAttemptIdRef.current = selectedAttemptId;
@@ -553,14 +563,27 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
             </section>
 
             <section className="min-h-0 border-b border-slate-200">
-              <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-                Recent Calls
+              <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                <span>Recent Calls</span>
+                <label className="flex items-center gap-1 font-normal text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={hideStaleRecent}
+                    onChange={(event) => setHideStaleRecent(event.target.checked)}
+                  />
+                  Veraltete ausblenden
+                  {staleRecentCount > 0 ? ` (${staleRecentCount})` : ""}
+                </label>
               </div>
               <div className="h-[30vh] overflow-auto px-3 py-2 text-xs">
                 {recent.length === 0 ? (
                   <div className="text-slate-500">Noch keine abgeschlossenen Calls.</div>
+                ) : visibleRecent.length === 0 ? (
+                  <div className="text-slate-500">
+                    Nur veraltete Calls · {staleRecentCount} ausgeblendet.
+                  </div>
                 ) : (
-                  recent.map((row) => (
+                  visibleRecent.map((row) => (
                     <div key={recentRowKey(row)} className="mb-2 rounded-lg border border-slate-200 bg-white p-2">
                       <div className="flex items-center justify-between">
                         <div className="flex min-w-0 items-center gap-1">

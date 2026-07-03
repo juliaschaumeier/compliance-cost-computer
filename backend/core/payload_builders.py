@@ -211,17 +211,17 @@ def _order_steps(steps: list[dict]) -> list[dict]:
         steps_by_prev.setdefault(step.get("previous_id"), []).append(step_id)
 
     ordered: list[int] = []
-    start_ids = steps_by_prev.get(None, [])
-    if start_ids:
-        current_id = start_ids[0]
-        seen: set[int] = set()
-        while current_id and current_id not in seen:
+    seen: set[int] = set()
+    for start_id in steps_by_prev.get(None, []):
+        current_id: int | None = start_id
+        while current_id is not None and current_id not in seen:
             seen.add(current_id)
             ordered.append(current_id)
             next_id = step_map[current_id].get("next_id")
             current_id = int(next_id) if next_id is not None else None
-    if not ordered:
-        ordered = sorted(step_map.keys())
+    for step_id in sorted(step_map):
+        if step_id not in seen:
+            ordered.append(step_id)
     return [step_map[step_id] for step_id in ordered]
 
 

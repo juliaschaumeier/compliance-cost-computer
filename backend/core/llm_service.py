@@ -175,8 +175,15 @@ async def query_llm(
     provider: Optional[str] = None,
     stream: bool = False,
     on_event: StreamEventHandler | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
-    """Route one prompt to the selected provider and return normalized usage/cost."""
+    """Route one prompt to the selected provider and return normalized usage/cost.
+
+    `response_format` erzwingt (wo der Provider/das Modell es unterstuetzt) die
+    JSON-Ausgabe bereits am Generierungszeitpunkt. Lehnt der Provider den
+    Parameter ab (Bad Request), wird der Call einmal ohne Erzwingung wiederholt,
+    sodass der Workflow nicht an fehlender Provider-Unterstuetzung scheitert.
+    """
     provider = (provider or "").lower().strip()
     if not provider:
         if is_deepinfra_model(model):
@@ -186,29 +193,42 @@ async def query_llm(
         else:
             provider = "openai"
 
-    if provider == "deepinfra":
-        return await query_deepinfra(
+    async def _dispatch(active_response_format: dict[str, Any] | None) -> LlmResult:
+        if provider == "deepinfra":
+            return await query_deepinfra(
+                prompt,
+                api_keys.deepinfra_api_key,
+                model,
+                stream=stream,
+                on_event=on_event,
+                response_format=active_response_format,
+            )
+        if provider == "gemini":
+            return await query_gemini_openai(
+                prompt,
+                api_keys.gemini_api_key,
+                model,
+                stream=stream,
+                on_event=on_event,
+                response_format=active_response_format,
+            )
+        return await query_openai(
             prompt,
-            api_keys.deepinfra_api_key,
+            api_keys.openai_api_key,
             model,
             stream=stream,
             on_event=on_event,
+            response_format=active_response_format,
         )
-    if provider == "gemini":
-        return await query_gemini_openai(
-            prompt,
-            api_keys.gemini_api_key,
-            model,
-            stream=stream,
-            on_event=on_event,
-        )
-    return await query_openai(
-        prompt,
-        api_keys.openai_api_key,
-        model,
-        stream=stream,
-        on_event=on_event,
-    )
+
+    if response_format is None:
+        return await _dispatch(None)
+    try:
+        return await _dispatch(response_format)
+    except LlmQueryError as exc:
+        if exc.status_code == 400:
+            return await _dispatch(None)
+        raise
 
 
 def _is_stream_unsupported_error(exc: Exception) -> bool:
@@ -416,6 +436,7 @@ async def query_openai(
     *,
     stream: bool = False,
     on_event: StreamEventHandler | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
     if not api_key:
         raise ValueError("Missing OpenAI API key")
@@ -428,6 +449,7 @@ async def query_openai(
                     prompt=prompt,
                     model=model,
                     on_event=on_event,
+                    response_format=response_format,
                 )
             except Exception as exc:
                 if _is_stream_unsupported_error(exc):
@@ -440,18 +462,20 @@ async def query_openai(
                             "error": str(exc),
                         },
                     )
-                    return await _query_openai_responses(client, prompt, model)
+                    return await _query_openai_responses(client, prompt, model, response_format=response_format)
                 raise _normalize_llm_exception(
                     provider="openai",
                     model=model,
                     exc=exc,
                 ) from exc
-        return await _query_openai_responses(client, prompt, model)
+        return await _query_openai_responses(client, prompt, model, response_format=response_format)
 
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     if settings.openai_max_tokens > 0:
         payload[_openai_chat_token_limit_key(model)] = _openai_chat_max_tokens(
             model,
@@ -511,7 +535,7 @@ async def query_openai(
                         "reason": "chat_api_not_supported",
                     },
                 )
-            return await _query_openai_responses(client, prompt, model)
+            return await _query_openai_responses(client, prompt, model, response_format=response_format)
         raise
     except Exception as exc:
         if not settings.enable_web_search:
@@ -570,6 +594,7 @@ async def query_gemini_openai(
     *,
     stream: bool = False,
     on_event: StreamEventHandler | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
     if not api_key:
         raise ValueError("Missing Gemini API key")
@@ -578,6 +603,8 @@ async def query_gemini_openai(
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     if settings.enable_web_search:
         payload["tools"] = [{"type": "web_search"}]
     async def _run_once(local_payload: dict[str, Any]) -> LlmResult:
@@ -662,9 +689,15 @@ async def query_gemini_openai(
 
 
 async def _query_openai_responses(
-    client: AsyncOpenAI, prompt: str, model: str
+    client: AsyncOpenAI,
+    prompt: str,
+    model: str,
+    *,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
     payload = {"model": model, "input": prompt}
+    if response_format is not None:
+        payload["text"] = {"format": response_format}
     if settings.openai_max_tokens > 0:
         payload["max_output_tokens"] = _openai_safe_max_tokens(
             settings.openai_max_tokens
@@ -909,8 +942,11 @@ async def _query_openai_responses_stream(
     prompt: str,
     model: str,
     on_event: StreamEventHandler | None,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
     payload = {"model": model, "input": prompt}
+    if response_format is not None:
+        payload["text"] = {"format": response_format}
     if settings.openai_max_tokens > 0:
         payload["max_output_tokens"] = _openai_safe_max_tokens(
             settings.openai_max_tokens
@@ -1016,6 +1052,7 @@ async def _query_deepinfra_non_stream(
     prompt: str,
     api_key: str,
     model: str,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -1026,6 +1063,8 @@ async def _query_deepinfra_non_stream(
         "messages": [{"role": "user", "content": prompt}],
         "temperature": settings.deepinfra_temperature,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     if settings.deepinfra_max_tokens > 0:
         payload["max_tokens"] = settings.deepinfra_max_tokens
     timeout = httpx.Timeout(600.0)
@@ -1075,6 +1114,7 @@ async def _query_deepinfra_stream(
     api_key: str,
     model: str,
     on_event: StreamEventHandler | None,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -1087,6 +1127,8 @@ async def _query_deepinfra_stream(
         "stream": True,
         "stream_options": {"include_usage": True},
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     if settings.deepinfra_max_tokens > 0:
         payload["max_tokens"] = settings.deepinfra_max_tokens
     timeout = httpx.Timeout(600.0)
@@ -1225,6 +1267,7 @@ async def query_deepinfra(
     *,
     stream: bool = False,
     on_event: StreamEventHandler | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> LlmResult:
     if not api_key:
         raise ValueError("Missing DeepInfra API key")
@@ -1234,6 +1277,7 @@ async def query_deepinfra(
                 prompt=prompt,
                 api_key=api_key,
                 model=model,
+                response_format=response_format,
             )
         except Exception as exc:
             raise _normalize_llm_exception(
@@ -1247,6 +1291,7 @@ async def query_deepinfra(
             api_key=api_key,
             model=model,
             on_event=on_event,
+            response_format=response_format,
         )
     except Exception as exc:
         if _is_stream_unsupported_error(exc):
@@ -1264,6 +1309,7 @@ async def query_deepinfra(
                     prompt=prompt,
                     api_key=api_key,
                     model=model,
+                    response_format=response_format,
                 )
             except Exception as fallback_exc:
                 raise _normalize_llm_exception(

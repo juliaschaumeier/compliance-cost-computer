@@ -97,6 +97,18 @@ def test_build_deep_research_cases_prompt_combines_addressees(monkeypatch):
     prompt = prompt_builder.build_deep_research_cases_prompt(app_session_id="PROMPT1")
 
     assert "ein konsistentes Mengenbild ueber alle Normadressaten hinweg" in prompt
+    # Recurring-only-Regel analog zu cases_calculation (#13/#25).
+    assert (
+        "Betrachten Sie ausschliesslich jaehrlich wiederkehrenden Erfuellungsaufwand"
+        in prompt
+    )
+    # "einmalig" wurde bewusst aus der Diagnose-Frage entfernt (#13/#25).
+    assert "periodisch, anlassbezogen oder bestandsbezogen" in prompt
+    # Negativ-Guard gegen einmalige Vorgaenge als jaehrliche Fallzahl (#13/#25).
+    assert (
+        "Keine einmaligen Vorgaenge, die nur bei Einfuehrung der Regelung anfallen"
+        in prompt
+    )
     assert "anzahl_betroffene_gueltig" in prompt
     assert "haeufigkeit_pro_jahr_vorschlag" in prompt
     assert "kurze Begruendung" in prompt

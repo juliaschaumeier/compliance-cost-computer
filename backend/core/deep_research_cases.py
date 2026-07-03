@@ -148,9 +148,12 @@ def validate_deep_research_case_metrics(
 
     missing: list[str] = []
     process_mismatches: list[str] = []
+    duplicates: list[str] = []
     seen: set[tuple[str, int]] = set()
     for entry in parsed:
         key = (entry.norm_addressee, entry.case_group_id)
+        if key in seen:
+            duplicates.append(f"{entry.norm_addressee}:{entry.case_group_id}")
         seen.add(key)
         existing = expected.get(key)
         if existing is None:
@@ -165,6 +168,12 @@ def validate_deep_research_case_metrics(
         raise HTTPException(
             status_code=422,
             detail="Unknown Deep Research fallgruppen_id values: " + ", ".join(missing),
+        )
+    if duplicates:
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate Deep Research fallgruppen_id values: "
+            + ", ".join(sorted(set(duplicates))),
         )
     if process_mismatches:
         raise HTTPException(

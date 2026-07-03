@@ -138,7 +138,11 @@ def test_render_prompt_ignores_contract_field_overrides():
     assert '"normadressat": "citizens"' not in prompt
 
 
-def test_process_compilation_prompt_includes_verbatim_handbook_example():
+def test_process_compilation_prompt_omits_handbook_example():
+    # #13/#25: Das Leitfaden-Prozessbeispiel (Solarien/Betriebsbeauftragte) mischte
+    # einmalige und wiederkehrende Posten und verleitete im recurring-only-Modus zu
+    # Einmal-Prozessen. Es wird daher nicht mehr eingespeist - auch nicht fuer
+    # business. Die Buendelungsmethode steht weiterhin in der BUSINESS-Regel.
     prompt = render_prompt(
         PromptId.PROCESS_COMPILATION,
         law_summary="Kurzfassung",
@@ -149,10 +153,11 @@ def test_process_compilation_prompt_includes_verbatim_handbook_example():
     assert (
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
-    ) in prompt
-    assert "Nachrüstung/Austausch von alten Bestrahlungsgeräten" in prompt
-    assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" in prompt
-    assert "Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess." in prompt
+    ) not in prompt
+    assert "Durchführung von Beratungsgesprächen" not in prompt
+    assert "Beteiligung der Beauftragten an Prozessen im Unternehmen" not in prompt
+    # Die Buendelungsmethode bleibt ueber die BUSINESS-Regel erhalten.
+    assert "Buendeln Sie Vorgaben zu Prozessen entlang des operativen Ablaufs" in prompt
 
 
 def test_process_compilation_prompt_does_not_require_placeholder_for_no_own_action():
@@ -169,7 +174,25 @@ def test_process_compilation_prompt_does_not_require_placeholder_for_no_own_acti
     assert "Verknuepfen Sie darin die betroffene `vorgaben_id`" not in prompt
 
 
-def test_case_group_development_prompt_includes_verbatim_handbook_example():
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_compilation_prompt_demands_recurring_only_for_all_addressees(norm_addressee):
+    # #13/#25: Die "nur wiederkehrend"-Regel muss in der Prozessbildung fuer ALLE
+    # Normadressaten erscheinen (frueher nur im business-only-Beispielheading).
+    prompt = render_prompt(
+        PromptId.PROCESS_COMPILATION,
+        law_summary="Kurzfassung",
+        vorgaben_json="[]",
+        norm_addressee=norm_addressee,
+    )
+
+    assert "Nur jaehrlich wiederkehrender Erfuellungsaufwand" in prompt
+    assert "Nicht zulaessig als Prozess" in prompt
+
+
+def test_case_group_development_prompt_omits_handbook_example():
+    # Das Leitfaden-Fallgruppenbeispiel (Umruestung/Ersatz von Anlagen) ist rein
+    # einmalig und wird im recurring-only-Modus bewusst nicht mehr eingespeist
+    # (#13/#25) - auch nicht fuer business.
     prompt = render_prompt(
         PromptId.CASE_GROUP_DEVELOPMENT,
         law_summary="Kurzfassung",
@@ -177,12 +200,36 @@ def test_case_group_development_prompt_includes_verbatim_handbook_example():
         norm_addressee=BUSINESS,
     )
 
+    assert "Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)" not in prompt
+    assert "Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)" not in prompt
     assert (
         "Methodenbeispiel aus dem Leitfaden zur Orientierung; nicht als "
         "Sachverhalt dieses Regelungsvorhabens verwenden"
-    ) in prompt
-    assert "Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)" in prompt
-    assert "Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)" in prompt
+    ) not in prompt
+
+
+def test_business_investment_axes_are_recurring_qualified():
+    # #13/#25 (Revier-Agent Medium): Die wirtschaftsseitigen Investitionsachsen
+    # in Prozessbildung und Fallgruppenentwicklung duerfen nicht mehr zu einmaligem
+    # Investitions-/Umstellungsaufwand steuern, sondern nur zu jaehrlich
+    # wiederkehrendem Aufwand.
+    case_group = _compact(
+        _render_prompt_for_contract(PromptId.CASE_GROUP_DEVELOPMENT, BUSINESS)
+    )
+    assert "Neuanschaffung versus" not in case_group
+    assert (
+        "wiederkehrende Ersatzbeschaffung versus Umruestung bestehender Anlagen, "
+        "jeweils nur soweit der Aufwand jaehrlich wiederkehrt"
+    ) in case_group
+
+    process = _compact(
+        _render_prompt_for_contract(PromptId.PROCESS_COMPILATION, BUSINESS)
+    )
+    assert "(iv) Beschaffung oder Umruestung von Anlagen, Waren oder Material" not in process
+    assert (
+        "laufend wiederkehrende Beschaffung oder Umruestung von Anlagen, Waren oder "
+        "Material, soweit der Aufwand jaehrlich erneut anfaellt"
+    ) in process
 
 
 def test_cases_calculation_prompt_includes_verbatim_handbook_examples():
@@ -469,6 +516,59 @@ def test_process_step_analysis_prompt_excludes_effort_schema_fields(norm_address
         '"ausfuehrung_pro_einzelfall"',
     ]
     assert all(field not in prompt for field in forbidden_schema_fields)
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_frames_checklist_recurring_only(norm_addressee):
+    prompt = render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+        norm_addressee=norm_addressee,
+    )
+
+    assert (
+        "Waehlen Sie aus der folgenden Checkliste nur wiederkehrende Taetigkeiten aus"
+        in prompt
+    )
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_demands_unique_fallgruppen_per_process(norm_addressee):
+    # #13/#25: Step 5 muss die uebergebene Prozess-/Fallgruppen-Struktur
+    # erhalten - jede fallgruppen_id genau einmal, unter ihrem Prozess
+    # (verhindert doppelte Step-Ketten fuer dieselbe Fallgruppe).
+    prompt = render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        law_summary="Kurzfassung",
+        case_groups_json="[]",
+        norm_addressee=norm_addressee,
+    )
+
+    assert "jede vorgegebene `fallgruppen_id` unter ihrem vorgegebenen Prozess" in prompt
+    assert "geben Sie sie genau einmal aus" in prompt
+    assert "unter einem fremden Prozess" in prompt
+    assert "Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf" in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_cases_calculation_prompt_demands_unique_fallgruppen(norm_addressee):
+    # #13/#25: jede fallgruppen_id genau einmal in den Kennzahlen, damit Schritt 6
+    # doppelte Fallgruppen nicht still ueberschreibt (last-write-wins).
+    prompt = _render_prompt_for_contract(PromptId.CASES_CALCULATION, norm_addressee)
+
+    assert "zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge" in prompt
+    assert "keine `fallgruppen_id` mehrfach vorkommt" in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_effort_calculation_prompt_demands_unique_taetigkeiten(norm_addressee):
+    # #13/#25: jede taetigkeiten_id genau einmal, keine auslassen (Nullwerte statt
+    # Weglassen), keine Duplikate.
+    prompt = _render_prompt_for_contract(PromptId.EFFORT_CALCULATION, norm_addressee)
+
+    assert "zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt" in prompt
+    assert "keine `taetigkeiten_id` mehrfach vorkommt" in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])

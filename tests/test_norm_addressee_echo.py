@@ -1,10 +1,14 @@
-"""Tests fuer die Soft-Validierung des normadressat-Echo-Felds.
+"""Tests fuer die Validierung des normadressat-Echo-Felds.
 
 Das LLM soll bei allen addressee-spezifischen Prompts den erwarteten
 Normadressaten als top-level `normadressat` in der JSON-Antwort wiederholen.
-Der Parser markiert Abweichungen (mismatch/missing) als parse_fallback,
-bricht den Flow aber NICHT ab.
+Ein Mismatch (falscher Adressat) bricht den Flow hart mit 422 ab; ein
+fehlendes Echo bleibt reine Soft-Telemetrie (parse_fallback) und bricht
+den Flow NICHT ab.
 """
+import pytest
+from fastapi import HTTPException
+
 from backend.core.norm_addressees import (
     ADMINISTRATION,
     BUSINESS,
@@ -60,7 +64,7 @@ def test_echo_skipped_when_expected_is_none():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_processes_flags_mismatch():
+def test_parse_processes_rejects_mismatch():
     payload = """
     {
       "normadressat": "administration",
@@ -69,9 +73,10 @@ def test_parse_processes_flags_mismatch():
       ]
     }
     """
-    parsed, fallbacks = _parse_processes(payload, BUSINESS)
-    assert parsed and parsed[0]["prozess_bezeichnung"] == "X"
-    assert NORM_ADDRESSEE_ECHO_MISMATCH in fallbacks
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_processes(payload, BUSINESS)
+    assert exc_info.value.status_code == 422
+    assert "normadressat mismatch" in exc_info.value.detail
 
 
 def test_parse_processes_flags_missing():
@@ -107,7 +112,7 @@ def test_parse_processes_no_fallback_on_match():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_case_groups_flags_mismatch():
+def test_parse_case_groups_rejects_mismatch():
     payload = """
     {
       "normadressat": "citizens",
@@ -123,9 +128,10 @@ def test_parse_case_groups_flags_mismatch():
       ]
     }
     """
-    parsed, fallbacks = _parse_case_groups(payload, ADMINISTRATION)
-    assert parsed
-    assert NORM_ADDRESSEE_ECHO_MISMATCH in fallbacks
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_case_groups(payload, ADMINISTRATION)
+    assert exc_info.value.status_code == 422
+    assert "normadressat mismatch" in exc_info.value.detail
 
 
 def test_parse_case_groups_flags_missing():
@@ -153,7 +159,7 @@ def test_parse_case_groups_flags_missing():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_process_steps_flags_mismatch():
+def test_parse_process_steps_rejects_mismatch():
     payload = """
     {
       "normadressat": "business",
@@ -172,9 +178,10 @@ def test_parse_process_steps_flags_mismatch():
       ]
     }
     """
-    parsed, fallbacks = _parse_process_steps(payload, CITIZENS)
-    assert parsed
-    assert NORM_ADDRESSEE_ECHO_MISMATCH in fallbacks
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_process_steps(payload, CITIZENS)
+    assert exc_info.value.status_code == 422
+    assert "normadressat mismatch" in exc_info.value.detail
 
 
 def test_parse_process_steps_flags_missing():
@@ -205,7 +212,7 @@ def test_parse_process_steps_flags_missing():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_cases_payload_flags_mismatch():
+def test_parse_cases_payload_rejects_mismatch():
     payload = """
     {
       "normadressat": "administration",
@@ -222,9 +229,10 @@ def test_parse_cases_payload_flags_mismatch():
       ]
     }
     """
-    parsed, fallbacks = _parse_cases_payload(payload, BUSINESS)
-    assert parsed
-    assert NORM_ADDRESSEE_ECHO_MISMATCH in fallbacks
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_cases_payload(payload, BUSINESS)
+    assert exc_info.value.status_code == 422
+    assert "normadressat mismatch" in exc_info.value.detail
 
 
 def test_parse_cases_payload_flags_missing():
@@ -253,7 +261,7 @@ def test_parse_cases_payload_flags_missing():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_effort_payload_flags_mismatch():
+def test_parse_effort_payload_rejects_mismatch():
     payload = """
     {
       "normadressat": "citizens",
@@ -278,9 +286,10 @@ def test_parse_effort_payload_flags_mismatch():
       ]
     }
     """
-    parsed, fallbacks = _parse_effort_payload(payload, ADMINISTRATION)
-    assert parsed
-    assert NORM_ADDRESSEE_ECHO_MISMATCH in fallbacks
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort_payload(payload, ADMINISTRATION)
+    assert exc_info.value.status_code == 422
+    assert "normadressat mismatch" in exc_info.value.detail
 
 
 def test_parse_effort_payload_flags_missing():

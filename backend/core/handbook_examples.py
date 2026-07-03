@@ -10,42 +10,6 @@ Erfüllungsaufwands in Regelungsvorhaben der Bundesregierung", Februar 2026.
 """
 
 
-CASE_GROUP_DEVELOPMENT_EXAMPLE = """
-→ Beispiel für Bildung von Fallgruppen (fiktiv):
-Unternehmen, die bestimmte Industrieanlagen betreiben, sind zur Einhaltung neuer Vorgaben
-und strengerer Schadstoffgrenzwerte verpflichtet. Es ist davon auszugehen, dass 80 Prozent der
-1 000 betroffenen Unternehmen ihre bestehenden Anlagen lediglich mit neuen Filtersystemen
-ausrüsten werden, während die restlichen 20 Prozent ihre Altanlagen komplett durch neue er-
-setzen müssen, um die verschärften Grenzwerte einzuhalten. Es wird angenommen, dass der
-Aufwand zur Umrüstung bestehender Anlagen sehr viel geringer ist als der Aufwand für den Er-
-satz der Altanlagen durch Neuanlagen. Für die Ermittlung des Erfüllungsaufwands werden des-
-halb zwei Fallgruppen gebildet:
-Fallgruppe 1 Umrüstung bestehender Anlagen (800 Unternehmen)
-Fallgruppe 2 Ersatz von Altanlagen durch Neuanlagen (200 Unternehmen)
-""".strip()
-
-
-PROCESS_COMPILATION_EXAMPLE = """
-→ Beispiele für Prozesse:
-1. Die UV-Schutz-Verordnung dient dem Schutz der menschlichen Gesundheit vor schädlichen
-UV-Strahlen bei der Benutzung von Solarien. Bei der Ermittlung des Erfüllungsaufwands wurden
-für den Normadressaten Wirtschaft die einzelnen Vorgaben zu Prozessen zusammengefasst:
-– Nachrüstung/Austausch von alten Bestrahlungsgeräten
-– Anschaffung von Schutzbrillen
-– Durchführung von Beratungsgesprächen
-– Schulung des Personals
-2. Im Rahmen des Erfüllungsaufwandprojekts „Betriebliche Beauftragte“ wurden die gesetzli-
-chen Grundlagen aus Sicht der Normadressaten untersucht, um die Prozesse zu identifizieren,
-aus denen sich Erfüllungsaufwand ableiten lässt. Dabei wurden einzelne Prozesse weiter unter-
-gliedert, um die Ermittlung des Erfüllungsaufwands zu erleichtern.
-– Verfahren zur Bestellung der Betriebsbeauftragten
-– Materielle Unterstützung der Beauftragten durch das Unternehmen/den Betrieb (Bereitstellen
-von Hilfspersonal, Räumen etc., Teilnahme an Schulungen ermöglichen, Lohn- und Gehalts-
-kosten für die Beauftragten)
-– Beteiligung der Beauftragten an Prozessen im Unternehmen
-""".strip()
-
-
 CASES_CALCULATION_FREQUENCY_EXAMPLE = """
 → Beispiele für jährliche Häufigkeit bei periodisch zu erfüllenden Vorgaben:
 Vorgabe ist periodisch zu erfüllen

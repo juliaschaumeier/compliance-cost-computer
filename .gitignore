@@ -27,6 +27,7 @@ testing_ground.ipynb
 results/
 regulations/
 *.db
+*.db.backup*
 tmp/
 REVIEW_*.md
 
