@@ -48,30 +48,45 @@ class Settings(BaseSettings):
 settings = Settings()
 
 OPENAI_RECOMMENDED = [
-    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.4-mini",
-    "gpt-5.4-nano",
-    "gpt-5.2",
 ]
 
 DEEPINFRA_RECOMMENDED = [
     "anthropic/claude-sonnet-4-6",
-    "anthropic/claude-opus-4-7",
     "deepseek-ai/DeepSeek-V3.2",
-    "Qwen/Qwen3.5-397B-A17B",
-    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
 ]
 
 GEMINI_RECOMMENDED = [
-    "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
     "gemini-3-flash-preview",
-    "gemini-2.5-pro",
-    # "gemini-2.0-flash",
-    # "gemini-2.0-flash-lite",
 ]
+
+GEMINI_EXCLUDED_MODEL_TOKENS = (
+    "preview",
+    "exp",
+    "image",
+    "audio",
+    "embedding",
+    "imagen",
+    "veo",
+    "lyria",
+    "aqa",
+    "nano-banana",
+    "robotics",
+    "computer-use",
+    "deep-research",
+)
+
+
+def _is_supported_gemini_text_model(model: str) -> bool:
+    if model in GEMINI_RECOMMENDED:
+        return True
+    model_lower = model.lower()
+    return model.startswith("gemini-") and not any(
+        token in model_lower for token in GEMINI_EXCLUDED_MODEL_TOKENS
+    )
 
 
 @lru_cache(maxsize=1)
@@ -121,11 +136,14 @@ def get_openai_models(api_key: str | None = None) -> List[str]:
                     logger.info("Fetched %s OpenAI models", len(text_models))
                     return text_models
 
-        logger.warning("OpenAI API returned status %s, using hardcoded models", response.status_code)
+        logger.warning(
+            "OpenAI API returned status %s, no OpenAI models available",
+            response.status_code,
+        )
     except Exception as exc:
         logger.error("Failed to fetch OpenAI models: %s", exc)
 
-    return hardcoded_models
+    return []
 
 
 @lru_cache(maxsize=1)
@@ -154,6 +172,8 @@ def get_deepinfra_models(api_key: str | None = None) -> List[str]:
                     for model in models
                     if any(keyword in model.lower() for keyword in [
                         "llama",
+                        "anthropic",
+                        "claude",
                         "deepseek",
                         "qwen",
                         "mixtral",
@@ -170,11 +190,14 @@ def get_deepinfra_models(api_key: str | None = None) -> List[str]:
                     logger.info("Fetched %s DeepInfra models", len(text_models))
                     return text_models
 
-        logger.warning("DeepInfra API returned status %s, using hardcoded models", response.status_code)
+        logger.warning(
+            "DeepInfra API returned status %s, no DeepInfra models available",
+            response.status_code,
+        )
     except Exception as exc:
         logger.error("Failed to fetch DeepInfra models: %s", exc)
 
-    return hardcoded_models
+    return []
 
 
 @lru_cache(maxsize=1)
@@ -208,32 +231,20 @@ def get_gemini_models(api_key: str | None = None) -> List[str]:
                 text_models = [
                     model
                     for model in normalized
-                    if model.startswith("gemini-")
-                    and not any(exclude in model.lower() for exclude in [
-                        "preview",
-                        "exp",
-                        "image",
-                        "audio",
-                        "embedding",
-                        "imagen",
-                        "veo",
-                        "lyria",
-                        "aqa",
-                        "nano-banana",
-                        "robotics",
-                        "computer-use",
-                        "deep-research",
-                    ])
+                    if _is_supported_gemini_text_model(model)
                 ]
                 if text_models:
                     logger.info("Fetched %s Gemini models", len(text_models))
                     return text_models
 
-        logger.warning("Gemini API returned status %s, using hardcoded models", response.status_code)
+        logger.warning(
+            "Gemini API returned status %s, no Gemini models available",
+            response.status_code,
+        )
     except Exception as exc:
         logger.error("Failed to fetch Gemini models: %s", exc)
 
-    return hardcoded_models
+    return []
 
 
 def is_deepinfra_model(model: str) -> bool:

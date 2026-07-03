@@ -12,6 +12,16 @@ import { Model, OrganizedModels, ProviderModels } from "@/types";
 const emptyProvider: ProviderModels = { recommended: [], additional: [] };
 const isLikelyValidApiKey = (value: string) => value.trim().length > 10;
 const modelMenuWidth = 340;
+const recommendedModelsCheckedAt = "02.07.2026";
+const recommendedModelPriceLabels: Record<string, string> = {
+  "gpt-5.4": "$2.50 in / $15 out",
+  "gpt-5.4-mini": "$0.75 in / $4.50 out",
+  "gemini-3.1-pro-preview": "≤200k $2/$12 · >200k $4/$18",
+  "gemini-3.5-flash": "$1.50 in / $9 out",
+  "gemini-3-flash-preview": "$0.50 in / $3 out",
+  "anthropic/claude-sonnet-4-6": "$3 in / $15 out",
+  "deepseek-ai/DeepSeek-V3.2": "$0.26 in / $0.38 out",
+};
 const flattenModels = (organized: OrganizedModels) => [
   ...organized.openai.recommended,
   ...organized.openai.additional,
@@ -25,6 +35,15 @@ const compactModelName = (value: string) =>
     .replace(/^.+\//, "")
     .replace(/^gemini-/i, "g-")
     .replace(/^deep-research-/i, "dr-");
+const recommendationGroupLabel = (provider: string) =>
+  `Empfohlen - ${provider} (Stand ${recommendedModelsCheckedAt})`;
+const modelOptionLabel = (model: Model, recommended = false) => {
+  const priceLabel = recommended ? recommendedModelPriceLabels[model.id] : undefined;
+  if (!priceLabel) {
+    return model.name;
+  }
+  return `${model.id} · ${priceLabel}`;
+};
 
 const buildSelectedModelLabels = (
   selectedModel: string,
@@ -238,31 +257,37 @@ export default function ModelSelector() {
       ) : (
         <div className="mt-4 space-y-4">
           <div>
-            <label className="text-xs font-semibold text-slate-500">Modell</label>
+            <label
+              htmlFor="model-selector-select"
+              className="text-xs font-semibold text-slate-500"
+            >
+              Modell
+            </label>
             <select
+              id="model-selector-select"
               value={state.selectedModel}
               onChange={(event) => setSelectedModel(event.target.value)}
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
             >
               <option value="">Modell auswählen</option>
-              <optgroup label="Empfohlen - OpenAI">
+              <optgroup label={recommendationGroupLabel("OpenAI")}>
                 {visibleOrganizedModels.openai.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
-                    {model.name}
+                    {modelOptionLabel(model, true)}
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Empfohlen - DeepInfra">
+              <optgroup label={recommendationGroupLabel("DeepInfra")}>
                 {visibleOrganizedModels.deepinfra.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
-                    {model.name}
+                    {modelOptionLabel(model, true)}
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Empfohlen - Gemini">
+              <optgroup label={recommendationGroupLabel("Gemini")}>
                 {visibleOrganizedModels.gemini.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
-                    {model.name}
+                    {modelOptionLabel(model, true)}
                   </option>
                 ))}
               </optgroup>
@@ -288,6 +313,12 @@ export default function ModelSelector() {
                 ))}
               </optgroup>
             </select>
+            {flattenModels(visibleOrganizedModels).length === 0 ? (
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                Kein Modell verfügbar. Bitte einen gültigen API-Schlüssel
+                eintragen oder prüfen.
+              </p>
+            ) : null}
             <p className="mt-2 text-[11px] leading-4 text-slate-500">
               Dieses Modell wird für zukünftige Prompts verwendet. Bereits
               berechnete Schritte ändern sich dadurch nicht.

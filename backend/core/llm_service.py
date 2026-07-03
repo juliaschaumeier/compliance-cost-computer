@@ -1618,9 +1618,10 @@ def _estimate_cost_usd(
         return None
 
     # Standard API pricing, USD per 1M tokens.
-    # Sources (checked on 2026-06-01):
+    # Sources (checked on 2026-07-02):
     # - https://openai.com/api/pricing
     # - https://ai.google.dev/gemini-api/docs/pricing
+    # - https://deepinfra.com/pricing
     pricing_per_million: dict[str, dict[str, tuple[float, float]]] = {
         "openai": {
             "gpt-5.5": (5.00, 30.00),
@@ -1641,6 +1642,7 @@ def _estimate_cost_usd(
             "gpt-4o": (2.50, 10.00),
         },
         "gemini": {
+            "deep-research-max-preview": (2.00, 12.00),
             "deep-research-pro-preview": (2.00, 12.00),
             "deep-research-preview": (2.00, 12.00),
             "gemini-3.5-flash": (1.50, 9.00),
@@ -1651,6 +1653,19 @@ def _estimate_cost_usd(
             "gemini-2.5-pro": (1.25, 10.00),
             "gemini-2.5-flash-lite": (0.10, 0.40),
             "gemini-2.5-flash": (0.30, 2.50),
+        },
+        "deepinfra": {
+            "anthropic/claude-opus-4-8": (5.00, 25.00),
+            "anthropic/claude-opus-4-7": (5.00, 25.00),
+            "anthropic/claude-sonnet-4-6": (3.00, 15.00),
+            "deepseek-ai/deepseek-v4-flash": (0.09, 0.18),
+            "deepseek-ai/deepseek-v4-pro": (1.30, 2.60),
+            "deepseek-ai/deepseek-v3.2": (0.26, 0.38),
+            "qwen/qwen3.5-397b-a17b": (0.45, 3.00),
+            "qwen/qwen3.6-35b-a3b": (0.15, 0.95),
+            "qwen/qwen3-max": (1.20, 6.00),
+            "google/gemma-4-26b-a4b-it": (0.07, 0.34),
+            "meta-llama/llama-4-maverick-17b-128e-instruct-fp8": (0.19, 0.60),
         },
     }
     provider_pricing = pricing_per_million.get(provider.lower(), {})

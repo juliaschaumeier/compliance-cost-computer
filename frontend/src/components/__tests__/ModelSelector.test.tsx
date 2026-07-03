@@ -149,6 +149,86 @@ describe("ModelSelector", () => {
     expect(setAvailableModels).toHaveBeenCalled();
   });
 
+  it("shows dated recommendation groups with price guidance on recommended models", async () => {
+    localStorage.setItem("openai_api_key", "sk-very-valid-test-key");
+    localStorage.setItem("deepinfra_api_key", "di-very-valid-test-key");
+    localStorage.setItem("gemini_api_key", "AIza-very-valid-test-key");
+    const setSelectedModel = jest.fn();
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedModel: "",
+        availableModels: [],
+      },
+      setAvailableModels: jest.fn(),
+      setSelectedModel,
+    });
+    mockFetchModels.mockResolvedValue({
+      organized: {
+        openai: {
+          recommended: [{ id: "gpt-5.4", name: "GPT 5.4", provider: "OpenAI" }],
+          additional: [],
+        },
+        deepinfra: {
+          recommended: [
+            {
+              id: "deepseek-ai/DeepSeek-V3.2",
+              name: "DeepSeek V3.2",
+              provider: "DeepInfra",
+            },
+          ],
+          additional: [],
+        },
+        gemini: {
+          recommended: [
+            {
+              id: "gemini-3.5-flash",
+              name: "Gemini 3.5 flash",
+              provider: "Gemini",
+            },
+          ],
+          additional: [],
+        },
+      },
+      default: "gpt-5.4",
+    });
+
+    render(<ModelSelector />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /llm-auswahl öffnen/i }));
+
+    expect(
+      await screen.findByRole("option", {
+        name: "gpt-5.4 · $2.50 in / $15 out",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: "deepseek-ai/DeepSeek-V3.2 · $0.26 in / $0.38 out",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: "gemini-3.5-flash · $1.50 in / $9 out",
+      })
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector('optgroup[label="Empfohlen - OpenAI (Stand 02.07.2026)"]')
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector('optgroup[label="Empfohlen - DeepInfra (Stand 02.07.2026)"]')
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector('optgroup[label="Empfohlen - Gemini (Stand 02.07.2026)"]')
+    ).toBeInTheDocument();
+
+    await user.selectOptions(
+      screen.getByLabelText("Modell"),
+      "gemini-3.5-flash"
+    );
+    expect(setSelectedModel).toHaveBeenCalledWith("gemini-3.5-flash");
+  });
+
   it("only opens from the chevron control in the header split button", async () => {
     mockUseApp.mockReturnValue({
       state: {
