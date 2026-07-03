@@ -45,4 +45,20 @@ describe("buildLlmRequestOptions", () => {
       },
     });
   });
+
+  it("routes DeepInfra Claude models with the DeepInfra provider", () => {
+    const result = buildLlmRequestOptions({
+      selectedModel: "anthropic/claude-sonnet-4-6",
+      availableModels: [
+        {
+          id: "anthropic/claude-sonnet-4-6",
+          name: "Claude Sonnet 4 6",
+          provider: "DeepInfra",
+        },
+      ],
+      storage: { getItem: () => null },
+    });
+
+    expect(result.provider).toBe("deepinfra");
+  });
 });

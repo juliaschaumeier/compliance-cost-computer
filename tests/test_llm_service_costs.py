@@ -55,6 +55,17 @@ def test_estimate_cost_supports_deep_research_agent_alias():
     assert resolved == 26.0
 
 
+def test_estimate_cost_supports_deep_research_max_agent_alias():
+    resolved = llm_service._resolve_estimated_cost_usd(
+        provider="gemini",
+        model="deep-research-max-preview-04-2026",
+        input_tokens=1_000_000,
+        output_tokens=2_000_000,
+    )
+
+    assert resolved == 26.0
+
+
 def test_estimate_cost_supports_current_recommended_openai_models():
     assert (
         llm_service._resolve_estimated_cost_usd(
@@ -325,7 +336,7 @@ def test_estimate_cost_supports_current_recommended_gemini_models():
     )
 
 
-def test_estimate_cost_returns_none_for_deepinfra_without_provider_reported_cost():
+def test_estimate_cost_supports_deepinfra_models_without_provider_reported_cost():
     assert (
         llm_service._resolve_estimated_cost_usd(
             provider="deepinfra",
@@ -333,7 +344,25 @@ def test_estimate_cost_returns_none_for_deepinfra_without_provider_reported_cost
             input_tokens=1_000_000,
             output_tokens=1_000_000,
         )
-        is None
+        == 18.0
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="deepinfra",
+            model="deepseek-ai/DeepSeek-V3.2",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 0.64
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="deepinfra",
+            model="Qwen/Qwen3.5-397B-A17B",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 3.45
     )
 
 
