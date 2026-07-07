@@ -277,7 +277,7 @@ describe("TotalCostPanel", () => {
     expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123");
   });
 
-  it("shows the business bureaucracy cost as a 'davon IP' subline", async () => {
+  it("shows the business bureaucracy cost as an inline 'davon IP' segment", async () => {
     mockGetTotalCostSummary.mockResolvedValue({
       administration: { norm_addressee: "administration", total_cost: 320000 },
       business: {
@@ -300,9 +300,11 @@ describe("TotalCostPanel", () => {
 
     render(<TotalCostPanel />);
 
-    expect(await screen.findByText(/davon IP 40 Tsd\. €/)).toBeInTheDocument();
     expect(
-      screen.getByLabelText(/Wirtschaft 920 Tsd\. € \(davon IP 40 Tsd\. €\)/i)
+      await screen.findByText(/920 Tsd\. € · davon IP 40 Tsd\. €/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Wirtschaft 920 Tsd\. € · davon IP 40 Tsd\. €/i)
     ).toBeInTheDocument();
   });
 
@@ -355,7 +357,9 @@ describe("TotalCostPanel", () => {
     expect(group).toHaveClass("flex");
     expect(group).toHaveClass("gap-10");
     expect(screen.getByText("-32,7 Mio. h · 0 €")).toHaveClass("whitespace-nowrap");
-    expect(screen.getByText("-96,8 Mio. €")).toHaveClass("whitespace-nowrap");
+    expect(screen.getByText("-96,8 Mio. € · davon IP 0 €")).toHaveClass(
+      "whitespace-nowrap"
+    );
   });
 
   it("shows zero citizen effort instead of unavailable when citizen totals are empty", async () => {
