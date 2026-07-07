@@ -182,6 +182,13 @@ def build_session_tiles_snapshot(
                         )
                         if enabled
                     ],
+                    # Flag adressat-unabhaengig mitschreiben (wie der Identify-Pfad),
+                    # damit es beim Snapshot-Rebuild nicht verloren geht. Die Anzeige
+                    # als "IP"-Pill wird rein im Frontend auf die Wirtschaft-Sicht
+                    # gegated.
+                    "is_business_information_obligation": bool(
+                        regulation.get("is_business_information_obligation")
+                    ),
                 },
                 column=1,
                 row=idx,

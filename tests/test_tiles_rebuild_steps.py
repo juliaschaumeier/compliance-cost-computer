@@ -367,3 +367,120 @@ def test_list_tiles_auto_rebuilds_missing_citizens_tiles(test_client):
     assert listed.status_code == 200
     listed_tiles = listed.json()["tiles"]
     assert any(tile["id"] == f"process_{process_id}" for tile in listed_tiles)
+
+
+def test_list_tiles_self_heals_regulation_ip_flag(test_client, monkeypatch):
+    """Alt-Sessions: Vorgabe-Kacheln ohne IP-Flag werden beim ersten Anschauen
+    in-place um den echten Flag-Wert je Vorgabe ergaenzt (idempotent)."""
+    app_session_id = "TILES-IP-HEAL"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    reg_ip = db.insert_regulation(
+        session_id,
+        "§ 1",
+        "Informationspflicht",
+        applies_to_administration=False,
+        applies_to_business=True,
+        is_business_information_obligation=True,
+    )
+    reg_plain = db.insert_regulation(
+        session_id,
+        "§ 2",
+        "Keine Informationspflicht",
+        applies_to_administration=False,
+        applies_to_business=True,
+        is_business_information_obligation=False,
+    )
+
+    # Kanonischen Snapshot (mit Flag) fuer die Wirtschaft-Sicht persistieren.
+    rebuild = test_client.post(
+        "/tiles/rebuild",
+        json={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert rebuild.status_code == 200
+
+    # Alt-Session simulieren: Flag-Schluessel aus der Vorgabe-Kachel-Meta entfernen,
+    # Positionen/Text unveraendert lassen.
+    tiles = db.fetch_tiles(session_id=session_id, norm_addressee=BUSINESS)
+    for reg_id in (reg_ip, reg_plain):
+        tile = next(t for t in tiles if t.id == f"regulation_{reg_id}")
+        stripped_meta = {
+            key: value
+            for key, value in tile.meta_information.items()
+            if key != "is_business_information_obligation"
+        }
+        assert "is_business_information_obligation" not in stripped_meta
+        db.upsert_tile(
+            Tile(
+                id=tile.id,
+                title=tile.title,
+                text=tile.text,
+                meta_information=stripped_meta,
+                column=tile.column,
+                row=tile.row,
+                deletable=tile.deletable,
+                link_from_tile=tile.link_from_tile,
+            ),
+            session_id=session_id,
+            norm_addressee=BUSINESS,
+        )
+
+    # Der Heal muss gezielt (refresh_regulation_tiles) statt ueber einen
+    # Voll-Rebuild erfolgen: Struktur/Gesamtkosten sind unveraendert, daher darf
+    # _rebuild_tiles_for_session nicht aufgerufen werden.
+    from backend.routers import tiles as tiles_router
+
+    rebuild_calls: list[int] = []
+    original_rebuild = tiles_router._rebuild_tiles_for_session
+
+    def _spy_rebuild(*args, **kwargs):
+        rebuild_calls.append(1)
+        return original_rebuild(*args, **kwargs)
+
+    monkeypatch.setattr(tiles_router, "_rebuild_tiles_for_session", _spy_rebuild)
+
+    # Erstes Anschauen heilt die Kacheln in-place mit dem echten Flag je Vorgabe.
+    listed = test_client.get(
+        "/tiles",
+        params={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert listed.status_code == 200
+    assert rebuild_calls == []
+    listed_tiles = {tile["id"]: tile for tile in listed.json()["tiles"]}
+    assert (
+        listed_tiles[f"regulation_{reg_ip}"]["meta_information"][
+            "is_business_information_obligation"
+        ]
+        is True
+    )
+    assert (
+        listed_tiles[f"regulation_{reg_plain}"]["meta_information"][
+            "is_business_information_obligation"
+        ]
+        is False
+    )
+
+    # Der Refresh persistiert das Flag (nicht nur die Antwort) und erhaelt Positionen.
+    persisted = {
+        tile.id: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee=BUSINESS)
+    }
+    healed_ip = persisted[f"regulation_{reg_ip}"]
+    original_ip = next(t for t in tiles if t.id == f"regulation_{reg_ip}")
+    assert healed_ip.meta_information["is_business_information_obligation"] is True
+    assert healed_ip.column == original_ip.column
+    assert healed_ip.row == original_ip.row
+    assert healed_ip.text == original_ip.text
+    assert (
+        persisted[f"regulation_{reg_plain}"].meta_information[
+            "is_business_information_obligation"
+        ]
+        is False
+    )
+
+    # Idempotenz: zweiter Aufruf aendert nichts mehr (Bedingung feuert nicht erneut).
+    listed_again = test_client.get(
+        "/tiles",
+        params={"app_session_id": app_session_id, "norm_addressee": BUSINESS},
+    )
+    assert listed_again.status_code == 200
+    assert listed_again.json()["tiles"] == listed.json()["tiles"]

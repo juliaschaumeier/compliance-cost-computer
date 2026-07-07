@@ -57,6 +57,35 @@ describe("TileNode", () => {
     expect(screen.getByText("Neu")).toBeInTheDocument();
   });
 
+  it("renders the IP badge when showIpBadge is set", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("regulation_5", {
+          changeStatus: "eingefuehrt",
+          showIpBadge: true,
+        })}
+      />
+    );
+
+    const badge = screen.getByLabelText("Informationspflicht Wirtschaft");
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent("IP");
+  });
+
+  it("does not render the IP badge when showIpBadge is unset", () => {
+    render(
+      <TileNode
+        {...buildTileNodeProps("regulation_6", {
+          changeStatus: "eingefuehrt",
+        })}
+      />
+    );
+
+    expect(
+      screen.queryByLabelText("Informationspflicht Wirtschaft")
+    ).not.toBeInTheDocument();
+  });
+
   it("does not bubble the expand click to parent handlers", async () => {
     const user = userEvent.setup();
     const onParentClick = jest.fn();

@@ -570,6 +570,14 @@ function GraphCanvasInner() {
             relatedNodeIds.has(tile.id) &&
             focusedNodeId !== tile.id,
           changeStatus: normalizeChangeStatus(tile.meta_information?.["change_status"]),
+          // IP-Pill nur in der Wirtschaft-Sicht und nur bei gesetztem Flag anzeigen.
+          // Das Flag liegt adressat-unabhaengig in der Kachel-Meta; das Gating
+          // erfolgt bewusst rein im Frontend.
+          showIpBadge:
+            state.selectedNormAddressee === "business" &&
+            Boolean(
+              tile.meta_information?.["is_business_information_obligation"]
+            ),
         },
         className: expandedNodeIds[tile.id] ? "node-expanded" : "",
         style: expandedNodeIds[tile.id] ? { zIndex: 5 } : undefined,

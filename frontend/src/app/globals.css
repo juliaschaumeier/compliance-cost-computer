@@ -125,6 +125,15 @@ body {
   min-height: 24px;
 }
 
+/* Linkes Cluster der Meta-Zeile: Change-Status-Pill und optionales IP-Pill. */
+.tile-node .tile-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .tile-node .tile-title-wrap {
   display: flex;
   flex-direction: column;
@@ -169,6 +178,25 @@ body {
   background: #e2e8f0;
   color: #334155;
   border: 1px solid #cbd5e1;
+}
+
+/* Dezentes "IP"-Pill (Informationspflicht Wirtschaft): gleiche Pill-Form wie
+   der Status-Marker, gedaempftes Blau in Anlehnung an .tile-metric-right,
+   damit es zurueckhaltend, aber klar vom grauen Status unterscheidbar bleibt. */
+.tile-node .tile-ip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: #e0f2fe;
+  color: #075985;
+  border: 1px solid #bae6fd;
 }
 
 .tile-node .tile-body-row {

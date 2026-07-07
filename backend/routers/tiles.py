@@ -11,7 +11,7 @@ from backend.core.session_graph import (
     build_session_tiles_snapshot,
     persist_session_tiles_snapshot,
 )
-from backend.core.tile_refresh import refresh_step_tiles
+from backend.core.tile_refresh import refresh_regulation_tiles, refresh_step_tiles
 from backend.core.models import Tile, TilesResponse
 from backend.core.norm_addressees import ADMINISTRATION
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
@@ -120,6 +120,21 @@ def _step_tiles_predate_personnel_rows(tiles: list[Tile]) -> bool:
     )
 
 
+def _regulation_tiles_predate_ip_flag(tiles: list[Tile]) -> bool:
+    """True, wenn Vorgabe-Kacheln vor dem IP-Flag persistiert wurden, also der
+    Schluessel ``is_business_information_obligation`` im Meta fehlt.
+
+    Bewusst auf Schluessel-Praesenz pruefen (``not in``), nicht auf Truthiness, da
+    ``False`` ein gueltiger Flag-Wert ist. Neu erzeugte Vorgabe-Kacheln tragen den
+    Schluessel immer, daher self-terminierend nach einem In-Place-Refresh.
+    """
+    return any(
+        tile.id.startswith("regulation_")
+        and "is_business_information_obligation" not in (tile.meta_information or {})
+        for tile in tiles
+    )
+
+
 def _tiles_need_total_cost_rebuild(
     expected_tiles: list[Tile],
     tiles: list[Tile],
@@ -214,6 +229,23 @@ async def list_tiles(
                 tiles,
             )
         if not needs_rebuild:
+            # Self-Heal fuer Alt-Sessions: Vorgabe-Kacheln, die vor dem IP-Flag
+            # persistiert wurden, in-place um is_business_information_obligation
+            # ergaenzen (Positionen/Text bleiben erhalten). Diese Kacheln aendern
+            # weder Struktur noch Gesamtkosten, wuerden hier also sonst unveraendert
+            # zurueckgegeben; deshalb der gezielte Refresh vor dem Early-Return statt
+            # eines Voll-Rebuilds. Nach dem Refresh feuert die Bedingung nicht erneut.
+            if _regulation_tiles_predate_ip_flag(tiles):
+                regulations = db.list_regulations_for_session_and_addressee(
+                    session_id, resolved
+                )
+                if regulations:
+                    refresh_regulation_tiles(
+                        session_id, regulations, norm_addressee=resolved
+                    )
+                    tiles = db.fetch_tiles(
+                        session_id=session_id, norm_addressee=resolved
+                    )
             return TilesResponse(tiles=tiles)
         has_process_steps = bool(
             db.list_process_steps_for_session_and_addressee(session_id, resolved)

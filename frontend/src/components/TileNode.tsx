@@ -19,6 +19,9 @@ export interface TileNodeData {
   isFocused: boolean;
   isNeighbor: boolean;
   changeStatus?: ChangeStatus | null;
+  // Dezentes "IP"-Pill fuer Business-Informationspflichten; wird ausschliesslich
+  // in der Wirtschaft-Sicht bei gesetztem Flag angezeigt (Gating in GraphCanvas).
+  showIpBadge?: boolean;
 }
 
 export function TileNode({ data, id }: NodeProps<TileNodeData>) {
@@ -31,7 +34,10 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
   const metricTableAlwaysVisible = Boolean(summaryMetric?.alwaysVisible);
   const suppressTitle = Boolean(summaryMetric?.suppressTitle);
   const showHeaderMeta = Boolean(
-    data.changeStatus || data.headerMetricLeft || data.headerMetricRight
+    data.changeStatus ||
+      data.showIpBadge ||
+      data.headerMetricLeft ||
+      data.headerMetricRight
   );
   const showTitle = Boolean(data.title) && !suppressTitle;
   const canExpand =
@@ -63,13 +69,22 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
         <div className="tile-header">
           {showHeaderMeta && (
             <div className="tile-meta-row">
-              {data.changeStatus ? (
-                <span className={`tile-status tile-status-${data.changeStatus}`}>
-                  {getChangeStatusLabel(data.changeStatus)}
-                </span>
-              ) : (
-                <span />
-              )}
+              <div className="tile-meta-left">
+                {data.changeStatus && (
+                  <span className={`tile-status tile-status-${data.changeStatus}`}>
+                    {getChangeStatusLabel(data.changeStatus)}
+                  </span>
+                )}
+                {data.showIpBadge && (
+                  <span
+                    className="tile-ip"
+                    title="Informationspflicht Wirtschaft"
+                    aria-label="Informationspflicht Wirtschaft"
+                  >
+                    IP
+                  </span>
+                )}
+              </div>
               {(data.headerMetricLeft || data.headerMetricRight) && (
                 <div className="tile-actions">
                   {data.headerMetricLeft && (
