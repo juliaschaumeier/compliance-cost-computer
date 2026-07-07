@@ -124,9 +124,10 @@ PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
     BUSINESS: (
         "Jede Taetigkeit beschreibt eine Handlung des Unternehmens zur "
         "Erfuellung der Vorgabe (z.B. Daten beschaffen, Meldung erstellen, "
-        "Betriebspruefung begleiten, interne Prozesse anpassen). Orientieren "
-        "Sie sich bei Informationspflichten an Teil A der Checkliste, bei "
-        "anderen Vorgaben zusaetzlich an Teil B. IT- oder "
+        "Betriebspruefung begleiten, interne Prozesse anpassen). Fuer Vorgaben, "
+        "die im Input als `ist_informationspflicht_wirtschaft` markiert sind, "
+        "orientieren Sie sich an Teil A der Checkliste; fuer die uebrigen "
+        "Vorgaben zusaetzlich an Teil B. IT- oder "
         "Automatisierungsbezug darf in der Beschreibung genannt werden, wenn "
         "er den Handlungskern praegt. Uebernehmen Sie keine "
         "Verwaltungshandlungen (z.B. Bescheiderstellung, behoerdliche "
@@ -651,6 +652,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Hinweis zu `ist_informationspflicht_wirtschaft`: Dieses Flag ist ausschliesslich fuer den Normadressaten
         Wirtschaft (`business`) vorgesehen und kennzeichnet eine Informationspflicht im Sinne des Leitfadens.
+        Eine Informationspflicht liegt vor, wenn aufgrund der Vorgabe Daten oder sonstige Informationen fuer
+        Behoerden oder Dritte zu beschaffen, verfuegbar zu halten oder zu uebermitteln sind (§ 2 Absatz 2 Satz 2 NKRG).
+        Typische Beispiele sind das Ausfuellen von Antraegen und Formularen, die Mitwirkung an amtlichen Erhebungen,
+        Nachweis- und Dokumentationspflichten (Auskunfts-, Melde-, Berichts-, Veroeffentlichungs-, Registrierungs- und
+        Genehmigungspflichten), das Aufbewahren von Unterlagen (z. B. Rechnungen) sowie die Mitwirkung bei
+        behoerdlichen Pruefungen (z. B. Aussenpruefung).
         Setzen Sie das Flag nur dann auf "1", wenn (a) `business` im `normadressaten`-Array enthalten ist UND
         (b) die Vorgabe fuer die Wirtschaft eine Informationspflicht darstellt. In allen anderen Faellen - also
         bei reinen Verwaltungs- oder Buerger-Vorgaben, oder bei Wirtschaftsvorgaben ohne Informationspflicht-Charakter -

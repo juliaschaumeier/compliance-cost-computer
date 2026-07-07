@@ -194,3 +194,22 @@ class TestRecurringOnlyContract:
             PromptId.PROCESS_STEP_ANALYSIS,
         ):
             assert "z.B. Einfuehrung, Implementierung" not in PROMPT_TEMPLATES[pid]
+
+
+class TestInformationspflichtDefinitionAnchor:
+    """LF-IP-001: Die inhaltliche NKRG-Definition der Informationspflicht muss
+    im REGULATIONS_IDENTIFICATION-Prompt stehen (dort wird das Flag gesetzt),
+    und die Step-Analyse muss die Checkliste Teil A an das gesetzte Flag koppeln,
+    statt die IP-Eigenschaft neu einzuschaetzen.
+    """
+
+    def test_identification_prompt_defines_informationspflicht(self):
+        template = PROMPT_TEMPLATES[PromptId.REGULATIONS_IDENTIFICATION]
+        assert "NKRG" in template
+        assert "verfuegbar zu halten" in template
+        assert "uebermitteln" in template
+
+    def test_step_analysis_business_rule_couples_teil_a_to_flag(self):
+        rule = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[BUSINESS]
+        assert "ist_informationspflicht_wirtschaft" in rule
+        assert "Teil A" in rule

@@ -1,6 +1,7 @@
 from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION
 from backend.core.prompts import PromptId, render_prompt
+from backend.core.session_graph import build_session_tiles_snapshot
 from backend.routers import regulations as regulations_router
 
 
@@ -551,8 +552,43 @@ def test_identify_regulations_parses_norm_addressees_and_business_information_fl
     first_tile = admin_tiles[rows[0]["regulation_id"]]
     assert first_tile.meta_information["normadressaten"] == ["administration", "business"]
 
+    # Persistierte Kacheln (Identify-Pfad) tragen das IP-Flag adressat-unabhaengig.
+    assert (
+        business_tiles[rows[0]["regulation_id"]].meta_information[
+            "is_business_information_obligation"
+        ]
+        is True
+    )
+    assert (
+        admin_tiles[rows[2]["regulation_id"]].meta_information[
+            "is_business_information_obligation"
+        ]
+        is False
+    )
 
-def test_identify_regulations_business_information_flag_adds_business_addressee(
+    # Der Snapshot-Builder (Self-Healing-Rebuild) muss das Flag ebenfalls setzen,
+    # sonst geht es beim Rebuild via GET /tiles verloren.
+    session = db.get_session_by_app_id("REG-ADDRESSEES")
+    for norm_addressee, expected in (("administration", True), ("business", True)):
+        snapshot = build_session_tiles_snapshot(session, norm_addressee)
+        flagged = next(
+            tile
+            for tile in snapshot
+            if tile.id == f"regulation_{rows[0]['regulation_id']}"
+        )
+        assert (
+            flagged.meta_information["is_business_information_obligation"] is expected
+        )
+    admin_snapshot = build_session_tiles_snapshot(session, "administration")
+    unflagged = next(
+        tile
+        for tile in admin_snapshot
+        if tile.id == f"regulation_{rows[2]['regulation_id']}"
+    )
+    assert unflagged.meta_information["is_business_information_obligation"] is False
+
+
+def test_identify_regulations_business_information_flag_cleared_when_business_missing(
     test_client, monkeypatch
 ):
     db.insert_law("business-current.txt", "aktuelles gesetz")
@@ -606,9 +642,12 @@ def test_identify_regulations_business_information_flag_adds_business_addressee(
     session_id = db.get_session_id_by_app_id("REG-BUSINESS-FLAG")
     assert session_id is not None
     row = db.list_regulations_for_session(session_id)[0]
+    # Leitfaden: IP existiert nur fuer Wirtschaft. Das LLM setzt das Flag hier ohne
+    # business im Adressaten-Set -> das Flag ist ungueltig und wird auf 0 gesetzt.
+    # Verwaltung bleibt unveraendert, es wird kein business-Adressat erfunden.
     assert row["applies_to_administration"] == 1
-    assert row["applies_to_business"] == 1
+    assert row["applies_to_business"] == 0
     assert row["applies_to_citizens"] == 0
-    assert row["is_business_information_obligation"] == 1
+    assert row["is_business_information_obligation"] == 0
 
 

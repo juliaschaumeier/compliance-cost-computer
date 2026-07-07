@@ -185,21 +185,23 @@ def _parse_vorgaben(payload: str) -> list[dict]:
                 or entry.get("informationspflicht_wirtschaft")
             )
         )
-        # Per Leitfaden (StBA): Die Unterscheidung zwischen Informationspflichten
-        # und uebrigen Vorgaben ist nur fuer Wirtschaft gefordert. Setzt das LLM
-        # das Flag ohne BUSINESS im Normadressaten-Set, ergaenzen wir BUSINESS
-        # (robust gegen unvollstaendige LLM-Ausgaben) UND emittieren ein
-        # strukturiertes Audit-Event, damit solche Faelle systematisch
-        # auswertbar bleiben (grep "event=ip_flag_repair").
+        # Per Leitfaden (StBA): Buerokratiekosten aus Informationspflichten werden
+        # ausschliesslich fuer den Normadressaten Wirtschaft gesondert ausgewiesen;
+        # fuer Verwaltung und Buergerinnen/Buerger ist die Unterscheidung entbehrlich.
+        # Eine "Verwaltungs-IP" existiert im Modell nicht (kein Feld, keine Kosten).
+        # Setzt das LLM das Flag ohne BUSINESS im Normadressaten-Set, ist es ungueltig:
+        # Wir loeschen es (statt einen Business-Adressaten zu erfinden, der Wirtschafts-
+        # und Buerokratiekosten verfaelschen wuerde). Adressaten und Vorgabe bleiben
+        # unveraendert; ein Audit-Event macht solche Faelle auswertbar
+        # (grep "event=ip_flag_cleared").
         if is_business_information_obligation and BUSINESS not in normadressaten:
             logger.warning(
-                "event=ip_flag_repair reason=missing_business_in_addressees "
-                "normzitat=%r addressees_before=%r addressees_after=%r",
+                "event=ip_flag_cleared reason=missing_business_in_addressees "
+                "normzitat=%r addressees=%r",
                 normzitat[:120],
                 list(normadressaten),
-                list(normadressaten) + [BUSINESS],
             )
-            normadressaten.append(BUSINESS)
+            is_business_information_obligation = False
         if not normzitat and not beschreibung:
             continue
         parsed.append(
