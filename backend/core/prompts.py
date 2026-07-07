@@ -1318,7 +1318,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Verwende keine Aussagen zur One-in-one-out-Regel oder Bürokratiebremse.
         - Vermische Erfüllungsaufwand nicht mit Haushaltsausgaben ohne Erfüllungsaufwand.
         - Vermische Erfüllungsaufwand nicht mit weiteren Kosten, Nutzen, Digitalcheck oder Evaluierung.
-        - Informationspflichten der Wirtschaft sind gesondert auszuweisen, soweit sie in der JSON-Struktur enthalten sind.
+        - Eine Vorgabe der Wirtschaft ist genau dann eine Informationspflicht, wenn ihr Feld `ist_informationspflicht_wirtschaft` den
+          Wert `true` hat. Schätze den Informationspflicht-Status nicht selbst ein, sondern übernimm ausschließlich dieses Flag. Diese
+          Informationspflichten sind gesondert auszuweisen.
         - Entlastungen sind im Text als Entlastung, Verringerung oder Reduktion zu formulieren; in Tabellen können sie mit negativem
           Vorzeichen dargestellt werden.
         - Die Summen im Vorblatt müssen mit den Summen in der Begründung übereinstimmen.
@@ -1402,16 +1404,21 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Weise gesondert aus:
 
         - Zahl der neu eingeführten, geänderten oder aufgehobenen Informationspflichten, soweit angegeben,
-        - jährlichen Mehr- oder Minderaufwand aus Informationspflichten im Saldo,
+        - den jährlichen Mehr- oder Minderaufwand aus Informationspflichten im Saldo; dieser entspricht dem Wert
+          `summen.bureaucracy_cost` des Wirtschaftsblocks (Entlastung negativ). Übernimm diesen Wert und rechne ihn nicht selbst aus
+          den Einzelvorgaben zusammen,
         - ob der gesamte jährliche Aufwand oder nur ein Teil davon aus Informationspflichten stammt.
 
         Wenn die JSON-Struktur ausdrücklich keinen jährlichen Erfüllungsaufwand ausweist:
 
         `Für die Wirtschaft entsteht kein jährlicher Erfüllungsaufwand.`
 
-        Wenn ausdrücklich keine Bürokratiekosten aus Informationspflichten entstehen:
+        `Keine` ist nur zulässig, wenn keine Wirtschafts-Vorgabe das Feld `ist_informationspflicht_wirtschaft = true` trägt:
 
         `Davon Bürokratiekosten aus Informationspflichten: Keine.`
+
+        Trägt mindestens eine Wirtschafts-Vorgabe dieses Flag, sind diese Vorgaben als Informationspflicht auszuweisen und der Saldo
+        `summen.bureaucracy_cost` ist zu nennen, auch wenn er 0 Euro beträgt (dann als geringfügig bzw. 0 Euro).
 
         Wenn Angaben fehlen:
 
@@ -1465,7 +1472,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         - dass es sich um jährlichen Erfüllungsaufwand handelt,
         - den Normadressaten,
-        - bei Wirtschaft: ob es sich um eine Informationspflicht handelt,
+        - bei Wirtschaft: ob es sich um eine Informationspflicht handelt, und zwar genau dann, wenn das Feld
+          `ist_informationspflicht_wirtschaft` den Wert `true` hat,
         - bei Verwaltung: dass die Vorgabe der Bundesverwaltung zugeordnet ist,
         - den EU-Bezug nur dann, wenn die JSON-Struktur hierzu Angaben enthält.
 

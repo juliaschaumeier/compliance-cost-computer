@@ -213,3 +213,30 @@ class TestInformationspflichtDefinitionAnchor:
         rule = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[BUSINESS]
         assert "ist_informationspflicht_wirtschaft" in rule
         assert "Teil A" in rule
+
+
+class TestComplianceExportInformationspflichtBinding:
+    """LF-IP-002: Der Compliance-Text-Export-Prompt muss IP-Status und IP-Summe
+    deterministisch an die Snapshot-Felder binden, statt sie vom LLM neu
+    herleiten zu lassen. Konkret muss das Template den IP-Status an das Flag
+    `ist_informationspflicht_wirtschaft` koppeln, die IP-Summe an
+    `summen.bureaucracy_cost` binden und die "Keine"-Aussage verschaerfen.
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_template_binds_ip_status_to_flag(self, template: str):
+        # IP-Status muss an das Snapshot-Flag gekoppelt sein.
+        assert "ist_informationspflicht_wirtschaft" in template
+
+    def test_template_binds_ip_sum_to_bureaucracy_cost(self, template: str):
+        # IP-Summe muss an summen.bureaucracy_cost gebunden sein.
+        assert "bureaucracy_cost" in template
+
+    def test_template_tightens_keine_rule(self, template: str):
+        # Verschaerfte "Keine"-Regel: "Keine" nur zulaessig, wenn keine
+        # Wirtschafts-Vorgabe das IP-Flag traegt. Stabiler Positiv-Marker,
+        # der bei harmloser Umformulierung nicht bricht.
+        assert "ist nur zulässig, wenn keine" in _compact(template)
