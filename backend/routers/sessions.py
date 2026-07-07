@@ -2405,10 +2405,6 @@ def _compliance_metadata_for_pdf(
     used_user_edits: bool,
     reused: bool,
     created_at: str | None = None,
-    input_tokens: int | None = None,
-    output_tokens: int | None = None,
-    hidden_thinking_tokens: int | None = None,
-    estimated_cost_usd: float | None = None,
 ) -> dict[str, object]:
     if not has_user_edits:
         user_edit_status = "Keine bearbeiteten EA-Werte im Quellstand."
@@ -2433,10 +2429,6 @@ def _compliance_metadata_for_pdf(
         "deep_research_status": dr_status,
         "user_edit_status": user_edit_status,
         "source_snapshot_sha256": source_snapshot_sha256[:12],
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "hidden_thinking_tokens": hidden_thinking_tokens,
-        "estimated_cost_usd": estimated_cost_usd,
     }
 
 
@@ -2499,10 +2491,6 @@ async def export_compliance_text(
             used_user_edits=bool(cached.get("used_user_edits")),
             reused=True,
             created_at=cached.get("created_at"),
-            input_tokens=cached.get("input_tokens"),
-            output_tokens=cached.get("output_tokens"),
-            hidden_thinking_tokens=cached.get("hidden_thinking_tokens"),
-            estimated_cost_usd=cached.get("estimated_cost_usd"),
         )
         pdf = _render_research_report_pdf(
             str(cached["generated_markdown"]),
@@ -2587,10 +2575,6 @@ async def export_compliance_text(
         has_user_edits=context.has_user_edits,
         used_user_edits=context.used_user_edits,
         reused=False,
-        input_tokens=llm_result.input_tokens,
-        output_tokens=llm_result.output_tokens,
-        hidden_thinking_tokens=llm_result.hidden_thinking_tokens,
-        estimated_cost_usd=llm_result.estimated_cost_usd,
     )
     pdf = _render_research_report_pdf(
         llm_result.text,
@@ -2786,24 +2770,6 @@ def _format_compliance_export_metadata_lines(metadata: dict[str, object]) -> lis
     ):
         if value:
             lines.append(f"<b>{label}:</b> {html.escape(str(value))}")
-    token_parts = [
-        f"in {metadata.get('input_tokens')}" if metadata.get("input_tokens") is not None else None,
-        f"out {metadata.get('output_tokens')}" if metadata.get("output_tokens") is not None else None,
-        (
-            f"thinking {metadata.get('hidden_thinking_tokens')}"
-            if metadata.get("hidden_thinking_tokens") is not None
-            else None
-        ),
-    ]
-    tokens = " / ".join(part for part in token_parts if part)
-    if tokens:
-        lines.append(f"<b>Token:</b> {html.escape(tokens)}")
-    cost = metadata.get("estimated_cost_usd")
-    if cost is not None:
-        try:
-            lines.append(f"<b>Geschaetzte API-Kosten:</b> ${float(cost):.4f}")
-        except (TypeError, ValueError):
-            lines.append(f"<b>Geschaetzte API-Kosten:</b> {html.escape(str(cost))}")
     return lines
 
 
