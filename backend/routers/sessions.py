@@ -2754,9 +2754,8 @@ def _format_compliance_export_metadata_lines(metadata: dict[str, object]) -> lis
         "<b>Analyseumfang:</b> Die Darstellung umfasst ausschliesslich jaehrlichen "
         "Erfuellungsaufwand. Einmaliger Erfuellungsaufwand ist nicht Gegenstand "
         "dieser Analyse.",
-        "<b>Verwaltung:</b> Fuer die Verwaltung werden ausschliesslich Effekte auf "
-        "die Bundesverwaltung dargestellt; Laender und Kommunen sind nicht "
-        "Gegenstand dieser Analyse.",
+        "<b>Verwaltung:</b> Der Erfuellungsaufwand der Verwaltung wird getrennt nach "
+        "Bundesebene und Landesebene (einschliesslich Kommunen) ausgewiesen.",
     ]
     for label, value in (
         ("Session", metadata.get("app_session_id")),

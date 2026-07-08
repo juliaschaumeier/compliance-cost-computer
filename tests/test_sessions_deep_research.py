@@ -116,7 +116,7 @@ def test_format_compliance_export_metadata_lines_includes_scope_disclaimer():
     joined = "\n".join(lines)
     assert "jaehrlichen Erfuellungsaufwand" in joined
     assert "Einmaliger Erfuellungsaufwand ist nicht Gegenstand" in joined
-    assert "Laender und Kommunen sind nicht Gegenstand" in joined
+    assert "Bundesebene und Landesebene" in joined
 
 
 def test_case_group_research_toggle_locks_after_run_started(test_client):

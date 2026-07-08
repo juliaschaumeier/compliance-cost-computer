@@ -240,3 +240,39 @@ class TestComplianceExportInformationspflichtBinding:
         # Wirtschafts-Vorgabe das IP-Flag traegt. Stabiler Positiv-Marker,
         # der bei harmloser Umformulierung nicht bricht.
         assert "ist nur zulässig, wenn keine" in _compact(template)
+
+
+class TestComplianceExportVerwaltungLevels:
+    """LF-VERW-001: Die Verwaltung wird im Export nicht mehr als reine
+    Bundesverwaltung dargestellt, sondern getrennt nach Bundesebene und
+    Landesebene (einschliesslich Kommunen), deterministisch gebunden an die
+    Snapshot-Felder summen.verwaltung_bundesebene / summen.verwaltung_landesebene
+    (StBA-Leitfaden Kap. 8: der Laenderanteil enthaelt die Kommunen).
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_headings_use_verwaltung_not_bundesverwaltung(self, template: str):
+        assert "## E.3 Erfüllungsaufwand der Verwaltung" in template
+        assert "## 4.3 Erfüllungsaufwand der Verwaltung" in template
+        assert "Bundesverwaltung" not in template
+
+    def test_davon_lines_bound_to_snapshot_fields(self, template: str):
+        assert "summen.verwaltung_bundesebene" in template
+        assert "summen.verwaltung_landesebene" in template
+        assert "Bundesebene" in template
+        assert "Landesebene" in template
+
+    def test_kommunen_belong_to_landesebene(self, template: str):
+        compact = _compact(template)
+        assert (
+            "Landesebene (einschließlich Kommunen)" in compact
+            or "Länderanteil schließt die Kommunen ein" in compact
+        )
+
+    def test_no_bund_only_rule(self, template: str):
+        compact = _compact(template)
+        assert "ausschließlich den Bund" not in compact
+        assert "Stelle keine Beträge für Länder" not in compact

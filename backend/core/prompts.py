@@ -1241,10 +1241,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Nicht formulieren, dass kein einmaliger Erfüllungsaufwand entsteht, es sei denn, die JSON-Struktur enthält diese Aussage ausdrücklich.
         - Die Information, dass einmaliger Erfüllungsaufwand nicht Gegenstand der Analyse ist, steht bereits in der PDF-Infobox. Wiederhole
           diese Information im finalen Entwurf nicht als allgemeinen Prüfbedarfshinweis.
-        - Bei der Verwaltung werden ausschließlich Effekte auf die Bundesverwaltung dargestellt.
-        - Länder und Kommunen sind nicht Gegenstand der Analyse.
-        - Die Information, dass Länder und Kommunen nicht Gegenstand der Analyse sind, steht bereits in der PDF-Infobox. Wiederhole diese
-          Information im finalen Entwurf nicht als allgemeinen Prüfbedarfshinweis.
+        - Bei der Verwaltung wird der Aufwand getrennt für Bundesebene und Landesebene (einschließlich Kommunen) dargestellt; der
+          Länderanteil schließt die Kommunen ein.
         - Die One-in-one-out-Regel / Bürokratiebremse wird nicht behandelt.
         - Bürgerinnen und Bürger sowie Wirtschaft werden dargestellt, soweit die JSON-Struktur hierzu Angaben enthält.
         - Der EU-Bezug wird nur dargestellt, wenn die JSON-Struktur hierzu Angaben enthält.
@@ -1307,11 +1305,9 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Trenne immer die Normadressaten:
         - Bürgerinnen und Bürger,
         - Wirtschaft,
-        - Bundesverwaltung.
-        - Stelle für die Verwaltung ausschließlich den Bund dar.
-        - Stelle keine Beträge für Länder oder Kommunen dar.
-        - Wenn die JSON-Struktur Angaben zu Ländern oder Kommunen enthält, lasse diese Angaben im finalen Entwurf weg. Setze nur dann einen
-          spezifischen Prüfbedarfshinweis, wenn dadurch eine konkrete Berechnung oder Summe unklar oder widersprüchlich wird.
+        - Verwaltung.
+        - Weise bei der Verwaltung den Aufwand getrennt für Bundesebene und Landesebene (einschließlich Kommunen) aus. Der Länderanteil
+          schließt die Kommunen ein.
         - Stelle ausschließlich jährlichen Erfüllungsaufwand dar.
         - Berechne und erwähne keinen einmaligen Erfüllungsaufwand. Setze nur dann einen spezifischen Prüfbedarfshinweis, wenn dadurch eine
           konkrete Berechnung oder Summe unklar oder widersprüchlich wird.
@@ -1342,10 +1338,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         1. Bürgerinnen und Bürger,
         2. Wirtschaft,
-        3. Bundesverwaltung.
+        3. Verwaltung.
 
         Es genügt jeweils die Angabe des Saldos über alle Vorgaben, ergänzt um die notwendigen Differenzierungen, insbesondere Zeitaufwand
-        und Sachkosten bei Bürgerinnen und Bürgern sowie Bürokratiekosten aus Informationspflichten bei der Wirtschaft.
+        und Sachkosten bei Bürgerinnen und Bürgern, Bürokratiekosten aus Informationspflichten bei der Wirtschaft sowie die Aufteilung auf
+        Bundes- und Landesebene (einschließlich Kommunen) bei der Verwaltung.
 
         ### Begründung
 
@@ -1424,26 +1421,31 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         `[Prüfbedarf: Angaben zum jährlichen Erfüllungsaufwand der Wirtschaft fehlen.]`
 
-        ## E.3 Erfüllungsaufwand der Bundesverwaltung
+        ## E.3 Erfüllungsaufwand der Verwaltung
 
-        Stelle knapp den jährlichen Erfüllungsaufwand oder die jährliche Entlastung der Bundesverwaltung dar.
+        Stelle knapp den jährlichen Erfüllungsaufwand oder die jährliche Entlastung der Verwaltung dar.
 
         Soweit einschlägig, nenne:
 
-        - jährlichen Erfüllungsaufwand des Bundes in Euro,
-        - jährliche Entlastung des Bundes in Euro,
-        - davon Personalkosten und Sachkosten, soweit angegeben,
+        - jährlichen Erfüllungsaufwand der Verwaltung in Euro,
+        - jährliche Entlastung in Euro,
+        - davon auf Bundesebene in Euro; dieser Wert entspricht `summen.verwaltung_bundesebene` des Verwaltungsblocks. Übernimm ihn und
+          rechne ihn nicht selbst aus den Einzelvorgaben zusammen,
+        - davon auf Landesebene (einschließlich Kommunen) in Euro; dieser Wert entspricht `summen.verwaltung_landesebene` des
+          Verwaltungsblocks. Übernimm ihn und rechne ihn nicht selbst zusammen,
         - Saldo über alle Vorgaben.
 
-        Länder und Kommunen werden nicht dargestellt.
+        Der Länderanteil schließt die Kommunen ein. Die beiden Ebenen-Werte sind Teilbeträge des Gesamtaufwands der Verwaltung und müssen
+        nicht zusammen den Gesamtaufwand ergeben. Ist eines der Felder `summen.verwaltung_bundesebene` oder `summen.verwaltung_landesebene`
+        nicht enthalten, lasse die entsprechende Zeile weg statt eine Null zu erfinden.
 
-        Wenn die JSON-Struktur ausdrücklich keinen jährlichen Erfüllungsaufwand des Bundes ausweist:
+        Wenn die JSON-Struktur ausdrücklich keinen jährlichen Erfüllungsaufwand der Verwaltung ausweist:
 
-        `Für die Bundesverwaltung entsteht kein jährlicher Erfüllungsaufwand.`
+        `Für die Verwaltung entsteht kein jährlicher Erfüllungsaufwand.`
 
         Wenn Angaben fehlen:
 
-        `[Prüfbedarf: Angaben zum jährlichen Erfüllungsaufwand der Bundesverwaltung fehlen.]`
+        `[Prüfbedarf: Angaben zum jährlichen Erfüllungsaufwand der Verwaltung fehlen.]`
 
         # 4. Erfüllungsaufwand
 
@@ -1456,7 +1458,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         ## 4.2 Erfüllungsaufwand für die Wirtschaft
 
-        ## 4.3 Erfüllungsaufwand der Bundesverwaltung
+        ## 4.3 Erfüllungsaufwand der Verwaltung
+
+        Greife die Aufteilung des Verwaltungsaufwands auf Bundesebene (`summen.verwaltung_bundesebene`) und Landesebene einschließlich
+        Kommunen (`summen.verwaltung_landesebene`) aus dem Vorblatt auf.
 
         Für jede Vorgabe ist, soweit einschlägig, eine kurze Überschrift zu verwenden:
 
@@ -1474,7 +1479,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - den Normadressaten,
         - bei Wirtschaft: ob es sich um eine Informationspflicht handelt, und zwar genau dann, wenn das Feld
           `ist_informationspflicht_wirtschaft` den Wert `true` hat,
-        - bei Verwaltung: dass die Vorgabe der Bundesverwaltung zugeordnet ist,
         - den EU-Bezug nur dann, wenn die JSON-Struktur hierzu Angaben enthält.
 
         ---
@@ -1504,7 +1508,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         | Fallzahl | Zeitaufwand pro Fall in Minuten | Sachkosten pro Fall in Euro | Zeitaufwand in Stunden | Sachkosten in Tsd. Euro |
         |---:|---:|---:|---:|---:|
 
-        Für Wirtschaft und Bundesverwaltung soll die Tabelle grundsätzlich folgende Struktur verwenden:
+        Für Wirtschaft und Verwaltung soll die Tabelle grundsätzlich folgende Struktur verwenden:
 
         | Fallzahl | Zeitaufwand pro Fall in Minuten | Lohnsatz pro Stunde in Euro | Sachkosten pro Fall in Euro | Personalkosten in Tsd. Euro | Sachkosten in Tsd. Euro |
         |---:|---:|---:|---:|---:|---:|
@@ -1535,7 +1539,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Gesamtaufwand = Personalkosten + Sachkosten.
         - Entlastungen sind mit negativem Vorzeichen zu rechnen, aber im Text als Entlastung zu formulieren.
         - Bürgerinnen und Bürger: Zeitaufwand grundsätzlich in Stunden darstellen.
-        - Wirtschaft und Bundesverwaltung: Aufwand grundsätzlich in Euro beziehungsweise Tsd. Euro darstellen.
+        - Wirtschaft und Verwaltung: Aufwand grundsätzlich in Euro beziehungsweise Tsd. Euro darstellen.
         - Werte in Tabellen grundsätzlich in Tsd. Euro ausweisen, sofern die JSON-Struktur nichts anderes vorgibt.
         - Im Fließtext können gerundete Werte in Euro, Tsd. Euro oder Mio. Euro verwendet werden; die Rundung muss konsistent sein.
         - Bürgerzeit wird nicht monetarisiert, es sei denn, die JSON-Struktur enthält ausdrücklich eine solche Monetarisierung.
@@ -1550,8 +1554,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         1. Stimmen alle Summen im Vorblatt mit den Tabellen und Erläuterungen in der Begründung überein?
         2. Wird ausschließlich jährlicher Erfüllungsaufwand dargestellt?
         3. Wurde kein einmaliger Erfüllungsaufwand berechnet oder ausgewiesen?
-        4. Sind Bürgerinnen und Bürger, Wirtschaft und Bundesverwaltung getrennt dargestellt?
-        5. Wurden Länder und Kommunen nicht dargestellt?
+        4. Sind Bürgerinnen und Bürger, Wirtschaft und Verwaltung getrennt dargestellt?
+        5. Ist bei der Verwaltung die Aufteilung auf Bundesebene und Landesebene (einschließlich Kommunen) ausgewiesen, soweit die Werte vorliegen?
         6. Wurde die One-in-one-out-Regel nicht erwähnt?
         7. Sind Informationspflichten der Wirtschaft gesondert ausgewiesen, soweit sie in der JSON-Struktur enthalten sind?
         8. Wurden keine Angaben erfunden?

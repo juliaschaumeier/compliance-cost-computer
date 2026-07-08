@@ -179,6 +179,8 @@ def _build_addressee_payload(
             "norm_addressee": norm_addressee,
             "total_cost": cost["total_cost"],
             "bureaucracy_cost": cost["bureaucracy_cost"],
+            "verwaltung_bundesebene": cost["verwaltung_bundesebene"],
+            "verwaltung_landesebene": cost["verwaltung_landesebene"],
             "total_time_minutes": cost["total_time_minutes"],
             "total_expenses": cost["total_expenses"],
         }

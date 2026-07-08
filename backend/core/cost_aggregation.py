@@ -79,6 +79,45 @@ def _compute_step_personnel_cost_from_rows(
     return total
 
 
+_ADMIN_LEVEL_BUCKET: dict[str, str] = {
+    "bund": "bund",
+    "laender": "land",
+    "kommunen": "land",
+}
+
+
+def _personnel_cost_by_level(
+    period_rows: list[dict], wage_overrides: dict
+) -> dict[str, float]:
+    by_level: dict[str, float] = {}
+    for row in period_rows:
+        bucket = _ADMIN_LEVEL_BUCKET.get(row["wage_source_value"])
+        if bucket is None:
+            continue
+        edited = row.get("time_required_in_min_edited")
+        minutes = edited if edited is not None else row.get("time_required_in_min")
+        cost = _resolve_personnel_rate(row, wage_overrides) * (_safe_number(minutes) / 60.0)
+        by_level[bucket] = by_level.get(bucket, 0.0) + cost
+    return by_level
+
+
+def _step_cost_by_level(
+    period_rows: list[dict], wage_overrides: dict, expenses: float
+) -> dict[str, float]:
+    by_level = _personnel_cost_by_level(period_rows, wage_overrides)
+    if not expenses or not by_level:
+        return by_level
+    personnel_total = sum(by_level.values())
+    if personnel_total > 0:
+        for bucket in by_level:
+            by_level[bucket] += expenses * (by_level[bucket] / personnel_total)
+    else:
+        share = expenses / len(by_level)
+        for bucket in by_level:
+            by_level[bucket] += share
+    return by_level
+
+
 def _compute_step_time_minutes(step: dict, suffix: str) -> float:
     total = 0.0
     for key in ["a", "b", "c", "d"]:
@@ -269,6 +308,8 @@ def _compute_step_metrics(
 
     for step in steps:
         step_id = int(step["step_id"])
+        level_current: dict[str, float] | None = None
+        level_proposed: dict[str, float] | None = None
         if norm_addressee == CITIZENS:
             cost_current = _safe_number(step.get("expenses_current_effective"))
             cost_proposed = _safe_number(step.get("expenses_proposed_effective"))
@@ -284,6 +325,15 @@ def _compute_step_metrics(
                 cost_proposed = _compute_step_personnel_cost_from_rows(
                     proposed_rows, wage_overrides
                 ) + _safe_number(step.get("expenses_proposed_effective"))
+                if norm_addressee == ADMINISTRATION:
+                    level_current = _step_cost_by_level(
+                        current_rows, wage_overrides,
+                        _safe_number(step.get("expenses_current_effective")),
+                    )
+                    level_proposed = _step_cost_by_level(
+                        proposed_rows, wage_overrides,
+                        _safe_number(step.get("expenses_proposed_effective")),
+                    )
             else:
                 # Legacy fallback (old sessions without child rows / migration).
                 cost_current = _compute_step_cost(
@@ -308,6 +358,8 @@ def _compute_step_metrics(
         per_case_flags[step_id] = bool(step.get("execution_per_case")) if step.get("execution_per_case") is not None else True
         step["cost_current"] = cost_current
         step["cost_proposed"] = cost_proposed
+        step["level_cost_current"] = level_current
+        step["level_cost_proposed"] = level_proposed
 
     return (
         step_costs_current,
@@ -360,6 +412,8 @@ def _aggregate_case_group_costs(
         time_total_proposed = 0.0
         expenses_total_current = 0.0
         expenses_total_proposed = 0.0
+        level_current_totals: dict[str, float] = {}
+        level_proposed_totals: dict[str, float] = {}
         for step_id in case_steps:
             step_effective = effective_steps_by_id.get(step_id, {})
             step_multiplier_current = cases_current if per_case_flags.get(step_id, True) else 1.0
@@ -380,7 +434,27 @@ def _aggregate_case_group_costs(
             expenses_total_proposed += _safe_number(
                 step_effective.get("expenses_proposed_effective")
             ) * step_multiplier_proposed
+            step_level_current = step_effective.get("level_cost_current")
+            if step_level_current:
+                for bucket, value in step_level_current.items():
+                    level_current_totals[bucket] = (
+                        level_current_totals.get(bucket, 0.0)
+                        + value * step_multiplier_current
+                    )
+            step_level_proposed = step_effective.get("level_cost_proposed")
+            if step_level_proposed:
+                for bucket, value in step_level_proposed.items():
+                    level_proposed_totals[bucket] = (
+                        level_proposed_totals.get(bucket, 0.0)
+                        + value * step_multiplier_proposed
+                    )
         cost_delta = cost_proposed - cost_current
+        level_buckets = set(level_current_totals) | set(level_proposed_totals)
+        group["level_cost_delta"] = {
+            bucket: level_proposed_totals.get(bucket, 0.0)
+            - level_current_totals.get(bucket, 0.0)
+            for bucket in level_buckets
+        }
         group["cases_current"] = cases_current
         group["cases_proposed"] = cases_proposed
         group["cost"] = cost_delta
@@ -589,6 +663,17 @@ def aggregate_addressee_costs(
     bureaucracy_cost = (
         sum(process_bureaucracy_costs.values()) if norm_addressee == BUSINESS else None
     )
+    verwaltung_bundesebene: float | None = None
+    verwaltung_landesebene: float | None = None
+    if norm_addressee == ADMINISTRATION and any(
+        step.get("level_cost_current") is not None for step in effective_steps
+    ):
+        level_totals: dict[str, float] = {}
+        for group in effective_case_groups:
+            for bucket, value in (group.get("level_cost_delta") or {}).items():
+                level_totals[bucket] = level_totals.get(bucket, 0.0) + value
+        verwaltung_bundesebene = level_totals.get("bund", 0.0)
+        verwaltung_landesebene = level_totals.get("land", 0.0)
     total_time_minutes = (
         sum(process_time_deltas.values()) if norm_addressee == CITIZENS else None
     )
@@ -610,6 +695,8 @@ def aggregate_addressee_costs(
         "process_costs": process_costs,
         "total_cost": total_cost,
         "bureaucracy_cost": bureaucracy_cost,
+        "verwaltung_bundesebene": verwaltung_bundesebene,
+        "verwaltung_landesebene": verwaltung_landesebene,
         "total_time_minutes": total_time_minutes,
         "total_expenses": total_expenses,
     }
