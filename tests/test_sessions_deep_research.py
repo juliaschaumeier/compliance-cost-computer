@@ -51,6 +51,7 @@ def test_research_pdf_inline_markup_deemphasizes_long_fallgruppe_bold_text():
 
 def test_research_pdf_heading_detection_rejects_long_heading_like_paragraphs():
     assert sessions_router._is_research_pdf_heading("# E. Erfüllungsaufwand") is True
+    assert sessions_router._is_research_pdf_heading("# 4. Erfüllungsaufwand") is True
     assert (
         sessions_router._is_research_pdf_heading(
             "### 1. Erstanerkennungsverfahren (Fallgruppe 1)"
@@ -64,6 +65,46 @@ def test_research_pdf_heading_detection_rejects_long_heading_like_paragraphs():
             "organisatorischen Sonderfällen"
         )
         is False
+    )
+
+
+def test_section_4_headings_render_as_headings_in_pdf(monkeypatch):
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+    captured: dict[str, list] = {}
+
+    def fake_build(self, story, *args, **kwargs):
+        captured["story"] = story
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", fake_build)
+
+    report_md = "\n\n".join(
+        [
+            "# E. Erfüllungsaufwand",
+            "# 4. Erfüllungsaufwand",
+            "## 4.1 Erfüllungsaufwand für Bürgerinnen und Bürger",
+            "## 4.2 Erfüllungsaufwand für die Wirtschaft",
+            "## 4.3 Erfüllungsaufwand der Verwaltung",
+            "### 1. Erstanerkennungsverfahren (Fallgruppe 1)",
+        ]
+    )
+    sessions_router._render_research_report_pdf(report_md, "Titel")
+
+    style_by_text = {
+        getattr(item, "text", ""): item.style.name
+        for item in captured["story"]
+        if isinstance(item, Paragraph)
+    }
+    for heading in (
+        "E. Erfüllungsaufwand",
+        "4. Erfüllungsaufwand",
+        "4.1 Erfüllungsaufwand für Bürgerinnen und Bürger",
+        "4.2 Erfüllungsaufwand für die Wirtschaft",
+        "4.3 Erfüllungsaufwand der Verwaltung",
+    ):
+        assert style_by_text.get(heading) == "Heading2"
+    assert (
+        style_by_text.get("1. Erstanerkennungsverfahren (Fallgruppe 1)") == "BodyText"
     )
 
 

@@ -2676,12 +2676,13 @@ def _research_pdf_inline_markup(text: str) -> str:
 
 
 def _is_research_pdf_heading(text: str) -> bool:
+    level = len(text) - len(text.lstrip("#"))
     heading = text.lstrip("#").strip()
     if not heading:
         return False
     if "\n" in heading:
         return False
-    if re.match(r"^\d+\.\s+", heading):
+    if level >= 2 and re.match(r"^\d+\.\s+", heading):
         return False
     if len(heading) > 85:
         return False
