@@ -224,16 +224,25 @@ def _build_addressee_payload(
         for group in process_groups:
             group["taetigkeiten"] = steps_by_group.get(int(group["fallgruppen_id"]), [])
 
+    serialized_vorgaben = [_serialize_regulation(row) for row in regulations]
+    vorgaben_by_process: dict[int, list[dict[str, Any]]] = {}
+    for row, serialized in zip(regulations, serialized_vorgaben):
+        process_id = row.get("process_id")
+        if process_id is None:
+            continue
+        vorgaben_by_process.setdefault(int(process_id), []).append(serialized)
+
     return {
         "normadressat": norm_addressee,
         "lohnsaetze": serialized_pay_rates,
-        "vorgaben": [_serialize_regulation(row) for row in regulations],
+        "vorgaben": serialized_vorgaben,
         "prozesse": [
             {
                 "prozess_id": int(process["process_id"]),
                 "prozess_bezeichnung": process.get("process"),
                 "prozess_beschreibung": process.get("description"),
                 "aenderungsstatus": process.get("change_status"),
+                "vorgaben": vorgaben_by_process.get(int(process["process_id"]), []),
                 "kosten": process_costs.get(
                     int(process["process_id"]), process.get("cost")
                 ),

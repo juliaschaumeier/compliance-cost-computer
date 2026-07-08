@@ -325,9 +325,9 @@ def test_compliance_text_prompt_keeps_detailed_labels_out_of_headings():
 
     assert "Überschriften müssen kurz bleiben" in prompt
     assert "Fallgruppen- oder Tätigkeitsbezeichnungen gehören in den Fließtext" in prompt
-    assert "### Vorgabe [Nummer]: [kurzes Stichwort]; [Norm]" in prompt
+    assert "### Vorgabe [Nummer]" not in prompt
+    assert "| Norm (§§); Bezeichnung der Vorgabe |" in prompt
     assert "Fallgruppen dürfen nicht als eigene Markdown-Überschriften" in prompt
-    assert "- Erstanerkennungsverfahren (Fallgruppe 1): ..." in prompt
     assert "steht bereits in der PDF-Infobox" in prompt
 
 

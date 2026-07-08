@@ -1410,12 +1410,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         `Für die Wirtschaft entsteht kein jährlicher Erfüllungsaufwand.`
 
-        `Keine` ist nur zulässig, wenn keine Wirtschafts-Vorgabe das Feld `ist_informationspflicht_wirtschaft = true` trägt:
+        `Keine` ist nur zulässig, wenn keine Wirtschafts-Vorgabe das Feld `ist_informationspflicht_wirtschaft = true` trägt. Gib dann
+        unter der Überschrift ausschließlich aus:
 
-        `Davon Bürokratiekosten aus Informationspflichten: Keine.`
+        `Keine.`
 
         Trägt mindestens eine Wirtschafts-Vorgabe dieses Flag, sind diese Vorgaben als Informationspflicht auszuweisen und der Saldo
-        `summen.bureaucracy_cost` ist zu nennen, auch wenn er 0 Euro beträgt (dann als geringfügig bzw. 0 Euro).
+        `summen.bureaucracy_cost` ist zu nennen, auch wenn er 0 Euro beträgt (dann als geringfügig bzw. 0 Euro). Formuliere dann einen
+        Satz, ohne die Überschrift zu wiederholen, zum Beispiel `Davon entfallen [Wert] auf Bürokratiekosten aus Informationspflichten.`
 
         Wenn Angaben fehlen:
 
@@ -1463,23 +1465,55 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Greife die Aufteilung des Verwaltungsaufwands auf Bundesebene (`summen.verwaltung_bundesebene`) und Landesebene einschließlich
         Kommunen (`summen.verwaltung_landesebene`) aus dem Vorblatt auf.
 
-        Für jede Vorgabe ist, soweit einschlägig, eine kurze Überschrift zu verwenden:
+        Stelle je Normadressat genau eine konsolidierte Berechnungstabelle dar. Verwende keine eigene Zwischenüberschrift je Vorgabe. Die
+        Spalte `Norm (§§); Bezeichnung der Vorgabe` nennt Fundstelle und Bezeichnung aus der je Prozess mitgelieferten Liste `vorgaben`
+        (Feld `normzitat`). Nummeriere die Zeilen in der Spalte `lfd. Nr.` fortlaufend je Abschnitt (4.1.1, 4.1.2, …; 4.2.1, …; 4.3.1, …).
 
-        ### Vorgabe [Nummer]: [kurzes Stichwort]; [Norm]
+        Grundsätzlich steht eine Vorgabe in einer eigenen Zeile. Werden mehrere Vorgaben innerhalb eines Prozesses gemeinsam berechnet,
+        teilen sie sich eine Zeile; nenne in der Vorgaben-Spalte alle betroffenen Vorgaben und teile den gemeinsam ermittelten Aufwand
+        nicht künstlich auf einzelne Vorgaben auf.
 
-        Die Überschrift darf nicht länger als eine kurze Zeile sein. Ausführliche Bezeichnungen, Fallgruppentitel und fachliche
-        Differenzierungen sind im anschließenden Absatz oder in einer Tabelle darzustellen.
+        Alle Werte sind die jährliche Änderung des Erfüllungsaufwands; Entlastungen werden mit negativem Vorzeichen geführt (zum Beispiel
+        `-52.496` oder `-1.088.000 Stunden`). Es wird kein einmaliger Erfüllungsaufwand berechnet oder ausgewiesen; entsprechende Spalten
+        entfallen. Die Spalte `Jährlicher Aufwand pro Fall` enthält die Änderung pro Fall mit Formel und Herleitung inline, zum Beispiel
+        `-0,6 Euro = (-1 / 60 * 38,60 Euro/h (WZ: A-S ohne O))` oder `737.000 Euro = (4 hD-Stellen * 108.160 Euro/Stelle) + 175.000 Euro`.
+
+        Für Bürgerinnen und Bürger (4.1) verwende die Struktur:
+
+        | lfd. Nr. | Norm (§§); Bezeichnung der Vorgabe | Jährliche Fallzahl und Einheit | Jährlicher Aufwand pro Fall (in Minuten bzw. Euro) | Jährlicher Erfüllungsaufwand (in Stunden bzw. Tsd. Euro) oder „geringfügig“ (Begründung) |
+        |---|---|---:|---|---:|
+
+        Ergänze unter der Tabelle die Summenzeilen `Summe Zeitaufwand (in Stunden)` und `Summe Sachaufwand (in Tsd. Euro)` über alle
+        Vorgaben.
+
+        Für die Wirtschaft (4.2) verwende die Struktur:
+
+        | lfd. Nr. | Norm (§§); Bezeichnung der Vorgabe | IP | Jährliche Fallzahl und Einheit | Jährlicher Aufwand pro Fall (Minuten * Lohnkosten pro Stunde + Sachkosten in Euro) | Jährlicher Erfüllungsaufwand (in Tsd. Euro) oder „geringfügig“ (Begründung) |
+        |---|---|---|---:|---|---:|
+
+        In der Spalte `IP` steht `Ja`, wenn die Vorgabe das Feld `ist_informationspflicht_wirtschaft` mit dem Wert `true` trägt, sonst
+        bleibt die Zelle leer. Schätze den Informationspflicht-Status nicht selbst ein. Ergänze unter der Tabelle die Summenzeilen
+        `Summe (in Tsd. Euro)` (Saldo über alle Vorgaben) und `…davon aus Informationspflichten (IP)` (übernimm den Wert
+        `summen.bureaucracy_cost` des Wirtschaftsblocks, Entlastung negativ, und rechne ihn nicht aus den Einzelzeilen zusammen).
+
+        Für die Verwaltung (4.3) verwende die Struktur:
+
+        | lfd. Nr. | Norm (§§); Bezeichnung der Vorgabe | Jährliche Fallzahl und Einheit | Jährlicher Aufwand pro Fall (Minuten * Lohnkosten pro Stunde + Sachkosten in Euro) | Jährlicher Erfüllungsaufwand (in Tsd. Euro) oder „geringfügig“ (Begründung) |
+        |---|---|---:|---|---:|
+
+        Ergänze unter der Tabelle die Summenzeilen `Summe (in Tsd. Euro)`, `davon auf Bundesebene` (Wert
+        `summen.verwaltung_bundesebene`) und `davon auf Landesebene (inklusive Kommunen)` (Wert `summen.verwaltung_landesebene`). Führe
+        die Aufteilung auf Bund und Land nur in diesen Summenzeilen, nicht als eigene Spalte je Tabellenzeile.
+
+        Vorgaben mit einer jährlichen Be- oder Entlastung von betragsmäßig höchstens 100 000 Euro werden als eigene Zeile mit
+        `geringfügig` in der Ergebnisspalte geführt; die Begründung steht in der Fußnote.
+
+        Unter jeder Tabelle folgen knappe Fußnoten je Zeile im Format `**Zu lfd. Nr. X:** [Bezeichnung]; [Norm]` mit der Herleitung von
+        Fallzahl, Zeitaufwand, Lohnsatz und Sachkosten. Überfrachte die Tabellenzellen nicht; die Herleitung gehört in die Fußnote. Gib
+        je Vorgabe an, dass es sich um jährlichen Erfüllungsaufwand handelt, sowie den EU-Bezug, sofern die JSON-Struktur hierzu Angaben
+        enthält.
+
         Fallgruppen dürfen nicht als eigene Markdown-Überschriften und nicht als fett gesetzte Abschnittstitel ausgegeben werden.
-        Wenn mehrere Fallgruppen dargestellt werden, verwende normale Listenpunkte oder Tabellenzeilen, zum Beispiel
-        `- Erstanerkennungsverfahren (Fallgruppe 1): ...`.
-
-        Gib je Vorgabe an:
-
-        - dass es sich um jährlichen Erfüllungsaufwand handelt,
-        - den Normadressaten,
-        - bei Wirtschaft: ob es sich um eine Informationspflicht handelt, und zwar genau dann, wenn das Feld
-          `ist_informationspflicht_wirtschaft` den Wert `true` hat,
-        - den EU-Bezug nur dann, wenn die JSON-Struktur hierzu Angaben enthält.
 
         ---
 
@@ -1487,47 +1521,16 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Diese Darstellungsregeln sind Arbeitsanweisungen. Sie sind nicht als eigene Überschriften in den finalen Entwurf zu übernehmen.
 
-        ### Vorgaben bis einschließlich 100 000 Euro jährlich
+        Vorgaben mit einer jährlichen Be- oder Entlastung von betragsmäßig höchstens 100 000 Euro werden nicht gesondert berechnet. Sie
+        erscheinen als eigene Zeile der Abschnittstabelle mit `geringfügig` in der Ergebnisspalte; die Fußnote unter der Tabelle nennt
+        kurz die Begründung, insbesondere die geringe Fallzahl und/oder den geringen Zeit- oder Sachaufwand.
 
-        Wenn der Betrag der jährlichen Be- oder Entlastung höchstens 100 000 Euro beträgt, genügt eine kurze Listendarstellung mit:
+        Vorgaben mit einer jährlichen Be- oder Entlastung über 100 000 Euro werden in der Abschnittstabelle nach der jeweiligen Struktur
+        aus Abschnitt 4 mit ihren Berechnungswerten dargestellt.
 
-        - Bezeichnung der Vorgabe,
-        - Fundstelle im Regelungstext,
-        - Normadressat,
-        - jährlicher Erfüllungsaufwand oder jährliche Entlastung,
-        - kurze Begründung, insbesondere geringe Fallzahl und/oder geringer Zeit- oder Sachaufwand.
-
-        Eine Berechnungstabelle ist nur erforderlich, wenn die JSON-Struktur sie enthält oder die Nachvollziehbarkeit dies verlangt.
-
-        ### Vorgaben über 100 000 Euro jährlich
-
-        Wenn der Betrag der jährlichen Be- oder Entlastung über 100 000 Euro liegt, ist eine Markdown-Tabelle zu erstellen.
-
-        Für Bürgerinnen und Bürger soll die Tabelle grundsätzlich folgende Struktur verwenden:
-
-        | Fallzahl | Zeitaufwand pro Fall in Minuten | Sachkosten pro Fall in Euro | Zeitaufwand in Stunden | Sachkosten in Tsd. Euro |
-        |---:|---:|---:|---:|---:|
-
-        Für Wirtschaft und Verwaltung soll die Tabelle grundsätzlich folgende Struktur verwenden:
-
-        | Fallzahl | Zeitaufwand pro Fall in Minuten | Lohnsatz pro Stunde in Euro | Sachkosten pro Fall in Euro | Personalkosten in Tsd. Euro | Sachkosten in Tsd. Euro |
-        |---:|---:|---:|---:|---:|---:|
-
-        Wenn die JSON-Struktur eine andere oder zusätzliche sinnvolle Differenzierung enthält, etwa Laufbahngruppe, Tätigkeitskategorie,
-        Stelle, Vorgabenart oder Sachkostenart, darf die Tabelle entsprechend angepasst werden. Die Tabelle muss aber weiterhin die
-        Berechnung nachvollziehbar machen.
-
-        Danach ist die Gesamtsumme als fett gesetzter Satz aufzunehmen:
-
-        **Änderung des jährlichen Erfüllungsaufwands in Tsd. Euro: [Wert]**
-
-        Nach der Tabelle sind die zentralen Annahmen knapp zu erläutern:
-
-        - Herleitung der Fallzahl,
-        - Herleitung des Zeitaufwands,
-        - verwendeter Lohnsatz,
-        - Sachkostenannahmen,
-        - Rechenweg für den Gesamtwert.
+        Wenn die JSON-Struktur eine zusätzliche sinnvolle Differenzierung enthält, etwa Laufbahngruppe, Tätigkeitskategorie, Stelle,
+        Vorgabenart oder Sachkostenart, darf die Tabelle um weitere Spalten ergänzt werden. Sie muss die Berechnung weiterhin
+        nachvollziehbar machen.
 
         ---
 

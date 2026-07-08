@@ -599,3 +599,27 @@ def test_compliance_context_includes_deep_research_json_and_excerpt_status(test_
     assert context.snapshot["deep_research"]["result_json"] == {
         "prozesse": [{"prozess_id": 1}]
     }
+
+
+def test_export_attaches_vorgaben_per_process():
+    seeded = _seed_completed_session("COMP-VORGABEN-PROC")
+    session_id = seeded["session_id"]
+
+    context = build_compliance_export_context(
+        app_session_id="COMP-VORGABEN-PROC",
+        session_id=session_id,
+        user_edit_policy=USER_EDIT_REJECT,
+    )
+    adm = next(
+        a for a in context.snapshot["normadressaten"] if a["normadressat"] == ADMINISTRATION
+    )
+    prozess = adm["prozesse"][0]
+    vorgaben = prozess["vorgaben"]
+
+    assert len(vorgaben) == 1
+    vorgabe = vorgaben[0]
+    assert vorgabe["normzitat"] == "§ 1"
+    assert vorgabe["ist_informationspflicht_wirtschaft"] is False
+    assert {v["vorgaben_id"] for v in vorgaben} == {
+        v["vorgaben_id"] for v in adm["vorgaben"]
+    }

@@ -276,3 +276,61 @@ class TestComplianceExportVerwaltungLevels:
         compact = _compact(template)
         assert "ausschließlich den Bund" not in compact
         assert "Stelle keine Beträge für Länder" not in compact
+
+
+class TestComplianceExportSection4VorgabeTables:
+    """LF-EA4-001: Abschnitt 4 der Begruendung stellt je Normadressat genau eine
+    konsolidierte, an den Beispieldokumenten ausgerichtete Tabelle dar. Spalten:
+    `lfd. Nr.`, `Norm (§§); Bezeichnung der Vorgabe`, `Jährliche Fallzahl und
+    Einheit` sowie ein `Jährlicher Aufwand pro Fall`. Die Wirtschaftstabelle (4.2)
+    fuehrt eine `IP`-Spalte (`Ja`/leer, gebunden an
+    `ist_informationspflicht_wirtschaft`) und eine Summenzeile
+    `…davon aus Informationspflichten (IP)` (an `summen.bureaucracy_cost`
+    gebunden). Die Verwaltung (4.3) fuehrt Bund/Land nur in den Summenzeilen
+    `davon auf Bundesebene`/`davon auf Landesebene (inklusive Kommunen)`. Die
+    frueheren Zwischenueberschriften je Vorgabe entfallen.
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_each_section_table_has_vorgabe_column(self, template: str):
+        assert template.count("| Norm (§§); Bezeichnung der Vorgabe |") >= 3
+
+    def test_tables_use_running_number_and_case_count_columns(self, template: str):
+        assert "| lfd. Nr. |" in template
+        assert "Jährliche Fallzahl und Einheit" in template
+
+    def test_business_table_has_ip_column(self, template: str):
+        assert "| Norm (§§); Bezeichnung der Vorgabe | IP |" in _compact(template)
+
+    def test_ip_column_uses_ja_not_symbols(self, template: str):
+        assert "In der Spalte `IP` steht `Ja`" in template
+        assert "✓" not in template
+
+    def test_business_table_has_ip_sum_row_bound_to_bureaucracy_cost(self, template: str):
+        assert "davon aus Informationspflichten (IP)" in template
+        assert "bureaucracy_cost" in template
+
+    def test_ip_column_bound_to_flag(self, template: str):
+        assert "ist_informationspflicht_wirtschaft" in template
+
+    def test_citizen_table_sum_rows(self, template: str):
+        assert "Summe Zeitaufwand (in Stunden)" in template
+        assert "Summe Sachaufwand (in Tsd. Euro)" in template
+
+    def test_per_vorgabe_heading_is_gone(self, template: str):
+        assert "### Vorgabe [Nummer]" not in template
+
+    def test_geringfuegig_row_rule_present(self, template: str):
+        assert "geringfügig" in template
+
+    def test_administration_split_stays_in_summary_rows(self, template: str):
+        assert "davon auf Bundesebene" in template
+        assert "davon auf Landesebene (inklusive Kommunen)" in template
+        assert "summen.verwaltung_bundesebene" in template
+        assert "summen.verwaltung_landesebene" in template
+
+    def test_footnote_format_present(self, template: str):
+        assert "**Zu lfd. Nr. X:**" in template
