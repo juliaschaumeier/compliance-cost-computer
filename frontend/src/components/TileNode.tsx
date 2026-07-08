@@ -19,8 +19,6 @@ export interface TileNodeData {
   isFocused: boolean;
   isNeighbor: boolean;
   changeStatus?: ChangeStatus | null;
-  // Dezentes "IP"-Pill fuer Business-Informationspflichten; wird ausschliesslich
-  // in der Wirtschaft-Sicht bei gesetztem Flag angezeigt (Gating in GraphCanvas).
   showIpBadge?: boolean;
 }
 

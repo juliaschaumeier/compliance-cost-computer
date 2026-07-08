@@ -208,15 +208,6 @@ def refresh_regulation_tiles(
     regulations: list[dict],
     norm_addressee: str = ADMINISTRATION,
 ) -> None:
-    """Alt-Sessions: Vorgabe-Kacheln, die vor dem IP-Flag persistiert wurden,
-    in-place um ``is_business_information_obligation`` ergaenzen.
-
-    Positionen, Text und uebrige Meta bleiben erhalten (analog
-    ``refresh_step_tiles``); es wird ausschliesslich das Flag adressat-unabhaengig
-    aus den ``regulations``-Daten ins Meta geschrieben. Der echte Flag-Wert je
-    Vorgabe wird uebernommen (kein Pauschalwert). Nach dem Refresh traegt das Meta
-    den Schluessel, sodass die Erkennung nicht erneut feuert (idempotent).
-    """
     tiles = {
         tile.id: tile
         for tile in db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)

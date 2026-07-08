@@ -185,15 +185,6 @@ def _parse_vorgaben(payload: str) -> list[dict]:
                 or entry.get("informationspflicht_wirtschaft")
             )
         )
-        # Per Leitfaden (StBA): Buerokratiekosten aus Informationspflichten werden
-        # ausschliesslich fuer den Normadressaten Wirtschaft gesondert ausgewiesen;
-        # fuer Verwaltung und Buergerinnen/Buerger ist die Unterscheidung entbehrlich.
-        # Eine "Verwaltungs-IP" existiert im Modell nicht (kein Feld, keine Kosten).
-        # Setzt das LLM das Flag ohne BUSINESS im Normadressaten-Set, ist es ungueltig:
-        # Wir loeschen es (statt einen Business-Adressaten zu erfinden, der Wirtschafts-
-        # und Buerokratiekosten verfaelschen wuerde). Adressaten und Vorgabe bleiben
-        # unveraendert; ein Audit-Event macht solche Faelle auswertbar
-        # (grep "event=ip_flag_cleared").
         if is_business_information_obligation and BUSINESS not in normadressaten:
             logger.warning(
                 "event=ip_flag_cleared reason=missing_business_in_addressees "

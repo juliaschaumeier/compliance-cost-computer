@@ -570,9 +570,6 @@ function GraphCanvasInner() {
             relatedNodeIds.has(tile.id) &&
             focusedNodeId !== tile.id,
           changeStatus: normalizeChangeStatus(tile.meta_information?.["change_status"]),
-          // IP-Pill nur in der Wirtschaft-Sicht und nur bei gesetztem Flag anzeigen.
-          // Das Flag liegt adressat-unabhaengig in der Kachel-Meta; das Gating
-          // erfolgt bewusst rein im Frontend.
           showIpBadge:
             state.selectedNormAddressee === "business" &&
             Boolean(
