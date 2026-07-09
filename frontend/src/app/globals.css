@@ -125,7 +125,6 @@ body {
   min-height: 24px;
 }
 
-/* Linkes Cluster der Meta-Zeile: Change-Status-Pill und optionales IP-Pill. */
 .tile-node .tile-meta-left {
   display: flex;
   align-items: center;
@@ -180,9 +179,6 @@ body {
   border: 1px solid #cbd5e1;
 }
 
-/* Dezentes "IP"-Pill (Informationspflicht Wirtschaft): gleiche Pill-Form wie
-   der Status-Marker, gedaempftes Blau in Anlehnung an .tile-metric-right,
-   damit es zurueckhaltend, aber klar vom grauen Status unterscheidbar bleibt. */
 .tile-node .tile-ip {
   display: inline-flex;
   align-items: center;
