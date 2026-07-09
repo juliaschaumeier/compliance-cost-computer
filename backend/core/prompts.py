@@ -12,6 +12,7 @@ from backend.core.norm_addressees import (
     BUSINESS,
     CITIZENS,
 )
+from backend.core.payload_builders import dump_prompt_json
 
 
 class PromptId:
@@ -856,12 +857,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     ),
     # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
+    # - output_skeleton_json: JSON string of the prefilled flat output shell
+    #   ({"normadressat", "fallgruppen": [{"fallgruppen_id", "taetigkeiten": []}]})
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - step_analysis_checklist
     # - norm_addressee_prompt_opening
     # - step_analysis_addressee_rule
+    # - output_skeleton_json (empty-fallgruppen default when not provided)
     PromptId.PROCESS_STEP_ANALYSIS: (
         LEGIST_PROMPT_OPENING
         + """
@@ -895,80 +899,19 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {step_analysis_checklist}
 
-        Belassen Sie jede vorgegebene `fallgruppen_id` unter ihrem vorgegebenen Prozess und geben Sie sie genau einmal aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach oder unter einem fremden Prozess vorkommt. Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf und uebernehmen Sie alle IDs exakt wie vorgegeben.
+        Geben Sie jede vorgegebene `fallgruppen_id` genau einmal aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf und uebernehmen Sie alle IDs exakt wie vorgegeben.
 
-        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
+        Geben Sie nur und ausschliesslich JSON zurueck. Fuellen Sie ausschliesslich das Feld `taetigkeiten` im folgenden vorbefuellten Skelett aus. Fuegen Sie keine Fallgruppen-Objekte hinzu, entfernen, verschieben oder duplizieren Sie keine und uebernehmen Sie jede `fallgruppen_id` exakt an ihrer vorgegebenen Position.
+
+        Jedes Element von `taetigkeiten` hat folgende Form:
 
         {{
-        "normadressat": "{norm_addressee}",
-        "prozesse": [
-            {{
-            "prozess_id": "",
-            "prozess_bezeichnung": "",
-            "prozess_beschreibung": "",
-            "aenderungsstatus": "",
-            "fallgruppen": [
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "taetigkeiten": [
-                        {{
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
-                        }},
-                        {{
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
-                        }}
-                    ]
-                }},
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "taetigkeiten": [
-                        {{
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
-                        }}
-                    ]
-                }}
-            ]
-            }},
-            {{
-            "prozess_id": "",
-            "prozess_bezeichnung": "",
-            "prozess_beschreibung": "",
-            "aenderungsstatus": "",
-            "fallgruppen": [
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "taetigkeiten": [
-                        {{
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
-                        }},
-                        {{
-                            "taetigkeit": "",
-                            "beschreibung": "",
-                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
-                        }}
-                    ]
-                }}
-            ]
-            }}
-        ]
+            "taetigkeit": "",
+            "beschreibung": "",
+            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
         }}
+
+        {output_skeleton_json}
 
         Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
@@ -1675,6 +1618,10 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         render_values["step_analysis_checklist"] = _render_step_analysis_checklist(norm_addressee)
         render_values["step_analysis_addressee_rule"] = _render_step_analysis_addressee_rule(
             norm_addressee,
+        )
+        render_values.setdefault(
+            "output_skeleton_json",
+            dump_prompt_json({"normadressat": norm_addressee, "fallgruppen": []}),
         )
 
     if prompt_id == PromptId.EFFORT_CALCULATION:

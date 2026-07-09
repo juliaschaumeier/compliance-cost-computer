@@ -299,3 +299,19 @@ def build_step_analysis_payload(
         )
         payload.append(process_payload.model_dump())
     return payload
+
+
+def build_step_analysis_output_skeleton(
+    case_groups_payload: list[dict],
+    *,
+    norm_addressee: str,
+) -> dict:
+    fallgruppen = [
+        {
+            "fallgruppen_id": group["fallgruppen_id"],
+            "taetigkeiten": [],
+        }
+        for process in case_groups_payload
+        for group in process.get("fallgruppen", [])
+    ]
+    return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}

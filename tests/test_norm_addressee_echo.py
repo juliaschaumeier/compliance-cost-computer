@@ -163,16 +163,11 @@ def test_parse_process_steps_rejects_mismatch():
     payload = """
     {
       "normadressat": "business",
-      "prozesse": [
+      "fallgruppen": [
         {
-          "prozess_id": 1,
-          "fallgruppen": [
-            {
-              "fallgruppen_id": 10,
-              "taetigkeiten": [
-                {"taetigkeit": "T", "beschreibung": "B"}
-              ]
-            }
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
+            {"taetigkeit": "T", "beschreibung": "B"}
           ]
         }
       ]
@@ -187,16 +182,11 @@ def test_parse_process_steps_rejects_mismatch():
 def test_parse_process_steps_flags_missing():
     payload = """
     {
-      "prozesse": [
+      "fallgruppen": [
         {
-          "prozess_id": 1,
-          "fallgruppen": [
-            {
-              "fallgruppen_id": 10,
-              "taetigkeiten": [
-                {"taetigkeit": "T", "beschreibung": "B"}
-              ]
-            }
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
+            {"taetigkeit": "T", "beschreibung": "B"}
           ]
         }
       ]
