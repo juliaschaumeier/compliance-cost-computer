@@ -300,3 +300,76 @@ def build_step_analysis_output_skeleton(
         for group in process.get("fallgruppen", [])
     ]
     return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}
+
+
+_CASES_METRIC_KEYS = (
+    "anzahl_betroffene_gueltig",
+    "haeufigkeit_pro_jahr_gueltig",
+    "anzahl_betroffene_vorschlag",
+    "haeufigkeit_pro_jahr_vorschlag",
+)
+
+
+def build_cases_calculation_output_skeleton(
+    case_groups_payload: list[dict],
+    *,
+    norm_addressee: str,
+) -> dict:
+    fallgruppen = [
+        {
+            "fallgruppen_id": group["fallgruppen_id"],
+            "anzahl_betroffene_gueltig": "",
+            "haeufigkeit_pro_jahr_gueltig": "",
+            "anzahl_betroffene_vorschlag": "",
+            "haeufigkeit_pro_jahr_vorschlag": "",
+            "erklaerungen": {key: "" for key in _CASES_METRIC_KEYS},
+            "confidence": {key: "" for key in _CASES_METRIC_KEYS},
+        }
+        for process in case_groups_payload
+        for group in process.get("fallgruppen", [])
+    ]
+    return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}
+
+
+def _effort_taetigkeit_slots(norm_addressee: str) -> dict:
+    if norm_addressee == CITIZENS:
+        return {
+            "zeitaufwand_in_min_gueltig": "",
+            "sachaufwand_gueltig": "",
+            "zeitaufwand_in_min_vorschlag": "",
+            "sachaufwand_vorschlag": "",
+        }
+    return {
+        "personalaufwand_gueltig": [
+            {"qualifikation": "", "lohnquelle": "", "zeitaufwand_in_min": ""}
+        ],
+        "sachaufwand_gueltig": "",
+        "personalaufwand_vorschlag": [
+            {"qualifikation": "", "lohnquelle": "", "zeitaufwand_in_min": ""}
+        ],
+        "sachaufwand_vorschlag": "",
+    }
+
+
+def build_effort_calculation_output_skeleton(
+    step_analysis_payload: list[dict],
+    *,
+    norm_addressee: str,
+) -> dict:
+    fallgruppen: list[dict] = []
+    for process in step_analysis_payload:
+        for group in process.get("fallgruppen", []):
+            taetigkeiten = [
+                {
+                    "taetigkeiten_id": step["taetigkeiten_id"],
+                    **_effort_taetigkeit_slots(norm_addressee),
+                }
+                for step in group.get("taetigkeiten", [])
+            ]
+            fallgruppen.append(
+                {
+                    "fallgruppen_id": group["fallgruppen_id"],
+                    "taetigkeiten": taetigkeiten,
+                }
+            )
+    return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}

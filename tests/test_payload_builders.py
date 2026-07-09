@@ -1,5 +1,7 @@
 from backend.core.payload_builders import (
     build_case_groups_payload,
+    build_cases_calculation_output_skeleton,
+    build_effort_calculation_output_skeleton,
     build_processes_payload_with_regulations,
     build_step_analysis_output_skeleton,
     build_step_analysis_payload,
@@ -610,3 +612,109 @@ def test_build_step_analysis_output_skeleton_is_flat_ids_only():
     assert len(fallgruppen_ids) == len(set(fallgruppen_ids))
     for group in skeleton["fallgruppen"]:
         assert set(group.keys()) == {"fallgruppen_id", "taetigkeiten"}
+
+
+def test_build_cases_calculation_output_skeleton_is_flat_prefilled():
+    # #64 (Option 4, Schritt 6): flaches Skelett - alle Fallgruppen zweier Prozesse
+    # flach nebeneinander, vorbefuellt mit `fallgruppen_id` + leeren Kennzahlen-Slots
+    # (inkl. erklaerungen/confidence); das Modell fuellt nur Werte.
+    processes = [
+        {"process_id": 312, "process": "Prozess 312", "description": "d", "change_status": "geaendert"},
+        {"process_id": 313, "process": "Prozess 313", "description": "d", "change_status": "geaendert"},
+    ]
+    case_groups = [
+        {"case_group_id": 491, "process_id": 312, "case_group": "F491", "description": "d", "change_status": "geaendert"},
+        {"case_group_id": 492, "process_id": 313, "case_group": "F492", "description": "d", "change_status": "geaendert"},
+    ]
+    payload_groups = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        norm_addressee="business",
+    )
+
+    skeleton = build_cases_calculation_output_skeleton(payload_groups, norm_addressee="business")
+
+    assert set(skeleton.keys()) == {"normadressat", "fallgruppen"}
+    assert skeleton["normadressat"] == "business"
+    fallgruppen_ids = [group["fallgruppen_id"] for group in skeleton["fallgruppen"]]
+    assert fallgruppen_ids == [491, 492]
+    metric_keys = (
+        "anzahl_betroffene_gueltig",
+        "haeufigkeit_pro_jahr_gueltig",
+        "anzahl_betroffene_vorschlag",
+        "haeufigkeit_pro_jahr_vorschlag",
+    )
+    for group in skeleton["fallgruppen"]:
+        assert set(group.keys()) == {
+            "fallgruppen_id",
+            *metric_keys,
+            "erklaerungen",
+            "confidence",
+        }
+        for key in metric_keys:
+            assert group[key] == ""
+        assert set(group["erklaerungen"].keys()) == set(metric_keys)
+        assert set(group["confidence"].keys()) == set(metric_keys)
+
+
+def _effort_skeleton_input():
+    processes = [
+        {"process_id": 10, "process": "Prozess 10", "description": "d", "change_status": "geaendert"},
+    ]
+    case_groups = [
+        {"case_group_id": 20, "process_id": 10, "case_group": "F20", "description": "d", "change_status": "geaendert"},
+    ]
+    steps = [
+        {"step_id": 40, "case_group_id": 20, "step": "Schritt 1", "description": "", "change_status": "geaendert", "previous_id": None, "next_id": 41},
+        {"step_id": 41, "case_group_id": 20, "step": "Schritt 2", "description": "", "change_status": "geaendert", "previous_id": 40, "next_id": None},
+    ]
+    return build_step_analysis_payload(
+        processes=processes,
+        case_groups=case_groups,
+        steps=steps,
+        regulations=[],
+    )
+
+
+def test_build_effort_calculation_output_skeleton_org_is_flat_prefilled():
+    payload = _effort_skeleton_input()
+
+    skeleton = build_effort_calculation_output_skeleton(payload, norm_addressee="administration")
+
+    assert set(skeleton.keys()) == {"normadressat", "fallgruppen"}
+    assert skeleton["normadressat"] == "administration"
+    assert [group["fallgruppen_id"] for group in skeleton["fallgruppen"]] == [20]
+    taetigkeiten = skeleton["fallgruppen"][0]["taetigkeiten"]
+    assert [t["taetigkeiten_id"] for t in taetigkeiten] == [40, 41]
+    for taetigkeit in taetigkeiten:
+        assert set(taetigkeit.keys()) == {
+            "taetigkeiten_id",
+            "personalaufwand_gueltig",
+            "sachaufwand_gueltig",
+            "personalaufwand_vorschlag",
+            "sachaufwand_vorschlag",
+        }
+        assert taetigkeit["personalaufwand_gueltig"] == [
+            {"qualifikation": "", "lohnquelle": "", "zeitaufwand_in_min": ""}
+        ]
+        assert taetigkeit["personalaufwand_vorschlag"] == [
+            {"qualifikation": "", "lohnquelle": "", "zeitaufwand_in_min": ""}
+        ]
+
+
+def test_build_effort_calculation_output_skeleton_citizens_omits_wages():
+    payload = _effort_skeleton_input()
+
+    skeleton = build_effort_calculation_output_skeleton(payload, norm_addressee="citizens")
+
+    taetigkeiten = skeleton["fallgruppen"][0]["taetigkeiten"]
+    assert [t["taetigkeiten_id"] for t in taetigkeiten] == [40, 41]
+    for taetigkeit in taetigkeiten:
+        assert set(taetigkeit.keys()) == {
+            "taetigkeiten_id",
+            "zeitaufwand_in_min_gueltig",
+            "sachaufwand_gueltig",
+            "zeitaufwand_in_min_vorschlag",
+            "sachaufwand_vorschlag",
+        }
+        assert "personalaufwand_gueltig" not in taetigkeit

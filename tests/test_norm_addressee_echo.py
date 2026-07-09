@@ -206,15 +206,11 @@ def test_parse_cases_payload_rejects_mismatch():
     payload = """
     {
       "normadressat": "administration",
-      "prozesse": [
+      "fallgruppen": [
         {
-          "fallgruppen": [
-            {
-              "fallgruppen_id": 42,
-              "anzahl_betroffene_vorschlag": "10",
-              "haeufigkeit_pro_jahr_vorschlag": "1"
-            }
-          ]
+          "fallgruppen_id": 42,
+          "anzahl_betroffene_vorschlag": "10",
+          "haeufigkeit_pro_jahr_vorschlag": "1"
         }
       ]
     }
@@ -228,15 +224,11 @@ def test_parse_cases_payload_rejects_mismatch():
 def test_parse_cases_payload_flags_missing():
     payload = """
     {
-      "prozesse": [
+      "fallgruppen": [
         {
-          "fallgruppen": [
-            {
-              "fallgruppen_id": 42,
-              "anzahl_betroffene_vorschlag": "10",
-              "haeufigkeit_pro_jahr_vorschlag": "1"
-            }
-          ]
+          "fallgruppen_id": 42,
+          "anzahl_betroffene_vorschlag": "10",
+          "haeufigkeit_pro_jahr_vorschlag": "1"
         }
       ]
     }
@@ -255,21 +247,17 @@ def test_parse_effort_payload_rejects_mismatch():
     payload = """
     {
       "normadressat": "citizens",
-      "prozesse": [
+      "fallgruppen": [
         {
-          "fallgruppen": [
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
             {
-              "fallgruppen_id": 10,
-              "taetigkeiten": [
-                {
-                  "taetigkeiten_id": 100,
-                  "personalaufwand_vorschlag": [
-                    {"qualifikation": "einfacher_und_mittlerer_dienst",
-                     "lohnquelle": "bund", "zeitaufwand_in_min": "6"}
-                  ],
-                  "sachaufwand_vorschlag": "2"
-                }
-              ]
+              "taetigkeiten_id": 100,
+              "personalaufwand_vorschlag": [
+                {"qualifikation": "einfacher_und_mittlerer_dienst",
+                 "lohnquelle": "bund", "zeitaufwand_in_min": "6"}
+              ],
+              "sachaufwand_vorschlag": "2"
             }
           ]
         }
@@ -285,18 +273,14 @@ def test_parse_effort_payload_rejects_mismatch():
 def test_parse_effort_payload_flags_missing():
     payload = """
     {
-      "prozesse": [
+      "fallgruppen": [
         {
-          "fallgruppen": [
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
             {
-              "fallgruppen_id": 10,
-              "taetigkeiten": [
-                {
-                  "taetigkeiten_id": 100,
-                  "zeitaufwand_in_min_vorschlag": "6",
-                  "sachaufwand_vorschlag": "2"
-                }
-              ]
+              "taetigkeiten_id": 100,
+              "zeitaufwand_in_min_vorschlag": "6",
+              "sachaufwand_vorschlag": "2"
             }
           ]
         }
@@ -312,18 +296,14 @@ def test_parse_effort_payload_no_fallback_on_match():
     payload = """
     {
       "normadressat": "citizens",
-      "prozesse": [
+      "fallgruppen": [
         {
-          "fallgruppen": [
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
             {
-              "fallgruppen_id": 10,
-              "taetigkeiten": [
-                {
-                  "taetigkeiten_id": 100,
-                  "zeitaufwand_in_min_vorschlag": "6",
-                  "sachaufwand_vorschlag": "2"
-                }
-              ]
+              "taetigkeiten_id": 100,
+              "zeitaufwand_in_min_vorschlag": "6",
+              "sachaufwand_vorschlag": "2"
             }
           ]
         }

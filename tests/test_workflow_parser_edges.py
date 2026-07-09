@@ -107,15 +107,11 @@ def _seed_effort_context(
 def _cases_payload(case_group_id: int) -> str:
     return f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_vorschlag": "10",
-              "haeufigkeit_pro_jahr_vorschlag": "2"
-            }}
-          ]
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_vorschlag": "10",
+          "haeufigkeit_pro_jahr_vorschlag": "2"
         }}
       ]
     }}
@@ -130,19 +126,15 @@ def _org_effort_payload(
 ) -> str:
     return f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_vorschlag": "10",
+          "haeufigkeit_pro_jahr_vorschlag": "2",
+          "taetigkeiten": [
             {{
-              "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_vorschlag": "10",
-              "haeufigkeit_pro_jahr_vorschlag": "2",
-              "taetigkeiten": [
-                {{
-                  "taetigkeiten_id": "{step_id}",
-                  {entry_fields}
-                }}
-              ]
+              "taetigkeiten_id": "{step_id}",
+              {entry_fields}
             }}
           ]
         }}
@@ -410,17 +402,13 @@ def test_effort_parser_logs_alias_fallbacks(monkeypatch):
     )
     cases_text = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_current": "10",
-              "haeufigkeit_pro_jahr_current": "3",
-              "anzahl_betroffene_proposed": "12",
-              "haeufigkeit_pro_jahr_proposed": "4"
-            }}
-          ]
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_current": "10",
+          "haeufigkeit_pro_jahr_current": "3",
+          "anzahl_betroffene_proposed": "12",
+          "haeufigkeit_pro_jahr_proposed": "4"
         }}
       ]
     }}
@@ -459,6 +447,95 @@ def test_effort_parser_logs_alias_fallbacks(monkeypatch):
 
     assert "cases_legacy_english_alias" in fallback_kinds
     assert "effort_legacy_english_alias" in fallback_kinds
+
+
+def test_cases_parser_rejects_nested_without_top_level_fallgruppen():
+    # #64 (Option 4, Schritt 6): cases ist strikt flach. Eine verschachtelte Form
+    # (oberstes `prozesse`, kein top-level `fallgruppen`) wird jetzt als 422
+    # abgelehnt.
+    session_id, case_group_id, step_id, context = _seed_effort_context(
+        "PARSER-CASES-NESTED"
+    )
+    cases_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+    effort_text = _org_effort_payload(
+        case_group_id,
+        step_id,
+        entry_fields="""
+        "personalaufwand_vorschlag": [
+          {"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}
+        ]
+        """,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort(
+            session_id=session_id,
+            context=context,
+            cases_text=cases_text,
+            effort_text=effort_text,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Invalid cases_calculation payload: expected top-level key "
+        "'fallgruppen' in LLM response"
+    )
+
+
+def test_effort_parser_rejects_nested_without_top_level_fallgruppen():
+    # #64 (Option 4, Schritt 6): effort ist strikt flach - nested-only 422.
+    session_id, case_group_id, step_id, context = _seed_effort_context(
+        "PARSER-EFFORT-NESTED"
+    )
+    effort_text = f"""
+    {{
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_effort(
+            session_id=session_id,
+            context=context,
+            cases_text=_cases_payload(case_group_id),
+            effort_text=effort_text,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Invalid effort_calculation payload for administration: expected "
+        "top-level key 'fallgruppen' in LLM response"
+    )
 
 
 def test_effort_parser_rejects_invalid_cases_json_payload():
@@ -559,26 +636,22 @@ def test_effort_parser_rejects_missing_step_id_after_empty_effort_entry():
     )
     effort_text = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
+          "fallgruppen_id": "{case_group_id}",
+          "taetigkeiten": [
             {{
-              "fallgruppen_id": "{case_group_id}",
-              "taetigkeiten": [
-                {{
-                  "taetigkeiten_id": "{step_id}",
-                  "personalaufwand_vorschlag": [
-                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
-                  ]
-                }},
-                {{
-                  "taetigkeiten_id": "{missing_step_id}",
-                  "personalaufwand_gueltig": [],
-                  "personalaufwand_vorschlag": [],
-                  "sachaufwand_gueltig": "",
-                  "sachaufwand_vorschlag": ""
-                }}
+              "taetigkeiten_id": "{step_id}",
+              "personalaufwand_vorschlag": [
+                {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
               ]
+            }},
+            {{
+              "taetigkeiten_id": "{missing_step_id}",
+              "personalaufwand_gueltig": [],
+              "personalaufwand_vorschlag": [],
+              "sachaufwand_gueltig": "",
+              "sachaufwand_vorschlag": ""
             }}
           ]
         }}
@@ -976,20 +1049,16 @@ def test_effort_parser_rejects_duplicate_case_group_id():
     )
     cases_text = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_vorschlag": "10",
-              "haeufigkeit_pro_jahr_vorschlag": "2"
-            }},
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_vorschlag": "12",
-              "haeufigkeit_pro_jahr_vorschlag": "2"
-            }}
-          ]
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_vorschlag": "10",
+          "haeufigkeit_pro_jahr_vorschlag": "2"
+        }},
+        {{
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_vorschlag": "12",
+          "haeufigkeit_pro_jahr_vorschlag": "2"
         }}
       ]
     }}
@@ -1071,26 +1140,22 @@ def test_effort_parser_rejects_duplicate_step_id():
     )
     effort_text = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
+          "fallgruppen_id": "{case_group_id}",
+          "anzahl_betroffene_vorschlag": "10",
+          "haeufigkeit_pro_jahr_vorschlag": "2",
+          "taetigkeiten": [
             {{
-              "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_vorschlag": "10",
-              "haeufigkeit_pro_jahr_vorschlag": "2",
-              "taetigkeiten": [
-                {{
-                  "taetigkeiten_id": "{step_id}",
-                  "personalaufwand_vorschlag": [
-                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
-                  ]
-                }},
-                {{
-                  "taetigkeiten_id": "{step_id}",
-                  "personalaufwand_vorschlag": [
-                    {{"qualifikation": "gehobener_dienst", "lohnquelle": "laender", "zeitaufwand_in_min": "12"}}
-                  ]
-                }}
+              "taetigkeiten_id": "{step_id}",
+              "personalaufwand_vorschlag": [
+                {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+              ]
+            }},
+            {{
+              "taetigkeiten_id": "{step_id}",
+              "personalaufwand_vorschlag": [
+                {{"qualifikation": "gehobener_dienst", "lohnquelle": "laender", "zeitaufwand_in_min": "12"}}
               ]
             }}
           ]
