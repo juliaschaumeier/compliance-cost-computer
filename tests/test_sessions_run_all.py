@@ -253,41 +253,30 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
     async def fake_steps_llm(prompt, *_args, **_kwargs):
         session_id = db.get_session_id_by_app_id(app_session_id)
         assert session_id is not None
-        processes = db.list_processes_for_session(session_id)
         case_groups = db.list_case_groups_for_session(session_id)
         return _json_for_prompt(
             prompt,
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(processes[0]["process_id"]),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeit": "Schritt A1",
-                                        "beschreibung": "Beschreibung A1",
-                                    },
-                                    {
-                                        "taetigkeit": "Schritt A2",
-                                        "beschreibung": "Beschreibung A2",
-                                    },
-                                ],
-                            }
+                                "taetigkeit": "Schritt A1",
+                                "beschreibung": "Beschreibung A1",
+                            },
+                            {
+                                "taetigkeit": "Schritt A2",
+                                "beschreibung": "Beschreibung A2",
+                            },
                         ],
                     },
                     {
-                        "prozess_id": str(processes[1]["process_id"]),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_groups[1]["case_group_id"]),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_groups[1]["case_group_id"]),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeit": "Schritt B1",
-                                        "beschreibung": "Beschreibung B1",
-                                    }
-                                ],
+                                "taetigkeit": "Schritt B1",
+                                "beschreibung": "Beschreibung B1",
                             }
                         ],
                     },
@@ -469,18 +458,13 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         return _json_for_prompt(
             prompt,
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(processes[0]["process_id"]),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeit": f"Schritt {addressee}",
-                                        "beschreibung": f"Beschreibung Schritt {addressee}",
-                                    }
-                                ],
+                                "taetigkeit": f"Schritt {addressee}",
+                                "beschreibung": f"Beschreibung Schritt {addressee}",
                             }
                         ],
                     }
@@ -638,18 +622,13 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
         return _json_for_prompt(
             prompt,
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(processes[0]["process_id"]),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeit": f"Schritt {addressee}",
-                                        "beschreibung": f"Beschreibung Schritt {addressee}",
-                                    }
-                                ],
+                                "taetigkeit": f"Schritt {addressee}",
+                                "beschreibung": f"Beschreibung Schritt {addressee}",
                             }
                         ],
                     }
@@ -1494,20 +1473,13 @@ def test_process_step_step_partial_failure_applies_nothing(test_client, monkeypa
         case_group_id = admin_case_group if addressee == ADMINISTRATION else 999999
         return json.dumps(
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(
-                            admin_process if addressee == ADMINISTRATION else business_process
-                        ),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_group_id),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_group_id),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeit": f"Schritt {addressee}",
-                                        "beschreibung": "Beschreibung",
-                                    }
-                                ],
+                                "taetigkeit": f"Schritt {addressee}",
+                                "beschreibung": "Beschreibung",
                             }
                         ],
                     }
@@ -1637,19 +1609,14 @@ def test_single_step_success_normalizes_change_status_for_processes_case_groups_
         assert _detect_addressee_from_prompt(prompt) == ADMINISTRATION
         return json.dumps(
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(process["process_id"]),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_group["case_group_id"]),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_group["case_group_id"]),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeit": "Schritt Verwaltung",
-                                        "beschreibung": "Beschreibung",
-                                        "status_change": "unchanged",
-                                    }
-                                ],
+                                "taetigkeit": "Schritt Verwaltung",
+                                "beschreibung": "Beschreibung",
+                                "status_change": "unchanged",
                             }
                         ],
                     }
@@ -1850,24 +1817,18 @@ def test_process_step_apply_failure_rolls_back_rows_tiles_links_and_answers(
 
     async def valid_process_steps_llm(prompt, *_args, **_kwargs):
         addressee = _detect_addressee_from_prompt(prompt)
-        process_id = admin_process if addressee == ADMINISTRATION else business_process
         case_group_id = (
             admin_case_group if addressee == ADMINISTRATION else business_case_group
         )
         return json.dumps(
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(process_id),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_group_id),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_group_id),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeit": f"Schritt {addressee}",
-                                        "beschreibung": "Beschreibung",
-                                    }
-                                ],
+                                "taetigkeit": f"Schritt {addressee}",
+                                "beschreibung": "Beschreibung",
                             }
                         ],
                     }

@@ -312,15 +312,11 @@ def test_process_step_parser_rejects_unknown_case_group_id():
     )
     payload = """
     {
-      "prozesse": [
+      "fallgruppen": [
         {
-          "fallgruppen": [
-            {
-              "fallgruppen_id": "999",
-              "taetigkeiten": [
-                {"taetigkeit": "Schritt X", "beschreibung": "Beschreibung"}
-              ]
-            }
+          "fallgruppen_id": "999",
+          "taetigkeiten": [
+            {"taetigkeit": "Schritt X", "beschreibung": "Beschreibung"}
           ]
         }
       ]
@@ -344,18 +340,14 @@ def test_process_step_parser_rejects_unknown_regulation_links():
     )
     payload = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
+          "fallgruppen_id": "{case_group_id}",
+          "taetigkeiten": [
             {{
-              "fallgruppen_id": "{case_group_id}",
-              "taetigkeiten": [
-                {{
-                  "taetigkeit": "Schritt X",
-                  "beschreibung": "Beschreibung",
-                  "vorgaben_ids": [999]
-                }}
-              ]
+              "taetigkeit": "Schritt X",
+              "beschreibung": "Beschreibung",
+              "vorgaben_ids": [999]
             }}
           ]
         }}
@@ -374,20 +366,24 @@ def test_process_step_parser_rejects_unknown_regulation_links():
     assert "Unknown vorgaben_ids in process steps" in exc_info.value.detail
 
 
-def test_process_step_parser_rejects_flattened_fallgruppen_without_prozesse():
-    # #13/#25: Abgeflachte Form (oberstes `fallgruppen`, kein `prozesse`) wird
-    # mit der Envelope-Pflicht bewusst als 422 abgelehnt - einheitlich mit den
-    # uebrigen Parsern, die durchgaengig top-level `prozesse` verlangen.
+def test_process_step_parser_rejects_nested_without_top_level_fallgruppen():
+    # #64 (Option 4): Step 5 ist strikt flach. Eine verschachtelte Form (oberstes
+    # `prozesse`, kein top-level `fallgruppen`) wird jetzt bewusst als 422
+    # abgelehnt - die Envelope-Pflicht verlangt durchgaengig top-level `fallgruppen`.
     _session_id, _process_id, _regulation_id, case_group_id, context = (
-        _seed_process_step_context("PARSER-STEPS-FALLBACK")
+        _seed_process_step_context("PARSER-STEPS-NESTED")
     )
     payload = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "taetigkeiten": [
-            {{"taetigkeit": "Schritt X", "beschreibung": "Aus fallback parser"}}
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt X", "beschreibung": "Nested nicht mehr erlaubt"}}
+              ]
+            }}
           ]
         }}
       ]
@@ -404,7 +400,7 @@ def test_process_step_parser_rejects_flattened_fallgruppen_without_prozesse():
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == (
         "Invalid process_step_analysis payload: expected top-level key "
-        "'prozesse' in LLM response"
+        "'fallgruppen' in LLM response"
     )
 
 
@@ -795,25 +791,17 @@ def test_process_step_parser_rejects_duplicate_case_group_id():
     )
     payload = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "taetigkeiten": [
-                {{"taetigkeit": "Schritt A", "beschreibung": "Erste Kette"}}
-              ]
-            }}
+          "fallgruppen_id": "{case_group_id}",
+          "taetigkeiten": [
+            {{"taetigkeit": "Schritt A", "beschreibung": "Erste Kette"}}
           ]
         }},
         {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "taetigkeiten": [
-                {{"taetigkeit": "Schritt B", "beschreibung": "Zweite Kette"}}
-              ]
-            }}
+          "fallgruppen_id": "{case_group_id}",
+          "taetigkeiten": [
+            {{"taetigkeit": "Schritt B", "beschreibung": "Zweite Kette"}}
           ]
         }}
       ]
@@ -934,39 +922,34 @@ def test_process_step_persist_guard_allows_single_chain_per_case_group():
     )
 
 
-def test_process_step_parser_rejects_duplicate_case_group_id_same_process():
-    # #64: Reproduziert die gemeldete O9EBJR-Form: dieselbe fallgruppen_id
-    # taucht ZWEIMAL im SELBEN Prozessblock auf, mit identischen Wrapper-Metadaten
-    # (Bezeichnung/Beschreibung/aenderungsstatus), aber unterschiedlichen
-    # Taetigkeiten. Der Parser appended je Fallgruppe -> der Duplikat-Guard muss
-    # auch diese Same-Process-Form vor der Persistenz mit 422 abweisen.
-    _session_id, process_id, _regulation_id, case_group_id, context = (
-        _seed_process_step_context("PARSER-STEPS-DUP-SAME-PROCESS")
+def test_process_step_parser_rejects_duplicate_case_group_id_identical_metadata():
+    # #64 (AC6): Reproduziert die gemeldete O9EBJR-Form flach - dieselbe
+    # fallgruppen_id taucht ZWEIMAL im top-level `fallgruppen`-Array auf, mit
+    # identischen Wrapper-Metadaten (Bezeichnung/Beschreibung/aenderungsstatus),
+    # aber unterschiedlichen Taetigkeiten. Der Parser appended je Fallgruppe ->
+    # der Duplikat-Guard muss diese Form vor der Persistenz mit 422 abweisen.
+    _session_id, _process_id, _regulation_id, case_group_id, context = (
+        _seed_process_step_context("PARSER-STEPS-DUP-METADATA")
     )
     payload = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "prozess_id": {process_id},
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "fallgruppe_bezeichnung": "Identische Fallgruppe",
-              "fallgruppe_beschreibung": "Gleiche Metadaten",
-              "aenderungsstatus": "eingefuehrt",
-              "taetigkeiten": [
-                {{"taetigkeit": "Block 1 - Schritt A", "beschreibung": "Erste Kette"}}
-              ]
-            }},
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "fallgruppe_bezeichnung": "Identische Fallgruppe",
-              "fallgruppe_beschreibung": "Gleiche Metadaten",
-              "aenderungsstatus": "eingefuehrt",
-              "taetigkeiten": [
-                {{"taetigkeit": "Block 2 - Schritt X", "beschreibung": "Zweite Kette"}}
-              ]
-            }}
+          "fallgruppen_id": "{case_group_id}",
+          "fallgruppe_bezeichnung": "Identische Fallgruppe",
+          "fallgruppe_beschreibung": "Gleiche Metadaten",
+          "aenderungsstatus": "eingefuehrt",
+          "taetigkeiten": [
+            {{"taetigkeit": "Block 1 - Schritt A", "beschreibung": "Erste Kette"}}
+          ]
+        }},
+        {{
+          "fallgruppen_id": "{case_group_id}",
+          "fallgruppe_bezeichnung": "Identische Fallgruppe",
+          "fallgruppe_beschreibung": "Gleiche Metadaten",
+          "aenderungsstatus": "eingefuehrt",
+          "taetigkeiten": [
+            {{"taetigkeit": "Block 2 - Schritt X", "beschreibung": "Zweite Kette"}}
           ]
         }}
       ]
@@ -1197,15 +1180,11 @@ def test_process_step_parser_rejects_missing_case_group():
     )
     payload = f"""
     {{
-      "prozesse": [
+      "fallgruppen": [
         {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "taetigkeiten": [
-                {{"taetigkeit": "Schritt A", "beschreibung": "Nur erste Fallgruppe"}}
-              ]
-            }}
+          "fallgruppen_id": "{case_group_id}",
+          "taetigkeiten": [
+            {{"taetigkeit": "Schritt A", "beschreibung": "Nur erste Fallgruppe"}}
           ]
         }}
       ]

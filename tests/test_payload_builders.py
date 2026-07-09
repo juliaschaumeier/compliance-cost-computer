@@ -1,6 +1,7 @@
 from backend.core.payload_builders import (
     build_case_groups_payload,
     build_processes_payload_with_regulations,
+    build_step_analysis_output_skeleton,
     build_step_analysis_payload,
     build_vorgaben_payload,
 )
@@ -574,3 +575,38 @@ def test_build_step_analysis_payload_keeps_all_steps_with_multiple_roots():
     taetigkeiten = payload[0]["fallgruppen"][0]["taetigkeiten"]
     step_ids = [taetigkeit["taetigkeiten_id"] for taetigkeit in taetigkeiten]
     assert step_ids == [40, 41, 42]
+
+
+def test_build_step_analysis_output_skeleton_is_flat_ids_only():
+    # #64 (Option 4): flaches Skelett - alle Fallgruppen zweier Prozesse liegen
+    # ohne Prozess-Ebene flach nebeneinander; vorbefuellt nur die IDs, laesst
+    # `taetigkeiten` leer; kein deskriptives Feld darf durchsickern.
+    processes = [
+        {"process_id": 312, "process": "Prozess 312", "description": "d", "change_status": "geaendert"},
+        {"process_id": 313, "process": "Prozess 313", "description": "d", "change_status": "geaendert"},
+    ]
+    case_groups = [
+        {"case_group_id": 491, "process_id": 312, "case_group": "F491", "description": "d", "change_status": "geaendert"},
+        {"case_group_id": 492, "process_id": 313, "case_group": "F492", "description": "d", "change_status": "geaendert"},
+    ]
+    payload_groups = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        norm_addressee="business",
+    )
+
+    skeleton = build_step_analysis_output_skeleton(payload_groups, norm_addressee="business")
+
+    assert skeleton == {
+        "normadressat": "business",
+        "fallgruppen": [
+            {"fallgruppen_id": 491, "taetigkeiten": []},
+            {"fallgruppen_id": 492, "taetigkeiten": []},
+        ],
+    }
+    assert set(skeleton.keys()) == {"normadressat", "fallgruppen"}
+    fallgruppen_ids = [group["fallgruppen_id"] for group in skeleton["fallgruppen"]]
+    assert fallgruppen_ids == [491, 492]
+    assert len(fallgruppen_ids) == len(set(fallgruppen_ids))
+    for group in skeleton["fallgruppen"]:
+        assert set(group.keys()) == {"fallgruppen_id", "taetigkeiten"}

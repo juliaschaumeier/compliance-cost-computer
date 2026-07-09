@@ -2,6 +2,11 @@ import re
 
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core import prompts
+from backend.core.payload_builders import (
+    build_case_groups_payload,
+    build_step_analysis_output_skeleton,
+    dump_prompt_json,
+)
 from backend.core.prompts import NORM_ADDRESSEE_PROMPT_OPENINGS, PromptId, render_prompt
 import pytest
 
@@ -534,10 +539,9 @@ def test_process_step_analysis_prompt_frames_checklist_recurring_only(norm_addre
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_demands_unique_fallgruppen_per_process(norm_addressee):
-    # #13/#25: Step 5 muss die uebergebene Prozess-/Fallgruppen-Struktur
-    # erhalten - jede fallgruppen_id genau einmal, unter ihrem Prozess
-    # (verhindert doppelte Step-Ketten fuer dieselbe Fallgruppe).
+def test_process_step_analysis_prompt_demands_unique_fallgruppen(norm_addressee):
+    # #64 (Option 4): flaches Schema - jede fallgruppen_id genau einmal, kein
+    # Zusammenfuehren/Aufteilen (der fruehere Prozess-Bezug entfaellt flach).
     prompt = render_prompt(
         PromptId.PROCESS_STEP_ANALYSIS,
         law_summary="Kurzfassung",
@@ -545,10 +549,52 @@ def test_process_step_analysis_prompt_demands_unique_fallgruppen_per_process(nor
         norm_addressee=norm_addressee,
     )
 
-    assert "jede vorgegebene `fallgruppen_id` unter ihrem vorgegebenen Prozess" in prompt
-    assert "geben Sie sie genau einmal aus" in prompt
-    assert "unter einem fremden Prozess" in prompt
+    assert "Geben Sie jede vorgegebene `fallgruppen_id` genau einmal aus" in prompt
+    assert "keine `fallgruppen_id` mehrfach vorkommt" in prompt
     assert "Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf" in prompt
+    assert "unter ihrem vorgegebenen Prozess" not in prompt
+    assert "unter einem fremden Prozess" not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_process_step_analysis_prompt_injects_flat_output_skeleton(norm_addressee):
+    # #64 (Option 4): Statt eines nested Schemas zeigt der Prompt ein aus
+    # case_groups_json vorbefuelltes FLACHES Skelett (nur fallgruppen_id,
+    # taetigkeiten leer, keine Prozess-Ebene); das Modell fuellt nur taetigkeiten.
+    processes = [
+        {"process_id": 312, "process": "Prozess 312", "description": "d", "change_status": "geaendert"},
+        {"process_id": 313, "process": "Prozess 313", "description": "d", "change_status": "geaendert"},
+    ]
+    case_groups = [
+        {"case_group_id": 491, "process_id": 312, "case_group": "F491", "description": "d", "change_status": "geaendert"},
+        {"case_group_id": 492, "process_id": 313, "case_group": "F492", "description": "d", "change_status": "geaendert"},
+    ]
+    payload_groups = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        norm_addressee=norm_addressee,
+    )
+    prompt = render_prompt(
+        PromptId.PROCESS_STEP_ANALYSIS,
+        law_summary="Kurzfassung",
+        case_groups_json=dump_prompt_json(payload_groups),
+        output_skeleton_json=dump_prompt_json(
+            build_step_analysis_output_skeleton(payload_groups, norm_addressee=norm_addressee)
+        ),
+        norm_addressee=norm_addressee,
+    )
+
+    output_section = prompt.split("vorbefuellten Skelett", 1)[1]
+    assert "Fuellen Sie ausschliesslich das Feld `taetigkeiten`" in prompt
+    assert (
+        "Fuegen Sie keine Fallgruppen-Objekte hinzu, entfernen, "
+        "verschieben oder duplizieren Sie keine" in prompt
+    )
+    assert '"fallgruppen_id": 491' in prompt
+    assert '"fallgruppen_id": 492' in prompt
+    assert '"taetigkeiten": []' in prompt
+    assert '"fallgruppen_id": ""' not in prompt
+    assert '"prozess_id"' not in output_section
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
