@@ -14,8 +14,8 @@ Kernaussage anschlaegt.
 import pytest
 
 from backend.core.prompts import (
-    EFFORT_JSON_SCHEMA_BY_ADDRESSEE,
-    EFFORT_JSON_SCHEMA_DEFAULT,
+    EFFORT_TAETIGKEIT_FORM_BY_ADDRESSEE,
+    EFFORT_TAETIGKEIT_FORM_DEFAULT,
     NORM_ADDRESSEE_PROMPT_OPENINGS,
     NORM_ADDRESSEE_RULES_ADMINISTRATION,
     NORM_ADDRESSEE_RULES_BUSINESS,
@@ -181,8 +181,8 @@ class TestRecurringOnlyContract:
                 assert "einmalig" not in text.lower()
 
     def test_effort_schema_has_no_per_case_execution_field(self):
-        assert "ausfuehrung_pro_einzelfall" not in EFFORT_JSON_SCHEMA_DEFAULT
-        for schema in EFFORT_JSON_SCHEMA_BY_ADDRESSEE.values():
+        assert "ausfuehrung_pro_einzelfall" not in EFFORT_TAETIGKEIT_FORM_DEFAULT
+        for schema in EFFORT_TAETIGKEIT_FORM_BY_ADDRESSEE.values():
             assert "ausfuehrung_pro_einzelfall" not in schema
 
     def test_one_off_lists_avoid_status_ambiguous_einfuehrung(self):

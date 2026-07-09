@@ -128,14 +128,16 @@ def test_effort_prompt_schema_uses_single_json_braces(norm_addressee):
     assert "}}" not in prompt
 
 
-def test_render_prompt_ignores_contract_field_overrides():
+def test_render_prompt_effort_default_skeleton_echoes_run_addressee():
+    # #64 (Schritt 6): ohne Router-Skelett faellt render_prompt auf ein leeres
+    # Default-Skelett zurueck, das den Lauf-Normadressaten fest echot; ein
+    # Kontext-Override (norm_addressee_prompt_opening) wird weiterhin ignoriert.
     prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,
         law_summary="Kurzfassung",
         step_analysis_json="[]",
         norm_addressee=BUSINESS,
         norm_addressee_prompt_opening="BROKEN CONTEXT",
-        effort_json_schema='{"normadressat": "citizens"}',
     )
 
     assert "BROKEN CONTEXT" not in prompt
@@ -432,7 +434,7 @@ def test_norm_addressee_prompts_end_with_final_json_instruction(prompt_id, norm_
 def test_norm_addressee_prompts_integrate_guidance_before_schema(prompt_id, norm_addressee):
     prompt = _render_prompt_for_contract(prompt_id, norm_addressee)
     context_marker = "Dieser Lauf betrifft nur den Normadressaten"
-    schema_marker = "Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:"
+    schema_marker = "Geben Sie nur und ausschliesslich JSON"
 
     assert context_marker in prompt
     assert prompt.index(context_marker) < prompt.index(schema_marker)

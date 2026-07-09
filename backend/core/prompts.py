@@ -437,106 +437,38 @@ EFFORT_APPENDICES: Dict[str, str] = {
 }
 
 
-EFFORT_JSON_SCHEMA_DEFAULT = """
+EFFORT_TAETIGKEIT_FORM_DEFAULT = """
 {
-"normadressat": "{norm_addressee}",
-"prozesse": [
-    {
-    "prozess_id": "",
-    "prozess_bezeichnung": "",
-    "prozess_beschreibung": "",
-    "aenderungsstatus": "",
-    "vorgaben": [
+    "taetigkeiten_id": "",
+    "personalaufwand_gueltig": [
         {
-            "vorgaben_id": "",
-            "normzitat": "",
-            "beschreibung": "",
-            "aenderungsstatus": ""
+            "qualifikation": "",
+            "lohnquelle": "",
+            "zeitaufwand_in_min": ""
         }
     ],
-    "fallgruppen": [
+    "sachaufwand_gueltig": "",
+    "personalaufwand_vorschlag": [
         {
-            "fallgruppen_id": "",
-            "fallgruppe_bezeichnung": "",
-            "fallgruppe_beschreibung": "",
-            "aenderungsstatus": "",
-            "taetigkeiten": [
-                {
-                    "taetigkeiten_id": "",
-                    "taetigkeit": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": "",
-                    "personalaufwand_gueltig": [
-                        {
-                            "qualifikation": "",
-                            "lohnquelle": "",
-                            "zeitaufwand_in_min": ""
-                        }
-                    ],
-                    "sachaufwand_gueltig": "",
-                    "personalaufwand_vorschlag": [
-                        {
-                            "qualifikation": "",
-                            "lohnquelle": "",
-                            "zeitaufwand_in_min": ""
-                        }
-                    ],
-                    "sachaufwand_vorschlag": ""
-                }
-            ]
+            "qualifikation": "",
+            "lohnquelle": "",
+            "zeitaufwand_in_min": ""
         }
-    ]
-    }
-]
+    ],
+    "sachaufwand_vorschlag": ""
 }
-
-Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 """
 
 
-EFFORT_JSON_SCHEMA_BY_ADDRESSEE: Dict[str, str] = {
+EFFORT_TAETIGKEIT_FORM_BY_ADDRESSEE: Dict[str, str] = {
     CITIZENS: """
 {
-"normadressat": "citizens",
-"prozesse": [
-    {
-    "prozess_id": "",
-    "prozess_bezeichnung": "",
-    "prozess_beschreibung": "",
-    "aenderungsstatus": "",
-    "vorgaben": [
-        {
-            "vorgaben_id": "",
-            "normzitat": "",
-            "beschreibung": "",
-            "aenderungsstatus": ""
-        }
-    ],
-    "fallgruppen": [
-        {
-            "fallgruppen_id": "",
-            "fallgruppe_bezeichnung": "",
-            "fallgruppe_beschreibung": "",
-            "aenderungsstatus": "",
-            "taetigkeiten": [
-                {
-                    "taetigkeiten_id": "",
-                    "taetigkeit": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": "",
-                    "zeitaufwand_in_min_gueltig": "",
-                    "sachaufwand_gueltig": "",
-                    "zeitaufwand_in_min_vorschlag": "",
-                    "sachaufwand_vorschlag": ""
-                }
-            ]
-        }
-    ]
-    }
-]
+    "taetigkeiten_id": "",
+    "zeitaufwand_in_min_gueltig": "",
+    "sachaufwand_gueltig": "",
+    "zeitaufwand_in_min_vorschlag": "",
+    "sachaufwand_vorschlag": ""
 }
-
-Das Feld `normadressat` ist immer `citizens` fuer dieses Schema.
 """
 }
 
@@ -921,6 +853,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     ),
     # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
+    # - output_skeleton_json: JSON string of the prefilled flat output shell
+    #   ({"normadressat", "fallgruppen": [{"fallgruppen_id", <cases slots>}]})
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
@@ -928,6 +862,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - handbook_cases_case_example
     # - norm_addressee_prompt_opening
     # - norm_addressee_rule
+    # - output_skeleton_json (empty-fallgruppen default when not provided)
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
@@ -973,122 +908,36 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Geben Sie zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Uebernehmen Sie alle IDs exakt wie vorgegeben.
 
-        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
+        Geben Sie nur und ausschliesslich JSON zurueck. Fuellen Sie ausschliesslich die Kennzahlenfelder je Fallgruppe im folgenden vorbefuellten Skelett aus. Fuegen Sie keine Fallgruppen-Objekte hinzu, entfernen, verschieben oder duplizieren Sie keine und uebernehmen Sie jede `fallgruppen_id` exakt an ihrer vorgegebenen Position.
 
         Fuegen Sie fuer jede Fallgruppe zusaetzlich erklaerungen und confidence hinzu. Die erklaerungen
         muessen pro Kennzahl kurz und eigenstaendig darstellen, auf welcher Grundlage der jeweilige Wert hergeleitet wurde.
         confidence muss pro Kennzahl genau einen der Werte high, medium oder low enthalten und gibt an,
         wie belastbar die jeweilige Schaetzung ist.
 
+        Jede Fallgruppe hat folgende Kennzahlenform:
+
         {{
-        "normadressat": "{norm_addressee}",
-        "prozesse": [
-            {{
-            "prozess_id": "",
-            "prozess_bezeichnung": "",
-            "prozess_beschreibung": "",
-            "aenderungsstatus": "",
-            "vorgaben": [
-                {{
-                    "vorgaben_id": "",
-                    "normzitat": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": ""
-                }}
-            ],
-            "fallgruppen": [
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "anzahl_betroffene_gueltig": "",
-                    "haeufigkeit_pro_jahr_gueltig": "",
-                    "anzahl_betroffene_vorschlag": "",
-                    "haeufigkeit_pro_jahr_vorschlag": "",
-                    "erklaerungen": {{
-                        "anzahl_betroffene_gueltig": "",
-                        "haeufigkeit_pro_jahr_gueltig": "",
-                        "anzahl_betroffene_vorschlag": "",
-                        "haeufigkeit_pro_jahr_vorschlag": ""
-                    }},
-                    "confidence": {{
-                        "anzahl_betroffene_gueltig": "high | medium | low",
-                        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
-                        "anzahl_betroffene_vorschlag": "high | medium | low",
-                        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
-                    }}
-                }},
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "anzahl_betroffene_gueltig": "",
-                    "haeufigkeit_pro_jahr_gueltig": "",
-                    "anzahl_betroffene_vorschlag": "",
-                    "haeufigkeit_pro_jahr_vorschlag": "",
-                    "erklaerungen": {{
-                        "anzahl_betroffene_gueltig": "",
-                        "haeufigkeit_pro_jahr_gueltig": "",
-                        "anzahl_betroffene_vorschlag": "",
-                        "haeufigkeit_pro_jahr_vorschlag": ""
-                    }},
-                    "confidence": {{
-                        "anzahl_betroffene_gueltig": "high | medium | low",
-                        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
-                        "anzahl_betroffene_vorschlag": "high | medium | low",
-                        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
-                    }}
-                }}
-            ]
+            "fallgruppen_id": "",
+            "anzahl_betroffene_gueltig": "",
+            "haeufigkeit_pro_jahr_gueltig": "",
+            "anzahl_betroffene_vorschlag": "",
+            "haeufigkeit_pro_jahr_vorschlag": "",
+            "erklaerungen": {{
+                "anzahl_betroffene_gueltig": "",
+                "haeufigkeit_pro_jahr_gueltig": "",
+                "anzahl_betroffene_vorschlag": "",
+                "haeufigkeit_pro_jahr_vorschlag": ""
             }},
-            {{
-            "prozess_id": "",
-            "prozess_bezeichnung": "",
-            "prozess_beschreibung": "",
-            "aenderungsstatus": "",
-            "vorgaben": [
-                {{
-                    "vorgaben_id": "",
-                    "normzitat": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": ""
-                }},
-                {{
-                    "vorgaben_id": "",
-                    "normzitat": "",
-                    "beschreibung": "",
-                    "aenderungsstatus": ""
-                }}
-            ],
-            "fallgruppen": [
-                {{
-                    "fallgruppen_id": "",
-                    "fallgruppe_bezeichnung": "",
-                    "fallgruppe_beschreibung": "",
-                    "aenderungsstatus": "",
-                    "anzahl_betroffene_gueltig": "",
-                    "haeufigkeit_pro_jahr_gueltig": "",
-                    "anzahl_betroffene_vorschlag": "",
-                    "haeufigkeit_pro_jahr_vorschlag": "",
-                    "erklaerungen": {{
-                        "anzahl_betroffene_gueltig": "",
-                        "haeufigkeit_pro_jahr_gueltig": "",
-                        "anzahl_betroffene_vorschlag": "",
-                        "haeufigkeit_pro_jahr_vorschlag": ""
-                    }},
-                    "confidence": {{
-                        "anzahl_betroffene_gueltig": "high | medium | low",
-                        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
-                        "anzahl_betroffene_vorschlag": "high | medium | low",
-                        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
-                    }}
-                }}
-            ]
+            "confidence": {{
+                "anzahl_betroffene_gueltig": "high | medium | low",
+                "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
+                "anzahl_betroffene_vorschlag": "high | medium | low",
+                "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
             }}
-        ]
         }}
+
+        {output_skeleton_json}
 
         Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
@@ -1099,12 +948,16 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     #                        Vorgaben kann jedoch zusaetzlichen Sach- und Personalaufwand erzeugen.
     # Render contract:
     # - step_analysis_json: JSON string of list[ProzessStepAnalysisPayload]
+    # - output_skeleton_json: JSON string of the prefilled flat output shell
+    #   ({"normadressat", "fallgruppen": [{"fallgruppen_id", "taetigkeiten":
+    #   [{"taetigkeiten_id", <effort slots by addressee>}]}]})
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - effort_method_guidance
     # - effort_appendix
-    # - effort_json_schema
+    # - effort_taetigkeit_form
+    # - output_skeleton_json (empty-fallgruppen default when not provided)
     # - norm_addressee_prompt_opening
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
@@ -1133,10 +986,15 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Geben Sie zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt aus und lassen Sie keine aus; faellt fuer eine Taetigkeit kein Aufwand an, geben Sie das Objekt mit ausdruecklichen Nullwerten aus. Pruefen Sie vor der Ausgabe, dass keine `taetigkeiten_id` mehrfach vorkommt, und uebernehmen Sie alle IDs exakt wie vorgegeben.
 
-        Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:
+        Geben Sie nur und ausschliesslich JSON zurueck. Fuellen Sie ausschliesslich die Aufwandsfelder je Taetigkeit im folgenden vorbefuellten Skelett aus. Fuegen Sie keine Fallgruppen- oder Taetigkeits-Objekte hinzu, entfernen, verschieben oder duplizieren Sie keine und uebernehmen Sie jede `fallgruppen_id` und `taetigkeiten_id` exakt an ihrer vorgegebenen Position. Die Aufwandsangaben innerhalb einer Taetigkeit fuellen und gliedern Sie hingegen selbst gemaess den obigen Hinweisen.
 
-        {effort_json_schema}
-        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen. 
+        Jede Taetigkeit hat folgende Aufwandsform:
+
+        {effort_taetigkeit_form}
+
+        {output_skeleton_json}
+
+        Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
     ),
 
@@ -1624,10 +1482,20 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
             dump_prompt_json({"normadressat": norm_addressee, "fallgruppen": []}),
         )
 
+    if prompt_id == PromptId.CASES_CALCULATION:
+        render_values.setdefault(
+            "output_skeleton_json",
+            dump_prompt_json({"normadressat": norm_addressee, "fallgruppen": []}),
+        )
+
     if prompt_id == PromptId.EFFORT_CALCULATION:
         render_values["effort_method_guidance"] = _render_effort_method_guidance(norm_addressee)
         render_values["effort_appendix"] = _render_effort_appendix(norm_addressee)
-        render_values["effort_json_schema"] = _render_effort_json_schema(norm_addressee)
+        render_values["effort_taetigkeit_form"] = _render_effort_taetigkeit_form(norm_addressee)
+        render_values.setdefault(
+            "output_skeleton_json",
+            dump_prompt_json({"normadressat": norm_addressee, "fallgruppen": []}),
+        )
 
     needs_law_summary = "{law_summary}" in template and not render_values.get("law_summary")
     needs_regulation_laws = (
@@ -1860,8 +1728,8 @@ def _render_effort_method_guidance(norm_addressee: str) -> str:
     return EFFORT_METHOD_GUIDANCE.get(norm_addressee, EFFORT_METHOD_GUIDANCE[ADMINISTRATION])
 
 
-def _render_effort_json_schema(norm_addressee: str) -> str:
-    schema = EFFORT_JSON_SCHEMA_BY_ADDRESSEE.get(norm_addressee)
-    if schema is not None:
-        return schema.strip()
-    return EFFORT_JSON_SCHEMA_DEFAULT.replace("{norm_addressee}", norm_addressee).strip()
+def _render_effort_taetigkeit_form(norm_addressee: str) -> str:
+    form = EFFORT_TAETIGKEIT_FORM_BY_ADDRESSEE.get(norm_addressee)
+    if form is not None:
+        return form.strip()
+    return EFFORT_TAETIGKEIT_FORM_DEFAULT.strip()

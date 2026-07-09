@@ -20,6 +20,8 @@ from backend.core.norm_addressees import (
 from backend.core.parsing import parse_first_int, parse_optional_number
 from backend.core.payload_builders import (
     build_case_groups_payload,
+    build_cases_calculation_output_skeleton,
+    build_effort_calculation_output_skeleton,
     build_step_analysis_payload,
     dump_prompt_json,
 )
@@ -60,7 +62,7 @@ def _parse_cases_payload(
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid cases_calculation payload",
-        required_top_level_key="prozesse",
+        required_top_level_key="fallgruppen",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
@@ -578,7 +580,7 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     data, parse_mode = require_json_object(
         payload,
         error_context=f"Invalid effort_calculation payload for {norm_addressee}",
-        required_top_level_key="prozesse",
+        required_top_level_key="fallgruppen",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
@@ -815,6 +817,12 @@ def prepare_effort_calculation(
         PromptId.EFFORT_CALCULATION,
         session_id=session_id,
         step_analysis_json=dump_prompt_json(steps_payload),
+        output_skeleton_json=dump_prompt_json(
+            build_effort_calculation_output_skeleton(
+                steps_payload,
+                norm_addressee=norm_addressee,
+            )
+        ),
         norm_addressee=norm_addressee,
     )
 
@@ -830,6 +838,12 @@ def prepare_effort_calculation(
             PromptId.CASES_CALCULATION,
             session_id=session_id,
             case_groups_json=dump_prompt_json(case_groups_payload),
+            output_skeleton_json=dump_prompt_json(
+                build_cases_calculation_output_skeleton(
+                    case_groups_payload,
+                    norm_addressee=norm_addressee,
+                )
+            ),
             norm_addressee=norm_addressee,
         )
 
