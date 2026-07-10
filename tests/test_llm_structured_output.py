@@ -6,8 +6,23 @@ from backend.core import db, llm_service
 from backend.core.auth import ApiKeys
 from backend.core.llm_attempts import query_and_stage_llm_answer
 from backend.core.llm_service import LlmQueryError, LlmResult, query_llm
+from backend.core.norm_addressees import BUSINESS, CITIZENS
 
 JSON_MODE = {"type": "json_object"}
+
+
+def _json_schema_mode() -> dict:
+    return {
+        "type": "json_schema",
+        "name": "cases_calculation",
+        "schema": {
+            "type": "object",
+            "properties": {"normadressat": {"type": "string"}},
+            "required": ["normadressat"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
 
 
 def _keys() -> ApiKeys:
@@ -168,11 +183,247 @@ def test_query_deepinfra_passes_response_format(monkeypatch):
     assert captured["response_format"] == JSON_MODE
 
 
-# --- Opt-in: nur die Workflow-Prompts aktivieren den JSON-Modus ---
+# --- API-spezifisches Wrapping des json_schema-Formats ---
 
 
-def test_query_and_stage_enables_json_mode_for_workflow_prompt(test_client):
-    session_id, _ = db.upsert_session("LLM-JSON-MODE", "test-model")
+def test_query_openai_chat_wraps_json_schema(monkeypatch):
+    captured: dict = {}
+
+    async def fake_once(*, provider, client, payload, model):
+        captured["payload"] = payload
+        return LlmResult(text="{}")
+
+    monkeypatch.setattr(llm_service, "_query_chat_completions_once", fake_once)
+
+    schema = _json_schema_mode()
+    asyncio.run(
+        llm_service.query_openai("p", "sk-test", "gpt-4o", response_format=schema)
+    )
+
+    assert captured["payload"]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "cases_calculation",
+            "strict": True,
+            "schema": schema["schema"],
+        },
+    }
+
+
+def test_query_gemini_chat_wraps_json_schema(monkeypatch):
+    captured: dict = {}
+
+    async def fake_once(*, provider, client, payload, model):
+        captured["payload"] = payload
+        return LlmResult(text="{}")
+
+    monkeypatch.setattr(llm_service, "_query_chat_completions_once", fake_once)
+
+    schema = _json_schema_mode()
+    asyncio.run(
+        llm_service.query_gemini_openai(
+            "p", "g-test", "gemini-2.5-flash", response_format=schema
+        )
+    )
+
+    assert captured["payload"]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "cases_calculation",
+            "strict": True,
+            "schema": schema["schema"],
+        },
+    }
+
+
+def test_query_openai_responses_wraps_json_schema(monkeypatch):
+    captured: dict = {}
+
+    class _FakeResponses:
+        async def create(self, **payload):
+            captured["payload"] = payload
+            raise RuntimeError("stop after payload capture")
+
+    class _FakeClient:
+        responses = _FakeResponses()
+
+    schema = _json_schema_mode()
+    with pytest.raises(Exception):
+        asyncio.run(
+            llm_service._query_openai_responses(
+                _FakeClient(), "p", "gpt-5-mini", response_format=schema
+            )
+        )
+
+    assert captured["payload"]["text"] == {
+        "format": {
+            "type": "json_schema",
+            "name": "cases_calculation",
+            "schema": schema["schema"],
+            "strict": True,
+        }
+    }
+
+
+def test_response_format_wrappers_pass_json_object_through():
+    assert llm_service._response_format_for_chat(JSON_MODE) == JSON_MODE
+    assert llm_service._response_format_for_responses(JSON_MODE) == JSON_MODE
+    assert llm_service._response_format_for_chat(None) is None
+    assert llm_service._response_format_for_responses(None) is None
+
+
+# --- Gestaffelte Fallback-Kette json_schema -> json_object -> None ---
+
+
+def test_query_llm_staged_fallback_json_schema_to_json_object_to_none(monkeypatch):
+    calls: list = []
+
+    async def fake_query_openai(
+        prompt, api_key, model, *, stream=False, on_event=None, response_format=None
+    ):
+        calls.append(response_format)
+        if response_format is not None:
+            raise LlmQueryError(
+                provider="openai",
+                model=model,
+                reason="provider_http_error",
+                status_code=400,
+                message="unsupported",
+            )
+        return LlmResult(text="{}")
+
+    monkeypatch.setattr(llm_service, "query_openai", fake_query_openai)
+
+    schema = _json_schema_mode()
+    result = asyncio.run(
+        query_llm("p", _keys(), "gpt-4o", provider="openai", response_format=schema)
+    )
+
+    assert result.text == "{}"
+    assert calls == [schema, JSON_MODE, None]
+
+
+def test_query_llm_json_schema_falls_back_to_json_object(monkeypatch):
+    calls: list = []
+
+    async def fake_query_openai(
+        prompt, api_key, model, *, stream=False, on_event=None, response_format=None
+    ):
+        calls.append(response_format)
+        if response_format is not None and response_format.get("type") == "json_schema":
+            raise LlmQueryError(
+                provider="openai",
+                model=model,
+                reason="provider_http_error",
+                status_code=400,
+                message="strict schema unsupported",
+            )
+        return LlmResult(text="{}")
+
+    monkeypatch.setattr(llm_service, "query_openai", fake_query_openai)
+
+    schema = _json_schema_mode()
+    result = asyncio.run(
+        query_llm("p", _keys(), "gpt-4o", provider="openai", response_format=schema)
+    )
+
+    assert result.text == "{}"
+    assert calls == [schema, JSON_MODE]
+
+
+# --- Opt-in: cases/effort erzwingen json_schema, andere json_object ---
+
+
+def test_query_and_stage_uses_json_schema_for_cases(test_client):
+    session_id, _ = db.upsert_session("LLM-JSON-SCHEMA-CASES", "test-model")
+    captured: dict = {}
+
+    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
+        captured.update(kwargs)
+        return "Antworttext"
+
+    asyncio.run(
+        query_and_stage_llm_answer(
+            session_id=session_id,
+            prompt_id="cases_calculation",
+            prompt="Frage",
+            api_keys=ApiKeys(openai_api_key="sk-test"),
+            model="test-model",
+            provider="openai",
+            query_fn=fake_query_fn,
+            norm_addressee=BUSINESS,
+        )
+    )
+
+    response_format = captured.get("response_format")
+    assert response_format["type"] == "json_schema"
+    assert response_format["name"] == "cases_calculation"
+    assert response_format["strict"] is True
+    assert response_format["schema"]["properties"]["normadressat"]["enum"] == [BUSINESS]
+
+
+def test_query_and_stage_uses_effort_citizens_schema_variant(test_client):
+    session_id, _ = db.upsert_session("LLM-JSON-SCHEMA-EFFORT", "test-model")
+    captured: dict = {}
+
+    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
+        captured.update(kwargs)
+        return "Antworttext"
+
+    asyncio.run(
+        query_and_stage_llm_answer(
+            session_id=session_id,
+            prompt_id="effort_calculation",
+            prompt="Frage",
+            api_keys=ApiKeys(openai_api_key="sk-test"),
+            model="test-model",
+            provider="openai",
+            query_fn=fake_query_fn,
+            norm_addressee=CITIZENS,
+        )
+    )
+
+    response_format = captured.get("response_format")
+    assert response_format["type"] == "json_schema"
+    assert response_format["name"] == "effort_calculation"
+    taetigkeit = response_format["schema"]["properties"]["fallgruppen"]["items"][
+        "properties"
+    ]["taetigkeiten"]["items"]
+    assert set(taetigkeit["properties"].keys()) == {
+        "taetigkeiten_id",
+        "zeitaufwand_in_min_gueltig",
+        "sachaufwand_gueltig",
+        "zeitaufwand_in_min_vorschlag",
+        "sachaufwand_vorschlag",
+    }
+
+
+def test_query_and_stage_keeps_json_object_for_other_structured_prompt(test_client):
+    session_id, _ = db.upsert_session("LLM-JSON-OBJECT-OTHER", "test-model")
+    captured: dict = {}
+
+    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
+        captured.update(kwargs)
+        return "Antworttext"
+
+    asyncio.run(
+        query_and_stage_llm_answer(
+            session_id=session_id,
+            prompt_id="process_compilation",
+            prompt="Frage",
+            api_keys=ApiKeys(openai_api_key="sk-test"),
+            model="test-model",
+            provider="openai",
+            query_fn=fake_query_fn,
+            norm_addressee=BUSINESS,
+        )
+    )
+
+    assert captured.get("response_format") == {"type": "json_object"}
+
+
+def test_query_and_stage_cases_degrades_to_json_object_without_addressee(test_client):
+    session_id, _ = db.upsert_session("LLM-JSON-DEGRADE", "test-model")
     captured: dict = {}
 
     async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
