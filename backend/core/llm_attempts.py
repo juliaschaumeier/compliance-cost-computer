@@ -20,6 +20,10 @@ from backend.core.llm_service import (
     coerce_llm_result,
     query_llm,
 )
+from backend.core.payload_builders import (
+    build_cases_calculation_output_schema,
+    build_effort_calculation_output_schema,
+)
 from backend.core.prompt_audit import append_prompt_audit_entry
 from backend.core.prompts import PromptId
 from backend.core.request_context import get_request_context
@@ -35,6 +39,37 @@ STRUCTURED_JSON_PROMPT_IDS = frozenset(
         PromptId.EFFORT_CALCULATION,
     }
 )
+
+JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
+
+_JSON_SCHEMA_BUILDERS = {
+    PromptId.CASES_CALCULATION: (
+        "cases_calculation",
+        build_cases_calculation_output_schema,
+    ),
+    PromptId.EFFORT_CALCULATION: (
+        "effort_calculation",
+        build_effort_calculation_output_schema,
+    ),
+}
+
+
+def _structured_response_format(
+    prompt_id: str,
+    norm_addressee: str | None,
+) -> dict[str, Any] | None:
+    if prompt_id not in STRUCTURED_JSON_PROMPT_IDS:
+        return None
+    builder = _JSON_SCHEMA_BUILDERS.get(prompt_id)
+    if builder is None or not norm_addressee:
+        return JSON_OBJECT_RESPONSE_FORMAT
+    schema_name, build_schema = builder
+    return {
+        "type": "json_schema",
+        "name": schema_name,
+        "schema": build_schema(norm_addressee),
+        "strict": True,
+    }
 
 
 def _provider_metadata(provider: str | None) -> dict[str, str | None]:
@@ -371,11 +406,13 @@ async def query_and_stage_llm_answer(
             )
         if supports_on_event:
             query_kwargs["on_event"] = _on_stream_event
-        if (
-            prompt_id in STRUCTURED_JSON_PROMPT_IDS
-            and _supports_keyword_argument(query_impl, "response_format")
+        if prompt_id in STRUCTURED_JSON_PROMPT_IDS and _supports_keyword_argument(
+            query_impl, "response_format"
         ):
-            query_kwargs["response_format"] = {"type": "json_object"}
+            query_kwargs["response_format"] = _structured_response_format(
+                prompt_id,
+                norm_addressee,
+            )
         llm_result = coerce_llm_result(
             await query_impl(
                 prompt,

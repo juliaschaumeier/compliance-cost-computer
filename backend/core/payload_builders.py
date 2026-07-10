@@ -373,3 +373,94 @@ def build_effort_calculation_output_skeleton(
                 }
             )
     return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}
+
+
+_CONFIDENCE_ENUM = ("high", "medium", "low")
+
+_NULLABLE_NUMBER = {"type": ["number", "null"]}
+
+
+def _strict_object(properties: dict[str, Any]) -> dict:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties.keys()),
+        "additionalProperties": False,
+    }
+
+
+def build_cases_calculation_output_schema(norm_addressee: str) -> dict:
+    fallgruppe = _strict_object(
+        {
+            "fallgruppen_id": {"type": "integer"},
+            "anzahl_betroffene_gueltig": _NULLABLE_NUMBER,
+            "haeufigkeit_pro_jahr_gueltig": _NULLABLE_NUMBER,
+            "anzahl_betroffene_vorschlag": _NULLABLE_NUMBER,
+            "haeufigkeit_pro_jahr_vorschlag": _NULLABLE_NUMBER,
+            "erklaerungen": _strict_object(
+                {key: {"type": "string"} for key in _CASES_METRIC_KEYS}
+            ),
+            "confidence": _strict_object(
+                {
+                    key: {"type": "string", "enum": list(_CONFIDENCE_ENUM)}
+                    for key in _CASES_METRIC_KEYS
+                }
+            ),
+        }
+    )
+    return _strict_object(
+        {
+            "normadressat": {"type": "string", "enum": [norm_addressee]},
+            "fallgruppen": {"type": "array", "items": fallgruppe},
+        }
+    )
+
+
+def _effort_taetigkeit_schema(norm_addressee: str) -> dict:
+    if norm_addressee == CITIZENS:
+        return _strict_object(
+            {
+                "taetigkeiten_id": {"type": "integer"},
+                "zeitaufwand_in_min_gueltig": _NULLABLE_NUMBER,
+                "sachaufwand_gueltig": _NULLABLE_NUMBER,
+                "zeitaufwand_in_min_vorschlag": _NULLABLE_NUMBER,
+                "sachaufwand_vorschlag": _NULLABLE_NUMBER,
+            }
+        )
+    personalaufwand_item = _strict_object(
+        {
+            "qualifikation": {"type": "string"},
+            "lohnquelle": {"type": "string"},
+            "zeitaufwand_in_min": _NULLABLE_NUMBER,
+        }
+    )
+    return _strict_object(
+        {
+            "taetigkeiten_id": {"type": "integer"},
+            "personalaufwand_gueltig": {"type": "array", "items": personalaufwand_item},
+            "sachaufwand_gueltig": _NULLABLE_NUMBER,
+            "personalaufwand_vorschlag": {
+                "type": "array",
+                "items": personalaufwand_item,
+            },
+            "sachaufwand_vorschlag": _NULLABLE_NUMBER,
+        }
+    )
+
+
+def build_effort_calculation_output_schema(norm_addressee: str) -> dict:
+    fallgruppe = _strict_object(
+        {
+            "fallgruppen_id": {"type": "integer"},
+            "taetigkeiten": {
+                "type": "array",
+                "items": _effort_taetigkeit_schema(norm_addressee),
+            },
+        }
+    )
+    return _strict_object(
+        {
+            "normadressat": {"type": "string", "enum": [norm_addressee]},
+            "fallgruppen": {"type": "array", "items": fallgruppe},
+        }
+    )
