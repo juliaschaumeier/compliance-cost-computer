@@ -1203,7 +1203,7 @@ def test_processes_step_partial_failure_keeps_valid_sibling_pending_and_applies_
     assert retry_start.status_code == 200
     retry_done = _wait_for_run_completion(test_client, retry_start.json()["run_id"])
     assert retry_done["status"] == "completed"
-    assert calls == {ADMINISTRATION: 1, BUSINESS: 2}
+    assert calls == {ADMINISTRATION: 1, BUSINESS: 3}
     assert len(db.list_processes_for_session_and_addressee(session_id, ADMINISTRATION)) == 1
     assert len(db.list_processes_for_session_and_addressee(session_id, BUSINESS)) == 1
 
@@ -3223,3 +3223,294 @@ def test_run_all_successful_restart_clears_transient_status_fields(test_client, 
     assert restart_done["current_step"] is None
     assert restart_done["current_label"] is None
     assert restart_done["current_norm_addressee"] is None
+
+
+def test_is_retryable_atomic_step_error_only_matches_422():
+    from fastapi import HTTPException
+
+    assert (
+        sessions_router._is_retryable_atomic_step_error(
+            HTTPException(status_code=422, detail="No process steps parsed")
+        )
+        is True
+    )
+    for code in (400, 404, 409, 500, 502):
+        assert (
+            sessions_router._is_retryable_atomic_step_error(
+                HTTPException(status_code=code, detail="x")
+            )
+            is False
+        )
+    assert sessions_router._is_retryable_atomic_step_error(RuntimeError("x")) is False
+    assert sessions_router._is_retryable_atomic_step_error(ValueError("x")) is False
+
+
+def test_process_step_retries_once_when_first_output_violates_skeleton(
+    test_client,
+    monkeypatch,
+):
+    app_session_id = "STEP-PROCESS-STEPS-RETRY-SUCCESS"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ B",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+        is_business_information_obligation=True,
+    )
+    business_process = db.insert_process(
+        session_id,
+        "Prozess Wirtschaft",
+        "Beschreibung",
+        norm_addressee=BUSINESS,
+    )
+    case_group_1 = db.insert_case_group(
+        session_id,
+        business_process,
+        "Fallgruppe 1",
+        "Beschreibung",
+        norm_addressee=BUSINESS,
+    )
+    case_group_2 = db.insert_case_group(
+        session_id,
+        business_process,
+        "Fallgruppe 2",
+        "Beschreibung",
+        norm_addressee=BUSINESS,
+    )
+    _upsert_process_tile(session_id, business_process, BUSINESS, row=1)
+    _upsert_case_group_tile(session_id, case_group_1, business_process, BUSINESS, row=1)
+    _upsert_case_group_tile(session_id, case_group_2, business_process, BUSINESS, row=2)
+    calls = {BUSINESS: 0}
+
+    async def flaky_steps_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        assert addressee == BUSINESS
+        calls[addressee] += 1
+        fallgruppen = [
+            {
+                "fallgruppen_id": str(case_group_1),
+                "taetigkeiten": [
+                    {"taetigkeit": "Schritt 1", "beschreibung": "Beschreibung 1"}
+                ],
+            }
+        ]
+        if calls[addressee] >= 2:
+            fallgruppen.append(
+                {
+                    "fallgruppen_id": str(case_group_2),
+                    "taetigkeiten": [
+                        {"taetigkeit": "Schritt 2", "beschreibung": "Beschreibung 2"}
+                    ],
+                }
+            )
+        return _json_for_prompt(prompt, {"fallgruppen": fallgruppen})
+
+    monkeypatch.setattr(process_steps_router, "query_llm", flaky_steps_llm)
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "process_steps",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+
+    assert payload["status"] == "completed"
+    assert calls == {BUSINESS: 2}
+    steps = db.list_process_steps_for_session_and_addressee(session_id, BUSINESS)
+    covered = {int(step["case_group_id"]) for step in steps}
+    assert covered == {case_group_1, case_group_2}
+
+
+def test_process_step_exhausts_retry_and_keeps_partial_failure_state(
+    test_client,
+    monkeypatch,
+):
+    app_session_id = "STEP-PROCESS-STEPS-RETRY-EXHAUSTED"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.insert_regulation(
+        session_id,
+        "§ A",
+        "Vorgabe Verwaltung",
+        applies_to_administration=True,
+        applies_to_business=False,
+        applies_to_citizens=False,
+    )
+    db.insert_regulation(
+        session_id,
+        "§ B",
+        "Vorgabe Wirtschaft",
+        applies_to_administration=False,
+        applies_to_business=True,
+        applies_to_citizens=False,
+        is_business_information_obligation=True,
+    )
+    admin_process = db.insert_process(
+        session_id,
+        "Prozess Verwaltung",
+        "Beschreibung",
+        norm_addressee=ADMINISTRATION,
+    )
+    business_process = db.insert_process(
+        session_id,
+        "Prozess Wirtschaft",
+        "Beschreibung",
+        norm_addressee=BUSINESS,
+    )
+    admin_case_group = db.insert_case_group(
+        session_id,
+        admin_process,
+        "Fallgruppe Verwaltung",
+        "Beschreibung",
+        norm_addressee=ADMINISTRATION,
+    )
+    db.insert_case_group(
+        session_id,
+        business_process,
+        "Fallgruppe Wirtschaft",
+        "Beschreibung",
+        norm_addressee=BUSINESS,
+    )
+    calls = {ADMINISTRATION: 0, BUSINESS: 0}
+
+    async def steps_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        calls[addressee] += 1
+        case_group_id = admin_case_group if addressee == ADMINISTRATION else 999999
+        return _json_for_prompt(
+            prompt,
+            {
+                "fallgruppen": [
+                    {
+                        "fallgruppen_id": str(case_group_id),
+                        "taetigkeiten": [
+                            {"taetigkeit": f"Schritt {addressee}", "beschreibung": "B"}
+                        ],
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(process_steps_router, "query_llm", steps_llm)
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "process_steps",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+
+    assert payload["status"] == "failed"
+    assert "Die Antwort für Wirtschaft konnte nicht verarbeitet werden" in payload["last_error"]
+    assert calls == {ADMINISTRATION: 1, BUSINESS: 2}
+    assert db.list_process_steps_for_session(session_id) == []
+    rows = [
+        row
+        for row in db.list_recent_llm_answers_for_session(session_id)
+        if row["prompt_id"] == PromptId.PROCESS_STEP_ANALYSIS
+    ]
+    admin_rows = [row for row in rows if row["norm_addressee"] == ADMINISTRATION]
+    business_rows = [row for row in rows if row["norm_addressee"] == BUSINESS]
+    assert len(admin_rows) == 1
+    assert admin_rows[0]["answer_state"] == "pending"
+    assert admin_rows[0]["state_reason"] == "waiting_for_paired_retry"
+    assert business_rows
+    assert all(row["answer_state"] == "invalid" for row in business_rows)
+    assert any(
+        str(row["state_reason"]).startswith("session_update_failed")
+        for row in business_rows
+    )
+
+
+def test_effort_step_retries_failed_page_and_reuses_successful_pages(
+    test_client,
+    monkeypatch,
+):
+    app_session_id = "STEP-EFFORT-RETRY-SUCCESS"
+    session_id = _seed_step6_prerequisites(app_session_id)
+    calls: dict[tuple[str, str], int] = {}
+
+    async def flaky_effort_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        prompt_kind = "effort" if _is_effort_prompt(prompt) else "cases"
+        calls[(prompt_kind, addressee)] = calls.get((prompt_kind, addressee), 0) + 1
+        case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
+        if prompt_kind == "cases":
+            return json.dumps(
+                {
+                    "fallgruppen": [
+                        {
+                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                            "anzahl_betroffene_vorschlag": "10",
+                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                        }
+                    ]
+                }
+            )
+        if addressee == BUSINESS and calls[(prompt_kind, addressee)] == 1:
+            return json.dumps(
+                {
+                    "fallgruppen": [
+                        {
+                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                            "taetigkeiten": [],
+                        }
+                    ]
+                }
+            )
+        if addressee == CITIZENS:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "zeitaufwand_in_min_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        else:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "personalaufwand_vorschlag": [_personalaufwand_row(addressee, "30")],
+                "sachaufwand_vorschlag": "10",
+            }
+        return json.dumps(
+            {
+                "fallgruppen": [
+                    {
+                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                        "taetigkeiten": [effort_entry],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(effort_router, "query_llm", flaky_effort_llm)
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+
+    assert payload["status"] == "completed"
+    assert calls[("effort", BUSINESS)] == 2
+    assert calls[("cases", BUSINESS)] == 2
+    assert calls[("effort", ADMINISTRATION)] == 1
+    assert calls[("cases", ADMINISTRATION)] == 1
+    assert calls[("effort", CITIZENS)] == 1
+    assert calls[("cases", CITIZENS)] == 1
+    for addressee in (ADMINISTRATION, BUSINESS, CITIZENS):
+        assert db.has_effort_metrics(session_id, addressee)

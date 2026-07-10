@@ -44,6 +44,7 @@ from backend.core.llm_attempts import (
     mark_llm_parse_fallback,
     prompt_sha256,
     publish_llm_answer_applied,
+    query_and_stage_llm_answer,
     query_and_stage_llm_answers_parallel,
 )
 from backend.core.llm_service import LlmResult, query_llm
@@ -1125,6 +1126,13 @@ def _promote_pending_retry(answer_ids: list[int]) -> None:
         )
 
 
+_ATOMIC_STEP_MAX_ATTEMPTS = 2
+
+
+def _is_retryable_atomic_step_error(exc: Exception) -> bool:
+    return isinstance(exc, HTTPException) and exc.status_code == 422
+
+
 async def _run_atomic_single_prompt_step(
     *,
     step: _AtomicSinglePromptStep,
@@ -1188,7 +1196,12 @@ async def _run_atomic_single_prompt_step(
                     result_key=key,
                 )
             )
-        prepared[norm_addressee] = {"status": "ready", "context": context, "key": key}
+        prepared[norm_addressee] = {
+            "status": "ready",
+            "context": context,
+            "key": key,
+            "prompt": prompt,
+        }
 
     if specs:
         staged_ids, staged_results, query_errors = await query_and_stage_llm_answers_parallel(
@@ -1221,16 +1234,37 @@ async def _run_atomic_single_prompt_step(
             if info["status"] != "ready":
                 continue
             key = info["key"]
-            answer_id = pending_answer_ids[key]
-            result = query_results[key]
-            parsed, fallback_kinds = step.parse_fn(
-                response_text=result.text,
-                norm_addressee=norm_addressee,
-                context=info["context"],
-            )
+            attempt = 1
+            while True:
+                try:
+                    parsed, fallback_kinds = step.parse_fn(
+                        response_text=query_results[key].text,
+                        norm_addressee=norm_addressee,
+                        context=info["context"],
+                    )
+                    break
+                except Exception as exc:
+                    if (
+                        not _is_retryable_atomic_step_error(exc)
+                        or attempt >= _ATOMIC_STEP_MAX_ATTEMPTS
+                    ):
+                        raise
+                    attempt += 1
+                    retry_answer_id, retry_result = await query_and_stage_llm_answer(
+                        session_id=session_id,
+                        prompt_id=step.prompt_id,
+                        prompt=info["prompt"],
+                        api_keys=api_keys,
+                        model=model,
+                        provider=payload.provider,
+                        query_fn=step.query_fn,
+                        norm_addressee=norm_addressee,
+                    )
+                    pending_answer_ids[key] = retry_answer_id
+                    query_results[key] = retry_result
             for fallback_kind in sorted(fallback_kinds):
                 mark_llm_parse_fallback(
-                    answer_id=answer_id,
+                    answer_id=pending_answer_ids[key],
                     session_id=session_id,
                     prompt_id=step.prompt_id,
                     fallback_kind=fallback_kind,
@@ -1313,6 +1347,49 @@ async def _run_atomic_single_prompt_step(
                 {"key": step.step_key, "norm_addressee": norm_addressee},
             )
     return created_by_addressee
+
+
+async def _requery_effort_page(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    context: dict,
+    use_deep_research: bool,
+    api_keys: ApiKeys,
+    model: str,
+    provider: str | None,
+) -> tuple[dict[str, int], dict[str, LlmResult]]:
+    specs = [
+        LlmPromptSpec(
+            prompt_id=PromptId.EFFORT_CALCULATION,
+            query_label=f"EFFORT_CALCULATION/{norm_addressee}",
+            prompt=context["effort_prompt"],
+            norm_addressee=norm_addressee,
+            result_key=_result_key(PromptId.EFFORT_CALCULATION, norm_addressee),
+        )
+    ]
+    if not use_deep_research:
+        specs.insert(
+            0,
+            LlmPromptSpec(
+                prompt_id=PromptId.CASES_CALCULATION,
+                query_label=f"CASES_CALCULATION/{norm_addressee}",
+                prompt=context["cases_prompt"],
+                norm_addressee=norm_addressee,
+                result_key=_result_key(PromptId.CASES_CALCULATION, norm_addressee),
+            ),
+        )
+    staged_ids, staged_results, query_errors = await query_and_stage_llm_answers_parallel(
+        session_id=session_id,
+        specs=specs,
+        api_keys=api_keys,
+        model=model,
+        provider=provider,
+        query_fn=effort_router.query_llm,
+    )
+    if query_errors:
+        raise HTTPException(status_code=502, detail="; ".join(query_errors))
+    return staged_ids, staged_results
 
 
 async def _run_atomic_effort_step(
@@ -1473,23 +1550,47 @@ async def _run_atomic_effort_step(
                 continue
             effort_key = _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
             cases_key = _result_key(PromptId.CASES_CALCULATION, norm_addressee)
-            parsed_by_addressee[norm_addressee] = effort_router.parse_effort_calculation_outputs(
-                session_id=session_id,
-                norm_addressee=norm_addressee,
-                context=context,
-                cases_text=(
-                    None
-                    if use_deep_research
-                    else query_results[cases_key].text
-                ),
-                effort_text=query_results[effort_key].text,
-                cases_answer_id=(
-                    None
-                    if use_deep_research
-                    else pending_answer_ids[cases_key]
-                ),
-                effort_answer_id=pending_answer_ids[effort_key],
-            )
+            attempt = 1
+            while True:
+                try:
+                    parsed_by_addressee[norm_addressee] = (
+                        effort_router.parse_effort_calculation_outputs(
+                            session_id=session_id,
+                            norm_addressee=norm_addressee,
+                            context=context,
+                            cases_text=(
+                                None
+                                if use_deep_research
+                                else query_results[cases_key].text
+                            ),
+                            effort_text=query_results[effort_key].text,
+                            cases_answer_id=(
+                                None
+                                if use_deep_research
+                                else pending_answer_ids[cases_key]
+                            ),
+                            effort_answer_id=pending_answer_ids[effort_key],
+                        )
+                    )
+                    break
+                except Exception as exc:
+                    if (
+                        not _is_retryable_atomic_step_error(exc)
+                        or attempt >= _ATOMIC_STEP_MAX_ATTEMPTS
+                    ):
+                        raise
+                    attempt += 1
+                    retry_ids, retry_results = await _requery_effort_page(
+                        session_id=session_id,
+                        norm_addressee=norm_addressee,
+                        context=context,
+                        use_deep_research=use_deep_research,
+                        api_keys=api_keys,
+                        model=model,
+                        provider=payload.provider,
+                    )
+                    pending_answer_ids.update(retry_ids)
+                    query_results.update(retry_results)
     except Exception as exc:
         failed_addressee = norm_addressee
         failed_ids = [
