@@ -1545,6 +1545,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Wirtschaft und Verwaltung: Aufwand grundsätzlich in Euro beziehungsweise Tsd. Euro darstellen.
         - Werte in Tabellen grundsätzlich in Tsd. Euro ausweisen, sofern die JSON-Struktur nichts anderes vorgibt.
         - Im Fließtext können gerundete Werte in Euro, Tsd. Euro oder Mio. Euro verwendet werden; die Rundung muss konsistent sein.
+        - Euro-Beträge werden auf ganze Euro gerundet; Cent werden nicht ausgewiesen, also `14 017 747 Euro` statt `14 017 746,67 Euro`.
         - Bürgerzeit wird nicht monetarisiert, es sei denn, die JSON-Struktur enthält ausdrücklich eine solche Monetarisierung.
         - Verwende deutsche Zahlenformatierung, soweit dies für Gesetzesbegründungen üblich ist, zum Beispiel `1 000 Euro`, `1,5 Mio. Euro`, `100 000 Euro`.
 

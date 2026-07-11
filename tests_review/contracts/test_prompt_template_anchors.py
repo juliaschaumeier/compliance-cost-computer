@@ -334,3 +334,20 @@ class TestComplianceExportSection4VorgabeTables:
 
     def test_footnote_format_present(self, template: str):
         assert "**Zu lfd. Nr. X:**" in template
+
+
+class TestComplianceExportRounding:
+    """LF-RUND-001: Euro-Betraege im Export werden auf ganze Euro gerundet.
+    Cent-Angaben wie `14 017 746,67 Euro` sind bei Betraegen dieser
+    Groessenordnung nicht ueblich und wurden im Review beanstandet.
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_template_demands_whole_euro_amounts(self, template: str):
+        assert "auf ganze Euro gerundet" in _compact(template)
+
+    def test_template_forbids_cent_amounts(self, template: str):
+        assert "Cent werden nicht ausgewiesen" in _compact(template)
