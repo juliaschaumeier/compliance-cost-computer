@@ -1,6 +1,10 @@
 import { getColumnLabel } from "@/lib/effortLabels";
 import { normalizeChangeStatus } from "@/lib/changeStatus";
-import { formatCompactCurrency, formatCompactHours } from "@/lib/compactNumberFormat";
+import {
+  formatCompactCount,
+  formatCompactCurrency,
+  formatCompactHours,
+} from "@/lib/compactNumberFormat";
 import { NormAddressee, Tile } from "@/types";
 
 export type TileTableRow = {
@@ -461,7 +465,7 @@ export function buildTileHeaderMetrics(
     const delta = deltaValues.proposed - deltaValues.current;
     const prefix = delta > 0 ? "+" : "";
     return {
-      left: `Δ ${prefix}${formatCount(delta)}`,
+      left: `Δ ${prefix}${formatCompactCount(delta)}`,
       right: null,
     };
   }

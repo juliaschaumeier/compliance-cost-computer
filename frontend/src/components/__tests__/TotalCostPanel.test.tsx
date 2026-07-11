@@ -277,7 +277,7 @@ describe("TotalCostPanel", () => {
     expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123");
   });
 
-  it("shows the business bureaucracy cost as an inline 'davon IP' segment", async () => {
+  it("shows the business bureaucracy cost as an inline 'inkl. IP' segment", async () => {
     mockGetTotalCostSummary.mockResolvedValue({
       administration: { norm_addressee: "administration", total_cost: 320000 },
       business: {
@@ -301,11 +301,38 @@ describe("TotalCostPanel", () => {
     render(<TotalCostPanel />);
 
     expect(
-      await screen.findByText(/920 Tsd\. € · davon IP 40 Tsd\. €/)
+      await screen.findByText(/920 Tsd\. € · inkl\. 40 Tsd\. € IP/)
     ).toBeInTheDocument();
     expect(
-      screen.getByLabelText(/Wirtschaft 920 Tsd\. € · davon IP 40 Tsd\. €/i)
+      screen.getByLabelText(/Wirtschaft 920 Tsd\. € · inkl\. 40 Tsd\. € IP/i)
     ).toBeInTheDocument();
+  });
+
+  it("omits the IP segment when the bureaucracy cost is zero", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 320000 },
+      business: {
+        norm_addressee: "business",
+        total_cost: 920000,
+        bureaucracy_cost: 0,
+      },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: 14200,
+        total_expenses: 35000,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(await screen.findByText("920 Tsd. €")).toBeInTheDocument();
+    expect(screen.queryByText(/IP/)).not.toBeInTheDocument();
   });
 
   it("compacts very large citizen hours in the cost summary", async () => {
@@ -357,9 +384,7 @@ describe("TotalCostPanel", () => {
     expect(group).toHaveClass("flex");
     expect(group).toHaveClass("gap-10");
     expect(screen.getByText("-32,7 Mio. h · 0 €")).toHaveClass("whitespace-nowrap");
-    expect(screen.getByText("-96,8 Mio. € · davon IP 0 €")).toHaveClass(
-      "whitespace-nowrap"
-    );
+    expect(screen.getByText("-96,8 Mio. €")).toHaveClass("whitespace-nowrap");
   });
 
   it("shows zero citizen effort instead of unavailable when citizen totals are empty", async () => {

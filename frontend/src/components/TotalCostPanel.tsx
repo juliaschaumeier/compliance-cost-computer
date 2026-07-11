@@ -69,8 +69,11 @@ function formatCitizenCostValue(row: TotalCostResponse | undefined): string {
 
 function formatBusinessCostValue(row: TotalCostResponse | undefined): string {
   const total = formatCostValue(row?.total_cost, { zeroWhenMissing: true });
-  const bureaucracy = formatCostValue(row?.bureaucracy_cost, { zeroWhenMissing: true });
-  return `${total} · davon IP ${bureaucracy}`;
+  const bureaucracy = row?.bureaucracy_cost;
+  if (typeof bureaucracy !== "number" || bureaucracy === 0) {
+    return total;
+  }
+  return `${total} · inkl. ${formatCompactCurrency(bureaucracy)} IP`;
 }
 
 function buildCostSummaryCells(summary: CostSummary): {

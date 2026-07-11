@@ -52,6 +52,22 @@ describe("tileMetrics", () => {
     });
   });
 
+  it("compacts large case group deltas", () => {
+    const tile = buildTile({
+      id: "case_group_14",
+      meta_information: {
+        change_status: "eingefuehrt",
+        cases_current: 0,
+        cases_proposed: 20_000_000,
+      },
+    });
+
+    expect(buildTileHeaderMetrics(tile)).toEqual({
+      left: "Δ +20 Mio.",
+      right: null,
+    });
+  });
+
   it("does not render case group delta pills for changed groups with incomplete cases", () => {
     const tile = buildTile({
       id: "case_group_13",

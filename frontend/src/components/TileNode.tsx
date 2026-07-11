@@ -73,18 +73,20 @@ export function TileNode({ data, id }: NodeProps<TileNodeData>) {
                     {getChangeStatusLabel(data.changeStatus)}
                   </span>
                 )}
-                {data.showIpBadge && (
-                  <span
-                    className="tile-ip"
-                    title="Informationspflicht Wirtschaft"
-                    aria-label="Informationspflicht Wirtschaft"
-                  >
-                    IP
-                  </span>
-                )}
               </div>
-              {(data.headerMetricLeft || data.headerMetricRight) && (
+              {(data.showIpBadge ||
+                data.headerMetricLeft ||
+                data.headerMetricRight) && (
                 <div className="tile-actions">
+                  {data.showIpBadge && (
+                    <span
+                      className="tile-metric tile-ip"
+                      title="Informationspflicht Wirtschaft"
+                      aria-label="Informationspflicht Wirtschaft"
+                    >
+                      IP
+                    </span>
+                  )}
                   {data.headerMetricLeft && (
                     <span className="tile-metric tile-metric-left">
                       {data.headerMetricLeft}

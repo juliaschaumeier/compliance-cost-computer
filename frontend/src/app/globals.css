@@ -179,22 +179,6 @@ body {
   border: 1px solid #cbd5e1;
 }
 
-.tile-node .tile-ip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  background: #e0f2fe;
-  color: #075985;
-  border: 1px solid #bae6fd;
-}
-
 .tile-node .tile-body-row {
   display: flex;
   align-items: flex-end;
@@ -384,6 +368,12 @@ body {
 }
 
 .tile-node .tile-metric-right {
+  background: #e0f2fe;
+  border-color: #bae6fd;
+  color: #075985;
+}
+
+.tile-node .tile-ip {
   background: #e0f2fe;
   border-color: #bae6fd;
   color: #075985;
