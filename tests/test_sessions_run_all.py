@@ -17,6 +17,7 @@ from backend.routers import (
     sessions as sessions_router,
 )
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.routers.sessions import _ATOMIC_STEP_MAX_ATTEMPTS
 
 
 def _is_effort_prompt(prompt: str) -> bool:
@@ -1203,7 +1204,7 @@ def test_processes_step_partial_failure_keeps_valid_sibling_pending_and_applies_
     assert retry_start.status_code == 200
     retry_done = _wait_for_run_completion(test_client, retry_start.json()["run_id"])
     assert retry_done["status"] == "completed"
-    assert calls == {ADMINISTRATION: 1, BUSINESS: 3}
+    assert calls == {ADMINISTRATION: 1, BUSINESS: _ATOMIC_STEP_MAX_ATTEMPTS + 1}
     assert len(db.list_processes_for_session_and_addressee(session_id, ADMINISTRATION)) == 1
     assert len(db.list_processes_for_session_and_addressee(session_id, BUSINESS)) == 1
 
@@ -3412,7 +3413,7 @@ def test_process_step_exhausts_retry_and_keeps_partial_failure_state(
 
     assert payload["status"] == "failed"
     assert "Die Antwort für Wirtschaft konnte nicht verarbeitet werden" in payload["last_error"]
-    assert calls == {ADMINISTRATION: 1, BUSINESS: 2}
+    assert calls == {ADMINISTRATION: 1, BUSINESS: _ATOMIC_STEP_MAX_ATTEMPTS}
     assert db.list_process_steps_for_session(session_id) == []
     rows = [
         row

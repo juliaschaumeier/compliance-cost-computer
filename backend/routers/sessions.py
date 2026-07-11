@@ -1126,7 +1126,7 @@ def _promote_pending_retry(answer_ids: list[int]) -> None:
         )
 
 
-_ATOMIC_STEP_MAX_ATTEMPTS = 2
+_ATOMIC_STEP_MAX_ATTEMPTS = 4
 
 
 def _is_retryable_atomic_step_error(exc: Exception) -> bool:
