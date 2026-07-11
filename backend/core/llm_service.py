@@ -20,6 +20,7 @@ DB integration:
 import asyncio
 from dataclasses import dataclass
 import json
+import logging
 import re
 from typing import Any, Awaitable, Callable, Optional
 
@@ -36,6 +37,8 @@ from openai import (
 from .auth import ApiKeys
 from .config import is_deepinfra_model, is_gemini_model, settings
 
+
+logger = logging.getLogger("uvicorn.error")
 
 DEEPINFRA_BASE_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
 GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -118,6 +121,9 @@ class LlmResult:
     hidden_thinking_tokens: int | None = None
     estimated_cost_usd: float | None = None
     provider_response_json: dict[str, Any] | list[Any] | None = None
+    response_format_requested: str | None = None
+    response_format_used: str | None = None
+    response_format_downgraded: bool = False
 
 
 class LlmQueryError(RuntimeError):
@@ -211,6 +217,12 @@ def _response_format_fallback_chain(
     return [response_format, None]
 
 
+def _response_format_label(response_format: dict[str, Any] | None) -> str:
+    if not isinstance(response_format, dict):
+        return "none"
+    return str(response_format.get("type") or "none")
+
+
 async def query_llm(
     prompt: str,
     api_keys: ApiKeys,
@@ -267,15 +279,38 @@ async def query_llm(
         )
 
     if response_format is None:
-        return await _dispatch(None)
+        result = await _dispatch(None)
+        result.response_format_requested = "none"
+        result.response_format_used = "none"
+        result.response_format_downgraded = False
+        return result
+
+    requested_label = _response_format_label(response_format)
     chain = _response_format_fallback_chain(response_format)
     for index, candidate in enumerate(chain):
         try:
-            return await _dispatch(candidate)
+            result = await _dispatch(candidate)
         except LlmQueryError as exc:
             if exc.status_code == 400 and index < len(chain) - 1:
+                next_label = _response_format_label(chain[index + 1])
+                logger.warning(
+                    (
+                        "LLM response_format downgrade | provider=%s model=%s "
+                        "from=%s to=%s status=%s"
+                    ),
+                    provider,
+                    model,
+                    _response_format_label(candidate),
+                    next_label,
+                    exc.status_code,
+                )
                 continue
             raise
+        used_label = _response_format_label(candidate)
+        result.response_format_requested = requested_label
+        result.response_format_used = used_label
+        result.response_format_downgraded = used_label != requested_label
+        return result
     raise RuntimeError("unreachable response_format fallback state")
 
 

@@ -398,8 +398,20 @@ def test_query_and_stage_uses_effort_citizens_schema_variant(test_client):
     }
 
 
-def test_query_and_stage_keeps_json_object_for_other_structured_prompt(test_client):
-    session_id, _ = db.upsert_session("LLM-JSON-OBJECT-OTHER", "test-model")
+@pytest.mark.parametrize(
+    "prompt_id",
+    [
+        "process_compilation",
+        "case_group_development",
+        "process_step_analysis",
+        "cases_calculation",
+        "effort_calculation",
+    ],
+)
+def test_query_and_stage_uses_json_schema_for_every_structured_prompt(
+    test_client, prompt_id
+):
+    session_id, _ = db.upsert_session(f"LLM-JSON-SCHEMA-{prompt_id}", "test-model")
     captured: dict = {}
 
     async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
@@ -409,7 +421,7 @@ def test_query_and_stage_keeps_json_object_for_other_structured_prompt(test_clie
     asyncio.run(
         query_and_stage_llm_answer(
             session_id=session_id,
-            prompt_id="process_compilation",
+            prompt_id=prompt_id,
             prompt="Frage",
             api_keys=ApiKeys(openai_api_key="sk-test"),
             model="test-model",
@@ -419,7 +431,11 @@ def test_query_and_stage_keeps_json_object_for_other_structured_prompt(test_clie
         )
     )
 
-    assert captured.get("response_format") == {"type": "json_object"}
+    response_format = captured.get("response_format")
+    assert response_format["type"] == "json_schema"
+    assert response_format["name"] == prompt_id
+    assert response_format["strict"] is True
+    assert response_format["schema"]["properties"]["normadressat"]["enum"] == [BUSINESS]
 
 
 def test_query_and_stage_cases_degrades_to_json_object_without_addressee(test_client):

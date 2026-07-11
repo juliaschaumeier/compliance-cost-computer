@@ -21,8 +21,11 @@ from backend.core.llm_service import (
     query_llm,
 )
 from backend.core.payload_builders import (
+    build_case_group_development_output_schema,
     build_cases_calculation_output_schema,
     build_effort_calculation_output_schema,
+    build_process_compilation_output_schema,
+    build_step_analysis_output_schema,
 )
 from backend.core.prompt_audit import append_prompt_audit_entry
 from backend.core.prompts import PromptId
@@ -43,6 +46,18 @@ STRUCTURED_JSON_PROMPT_IDS = frozenset(
 JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
 
 _JSON_SCHEMA_BUILDERS = {
+    PromptId.PROCESS_COMPILATION: (
+        "process_compilation",
+        build_process_compilation_output_schema,
+    ),
+    PromptId.CASE_GROUP_DEVELOPMENT: (
+        "case_group_development",
+        build_case_group_development_output_schema,
+    ),
+    PromptId.PROCESS_STEP_ANALYSIS: (
+        "process_step_analysis",
+        build_step_analysis_output_schema,
+    ),
     PromptId.CASES_CALCULATION: (
         "cases_calculation",
         build_cases_calculation_output_schema,
@@ -282,6 +297,9 @@ def stage_llm_response(
         "request_id": request_context.get("request_id"),
         "route_method": request_context.get("route_method"),
         "route_path": request_context.get("route_path"),
+        "response_format_requested": llm_result.response_format_requested,
+        "response_format_used": llm_result.response_format_used,
+        "response_format_downgraded": llm_result.response_format_downgraded,
     }
     if elapsed_ms is not None:
         metadata_extra["elapsed_ms"] = elapsed_ms
@@ -552,6 +570,9 @@ async def query_and_stage_llm_answer(
             "output_tokens": llm_result.output_tokens,
             "hidden_thinking_tokens": llm_result.hidden_thinking_tokens,
             "estimated_cost_usd": llm_result.estimated_cost_usd,
+            "response_format_requested": llm_result.response_format_requested,
+            "response_format_used": llm_result.response_format_used,
+            "response_format_downgraded": llm_result.response_format_downgraded,
         },
     )
     return answer_id, llm_result

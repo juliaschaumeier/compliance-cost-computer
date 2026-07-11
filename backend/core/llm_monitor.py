@@ -191,6 +191,9 @@ def _update_stream_attempt_from_event(
         "error",
         "error_kind",
         "error_status_code",
+        "response_format_requested",
+        "response_format_used",
+        "response_format_downgraded",
     ]:
         if key in event and event.get(key) is not None:
             attempt[key] = event.get(key)
