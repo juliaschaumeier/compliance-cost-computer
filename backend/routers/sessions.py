@@ -24,7 +24,7 @@ from backend.core.compliance_text_export import (
     normalize_user_edit_policy,
 )
 from backend.core import db, llm_monitor, llm_trace
-from backend.core.config import settings
+from backend.core.config import HIGH_RETRY_MODELS, settings
 from backend.core.deep_research_cases import (
     CASE_GROUP_RESEARCH_PURPOSE,
     apply_deep_research_case_metrics,
@@ -1126,7 +1126,14 @@ def _promote_pending_retry(answer_ids: list[int]) -> None:
         )
 
 
-_ATOMIC_STEP_MAX_ATTEMPTS = 4
+_ATOMIC_STEP_DEFAULT_MAX_ATTEMPTS = 2
+_ATOMIC_STEP_HIGH_MAX_ATTEMPTS = 4
+
+
+def _max_attempts_for_model(model: str) -> int:
+    if model in HIGH_RETRY_MODELS:
+        return _ATOMIC_STEP_HIGH_MAX_ATTEMPTS
+    return _ATOMIC_STEP_DEFAULT_MAX_ATTEMPTS
 
 
 def _is_retryable_atomic_step_error(exc: Exception) -> bool:
@@ -1246,7 +1253,7 @@ async def _run_atomic_single_prompt_step(
                 except Exception as exc:
                     if (
                         not _is_retryable_atomic_step_error(exc)
-                        or attempt >= _ATOMIC_STEP_MAX_ATTEMPTS
+                        or attempt >= _max_attempts_for_model(model)
                     ):
                         raise
                     attempt += 1
@@ -1576,7 +1583,7 @@ async def _run_atomic_effort_step(
                 except Exception as exc:
                     if (
                         not _is_retryable_atomic_step_error(exc)
-                        or attempt >= _ATOMIC_STEP_MAX_ATTEMPTS
+                        or attempt >= _max_attempts_for_model(model)
                     ):
                         raise
                     attempt += 1

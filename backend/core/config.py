@@ -63,6 +63,8 @@ GEMINI_RECOMMENDED = [
     "gemini-3-flash-preview",
 ]
 
+HIGH_RETRY_MODELS = ["gemini-3.5-flash", "gemini-3-flash-preview", "gpt-5.4-mini"]
+
 GEMINI_EXCLUDED_MODEL_TOKENS = (
     "preview",
     "exp",
