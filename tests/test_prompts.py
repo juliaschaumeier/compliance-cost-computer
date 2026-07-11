@@ -4,7 +4,10 @@ from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core import prompts
 from backend.core.payload_builders import (
     build_case_groups_payload,
+    build_cases_calculation_output_skeleton,
+    build_effort_calculation_output_skeleton,
     build_step_analysis_output_skeleton,
+    build_step_analysis_payload,
     dump_prompt_json,
 )
 from backend.core.prompts import NORM_ADDRESSEE_PROMPT_OPENINGS, PromptId, render_prompt
@@ -778,3 +781,80 @@ def test_effort_prompt_business_guidance_names_wirtschaftsabschnitt():
 
     assert "wirtschaftsabschnitt" in prompt.lower() or "lohnquelle" in prompt.lower()
     assert "gesamtwirtschaft" in prompt.lower()
+
+
+def _step6_processes_and_case_groups():
+    processes = [
+        {"process_id": 312, "process": "Prozess 312", "description": "d", "change_status": "geaendert"},
+        {"process_id": 313, "process": "Prozess 313", "description": "d", "change_status": "geaendert"},
+    ]
+    case_groups = [
+        {"case_group_id": 491, "process_id": 312, "case_group": "F491", "description": "d", "change_status": "geaendert"},
+        {"case_group_id": 492, "process_id": 313, "case_group": "F492", "description": "d", "change_status": "geaendert"},
+    ]
+    return processes, case_groups
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_cases_calculation_prompt_injects_prefilled_skeleton_ids(norm_addressee):
+    processes, case_groups = _step6_processes_and_case_groups()
+    case_groups_payload = build_case_groups_payload(
+        processes=processes,
+        case_groups=case_groups,
+        norm_addressee=norm_addressee,
+    )
+
+    prompt = render_prompt(
+        PromptId.CASES_CALCULATION,
+        law_summary="Kurzfassung",
+        case_groups_json=dump_prompt_json(case_groups_payload),
+        output_skeleton_json=dump_prompt_json(
+            build_cases_calculation_output_skeleton(
+                case_groups_payload,
+                norm_addressee=norm_addressee,
+            )
+        ),
+        norm_addressee=norm_addressee,
+    )
+
+    assert '"fallgruppen_id": 491' in prompt
+    assert '"fallgruppen_id": 492' in prompt
+    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert '"fallgruppen": []' not in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_effort_calculation_prompt_injects_prefilled_skeleton_ids(norm_addressee):
+    processes, case_groups = _step6_processes_and_case_groups()
+    steps = [
+        {"step_id": 40, "case_group_id": 491, "step": "Schritt 1", "description": "", "change_status": "geaendert", "previous_id": None, "next_id": 41},
+        {"step_id": 41, "case_group_id": 491, "step": "Schritt 2", "description": "", "change_status": "geaendert", "previous_id": 40, "next_id": None},
+        {"step_id": 42, "case_group_id": 492, "step": "Schritt 3", "description": "", "change_status": "geaendert", "previous_id": None, "next_id": None},
+    ]
+    steps_payload = build_step_analysis_payload(
+        processes=processes,
+        case_groups=case_groups,
+        steps=steps,
+        norm_addressee=norm_addressee,
+    )
+
+    prompt = render_prompt(
+        PromptId.EFFORT_CALCULATION,
+        law_summary="Kurzfassung",
+        step_analysis_json=dump_prompt_json(steps_payload),
+        output_skeleton_json=dump_prompt_json(
+            build_effort_calculation_output_skeleton(
+                steps_payload,
+                norm_addressee=norm_addressee,
+            )
+        ),
+        norm_addressee=norm_addressee,
+    )
+
+    assert '"fallgruppen_id": 491' in prompt
+    assert '"fallgruppen_id": 492' in prompt
+    assert '"taetigkeiten_id": 40' in prompt
+    assert '"taetigkeiten_id": 41' in prompt
+    assert '"taetigkeiten_id": 42' in prompt
+    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert '"fallgruppen": []' not in prompt
