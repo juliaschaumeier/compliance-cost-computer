@@ -2662,10 +2662,12 @@ def _should_render_research_pdf_bold(escaped_text: str) -> bool:
 
 _BOLD_MARKUP = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.DOTALL)
 _ITALIC_MARKUP = re.compile(r"(?<!\*)\*(?=\S)([^*]+?)(?<=\S)\*(?!\*)", re.DOTALL)
+_ESCAPED_LINE_BREAK = re.compile(r"&lt;br\s*/?&gt;", re.IGNORECASE)
 
 
 def _research_pdf_inline_markup(text: str) -> str:
     escaped = html.escape(text).replace("\n", "<br/>")
+    escaped = _ESCAPED_LINE_BREAK.sub("<br/>", escaped)
 
     def bold(match: re.Match[str]) -> str:
         inner = match.group(1)

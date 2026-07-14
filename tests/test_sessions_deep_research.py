@@ -66,6 +66,22 @@ def test_research_pdf_inline_markup_combines_bold_and_italic():
     assert rendered == "<b>Zu lfd. Nr. 4.1.1:</b> <i>Fallzahl:</i> 2 800 000"
 
 
+def test_research_pdf_inline_markup_renders_html_line_breaks_in_table_cells():
+    rendered = sessions_router._research_pdf_inline_markup(
+        "Digital: 11 Min.<br>Stationär: 14 Min.<br />Papier: 20 Min."
+    )
+
+    assert rendered == (
+        "Digital: 11 Min.<br/>Stationär: 14 Min.<br/>Papier: 20 Min."
+    )
+
+
+def test_research_pdf_inline_markup_still_escapes_other_html_tags():
+    rendered = sessions_router._research_pdf_inline_markup("Prüfung <script> und <b>")
+
+    assert rendered == "Prüfung &lt;script&gt; und &lt;b&gt;"
+
+
 def test_parse_markdown_list_reads_bullets_and_continuation_lines():
     block = "- Erster Punkt\n  mit Fortsetzung\n* Zweiter Punkt\n  - Unterpunkt"
 
