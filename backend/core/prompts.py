@@ -1506,7 +1506,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         die Aufteilung auf Bund und Land nur in diesen Summenzeilen, nicht als eigene Spalte je Tabellenzeile.
 
         Vorgaben mit einer jährlichen Be- oder Entlastung von betragsmäßig höchstens 100 000 Euro werden als eigene Zeile mit
-        `geringfügig` in der Ergebnisspalte geführt; die Begründung steht in der Fußnote.
+        `geringfügig` in der Ergebnisspalte geführt; die Begründung steht in der Fußnote. Schreibe dabei ausschließlich
+        `geringfügig` ohne Verweiszeichen; verwende in den Tabellenzellen keine hochgestellten Fußnotenziffern.
 
         Unter jeder Tabelle folgen knappe Fußnoten je Zeile im Format `**Zu lfd. Nr. X:** [Bezeichnung]; [Norm]` mit der Herleitung von
         Fallzahl, Zeitaufwand, Lohnsatz und Sachkosten. Überfrachte die Tabellenzellen nicht; die Herleitung gehört in die Fußnote. Gib

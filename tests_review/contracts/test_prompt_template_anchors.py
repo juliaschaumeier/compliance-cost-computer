@@ -323,6 +323,9 @@ class TestComplianceExportSection4VorgabeTables:
     def test_per_vorgabe_heading_is_gone(self, template: str):
         assert "### Vorgabe [Nummer]" not in template
 
+    def test_result_column_forbids_superscript_footnote_markers(self, template: str):
+        assert "keine hochgestellten Fußnotenziffern" in template
+
     def test_geringfuegig_row_rule_present(self, template: str):
         assert "geringfügig" in template
 
