@@ -362,18 +362,13 @@ body {
   overflow: visible;
 }
 
-.tile-node .tile-metric-left {
+.tile-node .tile-metric-left,
+.tile-node .tile-ip {
   background: #e2e8f0;
   border-color: #cbd5e1;
 }
 
 .tile-node .tile-metric-right {
-  background: #e0f2fe;
-  border-color: #bae6fd;
-  color: #075985;
-}
-
-.tile-node .tile-ip {
   background: #e0f2fe;
   border-color: #bae6fd;
   color: #075985;
