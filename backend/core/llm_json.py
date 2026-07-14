@@ -69,12 +69,42 @@ def parse_json_object_with_mode(payload: str) -> tuple[dict[str, Any] | None, st
     return data, "extract_last_json_object"
 
 
+def looks_truncated(payload: str) -> bool:
+    text = clean_llm_payload(payload)
+    if not text.startswith("{"):
+        return False
+    try:
+        json.loads(text)
+    except json.JSONDecodeError as exc:
+        return exc.pos >= len(text)
+    return False
+
+
 def require_json_object(
     payload: str,
     *,
     error_context: str,
     required_top_level_key: str | None = None,
 ) -> tuple[dict[str, Any], str]:
+    if looks_truncated(payload):
+        expected = (
+            f", expected top-level key '{required_top_level_key}'"
+            if required_top_level_key is not None
+            else ""
+        )
+        logger.warning(
+            "llm_json: abgeschnittene LLM-Antwort erkannt "
+            "(payload_len=%d, context=%s)",
+            len(clean_llm_payload(payload)),
+            error_context,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{error_context}: truncated LLM response, "
+                f"stream ended mid-JSON{expected}"
+            ),
+        )
     data, parse_mode = parse_json_object_with_mode(payload)
     if not isinstance(data, dict):
         raise HTTPException(

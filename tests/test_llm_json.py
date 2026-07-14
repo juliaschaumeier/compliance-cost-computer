@@ -87,3 +87,58 @@ def test_require_json_object_accepts_prozesse_envelope_with_required_key():
     )
     assert "prozesse" in data
     assert mode == "direct_json_loads"
+
+
+def test_require_json_object_reports_truncated_stream_response():
+    # Reales Gemini-Muster (OpenAI-kompatibler Stream): der Provider meldet
+    # finish_reason "stop", der zusammengesetzte Text bricht aber vor der
+    # schliessenden Klammer ab. Muss als Transportfehler benannt werden, nicht
+    # als fehlender Key.
+    payload = (
+        '{"normadressat": "business", "prozesse": ['
+        '{"prozess_id": 1, "fallgruppen": [{"fallgruppen_id": 7}]}]'
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        require_json_object(
+            payload,
+            error_context="process compilation",
+            required_top_level_key="prozesse",
+        )
+    assert exc_info.value.status_code == 422
+    assert "truncated LLM response" in exc_info.value.detail
+    assert "prozesse" in exc_info.value.detail
+
+
+def test_require_json_object_rejects_truncated_payload_even_if_fragment_has_key():
+    # Kein stilles Weiterarbeiten mit Teildaten: hier birgt der Fallback ein
+    # inneres Prozess-Objekt, das ein `fallgruppen` traegt. Die Antwort ist aber
+    # abgeschnitten, also darf sie auch mit passendem Key nicht durchrutschen.
+    payload = (
+        '{"normadressat": "business", "prozesse": ['
+        '{"prozess_id": 1, "fallgruppen": [{"fallgruppen_id": 7}]},'
+        '{"prozess_id": 2, "fallgruppen": [{"fallgruppen_id": 8}'
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        require_json_object(
+            payload,
+            error_context="process step analysis",
+            required_top_level_key="fallgruppen",
+        )
+    assert exc_info.value.status_code == 422
+    assert "truncated LLM response" in exc_info.value.detail
+
+
+def test_require_json_object_keeps_missing_key_error_for_complete_json():
+    # Abgrenzung zur Truncation: syntaktisch vollstaendiges JSON ohne das
+    # geforderte Envelope bleibt der bisherige Fehler. Sonst wuerden die
+    # Completeness-Faelle faelschlich als Stream-Abbruch gemeldet.
+    payload = '{"fallgruppen": [{"fallgruppen_id": 7}]}'
+    with pytest.raises(HTTPException) as exc_info:
+        require_json_object(
+            payload,
+            error_context="process compilation",
+            required_top_level_key="prozesse",
+        )
+    assert exc_info.value.status_code == 422
+    assert "expected top-level key 'prozesse'" in exc_info.value.detail
+    assert "truncated" not in exc_info.value.detail
