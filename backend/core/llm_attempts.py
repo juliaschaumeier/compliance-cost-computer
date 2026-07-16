@@ -21,8 +21,11 @@ from backend.core.llm_service import (
     query_llm,
 )
 from backend.core.payload_builders import (
+    build_case_group_development_output_schema,
     build_cases_calculation_output_schema,
     build_effort_calculation_output_schema,
+    build_process_compilation_output_schema,
+    build_step_analysis_output_schema,
 )
 from backend.core.prompt_audit import append_prompt_audit_entry
 from backend.core.prompts import PromptId
@@ -43,6 +46,18 @@ STRUCTURED_JSON_PROMPT_IDS = frozenset(
 JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
 
 _JSON_SCHEMA_BUILDERS = {
+    PromptId.PROCESS_COMPILATION: (
+        "process_compilation",
+        build_process_compilation_output_schema,
+    ),
+    PromptId.CASE_GROUP_DEVELOPMENT: (
+        "case_group_development",
+        build_case_group_development_output_schema,
+    ),
+    PromptId.PROCESS_STEP_ANALYSIS: (
+        "process_step_analysis",
+        build_step_analysis_output_schema,
+    ),
     PromptId.CASES_CALCULATION: (
         "cases_calculation",
         build_cases_calculation_output_schema,
