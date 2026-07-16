@@ -277,6 +277,64 @@ describe("TotalCostPanel", () => {
     expect(mockGetTotalCostSummary).toHaveBeenCalledWith("ABC123");
   });
 
+  it("shows the business bureaucracy cost as an inline 'inkl. IP' segment", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 320000 },
+      business: {
+        norm_addressee: "business",
+        total_cost: 920000,
+        bureaucracy_cost: 40000,
+      },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: 14200,
+        total_expenses: 35000,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(
+      await screen.findByText(/920 Tsd\. € · inkl\. 40 Tsd\. € IP/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Wirtschaft 920 Tsd\. € · inkl\. 40 Tsd\. € IP/i)
+    ).toBeInTheDocument();
+  });
+
+  it("omits the IP segment when the bureaucracy cost is zero", async () => {
+    mockGetTotalCostSummary.mockResolvedValue({
+      administration: { norm_addressee: "administration", total_cost: 320000 },
+      business: {
+        norm_addressee: "business",
+        total_cost: 920000,
+        bureaucracy_cost: 0,
+      },
+      citizens: {
+        norm_addressee: "citizens",
+        total_cost: null,
+        total_time_hours: 14200,
+        total_expenses: 35000,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      state: { ...baseState, totalCostReady: true },
+      setCurrentTab: jest.fn(),
+      setTotalCostReady: jest.fn(),
+    });
+
+    render(<TotalCostPanel />);
+
+    expect(await screen.findByText("920 Tsd. €")).toBeInTheDocument();
+    expect(screen.queryByText(/IP/)).not.toBeInTheDocument();
+  });
+
   it("compacts very large citizen hours in the cost summary", async () => {
     mockGetTotalCostSummary.mockResolvedValue({
       administration: { norm_addressee: "administration", total_cost: null },

@@ -67,9 +67,21 @@ function formatCitizenCostValue(row: TotalCostResponse | undefined): string {
   return `${hours} · ${expenses}`;
 }
 
+function formatBusinessCostValue(row: TotalCostResponse | undefined): string {
+  const total = formatCostValue(row?.total_cost, { zeroWhenMissing: true });
+  const bureaucracy = row?.bureaucracy_cost;
+  if (typeof bureaucracy !== "number" || bureaucracy === 0) {
+    return total;
+  }
+  return `${total} · inkl. ${formatCompactCurrency(bureaucracy)} IP`;
+}
+
 function buildCostSummaryCells(summary: CostSummary): {
   totalCell: { label: string; value: string };
-  addresseeCells: { label: string; value: string }[];
+  addresseeCells: {
+    label: string;
+    value: string;
+  }[];
 } {
   const administration = summary.administration?.total_cost ?? 0;
   const business = summary.business?.total_cost ?? 0;
@@ -80,10 +92,7 @@ function buildCostSummaryCells(summary: CostSummary): {
     },
     addresseeCells: [
       { label: "Bürger:innen", value: formatCitizenCostValue(summary.citizens) },
-      {
-        label: "Wirtschaft",
-        value: formatCostValue(summary.business?.total_cost, { zeroWhenMissing: true }),
-      },
+      { label: "Wirtschaft", value: formatBusinessCostValue(summary.business) },
       {
         label: "Verwaltung",
         value: formatCostValue(summary.administration?.total_cost, { zeroWhenMissing: true }),
@@ -108,7 +117,7 @@ function CostSummaryStrip({ summary }: { summary: CostSummary }) {
       className="w-fit max-w-full overflow-x-auto rounded-xl border border-slate-300 bg-white px-4 py-2 shadow-sm ring-1 ring-slate-100"
       aria-label={`Kostenübersicht: ${buildCostSummaryLabel(summary)}`}
     >
-      <div className="flex min-w-max items-center">
+      <div className="flex min-w-max items-start">
         <div className="w-[120px] shrink-0">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
             Jährlicher

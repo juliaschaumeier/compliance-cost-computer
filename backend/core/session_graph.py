@@ -182,6 +182,9 @@ def build_session_tiles_snapshot(
                         )
                         if enabled
                     ],
+                    "is_business_information_obligation": bool(
+                        regulation.get("is_business_information_obligation")
+                    ),
                 },
                 column=1,
                 row=idx,

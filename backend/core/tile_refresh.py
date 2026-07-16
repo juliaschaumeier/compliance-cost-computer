@@ -203,6 +203,37 @@ def refresh_case_group_tiles(
             db.upsert_tile(updated, session_id=session_id, norm_addressee=addressee)
 
 
+def refresh_regulation_tiles(
+    session_id: int,
+    regulations: list[dict],
+    norm_addressee: str = ADMINISTRATION,
+) -> None:
+    tiles = {
+        tile.id: tile
+        for tile in db.fetch_tiles(session_id=session_id, norm_addressee=norm_addressee)
+    }
+    for regulation in regulations:
+        tile_id = f"regulation_{regulation['regulation_id']}"
+        tile = tiles.get(tile_id)
+        if not tile:
+            continue
+        meta_information = dict(tile.meta_information or {})
+        meta_information["is_business_information_obligation"] = bool(
+            regulation.get("is_business_information_obligation")
+        )
+        updated = Tile(
+            id=tile.id,
+            title=tile.title,
+            text=tile.text,
+            meta_information=meta_information,
+            column=tile.column,
+            row=tile.row,
+            deletable=tile.deletable,
+            link_from_tile=tile.link_from_tile,
+        )
+        db.upsert_tile(updated, session_id=session_id, norm_addressee=norm_addressee)
+
+
 def refresh_step_tiles(
     session_id: int,
     steps: list[dict],

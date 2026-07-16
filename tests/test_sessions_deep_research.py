@@ -49,8 +49,114 @@ def test_research_pdf_inline_markup_deemphasizes_long_fallgruppe_bold_text():
     assert "Fallgruppe 1 Unternehmen" in rendered
 
 
+def test_research_pdf_inline_markup_renders_italic_and_keeps_unbalanced_stars():
+    rendered = sessions_router._research_pdf_inline_markup(
+        "*Fallzahl:* Jährlich sind 2 800 000 Fälle * pro Betrieb zu erwarten."
+    )
+
+    assert rendered.startswith("<i>Fallzahl:</i> Jährlich")
+    assert "Fälle * pro Betrieb" in rendered
+
+
+def test_research_pdf_inline_markup_combines_bold_and_italic():
+    rendered = sessions_router._research_pdf_inline_markup(
+        "**Zu lfd. Nr. 4.1.1:** *Fallzahl:* 2 800 000"
+    )
+
+    assert rendered == "<b>Zu lfd. Nr. 4.1.1:</b> <i>Fallzahl:</i> 2 800 000"
+
+
+def test_research_pdf_inline_markup_renders_html_line_breaks_in_table_cells():
+    rendered = sessions_router._research_pdf_inline_markup(
+        "Digital: 11 Min.<br>Stationär: 14 Min.<br />Papier: 20 Min."
+    )
+
+    assert rendered == (
+        "Digital: 11 Min.<br/>Stationär: 14 Min.<br/>Papier: 20 Min."
+    )
+
+
+def test_research_pdf_inline_markup_still_escapes_other_html_tags():
+    rendered = sessions_router._research_pdf_inline_markup("Prüfung <script> und <b>")
+
+    assert rendered == "Prüfung &lt;script&gt; und &lt;b&gt;"
+
+
+def test_parse_markdown_list_reads_bullets_and_continuation_lines():
+    block = "- Erster Punkt\n  mit Fortsetzung\n* Zweiter Punkt\n  - Unterpunkt"
+
+    assert sessions_router._parse_markdown_list(block) == (
+        "",
+        [
+            (0, "Erster Punkt mit Fortsetzung"),
+            (0, "Zweiter Punkt"),
+            (1, "Unterpunkt"),
+        ],
+    )
+
+
+def test_parse_markdown_list_keeps_paragraph_that_precedes_the_bullets():
+    block = "**Zu lfd. Nr. 4.1.1:** Einhaltung\n* *Fallzahl:* 2 800 000 Fälle"
+
+    assert sessions_router._parse_markdown_list(block) == (
+        "**Zu lfd. Nr. 4.1.1:** Einhaltung",
+        [(0, "*Fallzahl:* 2 800 000 Fälle")],
+    )
+
+
+def test_parse_markdown_list_rejects_plain_paragraph():
+    assert sessions_router._parse_markdown_list("Ein Absatz ohne Aufzählung.") is None
+
+
+def test_markdown_lists_render_as_bullets_in_pdf(monkeypatch):
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+    captured: dict[str, list] = {}
+
+    def fake_build(self, story, *args, **kwargs):
+        captured["story"] = story
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", fake_build)
+
+    report_md = (
+        "**Zu lfd. Nr. 4.1.1:** Einhaltung verbraucherschützender Vorgaben\n"
+        "* *Fallzahl:* Jährlich 2 800 000 Fälle\n"
+        "* *Digitaler Abschluss:* 1 200 000 Fälle"
+    )
+    sessions_router._render_research_report_pdf(report_md, "Titel")
+
+    paragraphs = [item for item in captured["story"] if isinstance(item, Paragraph)]
+    lead = next(
+        item
+        for item in paragraphs
+        if item.style.name == "BodyText" and "lfd. Nr." in item.text
+    )
+    bullets = [item for item in paragraphs if item.style.name == "ResearchListItem0"]
+
+    assert lead.text.startswith("<b>Zu lfd. Nr. 4.1.1:</b> Einhaltung")
+    assert len(bullets) == 2
+    assert bullets[0].text.startswith("<i>Fallzahl:</i> Jährlich")
+    assert all("*" not in bullet.text for bullet in bullets)
+
+
+def test_render_research_report_pdf_builds_document_with_lists_and_markup():
+    report_md = "\n\n".join(
+        [
+            "# 4. Erfüllungsaufwand",
+            "### Davon Bürokratiekosten aus Informationspflichten",
+            "**Zu lfd. Nr. 4.1.1:** *Fallzahl:* 2 800 000 Fälle",
+            "- Erster Punkt\n  - Unterpunkt",
+        ]
+    )
+
+    pdf = sessions_router._render_research_report_pdf(report_md, "Titel")
+
+    assert pdf.startswith(b"%PDF")
+
+
 def test_research_pdf_heading_detection_rejects_long_heading_like_paragraphs():
     assert sessions_router._is_research_pdf_heading("# E. Erfüllungsaufwand") is True
+    assert sessions_router._is_research_pdf_heading("# 4. Erfüllungsaufwand") is True
     assert (
         sessions_router._is_research_pdf_heading(
             "### 1. Erstanerkennungsverfahren (Fallgruppe 1)"
@@ -65,6 +171,78 @@ def test_research_pdf_heading_detection_rejects_long_heading_like_paragraphs():
         )
         is False
     )
+
+
+def test_section_4_headings_render_as_headings_in_pdf(monkeypatch):
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+    captured: dict[str, list] = {}
+
+    def fake_build(self, story, *args, **kwargs):
+        captured["story"] = story
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", fake_build)
+
+    report_md = "\n\n".join(
+        [
+            "# E. Erfüllungsaufwand",
+            "# 4. Erfüllungsaufwand",
+            "## 4.1 Erfüllungsaufwand für Bürgerinnen und Bürger",
+            "## 4.2 Erfüllungsaufwand für die Wirtschaft",
+            "## 4.3 Erfüllungsaufwand der Verwaltung",
+            "### 1. Erstanerkennungsverfahren (Fallgruppe 1)",
+        ]
+    )
+    sessions_router._render_research_report_pdf(report_md, "Titel")
+
+    style_by_text = {
+        getattr(item, "text", ""): item.style.name
+        for item in captured["story"]
+        if isinstance(item, Paragraph)
+    }
+    for heading in (
+        "E. Erfüllungsaufwand",
+        "4. Erfüllungsaufwand",
+        "4.1 Erfüllungsaufwand für Bürgerinnen und Bürger",
+        "4.2 Erfüllungsaufwand für die Wirtschaft",
+        "4.3 Erfüllungsaufwand der Verwaltung",
+    ):
+        assert style_by_text.get(heading) == "Heading2"
+    assert (
+        style_by_text.get("1. Erstanerkennungsverfahren (Fallgruppe 1)") == "BodyText"
+    )
+
+
+def test_sub_headings_render_smaller_than_section_headings(monkeypatch):
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+
+    captured: dict[str, list] = {}
+
+    def fake_build(self, story, *args, **kwargs):
+        captured["story"] = story
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", fake_build)
+
+    report_md = "\n\n".join(
+        [
+            "## E.2 Erfüllungsaufwand für die Wirtschaft",
+            "### Davon Bürokratiekosten aus Informationspflichten",
+        ]
+    )
+    sessions_router._render_research_report_pdf(report_md, "Titel")
+
+    style_by_text = {
+        getattr(item, "text", ""): item.style
+        for item in captured["story"]
+        if isinstance(item, Paragraph)
+    }
+    section = style_by_text["E.2 Erfüllungsaufwand für die Wirtschaft"]
+    sub_section = style_by_text["Davon Bürokratiekosten aus Informationspflichten"]
+
+    assert section.name == "Heading2"
+    assert sub_section.name == "ResearchSubHeading"
+    assert sub_section.fontSize < section.fontSize
+    assert sub_section.fontName == section.fontName
 
 
 def test_strip_markdown_heading_prefix_for_demoted_body_text():
@@ -116,7 +294,7 @@ def test_format_compliance_export_metadata_lines_includes_scope_disclaimer():
     joined = "\n".join(lines)
     assert "jaehrlichen Erfuellungsaufwand" in joined
     assert "Einmaliger Erfuellungsaufwand ist nicht Gegenstand" in joined
-    assert "Laender und Kommunen sind nicht Gegenstand" in joined
+    assert "Bundesebene und Landesebene" in joined
 
 
 def test_case_group_research_toggle_locks_after_run_started(test_client):

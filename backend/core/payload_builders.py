@@ -102,6 +102,21 @@ def _project_normadressaten(
     return projected or all_addressees
 
 
+def _project_information_obligation(
+    row: dict,
+    norm_addressee: str | None,
+) -> bool:
+    """Das IP-Flag ist ausschliesslich fuer die Wirtschaft definiert.
+
+    In Laeufen anderer Normadressaten wuerde ein `true` im Widerspruch zu den
+    auf den Run projizierten `normadressaten` stehen (siehe
+    `_project_normadressaten`), weshalb es dort unterdrueckt wird.
+    """
+    if norm_addressee is not None and norm_addressee != BUSINESS:
+        return False
+    return bool(row.get("is_business_information_obligation"))
+
+
 def build_vorgaben_payload(
     regulations: list[dict],
     *,
@@ -116,8 +131,8 @@ def build_vorgaben_payload(
                 beschreibung=str(row.get("description") or ""),
                 aenderungsstatus=row.get("change_status"),
                 normadressaten=_project_normadressaten(row, norm_addressee),
-                ist_informationspflicht_wirtschaft=bool(
-                    row.get("is_business_information_obligation")
+                ist_informationspflicht_wirtschaft=_project_information_obligation(
+                    row, norm_addressee
                 ),
             ).model_dump()
         )
@@ -136,8 +151,8 @@ def _serialize_process_regulations(
             beschreibung=str(row.get("description") or ""),
             aenderungsstatus=row.get("change_status"),
             normadressaten=_project_normadressaten(row, norm_addressee),
-            ist_informationspflicht_wirtschaft=bool(
-                row.get("is_business_information_obligation")
+            ist_informationspflicht_wirtschaft=_project_information_obligation(
+                row, norm_addressee
             ),
         )
         for row in regs_by_process.get(process_id, [])

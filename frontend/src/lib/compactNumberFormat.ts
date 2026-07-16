@@ -7,7 +7,7 @@ type CompactUnit = {
   suffix: string;
 };
 
-const CURRENCY_UNITS: CompactUnit[] = [
+const SCALE_UNITS: CompactUnit[] = [
   { divisor: 1_000_000_000, suffix: "Mrd." },
   { divisor: 1_000_000, suffix: "Mio." },
   { divisor: 1_000, suffix: "Tsd." },
@@ -46,16 +46,29 @@ function formatSmallEuro(value: number): string {
 }
 
 export function formatCompactCurrency(value: number): string {
-  const unit = resolveCompactUnit(value, CURRENCY_UNITS);
+  const unit = resolveCompactUnit(value, SCALE_UNITS);
   if (!unit) {
     return formatSmallEuro(value);
   }
-  const unitIndex = CURRENCY_UNITS.indexOf(unit);
+  const unitIndex = SCALE_UNITS.indexOf(unit);
   const promotedUnit =
     shouldPromoteAfterRounding(value, unit) && unitIndex > 0
-      ? CURRENCY_UNITS[unitIndex - 1]
+      ? SCALE_UNITS[unitIndex - 1]
       : unit;
   return `${formatCompactUnit(value, promotedUnit)} €`;
+}
+
+export function formatCompactCount(value: number): string {
+  const unit = resolveCompactUnit(value, SCALE_UNITS);
+  if (!unit) {
+    return WHOLE_NUMBER_FORMAT.format(value);
+  }
+  const unitIndex = SCALE_UNITS.indexOf(unit);
+  const promotedUnit =
+    shouldPromoteAfterRounding(value, unit) && unitIndex > 0
+      ? SCALE_UNITS[unitIndex - 1]
+      : unit;
+  return formatCompactUnit(value, promotedUnit);
 }
 
 export function formatCompactHours(value: number): string {

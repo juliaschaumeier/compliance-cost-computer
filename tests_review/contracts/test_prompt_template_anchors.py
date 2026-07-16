@@ -194,3 +194,163 @@ class TestRecurringOnlyContract:
             PromptId.PROCESS_STEP_ANALYSIS,
         ):
             assert "z.B. Einfuehrung, Implementierung" not in PROMPT_TEMPLATES[pid]
+
+
+class TestInformationspflichtDefinitionAnchor:
+    """LF-IP-001: Die inhaltliche NKRG-Definition der Informationspflicht muss
+    im REGULATIONS_IDENTIFICATION-Prompt stehen (dort wird das Flag gesetzt),
+    und die Step-Analyse muss die Checkliste Teil A an das gesetzte Flag koppeln,
+    statt die IP-Eigenschaft neu einzuschaetzen.
+    """
+
+    def test_identification_prompt_defines_informationspflicht(self):
+        template = PROMPT_TEMPLATES[PromptId.REGULATIONS_IDENTIFICATION]
+        assert "NKRG" in template
+        assert "verfuegbar zu halten" in template
+        assert "uebermitteln" in template
+
+    def test_step_analysis_business_rule_couples_teil_a_to_flag(self):
+        rule = PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES[BUSINESS]
+        assert "ist_informationspflicht_wirtschaft" in rule
+        assert "Teil A" in rule
+
+
+class TestComplianceExportInformationspflichtBinding:
+    """LF-IP-002: Der Compliance-Text-Export-Prompt muss IP-Status und IP-Summe
+    deterministisch an die Snapshot-Felder binden, statt sie vom LLM neu
+    herleiten zu lassen. Konkret muss das Template den IP-Status an das Flag
+    `ist_informationspflicht_wirtschaft` koppeln, die IP-Summe an
+    `summen.bureaucracy_cost` binden und die "Keine"-Aussage verschaerfen.
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_template_binds_ip_status_to_flag(self, template: str):
+        # IP-Status muss an das Snapshot-Flag gekoppelt sein.
+        assert "ist_informationspflicht_wirtschaft" in template
+
+    def test_template_binds_ip_sum_to_bureaucracy_cost(self, template: str):
+        # IP-Summe muss an summen.bureaucracy_cost gebunden sein.
+        assert "bureaucracy_cost" in template
+
+    def test_template_tightens_keine_rule(self, template: str):
+        # Verschaerfte "Keine"-Regel: "Keine" nur zulaessig, wenn keine
+        # Wirtschafts-Vorgabe das IP-Flag traegt. Stabiler Positiv-Marker,
+        # der bei harmloser Umformulierung nicht bricht.
+        assert "ist nur zulässig, wenn keine" in _compact(template)
+
+
+class TestComplianceExportVerwaltungLevels:
+    """LF-VERW-001: Die Verwaltung wird im Export nicht mehr als reine
+    Bundesverwaltung dargestellt, sondern getrennt nach Bundesebene und
+    Landesebene (einschliesslich Kommunen), deterministisch gebunden an die
+    Snapshot-Felder summen.verwaltung_bundesebene / summen.verwaltung_landesebene
+    (StBA-Leitfaden Kap. 8: der Laenderanteil enthaelt die Kommunen).
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_headings_use_verwaltung_not_bundesverwaltung(self, template: str):
+        assert "## E.3 Erfüllungsaufwand der Verwaltung" in template
+        assert "## 4.3 Erfüllungsaufwand der Verwaltung" in template
+        assert "Bundesverwaltung" not in template
+
+    def test_davon_lines_bound_to_snapshot_fields(self, template: str):
+        assert "summen.verwaltung_bundesebene" in template
+        assert "summen.verwaltung_landesebene" in template
+        assert "Bundesebene" in template
+        assert "Landesebene" in template
+
+    def test_kommunen_belong_to_landesebene(self, template: str):
+        compact = _compact(template)
+        assert (
+            "Landesebene (einschließlich Kommunen)" in compact
+            or "Länderanteil schließt die Kommunen ein" in compact
+        )
+
+    def test_no_bund_only_rule(self, template: str):
+        compact = _compact(template)
+        assert "ausschließlich den Bund" not in compact
+        assert "Stelle keine Beträge für Länder" not in compact
+
+
+class TestComplianceExportSection4VorgabeTables:
+    """LF-EA4-001: Abschnitt 4 der Begruendung stellt je Normadressat genau eine
+    konsolidierte, an den Beispieldokumenten ausgerichtete Tabelle dar. Spalten:
+    `lfd. Nr.`, `Norm (§§); Bezeichnung der Vorgabe`, `Jährliche Fallzahl und
+    Einheit` sowie ein `Jährlicher Aufwand pro Fall`. Die Wirtschaftstabelle (4.2)
+    fuehrt eine `IP`-Spalte (`Ja`/leer, gebunden an
+    `ist_informationspflicht_wirtschaft`) und eine Summenzeile
+    `…davon aus Informationspflichten (IP)` (an `summen.bureaucracy_cost`
+    gebunden). Die Verwaltung (4.3) fuehrt Bund/Land nur in den Summenzeilen
+    `davon auf Bundesebene`/`davon auf Landesebene (inklusive Kommunen)`. Die
+    frueheren Zwischenueberschriften je Vorgabe entfallen.
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_each_section_table_has_vorgabe_column(self, template: str):
+        assert template.count("| Norm (§§); Bezeichnung der Vorgabe |") >= 3
+
+    def test_tables_use_running_number_and_case_count_columns(self, template: str):
+        assert "| lfd. Nr. |" in template
+        assert "Jährliche Fallzahl und Einheit" in template
+
+    def test_business_table_has_ip_column(self, template: str):
+        assert "| Norm (§§); Bezeichnung der Vorgabe | IP |" in _compact(template)
+
+    def test_ip_column_uses_ja_not_symbols(self, template: str):
+        assert "In der Spalte `IP` steht `Ja`" in template
+        assert "✓" not in template
+
+    def test_business_table_has_ip_sum_row_bound_to_bureaucracy_cost(self, template: str):
+        assert "davon aus Informationspflichten (IP)" in template
+        assert "bureaucracy_cost" in template
+
+    def test_ip_column_bound_to_flag(self, template: str):
+        assert "ist_informationspflicht_wirtschaft" in template
+
+    def test_citizen_table_sum_rows(self, template: str):
+        assert "Summe Zeitaufwand (in Stunden)" in template
+        assert "Summe Sachaufwand (in Tsd. Euro)" in template
+
+    def test_per_vorgabe_heading_is_gone(self, template: str):
+        assert "### Vorgabe [Nummer]" not in template
+
+    def test_result_column_forbids_superscript_footnote_markers(self, template: str):
+        assert "keine hochgestellten Fußnotenziffern" in template
+
+    def test_geringfuegig_row_rule_present(self, template: str):
+        assert "geringfügig" in template
+
+    def test_administration_split_stays_in_summary_rows(self, template: str):
+        assert "davon auf Bundesebene" in template
+        assert "davon auf Landesebene (inklusive Kommunen)" in template
+        assert "summen.verwaltung_bundesebene" in template
+        assert "summen.verwaltung_landesebene" in template
+
+    def test_footnote_format_present(self, template: str):
+        assert "**Zu lfd. Nr. X:**" in template
+
+
+class TestComplianceExportRounding:
+    """LF-RUND-001: Euro-Betraege im Export werden auf ganze Euro gerundet.
+    Cent-Angaben wie `14 017 746,67 Euro` sind bei Betraegen dieser
+    Groessenordnung nicht ueblich und wurden im Review beanstandet.
+    """
+
+    @pytest.fixture
+    def template(self) -> str:
+        return PROMPT_TEMPLATES[PromptId.COMPLIANCE_TEXT_EXTRACTION]
+
+    def test_template_demands_whole_euro_amounts(self, template: str):
+        assert "auf ganze Euro gerundet" in _compact(template)
+
+    def test_template_forbids_cent_amounts(self, template: str):
+        assert "Cent werden nicht ausgewiesen" in _compact(template)

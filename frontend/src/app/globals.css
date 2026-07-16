@@ -125,6 +125,14 @@ body {
   min-height: 24px;
 }
 
+.tile-node .tile-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .tile-node .tile-title-wrap {
   display: flex;
   flex-direction: column;
@@ -354,7 +362,8 @@ body {
   overflow: visible;
 }
 
-.tile-node .tile-metric-left {
+.tile-node .tile-metric-left,
+.tile-node .tile-ip {
   background: #e2e8f0;
   border-color: #cbd5e1;
 }

@@ -124,9 +124,10 @@ PROCESS_STEP_ANALYSIS_ADDRESSEE_RULES: Dict[str, str] = {
     BUSINESS: (
         "Jede Taetigkeit beschreibt eine Handlung des Unternehmens zur "
         "Erfuellung der Vorgabe (z.B. Daten beschaffen, Meldung erstellen, "
-        "Betriebspruefung begleiten, interne Prozesse anpassen). Orientieren "
-        "Sie sich bei Informationspflichten an Teil A der Checkliste, bei "
-        "anderen Vorgaben zusaetzlich an Teil B. IT- oder "
+        "Betriebspruefung begleiten, interne Prozesse anpassen). Fuer Vorgaben, "
+        "die im Input als `ist_informationspflicht_wirtschaft` markiert sind, "
+        "orientieren Sie sich an Teil A der Checkliste; fuer die uebrigen "
+        "Vorgaben zusaetzlich an Teil B. IT- oder "
         "Automatisierungsbezug darf in der Beschreibung genannt werden, wenn "
         "er den Handlungskern praegt. Uebernehmen Sie keine "
         "Verwaltungshandlungen (z.B. Bescheiderstellung, behoerdliche "
@@ -651,6 +652,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Hinweis zu `ist_informationspflicht_wirtschaft`: Dieses Flag ist ausschliesslich fuer den Normadressaten
         Wirtschaft (`business`) vorgesehen und kennzeichnet eine Informationspflicht im Sinne des Leitfadens.
+        Eine Informationspflicht liegt vor, wenn aufgrund der Vorgabe Daten oder sonstige Informationen fuer
+        Behoerden oder Dritte zu beschaffen, verfuegbar zu halten oder zu uebermitteln sind (§ 2 Absatz 2 Satz 2 NKRG).
+        Typische Beispiele sind das Ausfuellen von Antraegen und Formularen, die Mitwirkung an amtlichen Erhebungen,
+        Nachweis- und Dokumentationspflichten (Auskunfts-, Melde-, Berichts-, Veroeffentlichungs-, Registrierungs- und
+        Genehmigungspflichten), das Aufbewahren von Unterlagen (z. B. Rechnungen) sowie die Mitwirkung bei
+        behoerdlichen Pruefungen (z. B. Aussenpruefung).
         Setzen Sie das Flag nur dann auf "1", wenn (a) `business` im `normadressaten`-Array enthalten ist UND
         (b) die Vorgabe fuer die Wirtschaft eine Informationspflicht darstellt. In allen anderen Faellen - also
         bei reinen Verwaltungs- oder Buerger-Vorgaben, oder bei Wirtschaftsvorgaben ohne Informationspflicht-Charakter -
@@ -1234,10 +1241,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Nicht formulieren, dass kein einmaliger Erfüllungsaufwand entsteht, es sei denn, die JSON-Struktur enthält diese Aussage ausdrücklich.
         - Die Information, dass einmaliger Erfüllungsaufwand nicht Gegenstand der Analyse ist, steht bereits in der PDF-Infobox. Wiederhole
           diese Information im finalen Entwurf nicht als allgemeinen Prüfbedarfshinweis.
-        - Bei der Verwaltung werden ausschließlich Effekte auf die Bundesverwaltung dargestellt.
-        - Länder und Kommunen sind nicht Gegenstand der Analyse.
-        - Die Information, dass Länder und Kommunen nicht Gegenstand der Analyse sind, steht bereits in der PDF-Infobox. Wiederhole diese
-          Information im finalen Entwurf nicht als allgemeinen Prüfbedarfshinweis.
+        - Bei der Verwaltung wird der Aufwand getrennt für Bundesebene und Landesebene (einschließlich Kommunen) dargestellt; der
+          Länderanteil schließt die Kommunen ein.
         - Die One-in-one-out-Regel / Bürokratiebremse wird nicht behandelt.
         - Bürgerinnen und Bürger sowie Wirtschaft werden dargestellt, soweit die JSON-Struktur hierzu Angaben enthält.
         - Der EU-Bezug wird nur dargestellt, wenn die JSON-Struktur hierzu Angaben enthält.
@@ -1300,18 +1305,18 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Trenne immer die Normadressaten:
         - Bürgerinnen und Bürger,
         - Wirtschaft,
-        - Bundesverwaltung.
-        - Stelle für die Verwaltung ausschließlich den Bund dar.
-        - Stelle keine Beträge für Länder oder Kommunen dar.
-        - Wenn die JSON-Struktur Angaben zu Ländern oder Kommunen enthält, lasse diese Angaben im finalen Entwurf weg. Setze nur dann einen
-          spezifischen Prüfbedarfshinweis, wenn dadurch eine konkrete Berechnung oder Summe unklar oder widersprüchlich wird.
+        - Verwaltung.
+        - Weise bei der Verwaltung den Aufwand getrennt für Bundesebene und Landesebene (einschließlich Kommunen) aus. Der Länderanteil
+          schließt die Kommunen ein.
         - Stelle ausschließlich jährlichen Erfüllungsaufwand dar.
         - Berechne und erwähne keinen einmaligen Erfüllungsaufwand. Setze nur dann einen spezifischen Prüfbedarfshinweis, wenn dadurch eine
           konkrete Berechnung oder Summe unklar oder widersprüchlich wird.
         - Verwende keine Aussagen zur One-in-one-out-Regel oder Bürokratiebremse.
         - Vermische Erfüllungsaufwand nicht mit Haushaltsausgaben ohne Erfüllungsaufwand.
         - Vermische Erfüllungsaufwand nicht mit weiteren Kosten, Nutzen, Digitalcheck oder Evaluierung.
-        - Informationspflichten der Wirtschaft sind gesondert auszuweisen, soweit sie in der JSON-Struktur enthalten sind.
+        - Eine Vorgabe der Wirtschaft ist genau dann eine Informationspflicht, wenn ihr Feld `ist_informationspflicht_wirtschaft` den
+          Wert `true` hat. Schätze den Informationspflicht-Status nicht selbst ein, sondern übernimm ausschließlich dieses Flag. Diese
+          Informationspflichten sind gesondert auszuweisen.
         - Entlastungen sind im Text als Entlastung, Verringerung oder Reduktion zu formulieren; in Tabellen können sie mit negativem
           Vorzeichen dargestellt werden.
         - Die Summen im Vorblatt müssen mit den Summen in der Begründung übereinstimmen.
@@ -1333,10 +1338,11 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         1. Bürgerinnen und Bürger,
         2. Wirtschaft,
-        3. Bundesverwaltung.
+        3. Verwaltung.
 
         Es genügt jeweils die Angabe des Saldos über alle Vorgaben, ergänzt um die notwendigen Differenzierungen, insbesondere Zeitaufwand
-        und Sachkosten bei Bürgerinnen und Bürgern sowie Bürokratiekosten aus Informationspflichten bei der Wirtschaft.
+        und Sachkosten bei Bürgerinnen und Bürgern, Bürokratiekosten aus Informationspflichten bei der Wirtschaft sowie die Aufteilung auf
+        Bundes- und Landesebene (einschließlich Kommunen) bei der Verwaltung.
 
         ### Begründung
 
@@ -1395,41 +1401,53 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Weise gesondert aus:
 
         - Zahl der neu eingeführten, geänderten oder aufgehobenen Informationspflichten, soweit angegeben,
-        - jährlichen Mehr- oder Minderaufwand aus Informationspflichten im Saldo,
+        - den jährlichen Mehr- oder Minderaufwand aus Informationspflichten im Saldo; dieser entspricht dem Wert
+          `summen.bureaucracy_cost` des Wirtschaftsblocks (Entlastung negativ). Übernimm diesen Wert und rechne ihn nicht selbst aus
+          den Einzelvorgaben zusammen,
         - ob der gesamte jährliche Aufwand oder nur ein Teil davon aus Informationspflichten stammt.
 
         Wenn die JSON-Struktur ausdrücklich keinen jährlichen Erfüllungsaufwand ausweist:
 
         `Für die Wirtschaft entsteht kein jährlicher Erfüllungsaufwand.`
 
-        Wenn ausdrücklich keine Bürokratiekosten aus Informationspflichten entstehen:
+        `Keine` ist nur zulässig, wenn keine Wirtschafts-Vorgabe das Feld `ist_informationspflicht_wirtschaft = true` trägt. Gib dann
+        unter der Überschrift ausschließlich aus:
 
-        `Davon Bürokratiekosten aus Informationspflichten: Keine.`
+        `Keine.`
+
+        Trägt mindestens eine Wirtschafts-Vorgabe dieses Flag, sind diese Vorgaben als Informationspflicht auszuweisen und der Saldo
+        `summen.bureaucracy_cost` ist zu nennen, auch wenn er 0 Euro beträgt (dann als geringfügig bzw. 0 Euro). Formuliere dann einen
+        Satz, ohne die Überschrift zu wiederholen, zum Beispiel `Davon entfallen [Wert] auf Bürokratiekosten aus Informationspflichten.`
 
         Wenn Angaben fehlen:
 
         `[Prüfbedarf: Angaben zum jährlichen Erfüllungsaufwand der Wirtschaft fehlen.]`
 
-        ## E.3 Erfüllungsaufwand der Bundesverwaltung
+        ## E.3 Erfüllungsaufwand der Verwaltung
 
-        Stelle knapp den jährlichen Erfüllungsaufwand oder die jährliche Entlastung der Bundesverwaltung dar.
+        Stelle knapp den jährlichen Erfüllungsaufwand oder die jährliche Entlastung der Verwaltung dar.
 
         Soweit einschlägig, nenne:
 
-        - jährlichen Erfüllungsaufwand des Bundes in Euro,
-        - jährliche Entlastung des Bundes in Euro,
-        - davon Personalkosten und Sachkosten, soweit angegeben,
+        - jährlichen Erfüllungsaufwand der Verwaltung in Euro,
+        - jährliche Entlastung in Euro,
+        - davon auf Bundesebene in Euro; dieser Wert entspricht `summen.verwaltung_bundesebene` des Verwaltungsblocks. Übernimm ihn und
+          rechne ihn nicht selbst aus den Einzelvorgaben zusammen,
+        - davon auf Landesebene (einschließlich Kommunen) in Euro; dieser Wert entspricht `summen.verwaltung_landesebene` des
+          Verwaltungsblocks. Übernimm ihn und rechne ihn nicht selbst zusammen,
         - Saldo über alle Vorgaben.
 
-        Länder und Kommunen werden nicht dargestellt.
+        Der Länderanteil schließt die Kommunen ein. Die beiden Ebenen-Werte sind Teilbeträge des Gesamtaufwands der Verwaltung und müssen
+        nicht zusammen den Gesamtaufwand ergeben. Ist eines der Felder `summen.verwaltung_bundesebene` oder `summen.verwaltung_landesebene`
+        nicht enthalten, lasse die entsprechende Zeile weg statt eine Null zu erfinden.
 
-        Wenn die JSON-Struktur ausdrücklich keinen jährlichen Erfüllungsaufwand des Bundes ausweist:
+        Wenn die JSON-Struktur ausdrücklich keinen jährlichen Erfüllungsaufwand der Verwaltung ausweist:
 
-        `Für die Bundesverwaltung entsteht kein jährlicher Erfüllungsaufwand.`
+        `Für die Verwaltung entsteht kein jährlicher Erfüllungsaufwand.`
 
         Wenn Angaben fehlen:
 
-        `[Prüfbedarf: Angaben zum jährlichen Erfüllungsaufwand der Bundesverwaltung fehlen.]`
+        `[Prüfbedarf: Angaben zum jährlichen Erfüllungsaufwand der Verwaltung fehlen.]`
 
         # 4. Erfüllungsaufwand
 
@@ -1442,25 +1460,61 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         ## 4.2 Erfüllungsaufwand für die Wirtschaft
 
-        ## 4.3 Erfüllungsaufwand der Bundesverwaltung
+        ## 4.3 Erfüllungsaufwand der Verwaltung
 
-        Für jede Vorgabe ist, soweit einschlägig, eine kurze Überschrift zu verwenden:
+        Greife die Aufteilung des Verwaltungsaufwands auf Bundesebene (`summen.verwaltung_bundesebene`) und Landesebene einschließlich
+        Kommunen (`summen.verwaltung_landesebene`) aus dem Vorblatt auf.
 
-        ### Vorgabe [Nummer]: [kurzes Stichwort]; [Norm]
+        Stelle je Normadressat genau eine konsolidierte Berechnungstabelle dar. Verwende keine eigene Zwischenüberschrift je Vorgabe. Die
+        Spalte `Norm (§§); Bezeichnung der Vorgabe` nennt Fundstelle und Bezeichnung aus der je Prozess mitgelieferten Liste `vorgaben`
+        (Feld `normzitat`). Nummeriere die Zeilen in der Spalte `lfd. Nr.` fortlaufend je Abschnitt (4.1.1, 4.1.2, …; 4.2.1, …; 4.3.1, …).
 
-        Die Überschrift darf nicht länger als eine kurze Zeile sein. Ausführliche Bezeichnungen, Fallgruppentitel und fachliche
-        Differenzierungen sind im anschließenden Absatz oder in einer Tabelle darzustellen.
+        Grundsätzlich steht eine Vorgabe in einer eigenen Zeile. Werden mehrere Vorgaben innerhalb eines Prozesses gemeinsam berechnet,
+        teilen sie sich eine Zeile; nenne in der Vorgaben-Spalte alle betroffenen Vorgaben und teile den gemeinsam ermittelten Aufwand
+        nicht künstlich auf einzelne Vorgaben auf.
+
+        Alle Werte sind die jährliche Änderung des Erfüllungsaufwands; Entlastungen werden mit negativem Vorzeichen geführt (zum Beispiel
+        `-52.496` oder `-1.088.000 Stunden`). Es wird kein einmaliger Erfüllungsaufwand berechnet oder ausgewiesen; entsprechende Spalten
+        entfallen. Die Spalte `Jährlicher Aufwand pro Fall` enthält die Änderung pro Fall mit Formel und Herleitung inline, zum Beispiel
+        `-0,6 Euro = (-1 / 60 * 38,60 Euro/h (WZ: A-S ohne O))` oder `737.000 Euro = (4 hD-Stellen * 108.160 Euro/Stelle) + 175.000 Euro`.
+
+        Für Bürgerinnen und Bürger (4.1) verwende die Struktur:
+
+        | lfd. Nr. | Norm (§§); Bezeichnung der Vorgabe | Jährliche Fallzahl und Einheit | Jährlicher Aufwand pro Fall (in Minuten bzw. Euro) | Jährlicher Erfüllungsaufwand (in Stunden bzw. Tsd. Euro) oder „geringfügig“ (Begründung) |
+        |---|---|---:|---|---:|
+
+        Ergänze unter der Tabelle die Summenzeilen `Summe Zeitaufwand (in Stunden)` und `Summe Sachaufwand (in Tsd. Euro)` über alle
+        Vorgaben.
+
+        Für die Wirtschaft (4.2) verwende die Struktur:
+
+        | lfd. Nr. | Norm (§§); Bezeichnung der Vorgabe | IP | Jährliche Fallzahl und Einheit | Jährlicher Aufwand pro Fall (Minuten * Lohnkosten pro Stunde + Sachkosten in Euro) | Jährlicher Erfüllungsaufwand (in Tsd. Euro) oder „geringfügig“ (Begründung) |
+        |---|---|---|---:|---|---:|
+
+        In der Spalte `IP` steht `Ja`, wenn die Vorgabe das Feld `ist_informationspflicht_wirtschaft` mit dem Wert `true` trägt, sonst
+        bleibt die Zelle leer. Schätze den Informationspflicht-Status nicht selbst ein. Ergänze unter der Tabelle die Summenzeilen
+        `Summe (in Tsd. Euro)` (Saldo über alle Vorgaben) und `…davon aus Informationspflichten (IP)` (übernimm den Wert
+        `summen.bureaucracy_cost` des Wirtschaftsblocks, Entlastung negativ, und rechne ihn nicht aus den Einzelzeilen zusammen).
+
+        Für die Verwaltung (4.3) verwende die Struktur:
+
+        | lfd. Nr. | Norm (§§); Bezeichnung der Vorgabe | Jährliche Fallzahl und Einheit | Jährlicher Aufwand pro Fall (Minuten * Lohnkosten pro Stunde + Sachkosten in Euro) | Jährlicher Erfüllungsaufwand (in Tsd. Euro) oder „geringfügig“ (Begründung) |
+        |---|---|---:|---|---:|
+
+        Ergänze unter der Tabelle die Summenzeilen `Summe (in Tsd. Euro)`, `davon auf Bundesebene` (Wert
+        `summen.verwaltung_bundesebene`) und `davon auf Landesebene (inklusive Kommunen)` (Wert `summen.verwaltung_landesebene`). Führe
+        die Aufteilung auf Bund und Land nur in diesen Summenzeilen, nicht als eigene Spalte je Tabellenzeile.
+
+        Vorgaben mit einer jährlichen Be- oder Entlastung von betragsmäßig höchstens 100 000 Euro werden als eigene Zeile mit
+        `geringfügig` in der Ergebnisspalte geführt; die Begründung steht in der Fußnote. Schreibe dabei ausschließlich
+        `geringfügig` ohne Verweiszeichen; verwende in den Tabellenzellen keine hochgestellten Fußnotenziffern.
+
+        Unter jeder Tabelle folgen knappe Fußnoten je Zeile im Format `**Zu lfd. Nr. X:** [Bezeichnung]; [Norm]` mit der Herleitung von
+        Fallzahl, Zeitaufwand, Lohnsatz und Sachkosten. Überfrachte die Tabellenzellen nicht; die Herleitung gehört in die Fußnote. Gib
+        je Vorgabe an, dass es sich um jährlichen Erfüllungsaufwand handelt, sowie den EU-Bezug, sofern die JSON-Struktur hierzu Angaben
+        enthält.
+
         Fallgruppen dürfen nicht als eigene Markdown-Überschriften und nicht als fett gesetzte Abschnittstitel ausgegeben werden.
-        Wenn mehrere Fallgruppen dargestellt werden, verwende normale Listenpunkte oder Tabellenzeilen, zum Beispiel
-        `- Erstanerkennungsverfahren (Fallgruppe 1): ...`.
-
-        Gib je Vorgabe an:
-
-        - dass es sich um jährlichen Erfüllungsaufwand handelt,
-        - den Normadressaten,
-        - bei Wirtschaft: ob es sich um eine Informationspflicht handelt,
-        - bei Verwaltung: dass die Vorgabe der Bundesverwaltung zugeordnet ist,
-        - den EU-Bezug nur dann, wenn die JSON-Struktur hierzu Angaben enthält.
 
         ---
 
@@ -1468,47 +1522,16 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Diese Darstellungsregeln sind Arbeitsanweisungen. Sie sind nicht als eigene Überschriften in den finalen Entwurf zu übernehmen.
 
-        ### Vorgaben bis einschließlich 100 000 Euro jährlich
+        Vorgaben mit einer jährlichen Be- oder Entlastung von betragsmäßig höchstens 100 000 Euro werden nicht gesondert berechnet. Sie
+        erscheinen als eigene Zeile der Abschnittstabelle mit `geringfügig` in der Ergebnisspalte; die Fußnote unter der Tabelle nennt
+        kurz die Begründung, insbesondere die geringe Fallzahl und/oder den geringen Zeit- oder Sachaufwand.
 
-        Wenn der Betrag der jährlichen Be- oder Entlastung höchstens 100 000 Euro beträgt, genügt eine kurze Listendarstellung mit:
+        Vorgaben mit einer jährlichen Be- oder Entlastung über 100 000 Euro werden in der Abschnittstabelle nach der jeweiligen Struktur
+        aus Abschnitt 4 mit ihren Berechnungswerten dargestellt.
 
-        - Bezeichnung der Vorgabe,
-        - Fundstelle im Regelungstext,
-        - Normadressat,
-        - jährlicher Erfüllungsaufwand oder jährliche Entlastung,
-        - kurze Begründung, insbesondere geringe Fallzahl und/oder geringer Zeit- oder Sachaufwand.
-
-        Eine Berechnungstabelle ist nur erforderlich, wenn die JSON-Struktur sie enthält oder die Nachvollziehbarkeit dies verlangt.
-
-        ### Vorgaben über 100 000 Euro jährlich
-
-        Wenn der Betrag der jährlichen Be- oder Entlastung über 100 000 Euro liegt, ist eine Markdown-Tabelle zu erstellen.
-
-        Für Bürgerinnen und Bürger soll die Tabelle grundsätzlich folgende Struktur verwenden:
-
-        | Fallzahl | Zeitaufwand pro Fall in Minuten | Sachkosten pro Fall in Euro | Zeitaufwand in Stunden | Sachkosten in Tsd. Euro |
-        |---:|---:|---:|---:|---:|
-
-        Für Wirtschaft und Bundesverwaltung soll die Tabelle grundsätzlich folgende Struktur verwenden:
-
-        | Fallzahl | Zeitaufwand pro Fall in Minuten | Lohnsatz pro Stunde in Euro | Sachkosten pro Fall in Euro | Personalkosten in Tsd. Euro | Sachkosten in Tsd. Euro |
-        |---:|---:|---:|---:|---:|---:|
-
-        Wenn die JSON-Struktur eine andere oder zusätzliche sinnvolle Differenzierung enthält, etwa Laufbahngruppe, Tätigkeitskategorie,
-        Stelle, Vorgabenart oder Sachkostenart, darf die Tabelle entsprechend angepasst werden. Die Tabelle muss aber weiterhin die
-        Berechnung nachvollziehbar machen.
-
-        Danach ist die Gesamtsumme als fett gesetzter Satz aufzunehmen:
-
-        **Änderung des jährlichen Erfüllungsaufwands in Tsd. Euro: [Wert]**
-
-        Nach der Tabelle sind die zentralen Annahmen knapp zu erläutern:
-
-        - Herleitung der Fallzahl,
-        - Herleitung des Zeitaufwands,
-        - verwendeter Lohnsatz,
-        - Sachkostenannahmen,
-        - Rechenweg für den Gesamtwert.
+        Wenn die JSON-Struktur eine zusätzliche sinnvolle Differenzierung enthält, etwa Laufbahngruppe, Tätigkeitskategorie, Stelle,
+        Vorgabenart oder Sachkostenart, darf die Tabelle um weitere Spalten ergänzt werden. Sie muss die Berechnung weiterhin
+        nachvollziehbar machen.
 
         ---
 
@@ -1520,9 +1543,10 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         - Gesamtaufwand = Personalkosten + Sachkosten.
         - Entlastungen sind mit negativem Vorzeichen zu rechnen, aber im Text als Entlastung zu formulieren.
         - Bürgerinnen und Bürger: Zeitaufwand grundsätzlich in Stunden darstellen.
-        - Wirtschaft und Bundesverwaltung: Aufwand grundsätzlich in Euro beziehungsweise Tsd. Euro darstellen.
+        - Wirtschaft und Verwaltung: Aufwand grundsätzlich in Euro beziehungsweise Tsd. Euro darstellen.
         - Werte in Tabellen grundsätzlich in Tsd. Euro ausweisen, sofern die JSON-Struktur nichts anderes vorgibt.
         - Im Fließtext können gerundete Werte in Euro, Tsd. Euro oder Mio. Euro verwendet werden; die Rundung muss konsistent sein.
+        - Euro-Beträge werden auf ganze Euro gerundet; Cent werden nicht ausgewiesen, also `14 017 747 Euro` statt `14 017 746,67 Euro`.
         - Bürgerzeit wird nicht monetarisiert, es sei denn, die JSON-Struktur enthält ausdrücklich eine solche Monetarisierung.
         - Verwende deutsche Zahlenformatierung, soweit dies für Gesetzesbegründungen üblich ist, zum Beispiel `1 000 Euro`, `1,5 Mio. Euro`, `100 000 Euro`.
 
@@ -1535,8 +1559,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         1. Stimmen alle Summen im Vorblatt mit den Tabellen und Erläuterungen in der Begründung überein?
         2. Wird ausschließlich jährlicher Erfüllungsaufwand dargestellt?
         3. Wurde kein einmaliger Erfüllungsaufwand berechnet oder ausgewiesen?
-        4. Sind Bürgerinnen und Bürger, Wirtschaft und Bundesverwaltung getrennt dargestellt?
-        5. Wurden Länder und Kommunen nicht dargestellt?
+        4. Sind Bürgerinnen und Bürger, Wirtschaft und Verwaltung getrennt dargestellt?
+        5. Ist bei der Verwaltung die Aufteilung auf Bundesebene und Landesebene (einschließlich Kommunen) ausgewiesen, soweit die Werte vorliegen?
         6. Wurde die One-in-one-out-Regel nicht erwähnt?
         7. Sind Informationspflichten der Wirtschaft gesondert ausgewiesen, soweit sie in der JSON-Struktur enthalten sind?
         8. Wurden keine Angaben erfunden?

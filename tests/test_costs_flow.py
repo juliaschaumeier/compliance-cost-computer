@@ -1714,3 +1714,133 @@ def test_compute_costs_row_model_override_wins_and_expenses_once(test_client):
     ).fetchone()["cost_proposed"]
     # Override 50.0 * 60/60 + expenses 10 (once) = 60.0  (model 40.4 would give 50.4)
     assert cost == pytest.approx(60.0)
+
+
+def test_personnel_cost_by_level_maps_bund_land_ignores_durchschnitt():
+    from backend.core.cost_aggregation import _personnel_cost_by_level
+
+    rows = [
+        {"wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
+         "qualification": "gehobener_dienst", "time_required_in_min": 60, "model_hourly_rate": 40.0},
+        {"wage_source_kind": "verwaltungsebene", "wage_source_value": "laender",
+         "qualification": "gehobener_dienst", "time_required_in_min": 30, "model_hourly_rate": 44.0},
+        {"wage_source_kind": "verwaltungsebene", "wage_source_value": "kommunen",
+         "qualification": "gehobener_dienst", "time_required_in_min": 60, "model_hourly_rate": 40.0},
+        {"wage_source_kind": "verwaltungsebene", "wage_source_value": "durchschnitt",
+         "qualification": "gehobener_dienst", "time_required_in_min": 120, "model_hourly_rate": 42.0},
+    ]
+    result = _personnel_cost_by_level(rows, {})
+
+    # bund: 40*60/60 = 40; land: laender 44*30/60=22 + kommunen 40*60/60=40 = 62
+    assert result["bund"] == pytest.approx(40.0)
+    assert result["land"] == pytest.approx(62.0)
+    # durchschnitt/sozialversicherung sind keine Darstellungs-Ebenen -> kein Bucket.
+    assert "durchschnitt" not in result
+    assert set(result) == {"bund", "land"}
+
+
+def test_aggregate_addressee_costs_exposes_verwaltung_levels(test_client):
+    session_id, _ = db.upsert_session("COST-VERW-LEVELS", "test-model")
+    seeded = _seed_flow(session_id)
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=2,
+        annual_frequency_proposed=1,
+    )
+    step_one, step_two = seeded["step_one"], seeded["step_two"]
+    for step_id in (step_one, step_two):
+        db.update_process_step_effort_split(
+            session_id=session_id, step_id=step_id,
+            hourly_rates_current={}, time_required_current={}, expenses_current=None,
+            hourly_rates_proposed={"a": None, "b": 60, "c": None, "d": None},
+            time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+            expenses_proposed=None,
+        )
+    db.replace_process_step_personnel_effort(
+        session_id, ADMINISTRATION, step_one,
+        [
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "bund",
+             "time_required_in_min": 60, "model_hourly_rate": 40.0},
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "laender",
+             "time_required_in_min": 60, "model_hourly_rate": 40.0},
+            {"period": "proposed", "qualification": "hoeherer_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "durchschnitt",
+             "time_required_in_min": 60, "model_hourly_rate": 42.0},
+        ],
+    )
+    db.replace_process_step_personnel_effort(
+        session_id, ADMINISTRATION, step_two,
+        [
+            {"period": "proposed", "qualification": "gehobener_dienst",
+             "wage_source_kind": "verwaltungsebene", "wage_source_value": "laender",
+             "time_required_in_min": 60, "model_hourly_rate": 40.0},
+        ],
+    )
+
+    from backend.core import cost_aggregation
+
+    cost = cost_aggregation.aggregate_addressee_costs(
+        session_id, ADMINISTRATION, apply_user_edits=True
+    )
+
+    total = cost["total_cost"]
+    bund = cost["verwaltung_bundesebene"]
+    land = cost["verwaltung_landesebene"]
+    # cases_proposed = 2, alle Zeilen per-Fall.
+    # bund: 40*60/60 * 2 = 80; land: (laender step1 40 + laender step2 40) * 2 = 160
+    assert bund == pytest.approx(80.0)
+    assert land == pytest.approx(160.0)
+    # durchschnitt (42*60/60*2 = 84) bleibt nur in der Gesamtsumme.
+    rest = total - bund - land
+    assert rest == pytest.approx(84.0)
+    assert total == pytest.approx(324.0)
+
+
+def test_aggregate_addressee_costs_verwaltung_levels_include_sachkosten(test_client):
+    session_id, _ = db.upsert_session("COST-VERW-SACH", "test-model")
+    seeded = _seed_flow(session_id)
+    db.update_case_group_metrics(
+        session_id=session_id,
+        case_group_id=seeded["case_group_id"],
+        addressees_proposed=10,
+        annual_frequency_proposed=1,
+    )
+    step_one, step_two = seeded["step_one"], seeded["step_two"]
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_one,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 60, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=100,
+    )
+    db.update_process_step_effort_split(
+        session_id=session_id, step_id=step_two,
+        hourly_rates_current={}, time_required_current={}, expenses_current=None,
+        hourly_rates_proposed={"a": None, "b": 60, "c": None, "d": None},
+        time_required_proposed={"a": None, "b": 60, "c": None, "d": None},
+        expenses_proposed=None,
+    )
+    for step_id in (step_one, step_two):
+        db.replace_process_step_personnel_effort(
+            session_id, ADMINISTRATION, step_id,
+            [
+                {"period": "proposed", "qualification": "gehobener_dienst",
+                 "wage_source_kind": "verwaltungsebene", "wage_source_value": "laender",
+                 "time_required_in_min": 60, "model_hourly_rate": 40.0},
+            ],
+        )
+
+    from backend.core import cost_aggregation
+
+    cost = cost_aggregation.aggregate_addressee_costs(
+        session_id, ADMINISTRATION, apply_user_edits=True
+    )
+    total = cost["total_cost"]
+    # Alles auf Laenderebene -> Sachkosten fliessen in die Landesebene, land == total.
+    # step_one: (Personal 40 + Sach 100) * 10 = 1400; step_two: 40 * 10 = 400; total 1800.
+    assert total == pytest.approx(1800.0)
+    assert cost["verwaltung_bundesebene"] == pytest.approx(0.0)
+    assert cost["verwaltung_landesebene"] == pytest.approx(1800.0)
