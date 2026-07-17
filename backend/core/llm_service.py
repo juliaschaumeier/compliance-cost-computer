@@ -237,9 +237,9 @@ async def query_llm(
     `response_format` erzwingt (wo der Provider/das Modell es unterstuetzt) die
     JSON-Ausgabe bereits am Generierungszeitpunkt. Lehnt der Provider den
     Parameter mit Bad Request ab, wird gestaffelt zurueckgefallen:
-    `json_schema -> json_object -> None`. So verliert ein Provider, der nur das
-    strikte Schema ablehnt, nicht auch die reine JSON-Syntax-Erzwingung, und der
-    Workflow scheitert nicht an fehlender Provider-Unterstuetzung.
+    `json_schema -> json_object -> None`. So verliert ein Provider in diesem
+    Bad-Request-Fall, wenn er nur das strikte Schema ablehnt, nicht auch die
+    reine JSON-Syntax-Erzwingung.
     """
     provider = (provider or "").lower().strip()
     if not provider:

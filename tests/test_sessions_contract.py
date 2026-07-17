@@ -407,6 +407,39 @@ def test_sessions_llm_monitor_snapshot_contract(test_client):
     assert first["norm_addressee"] == "business"
 
 
+def test_sessions_llm_monitor_snapshot_surfaces_response_format_downgrade(test_client):
+    app_session_id = "CONTRACT-LLM-MONITOR-RESPONSE-FORMAT"
+    session_id, _ = db.upsert_session(app_session_id, "gpt-5")
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="cases_calculation",
+        model="gpt-5",
+        answer_text='{"ok": true}',
+        metadata={
+            "provider": "openai",
+            "response_format_requested": "json_schema",
+            "response_format_used": "json_object",
+            "response_format_downgraded": True,
+        },
+        answer_state=db.LLM_ANSWER_STATE_ACTIVE,
+        state_reason="session_updated",
+        norm_addressee="business",
+    )
+
+    resp = test_client.get(
+        "/sessions/llm-monitor",
+        params={"app_session_id": app_session_id},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    parsed = _parse_contract(sessions_router.SessionLlmMonitorSnapshotResponse, payload)
+    assert len(parsed.recent) >= 1
+    first = parsed.recent[0]
+    assert first["response_format_requested"] == "json_schema"
+    assert first["response_format_used"] == "json_object"
+    assert first["response_format_downgraded"] is True
+
+
 def test_sessions_llm_monitor_snapshot_includes_deep_research_recent(test_client):
     app_session_id = "CONTRACT-LLM-MONITOR-DR"
     session_id, _ = db.upsert_session(app_session_id, "gpt-5")

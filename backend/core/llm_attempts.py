@@ -696,6 +696,9 @@ def publish_llm_answer_applied(
             "output_tokens": answer.get("output_tokens"),
             "hidden_thinking_tokens": answer.get("hidden_thinking_tokens"),
             "estimated_cost_usd": answer.get("estimated_cost_usd"),
+            "response_format_requested": metadata.get("response_format_requested"),
+            "response_format_used": metadata.get("response_format_used"),
+            "response_format_downgraded": metadata.get("response_format_downgraded"),
         },
     )
 
@@ -737,6 +740,9 @@ def mark_llm_answer_apply_failed(
             "state_reason": f"session_update_failed: {_error_detail(exc)}",
             "elapsed_ms": metadata.get("elapsed_ms"),
             "error": str(exc),
+            "response_format_requested": metadata.get("response_format_requested"),
+            "response_format_used": metadata.get("response_format_used"),
+            "response_format_downgraded": metadata.get("response_format_downgraded"),
         },
     )
 

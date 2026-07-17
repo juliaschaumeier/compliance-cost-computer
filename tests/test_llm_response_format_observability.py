@@ -2,9 +2,13 @@ import asyncio
 
 import pytest
 
-from backend.core import db, llm_service
+from backend.core import db, llm_monitor, llm_service
 from backend.core.auth import ApiKeys
-from backend.core.llm_attempts import query_and_stage_llm_answer
+from backend.core.llm_attempts import (
+    mark_llm_answer_applied,
+    mark_llm_answer_apply_failed,
+    query_and_stage_llm_answer,
+)
 from backend.core.llm_service import LlmQueryError, LlmResult, query_llm
 from backend.core.prompts import PromptId
 
@@ -262,3 +266,100 @@ def test_downgrade_is_persisted_in_answer_metadata(test_client):
     assert metadata["response_format_requested"] == "json_schema"
     assert metadata["response_format_used"] == "json_object"
     assert metadata["response_format_downgraded"] is True
+
+
+# --- Monitor-UI: das Ergebnis erreicht die recent-call API und den Live-Stream ---
+
+
+def _stage_downgraded_answer(app_session_id: str) -> tuple[int, int]:
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+
+    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
+        return LlmResult(
+            text="Antworttext",
+            response_format_requested="json_schema",
+            response_format_used="json_object",
+            response_format_downgraded=True,
+        )
+
+    answer_id, _ = asyncio.run(
+        query_and_stage_llm_answer(
+            session_id=session_id,
+            prompt_id=PromptId.CASES_CALCULATION,
+            prompt="p",
+            api_keys=_keys(),
+            model="test-model",
+            provider="openai",
+            query_fn=fake_query_fn,
+        )
+    )
+    return session_id, answer_id
+
+
+def test_downgrade_is_surfaced_in_recent_llm_answers(test_client):
+    session_id, answer_id = _stage_downgraded_answer("LLM-RESPONSE-FORMAT-RECENT")
+
+    rows = [
+        row
+        for row in db.list_recent_llm_answers_for_session(session_id)
+        if row["answer_id"] == answer_id
+    ]
+    assert len(rows) == 1
+    assert rows[0]["response_format_requested"] == "json_schema"
+    assert rows[0]["response_format_used"] == "json_object"
+    assert rows[0]["response_format_downgraded"] is True
+
+
+async def _run_and_flush_fire_and_forget_tasks(fn) -> None:
+    fn()
+    pending = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+    if pending:
+        await asyncio.gather(*pending)
+
+
+def test_downgrade_is_surfaced_in_apply_succeeded_event(test_client):
+    app_session_id = "LLM-RESPONSE-FORMAT-APPLY"
+    session_id, answer_id = _stage_downgraded_answer(app_session_id)
+
+    asyncio.run(
+        _run_and_flush_fire_and_forget_tasks(
+            lambda: mark_llm_answer_applied(
+                answer_id=answer_id,
+                session_id=session_id,
+                prompt_id=PromptId.CASES_CALCULATION,
+            )
+        )
+    )
+
+    events = asyncio.run(llm_monitor.get_recent_events(app_session_id, limit=50))
+    apply_events = [
+        event
+        for event in events
+        if event["event_type"] == "llm_apply_succeeded" and event["answer_id"] == answer_id
+    ]
+    assert len(apply_events) == 1
+    assert apply_events[0]["response_format_requested"] == "json_schema"
+    assert apply_events[0]["response_format_used"] == "json_object"
+    assert apply_events[0]["response_format_downgraded"] is True
+
+
+def test_downgrade_is_surfaced_in_apply_failed_event(test_client):
+    app_session_id = "LLM-RESPONSE-FORMAT-APPLY-FAIL"
+    _session_id, answer_id = _stage_downgraded_answer(app_session_id)
+
+    asyncio.run(
+        _run_and_flush_fire_and_forget_tasks(
+            lambda: mark_llm_answer_apply_failed(answer_id=answer_id, exc=RuntimeError("boom"))
+        )
+    )
+
+    events = asyncio.run(llm_monitor.get_recent_events(app_session_id, limit=50))
+    apply_events = [
+        event
+        for event in events
+        if event["event_type"] == "llm_apply_failed" and event["answer_id"] == answer_id
+    ]
+    assert len(apply_events) == 1
+    assert apply_events[0]["response_format_requested"] == "json_schema"
+    assert apply_events[0]["response_format_used"] == "json_object"
+    assert apply_events[0]["response_format_downgraded"] is True

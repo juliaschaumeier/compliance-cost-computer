@@ -151,6 +151,9 @@ export interface LlmMonitorEvent {
   output_tokens?: number | null;
   hidden_thinking_tokens?: number | null;
   estimated_cost_usd?: number | null;
+  response_format_requested?: string | null;
+  response_format_used?: string | null;
+  response_format_downgraded?: boolean | null;
   timestamp_ms?: number | null;
   sequence?: number | null;
 }
@@ -235,6 +238,9 @@ export interface LlmMonitorRecentCall {
   error_kind?: string | null;
   error_status_code?: number | null;
   error?: string | null;
+  response_format_requested?: string | null;
+  response_format_used?: string | null;
+  response_format_downgraded?: boolean | null;
   created_at?: string | null;
 }
 

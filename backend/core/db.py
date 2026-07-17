@@ -3727,6 +3727,9 @@ def list_recent_llm_answers_for_session(session_id: int, limit: int = 80) -> lis
                 "error_kind": metadata.get("error_kind"),
                 "error_status_code": metadata.get("error_status_code"),
                 "error": metadata.get("error"),
+                "response_format_requested": metadata.get("response_format_requested"),
+                "response_format_used": metadata.get("response_format_used"),
+                "response_format_downgraded": metadata.get("response_format_downgraded"),
                 "created_at": row.get("created_at"),
             }
         )

@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { selectVisibleRecent } from "@/lib/llmMonitor";
+import { resolveResponseFormatBadge, selectVisibleRecent } from "@/lib/llmMonitor";
 import {
   LlmMonitorEvent,
   LlmMonitorPendingCall,
@@ -126,6 +126,28 @@ function NormAddresseeBadge({ value }: { value?: string | null }) {
   );
 }
 
+function ResponseFormatBadge({ row }: { row: LlmMonitorRecentCall }) {
+  const badge = resolveResponseFormatBadge(row);
+  if (!badge) {
+    return null;
+  }
+  const title = `angefragt: ${row.response_format_requested || "-"} · genutzt: ${
+    row.response_format_used || "-"
+  } · downgraded: ${row.response_format_downgraded ? "ja" : "nein"}`;
+  return (
+    <span
+      title={title}
+      className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+        badge.variant === "warning"
+          ? "ccc-status-warning border-amber-200 bg-amber-50 text-amber-800"
+          : "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
 function eventToRecentRow(event: LlmMonitorEvent): LlmMonitorRecentCall | null {
   const eventType = String(event.event_type || "");
   if (
@@ -170,6 +192,9 @@ function eventToRecentRow(event: LlmMonitorEvent): LlmMonitorRecentCall | null {
     error_kind: event.error_kind || null,
     error_status_code: event.error_status_code ?? null,
     error: event.error || null,
+    response_format_requested: event.response_format_requested ?? null,
+    response_format_used: event.response_format_used ?? null,
+    response_format_downgraded: event.response_format_downgraded ?? null,
     created_at: event.timestamp_ms ? new Date(event.timestamp_ms).toISOString() : null,
   };
 }
@@ -591,6 +616,7 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                             {row.prompt_id || "-"}
                           </span>
                           <NormAddresseeBadge value={row.norm_addressee} />
+                          <ResponseFormatBadge row={row} />
                         </div>
                         <span
                           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
