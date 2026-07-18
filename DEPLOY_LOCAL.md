@@ -53,8 +53,9 @@ Generate a secret for `AUTH_SECRET_KEY`:
 openssl rand -hex 32
 ```
 
-Leave `DB_PATH`, `REGULATIONS_PATH`, and `NEXT_PUBLIC_API_BASE_URL=/api` at their
-defaults.
+`docker-compose.yml` sets `DB_PATH=/data/ccc.db`,
+`REGULATIONS_PATH=/data/regulations`, and `NEXT_PUBLIC_API_BASE_URL=/api` for the
+Docker services. Leave those Docker defaults unchanged.
 
 ### 2. Build and start
 
@@ -69,7 +70,7 @@ The first build takes a few minutes (pip + npm). Fonts are vendored
 
 Visit **http://localhost** and log in with the `ADMIN_BOOTSTRAP_EMAIL` /
 `ADMIN_BOOTSTRAP_PASSWORD` you set. As an admin you can create more users via the
-**Benutzer** button in the header (there is no public self-registration).
+**Benutzerverwaltung** button in the header (there is no public self-registration).
 
 ### 4. Operate
 

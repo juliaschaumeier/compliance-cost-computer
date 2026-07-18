@@ -28,12 +28,14 @@ Edit `.env` and set at minimum:
 
 - `DOMAIN` — the public domain (e.g. `ccc.example.com`). Must match DNS.
 - `AUTH_SECRET_KEY` — a long, random secret (e.g. `openssl rand -hex 32`).
+- `AUTH_COOKIE_SECURE=true` — required for production HTTPS auth cookies.
 - `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` — the first admin login.
 - At least one LLM provider key (`OPENAI_API_KEY`, `DEEPINFRA_API_KEY`,
-  and/or `GEMINI_API_KEY`) consistent with `DEFAULT_MODEL`.
+  and/or `GEMINI_API_KEY`).
 
-`DB_PATH` and `REGULATIONS_PATH` are already set to `/data/...` and should not
-normally be changed (they point at the persistent volume).
+`docker-compose.yml` sets `DB_PATH=/data/ccc.db` and
+`REGULATIONS_PATH=/data/regulations` for the backend. These point at the
+persistent volume and should not normally be changed.
 
 ## 2. Build and start
 
@@ -118,6 +120,18 @@ docker compose down -v
 ## Single-replica note
 
 The backend runs as a **single replica with a single Uvicorn worker by design**.
+
+## Build quality gates
+
+The frontend Docker build is optimized for producing the production image. It is
+not the quality gate for TypeScript, lint, or Jest checks. Run CI or the local
+test commands before deploying:
+
+```bash
+python3 -m pytest
+npm --prefix frontend test
+npm --prefix frontend run lint -- --max-warnings=0
+```
 The workflow holds in-process session/run-all state and uses a single SQLite
 database file, so it must not be horizontally scaled or run with multiple
 workers. Do not add `--workers` or a `deploy.replicas` setting for the backend.

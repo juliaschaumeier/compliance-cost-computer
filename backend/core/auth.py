@@ -144,10 +144,12 @@ def email_is_allowed(email: str) -> bool:
 
 
 def ensure_bootstrap_admin() -> None:
-    """Seed the configured bootstrap admin if it does not exist yet."""
+    """Seed the configured bootstrap admin only for an empty admin set."""
     email = (settings.admin_bootstrap_email or "").strip()
     password = settings.admin_bootstrap_password or ""
     if not email or not password:
+        return
+    if db.count_admins() > 0:
         return
     if db.get_user_by_email(email) is not None:
         return

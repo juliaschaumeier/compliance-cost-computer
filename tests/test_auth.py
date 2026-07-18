@@ -5,12 +5,15 @@ rest of the suite runs authenticated. These tests pop that override to drive the
 genuine cookie-based login and ownership checks.
 """
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.core import auth as auth_core
 from backend.core import config, db
 from backend.main import app
+from backend.routers import regulations as regulations_router
 
 from tests.conftest import TEST_USER_EMAIL, TEST_USER_PASSWORD
 
@@ -100,6 +103,7 @@ def test_sessions_are_private_per_user(client):
     created = client.post("/sessions", json={"llm_model": "gpt-5"})
     assert created.status_code == 200
     app_session_id = created.json()["app_session_id"]
+    assert re.fullmatch(r"[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6}", app_session_id)
 
     # Provision and switch to user B.
     client.post(
@@ -120,3 +124,123 @@ def test_cannot_remove_last_admin(client):
     admin = db.get_user_by_email(TEST_USER_EMAIL)
     resp = client.patch(f"/auth/users/{admin['user_id']}", json={"is_active": False})
     assert resp.status_code == 400
+
+
+def test_bootstrap_admin_does_not_add_second_admin_when_admin_exists(client, monkeypatch):
+    monkeypatch.setattr(config.settings, "admin_bootstrap_email", "bootstrap@example.com")
+    monkeypatch.setattr(config.settings, "admin_bootstrap_password", "bootstrappass")
+
+    auth_core.ensure_bootstrap_admin()
+
+    assert db.get_user_by_email("bootstrap@example.com") is None
+    assert db.count_admins() == 1
+
+
+def test_regulation_summary_requires_owned_session(client):
+    _login(client, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+    db.insert_law("summary-proposed.txt", "neuer entwurf")
+
+    missing_session = client.post(
+        "/regulations/summary",
+        json={
+            "filename": "summary-proposed.txt",
+            "model": "test-model",
+        },
+    )
+    assert missing_session.status_code == 400
+
+    created = client.post("/sessions", json={"llm_model": "test-model"})
+    assert created.status_code == 200
+    app_session_id = created.json()["app_session_id"]
+    client.post(
+        "/auth/users",
+        json={"email": "summary-other@example.com", "password": "otherpass"},
+    )
+    client.post("/auth/logout")
+    _login(client, "summary-other@example.com", "otherpass")
+
+    cross_user = client.post(
+        "/regulations/summary",
+        json={
+            "filename": "summary-proposed.txt",
+            "app_session_id": app_session_id,
+            "model": "test-model",
+        },
+    )
+    assert cross_user.status_code == 404
+
+
+def test_regulation_summary_succeeds_for_owned_session(client, monkeypatch):
+    _login(client, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+    db.insert_law("owned-summary-current.txt", "aktuelles gesetz")
+    db.insert_law("owned-summary-proposed.txt", "neuer entwurf")
+    created = client.post("/sessions", json={"llm_model": "test-model"})
+    assert created.status_code == 200
+    app_session_id = created.json()["app_session_id"]
+
+    async def fake_query_llm(*_args, **_kwargs):
+        return '{"title": "Kurz", "blurb": "Ein Satz.", "summary": "Zusammenfassung."}'
+
+    monkeypatch.setattr(regulations_router, "query_llm", fake_query_llm)
+
+    response = client.post(
+        "/regulations/summary",
+        json={
+            "filename": "owned-summary-proposed.txt",
+            "current_filename": "owned-summary-current.txt",
+            "app_session_id": app_session_id,
+            "model": "test-model",
+        },
+    )
+
+    assert response.status_code == 200
+    session = db.get_session_by_app_id(app_session_id)
+    assert session["proposed_law_id"] is not None
+
+
+def test_uploaded_laws_are_private_but_builtin_laws_are_shared(client):
+    _login(client, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+    db.insert_law("builtin-law.txt", "shared fixture")
+
+    upload = client.post(
+        "/regulations/upload",
+        files={"file": ("private-law.txt", b"user a law", "text/plain")},
+    )
+    assert upload.status_code == 200
+    assert set(client.get("/regulations").json()["files"]) == {
+        "builtin-law.txt",
+        "private-law.txt",
+    }
+
+    client.post(
+        "/auth/users",
+        json={"email": "law-other@example.com", "password": "otherpass"},
+    )
+    client.post("/auth/logout")
+    _login(client, "law-other@example.com", "otherpass")
+
+    assert client.get("/regulations").json()["files"] == ["builtin-law.txt"]
+
+    own_session = client.post("/sessions", json={"llm_model": "test-model"})
+    assert own_session.status_code == 200
+    hidden_private_law = client.post(
+        "/regulations/summary",
+        json={
+            "filename": "private-law.txt",
+            "app_session_id": own_session.json()["app_session_id"],
+            "model": "test-model",
+        },
+    )
+    assert hidden_private_law.status_code == 404
+
+    same_private_name = client.post(
+        "/regulations/upload",
+        files={"file": ("private-law.txt", b"user b law", "text/plain")},
+    )
+    assert same_private_name.status_code == 200
+
+    builtin_conflict = client.post(
+        "/regulations/upload",
+        files={"file": ("builtin-law.txt", b"shadow builtin", "text/plain")},
+    )
+    assert builtin_conflict.status_code == 409

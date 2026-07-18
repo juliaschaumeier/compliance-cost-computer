@@ -2701,28 +2701,34 @@ def _should_render_research_pdf_bold(escaped_text: str) -> bool:
     return True
 
 
+_BOLD_MARKUP = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.DOTALL)
+_ITALIC_MARKUP = re.compile(r"(?<!\*)\*(?=\S)([^*]+?)(?<=\S)\*(?!\*)", re.DOTALL)
+_ESCAPED_LINE_BREAK = re.compile(r"&lt;br\s*/?&gt;", re.IGNORECASE)
+
+
 def _research_pdf_inline_markup(text: str) -> str:
     escaped = html.escape(text).replace("\n", "<br/>")
-    parts = escaped.split("**")
-    if len(parts) == 1:
-        return _linkify_research_pdf_urls(escaped)
-    rendered: list[str] = []
-    for index, part in enumerate(parts):
-        linked_part = _linkify_research_pdf_urls(part)
-        if index % 2 == 1 and _should_render_research_pdf_bold(part):
-            rendered.append(f"<b>{linked_part}</b>")
-        else:
-            rendered.append(linked_part)
-    return "".join(rendered)
+    escaped = _ESCAPED_LINE_BREAK.sub("<br/>", escaped)
+
+    def bold(match: re.Match[str]) -> str:
+        inner = match.group(1)
+        if not _should_render_research_pdf_bold(inner):
+            return inner
+        return f"<b>{inner}</b>"
+
+    marked = _BOLD_MARKUP.sub(bold, escaped)
+    marked = _ITALIC_MARKUP.sub(lambda match: f"<i>{match.group(1)}</i>", marked)
+    return _linkify_research_pdf_urls(marked)
 
 
 def _is_research_pdf_heading(text: str) -> bool:
+    level = len(text) - len(text.lstrip("#"))
     heading = text.lstrip("#").strip()
     if not heading:
         return False
     if "\n" in heading:
         return False
-    if re.match(r"^\d+\.\s+", heading):
+    if level >= 2 and re.match(r"^\d+\.\s+", heading):
         return False
     if len(heading) > 85:
         return False
@@ -2733,6 +2739,38 @@ def _is_research_pdf_heading(text: str) -> bool:
 
 def _strip_markdown_heading_prefix(text: str) -> str:
     return re.sub(r"^#{1,6}\s*", "", text, count=1).strip()
+
+
+_LIST_ITEM = re.compile(r"^(\s*)[-*]\s+(\S.*)$")
+
+
+def _parse_markdown_list(text: str) -> tuple[str, list[tuple[int, str]]] | None:
+    """Trennt einen Block in Einleitungstext und (Einrueckungstiefe, Text)-Items.
+
+    Gibt ``None`` zurueck, wenn der Block keine Aufzaehlung enthaelt. Die
+    Aufzaehlung darf direkt an einen Absatz anschliessen, weil das Modell die
+    Leerzeile davor nicht zuverlaessig setzt. Zeilen nach einem Item gelten als
+    dessen Fortsetzung, damit umgebrochene Eintraege nicht zu eigenen Bullets
+    werden.
+    """
+    lead_lines: list[str] = []
+    items: list[tuple[int, str]] = []
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        match = _LIST_ITEM.match(line)
+        if match:
+            depth = 1 if len(match.group(1)) >= 2 else 0
+            items.append((depth, match.group(2).strip()))
+            continue
+        if not items:
+            lead_lines.append(line.strip())
+            continue
+        depth, current = items[-1]
+        items[-1] = (depth, f"{current} {line.strip()}")
+    if not items:
+        return None
+    return "\n".join(lead_lines), items
 
 
 def _linkify_research_pdf_urls(escaped_text: str) -> str:
@@ -2795,9 +2833,8 @@ def _format_compliance_export_metadata_lines(metadata: dict[str, object]) -> lis
         "<b>Analyseumfang:</b> Die Darstellung umfasst ausschliesslich jaehrlichen "
         "Erfuellungsaufwand. Einmaliger Erfuellungsaufwand ist nicht Gegenstand "
         "dieser Analyse.",
-        "<b>Verwaltung:</b> Fuer die Verwaltung werden ausschliesslich Effekte auf "
-        "die Bundesverwaltung dargestellt; Laender und Kommunen sind nicht "
-        "Gegenstand dieser Analyse.",
+        "<b>Verwaltung:</b> Der Erfuellungsaufwand der Verwaltung wird getrennt nach "
+        "Bundesebene und Landesebene (einschliesslich Kommunen) ausgewiesen.",
     ]
     for label, value in (
         ("Session", metadata.get("app_session_id")),
@@ -2869,6 +2906,22 @@ def _render_research_report_pdf(
         fontSize=8,
         leading=10,
     )
+    sub_heading_style = ParagraphStyle(
+        "ResearchSubHeading",
+        parent=styles["Heading2"],
+        fontSize=12,
+        leading=15,
+    )
+    list_item_styles = [
+        ParagraphStyle(
+            f"ResearchListItem{depth}",
+            parent=styles["BodyText"],
+            leftIndent=16 + depth * 14,
+            bulletIndent=4 + depth * 14,
+            spaceAfter=2,
+        )
+        for depth in (0, 1)
+    ]
     available_width = A4[0] - doc.leftMargin - doc.rightMargin
     story = [Paragraph(html.escape(title), styles["Title"]), Spacer(1, 12)]
     if metadata or metadata_lines:
@@ -2899,8 +2952,10 @@ def _render_research_report_pdf(
         if not text:
             continue
         if text.startswith("#") and _is_research_pdf_heading(text):
+            level = len(text) - len(text.lstrip("#"))
             heading = text.lstrip("#").strip()
-            story.append(Paragraph(html.escape(heading), styles["Heading2"]))
+            heading_style = sub_heading_style if level >= 3 else styles["Heading2"]
+            story.append(Paragraph(html.escape(heading), heading_style))
         elif table_rows := _parse_pipe_table(text):
             column_count = len(table_rows[0])
             table_data = [
@@ -2929,6 +2984,23 @@ def _render_research_report_pdf(
                 )
             )
             story.append(table)
+        elif parsed_list := _parse_markdown_list(text):
+            lead, list_items = parsed_list
+            if lead:
+                story.append(
+                    Paragraph(
+                        _research_pdf_inline_markup(_strip_markdown_heading_prefix(lead)),
+                        styles["BodyText"],
+                    )
+                )
+            for depth, item in list_items:
+                story.append(
+                    Paragraph(
+                        _research_pdf_inline_markup(item),
+                        list_item_styles[depth],
+                        bulletText="•" if depth == 0 else "–",
+                    )
+                )
         else:
             story.append(
                 Paragraph(

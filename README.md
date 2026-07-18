@@ -58,7 +58,8 @@ npm run dev
 
 Frontend runs on `http://localhost:3000`. Open it and log in with the
 `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` above; as an admin you can
-provision more users from the header (there is no public self-registration).
+provision more users from the `Benutzerverwaltung` button in the header (there
+is no public self-registration).
 
 The default CORS config already allows `http://localhost:3000` → the backend on
 `:5000`, so no reverse proxy is needed for local development.
@@ -71,7 +72,7 @@ The default CORS config already allows `http://localhost:3000` → the backend o
   - `GEMINI_API_KEY`
 - Authentication:
   - `AUTH_SECRET_KEY` (required; signs the auth cookie/JWT)
-  - `AUTH_COOKIE_SECURE` (default `false`; set `true` behind TLS)
+  - `AUTH_COOKIE_SECURE` (`true` for HTTPS production; set `false` only for local plain HTTP)
   - `AUTH_TOKEN_TTL_MINUTES` (default `1440`)
   - `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` (first admin, seeded on startup)
   - `AUTH_ALLOWED_EMAILS` (optional comma-separated allowlist for provisioning)

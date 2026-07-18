@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # same-origin proxy should set this empty.
     cors_allow_origins: str = "http://localhost:3000,http://localhost:3001"
 
-    model_config = ConfigDict(env_file=".env")
+    model_config = ConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

@@ -154,6 +154,27 @@ def test_render_research_report_pdf_builds_document_with_lists_and_markup():
     assert pdf.startswith(b"%PDF")
 
 
+def test_research_pdf_async_helper_runs_renderer(monkeypatch):
+    calls = []
+
+    def fake_render(*args, **kwargs):
+        calls.append((args, kwargs))
+        return b"PDF"
+
+    monkeypatch.setattr(sessions_router, "_render_research_report_pdf", fake_render)
+
+    result = asyncio.run(
+        sessions_router._render_research_report_pdf_async(
+            "markdown",
+            "Titel",
+            metadata={"session": "ABC"},
+        )
+    )
+
+    assert result == b"PDF"
+    assert calls == [(("markdown", "Titel"), {"metadata": {"session": "ABC"}})]
+
+
 def test_research_pdf_heading_detection_rejects_long_heading_like_paragraphs():
     assert sessions_router._is_research_pdf_heading("# E. Erfüllungsaufwand") is True
     assert sessions_router._is_research_pdf_heading("# 4. Erfüllungsaufwand") is True
