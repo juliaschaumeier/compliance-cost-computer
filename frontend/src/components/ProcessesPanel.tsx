@@ -22,7 +22,6 @@ export default function ProcessesPanel() {
   } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
-    stepKey: "processes",
     appSessionId: state.appSessionId,
     setStatus,
     logScope: "ProcessesPanel.cancelRunAll",

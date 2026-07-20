@@ -5,8 +5,13 @@ import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import { createAuthenticatedEventSource } from "@/lib/eventSource";
 import { logClientError } from "@/lib/errorFeedback";
-import { selectVisibleRecent } from "@/lib/llmMonitor";
+import {
+  formatMonitorClock,
+  selectVisibleRecent,
+  sortRecentCallsNewestFirst,
+} from "@/lib/llmMonitor";
 import {
   LlmMonitorEvent,
   LlmMonitorPendingCall,
@@ -37,21 +42,6 @@ function formatClockFromMs(value?: number | null): string {
     return "-";
   }
   return new Date(value).toLocaleTimeString("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatClockFromIso(value?: string | null): string {
-  if (!value) {
-    return "-";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return parsed.toLocaleTimeString("de-DE", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -178,7 +168,7 @@ function mergeRecentRows(
   previous: LlmMonitorRecentCall[],
   incoming: LlmMonitorRecentCall[]
 ): LlmMonitorRecentCall[] {
-  const merged = [...incoming, ...previous];
+  const merged = sortRecentCallsNewestFirst([...incoming, ...previous]);
   const seen = new Set<string>();
   const deduped: LlmMonitorRecentCall[] = [];
   for (const row of merged) {
@@ -301,7 +291,9 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
 
     const applySnapshot = (snapshot: LlmMonitorSnapshotResponse) => {
       setPending(snapshot.pending || []);
-      setRecent((snapshot.recent || []).slice(0, MAX_RECENT_ROWS));
+      setRecent(
+        sortRecentCallsNewestFirst(snapshot.recent || []).slice(0, MAX_RECENT_ROWS)
+      );
       setEvents((snapshot.events || []).slice(0, MAX_EVENT_ROWS));
       const streamRows = (snapshot.stream_attempts || []).slice(0, MAX_STREAM_ATTEMPTS);
       setStreamAttempts(streamRows);
@@ -336,7 +328,7 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
 
     loadSnapshot();
 
-    const source = new EventSource(
+    const source = createAuthenticatedEventSource(
       apiClient.getLlmMonitorEventsUrl({
         appSessionId: state.appSessionId,
         limit: MAX_RECENT_ROWS,
@@ -605,7 +597,7 @@ export default function LlmMonitorConsole({ open, onClose }: LlmMonitorConsolePr
                         </span>
                       </div>
                       <div className="mt-1 text-[11px] text-slate-600">
-                        {formatClockFromIso(row.created_at)} · {row.provider || "?"} ·{" "}
+                        {formatMonitorClock(row.created_at)} · {row.provider || "?"} ·{" "}
                         {row.model || "?"}
                       </div>
                       <div className="mt-1 font-mono text-[10px] text-slate-500">

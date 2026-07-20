@@ -4,10 +4,9 @@ import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 
 import { apiClient } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
-import { RunAllStepKey, useRunAllStepRun } from "@/lib/runAllStepEvents";
+import { useActiveWorkflowRun } from "@/lib/runAllStepEvents";
 
 type UseRunAllStepCancelOptions = {
-  stepKey: RunAllStepKey;
   appSessionId: string;
   setStatus: Dispatch<SetStateAction<string | null>>;
   logScope: string;
@@ -16,13 +15,13 @@ type UseRunAllStepCancelOptions = {
 const CANCEL_REQUESTED_STATUS = "Abbruch angefordert...";
 
 export function useRunAllStepCancel({
-  stepKey,
   appSessionId,
   setStatus,
   logScope,
 }: UseRunAllStepCancelOptions) {
-  const runAllStep = useRunAllStepRun(stepKey);
-  const isRunAllBusy = runAllStep.isBusy && runAllStep.runKind === "run_all";
+  const activeWorkflowRun = useActiveWorkflowRun();
+  const isRunAllBusy =
+    activeWorkflowRun.isActive && activeWorkflowRun.runKind === "run_all";
   const [isCancellingRunAll, setIsCancellingRunAll] = useState(false);
   const isCancellingRunAllRef = useRef(false);
 
@@ -37,7 +36,7 @@ export function useRunAllStepCancel({
   }, [isRunAllBusy, setStatus]);
 
   const cancelRunAllForStep = async () => {
-    if (!runAllStep.runId) {
+    if (!activeWorkflowRun.runId) {
       setStatus("Lauf konnte nicht abgebrochen werden: Run-ID fehlt.");
       return;
     }
@@ -48,11 +47,11 @@ export function useRunAllStepCancel({
     setIsCancellingRunAll(true);
     setStatus(CANCEL_REQUESTED_STATUS);
     try {
-      await apiClient.cancelRunAll(runAllStep.runId);
+      await apiClient.cancelRunAll(activeWorkflowRun.runId);
     } catch (error) {
       logClientError(logScope, error, {
         appSessionId,
-        runId: runAllStep.runId,
+        runId: activeWorkflowRun.runId,
       });
       isCancellingRunAllRef.current = false;
       setIsCancellingRunAll(false);
@@ -63,7 +62,7 @@ export function useRunAllStepCancel({
   return {
     isRunAllBusy,
     isCancellingRunAll,
-    runAllRunId: runAllStep.runId,
+    runAllRunId: activeWorkflowRun.runId,
     cancelRunAllForStep,
   };
 }

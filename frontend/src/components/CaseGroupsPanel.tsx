@@ -22,7 +22,6 @@ export default function CaseGroupsPanel() {
   } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
-    stepKey: "case_groups",
     appSessionId: state.appSessionId,
     setStatus,
     logScope: "CaseGroupsPanel.cancelRunAll",

@@ -35,6 +35,7 @@ prompt_audits
 
 # Docs (not needed in the runtime image)
 *.md
+!resources/**/*.md
 
 # Env files and tooling
 .env

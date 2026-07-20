@@ -27,6 +27,7 @@ jest.mock("@/lib/api", () => ({
 const mockUseApp = useApp as jest.Mock;
 const mockStartStepRun = apiClient.startStepRun as jest.Mock;
 const mockGetStepRunStatus = apiClient.getStepRunStatus as jest.Mock;
+const mockCancelRunAll = apiClient.cancelRunAll as jest.Mock;
 
 describe("ProcessesPanel", () => {
   const baseContextActions = {
@@ -147,5 +148,47 @@ describe("ProcessesPanel", () => {
     expect(
       screen.getByRole("button", { name: /abbrechen/i })
     ).toBeInTheDocument();
+  });
+
+  it("shows run-all cancellation on the visible step even when run-all is executing another step", async () => {
+    mockUseApp.mockReturnValue({
+      state: {
+        appSessionId: "PRIDJF",
+        selectedNormAddressee: "administration",
+        selectedModel: "gemini-3.5-flash",
+        availableModels: [],
+        summaryReady: true,
+        regulationsReady: true,
+        processesReady: false,
+        caseGroupsReady: false,
+        processStepsReady: false,
+        effortReady: false,
+        totalCostReady: false,
+        lastFailedStep: null,
+        lastFailedLabel: null,
+        lastFailedMessage: null,
+      },
+      ...baseContextActions,
+    });
+    mockCancelRunAll.mockResolvedValue({ status: "cancelling" });
+    const user = userEvent.setup();
+    render(<ProcessesPanel />);
+
+    act(() => {
+      emitRunAllStepStarted(
+        "case_groups",
+        "run-all-1",
+        "run_all",
+        "Fallgruppen entwickeln"
+      );
+    });
+
+    const button = screen.getByRole("button", { name: /abbrechen/i });
+    expect(button).toBeInTheDocument();
+
+    await user.click(button);
+
+    expect(mockCancelRunAll).toHaveBeenCalledWith("run-all-1");
+    expect(screen.getByText(/abbruch angefordert/i)).toBeInTheDocument();
   });
 });

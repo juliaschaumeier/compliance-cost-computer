@@ -11,6 +11,7 @@ import {
   type ComplianceTextUserEditPolicy,
 } from "@/lib/api";
 import { logClientError } from "@/lib/errorFeedback";
+import { createAuthenticatedEventSource } from "@/lib/eventSource";
 import { useAnchoredPopoverPosition } from "@/lib/useAnchoredPopoverPosition";
 import {
   emitRunAllStepCleared,
@@ -31,7 +32,11 @@ type SessionMenuProps = {
 
 type SessionStepResult = { status: string; message?: string };
 type RunStepStartedEvent = { key?: string; label?: string };
-type RunStepStatusEvent = { session_status?: SessionStatus };
+type RunStepStatusEvent = {
+  session_status?: SessionStatus;
+  step?: SessionStepResult;
+  message?: string;
+};
 type RunCompletedEvent = { final_status?: SessionStatus; ok?: boolean };
 type RunFailedEvent = {
   final_status?: SessionStatus;
@@ -757,7 +762,7 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
 
   const beginRunEventStream = (runId: string) => {
     stopRunMonitoring();
-    const source = new EventSource(apiClient.getRunAllEventsUrl(runId));
+    const source = createAuthenticatedEventSource(apiClient.getRunAllEventsUrl(runId));
     runEventSourceRef.current = source;
 
     source.addEventListener("snapshot", (event) => {
@@ -797,27 +802,50 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
       }
     });
 
+    const applyStepSessionStatus = (payload: RunStepStatusEvent) => {
+      if (!payload.session_status) {
+        return;
+      }
+      applySessionMenuStatus(payload.session_status);
+      const inferredStep = deriveRunAllStepKeyFromStatus(payload.session_status);
+      if (inferredStep) {
+        const label = getRunAllStepLabel(inferredStep);
+        setCurrentRunLabel(label);
+        emitRunAllStepStarted(inferredStep, runId, "run_all", label);
+      }
+    };
+
     const applyEventStatus = (event: Event) => {
       try {
         const payload = JSON.parse((event as MessageEvent).data) as RunStepStatusEvent;
-        if (payload.session_status) {
-          applySessionMenuStatus(payload.session_status);
-          const inferredStep = deriveRunAllStepKeyFromStatus(payload.session_status);
-          if (inferredStep) {
-            const label = getRunAllStepLabel(inferredStep);
-            setCurrentRunLabel(label);
-            emitRunAllStepStarted(inferredStep, runId, "run_all", label);
-          }
-        }
+        applyStepSessionStatus(payload);
       } catch (error) {
         logClientError("SessionMenu.stepStatusEvent", error, { runId });
         // Ignore malformed status event.
       }
     };
 
+    const handleStepFailed = (event: Event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as RunStepStatusEvent;
+        applyStepSessionStatus(payload);
+        setStatus(
+          payload.step?.message ||
+            payload.message ||
+            "Schritte konnten nicht vollständig ausgeführt werden."
+        );
+      } catch (error) {
+        logClientError("SessionMenu.stepFailedEvent", error, { runId });
+        setStatus("Schritte konnten nicht vollständig ausgeführt werden.");
+      } finally {
+        resetRunUiState();
+        void refreshResearchSettings();
+      }
+    };
+
     source.addEventListener("step_completed", applyEventStatus);
     source.addEventListener("step_skipped", applyEventStatus);
-    source.addEventListener("step_failed", applyEventStatus);
+    source.addEventListener("step_failed", handleStepFailed);
     source.addEventListener("run_cancelling", () => {
       isCancellingRunRef.current = true;
       setIsCancellingRun(true);

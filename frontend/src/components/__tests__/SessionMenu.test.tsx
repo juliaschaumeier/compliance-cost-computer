@@ -646,6 +646,69 @@ describe("SessionMenu", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows step failure details even when the terminal run_failed event is missed", async () => {
+    const listeners: Record<string, EventListener> = {};
+    (global as typeof globalThis & { EventSource: jest.Mock }).EventSource = jest
+      .fn()
+      .mockImplementation(() => ({
+        addEventListener: jest.fn((eventName: string, listener: EventListener) => {
+          listeners[eventName] = listener;
+        }),
+        close: jest.fn(),
+      }));
+    const user = await openMenu();
+
+    await user.click(
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
+    );
+
+    await waitFor(() => expect(listeners.step_failed).toBeDefined());
+    act(() => {
+      listeners.step_failed(
+        new MessageEvent("step_failed", {
+          data: JSON.stringify({
+            key: "processes",
+            label: "Prozesse bündeln",
+            step: {
+              status: "failed",
+              message:
+                "Die Antwort für Wirtschaft konnte nicht verarbeitet werden.",
+            },
+            session_status: {
+              summary_ready: true,
+              regulations_ready: true,
+              processes_ready: false,
+              case_groups_ready: false,
+              process_steps_ready: false,
+              effort_ready: false,
+              total_cost_ready: false,
+              last_failed_step: "processes",
+              last_failed_label: "Prozesse bündeln",
+              last_failed_message:
+                "Die Antwort für Wirtschaft konnte nicht verarbeitet werden.",
+            },
+          }),
+        })
+      );
+    });
+
+    expect(
+      screen.getByText(/antwort für wirtschaft konnte nicht verarbeitet werden/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
+    ).not.toBeDisabled();
+
+    await user.click(
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
+    );
+
+    expect(
+      screen.queryByText(/antwort für wirtschaft konnte nicht verarbeitet werden/i)
+    ).not.toBeInTheDocument();
+    expect(mockStartRunAllSteps).toHaveBeenCalledTimes(2);
+  });
+
   it("downloads the compliance text export from the export section", async () => {
     mockUseApp.mockReturnValue({
       state: {

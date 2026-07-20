@@ -170,7 +170,6 @@ export default function TotalCostPanel() {
   const totalCostReadyRef = useRef(state.totalCostReady);
   const isComputingCostSummary = useRef(false);
   const runAllCancel = useRunAllStepCancel({
-    stepKey: "total_cost",
     appSessionId: state.appSessionId,
     setStatus,
     logScope: "TotalCostPanel.cancelRunAll",
