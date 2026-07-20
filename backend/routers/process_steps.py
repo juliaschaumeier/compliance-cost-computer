@@ -11,6 +11,7 @@ from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
 from backend.core.norm_addressees import (
     ADMINISTRATION,
+    NORM_ADDRESSEE_ECHO_MISMATCH,
     check_norm_addressee_echo,
 )
 from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
@@ -155,6 +156,37 @@ def parse_process_step_analysis_answer(
         raise HTTPException(
             status_code=422,
             detail="Unknown fallgruppen_id values: " + ", ".join(missing),
+        )
+
+    # #13/#25: Dieselbe fallgruppen_id darf nicht unter mehreren Prozessen
+    # auftauchen (sonst zwei Step-Ketten fuer eine Fallgruppe) -> 422 vor der
+    # Persistenz statt stillem last-write-wins.
+    seen_case_group_ids: set[int] = set()
+    duplicate_case_group_ids: list[str] = []
+    for entry in parsed:
+        case_group_id = entry["case_group_id"]
+        if case_group_id in seen_case_group_ids:
+            duplicate_case_group_ids.append(str(case_group_id))
+        else:
+            seen_case_group_ids.add(case_group_id)
+    if duplicate_case_group_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate fallgruppen_id values: "
+            + ", ".join(sorted(set(duplicate_case_group_ids))),
+        )
+
+    # #13/#25: Jede Fallgruppe des Normadressaten muss Prozessschritte erhalten
+    # (Schritt-5-Vollstaendigkeit) -> 422 vor der Persistenz, statt die Luecke
+    # erst spaeter in Schritt 6 aufzudecken.
+    uncovered_case_groups = sorted(
+        str(case_group_id) for case_group_id in set(case_group_lookup) - seen_case_group_ids
+    )
+    if uncovered_case_groups:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing process steps for fallgruppen_id values: "
+            + ", ".join(uncovered_case_groups),
         )
 
     invalid_regulation_links: list[str] = []
@@ -335,11 +367,18 @@ def _parse_process_steps(
     data, parse_mode = require_json_object(
         payload,
         error_context="Invalid process_step_analysis payload",
+        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
-    fallback_kinds.update(check_norm_addressee_echo(data, norm_addressee))
+    echo_kinds = check_norm_addressee_echo(data, norm_addressee)
+    if NORM_ADDRESSEE_ECHO_MISMATCH in echo_kinds:
+        raise HTTPException(
+            status_code=422,
+            detail=f"normadressat mismatch (expected {norm_addressee})",
+        )
+    fallback_kinds.update(echo_kinds)
 
     parsed: list[dict] = []
     processes = data.get("prozesse")
@@ -552,7 +591,43 @@ def _add_step_tiles(
                 }
             )
             prev_step_id = step_id
+    _assert_single_chain_start_per_case_group(session_id, norm_addressee)
     return created
+
+
+def _assert_single_chain_start_per_case_group(
+    session_id: int,
+    norm_addressee: str,
+) -> None:
+    """#64 (P5): Verteidigung in der Tiefe nach dem Step-Insert.
+
+    Jede Fallgruppe darf hoechstens eine Prozessschritt-Kette besitzen, also
+    genau einen Schritt mit ``previous_id IS NULL``. Der Parse-Guard weist
+    doppelte ``fallgruppen_id`` bereits vor der Persistenz ab; sollte dieser je
+    umgangen werden, faengt diese Invariante den stillen Zwei-Ketten-Fall noch
+    innerhalb der laufenden Transaktion ab und erzwingt einen Rollback statt
+    einer halb gespeicherten, fuer Schritt 6 unvollstaendigen Session.
+    """
+    chain_starts: dict[int, int] = {}
+    for row in db.list_process_steps_for_session_and_addressee(
+        session_id, norm_addressee
+    ):
+        if row.get("previous_id") is None:
+            case_group_id = int(row["case_group_id"])
+            chain_starts[case_group_id] = chain_starts.get(case_group_id, 0) + 1
+    multi_chain = sorted(
+        str(case_group_id)
+        for case_group_id, count in chain_starts.items()
+        if count > 1
+    )
+    if multi_chain:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Invariant violated: multiple process-step chains for "
+                "fallgruppen_id values: " + ", ".join(multi_chain)
+            ),
+        )
 
 
 def _parse_regulation_ids(raw_value: object) -> list[int]:

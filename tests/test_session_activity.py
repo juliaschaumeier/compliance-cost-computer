@@ -11,6 +11,7 @@ from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core.session_activity import WORKFLOW_LEASE_SECONDS, begin_session_activity
 from backend.main import startup
 from backend.routers import sessions as sessions_router
+from tests.conftest import override_current_user
 
 
 def _seed_total_cost_ready(app_session_id: str) -> int:
@@ -281,6 +282,7 @@ def test_other_session_workflow_allowed_while_ea_activity_active(test_client, mo
         api_keys,
         model,
         workflow_activity_id,
+        user,
     ):
         session_id = db.get_session_id_by_app_id(payload.app_session_id)
         if session_id is not None:
@@ -397,6 +399,7 @@ def test_single_step_workflow_activity_released_when_final_publish_fails(monkeyp
                     ApiKeys(),
                     "test-model",
                     activity.activity_id,
+                    override_current_user(),
                 )
             )
 

@@ -1127,6 +1127,100 @@ def _promote_pending_retry(answer_ids: list[int]) -> None:
         )
 
 
+class _EffortPairParseError(Exception):
+    def __init__(
+        self,
+        *,
+        norm_addressee: str,
+        prompt_id: str,
+        primary_exc: Exception,
+        handled_answer_ids: set[int],
+    ) -> None:
+        self.norm_addressee = norm_addressee
+        self.prompt_id = prompt_id
+        self.primary_exc = primary_exc
+        self.handled_answer_ids = handled_answer_ids
+        super().__init__(str(primary_exc))
+
+
+def _parse_effort_pair_for_addressee(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    context: dict,
+    use_deep_research: bool,
+    query_results: dict[str, LlmResult],
+    pending_answer_ids: dict[str, int],
+) -> tuple[list[dict], list[dict]]:
+    effort_key = _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
+    cases_key = _result_key(PromptId.CASES_CALCULATION, norm_addressee)
+    effort_answer_id = pending_answer_ids[effort_key]
+    handled_answer_ids: set[int] = set()
+    parsed_cases: list[dict] = []
+    parsed_effort: list[dict] | None = None
+    cases_exc: Exception | None = None
+    effort_exc: Exception | None = None
+
+    if not use_deep_research:
+        cases_answer_id = pending_answer_ids[cases_key]
+        try:
+            parsed_cases = effort_router.parse_cases_calculation_output(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                context=context,
+                cases_text=query_results[cases_key].text,
+                cases_answer_id=cases_answer_id,
+            )
+        except Exception as exc:
+            cases_exc = exc
+        else:
+            handled_answer_ids.add(cases_answer_id)
+
+    try:
+        parsed_effort = effort_router.parse_effort_calculation_output(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            context=context,
+            effort_text=query_results[effort_key].text,
+            effort_answer_id=effort_answer_id,
+        )
+    except Exception as exc:
+        effort_exc = exc
+    else:
+        handled_answer_ids.add(effort_answer_id)
+
+    if cases_exc is None and effort_exc is None:
+        assert parsed_effort is not None
+        return parsed_cases, parsed_effort
+
+    if not use_deep_research:
+        cases_answer_id = pending_answer_ids[cases_key]
+        if cases_exc is not None:
+            mark_llm_answer_apply_failed(answer_id=cases_answer_id, exc=cases_exc)
+            handled_answer_ids.add(cases_answer_id)
+        else:
+            _promote_pending_retry([cases_answer_id])
+    if effort_exc is not None:
+        mark_llm_answer_apply_failed(answer_id=effort_answer_id, exc=effort_exc)
+        handled_answer_ids.add(effort_answer_id)
+    else:
+        _promote_pending_retry([effort_answer_id])
+
+    primary_prompt = (
+        PromptId.CASES_CALCULATION
+        if cases_exc is not None
+        else PromptId.EFFORT_CALCULATION
+    )
+    primary_exc = cases_exc or effort_exc
+    assert primary_exc is not None
+    raise _EffortPairParseError(
+        norm_addressee=norm_addressee,
+        prompt_id=primary_prompt,
+        primary_exc=primary_exc,
+        handled_answer_ids=handled_answer_ids,
+    )
+
+
 async def _run_atomic_single_prompt_step(
     *,
     step: _AtomicSinglePromptStep,
@@ -1473,49 +1567,37 @@ async def _run_atomic_effort_step(
         for norm_addressee, context in contexts.items():
             if context["status"] != "ready":
                 continue
-            effort_key = _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
-            cases_key = _result_key(PromptId.CASES_CALCULATION, norm_addressee)
-            parsed_by_addressee[norm_addressee] = effort_router.parse_effort_calculation_outputs(
+            parsed_by_addressee[norm_addressee] = _parse_effort_pair_for_addressee(
                 session_id=session_id,
                 norm_addressee=norm_addressee,
                 context=context,
-                cases_text=(
-                    None
-                    if use_deep_research
-                    else query_results[cases_key].text
-                ),
-                effort_text=query_results[effort_key].text,
-                cases_answer_id=(
-                    None
-                    if use_deep_research
-                    else pending_answer_ids[cases_key]
-                ),
-                effort_answer_id=pending_answer_ids[effort_key],
+                use_deep_research=use_deep_research,
+                query_results=query_results,
+                pending_answer_ids=pending_answer_ids,
             )
     except Exception as exc:
-        failed_addressee = norm_addressee
-        failed_ids = [
-            pending_answer_ids[key]
-            for key in (
-                _result_key(PromptId.CASES_CALCULATION, failed_addressee),
-                _result_key(PromptId.EFFORT_CALCULATION, failed_addressee),
-            )
-            if key in pending_answer_ids
-        ]
-        for answer_id in failed_ids:
-            mark_llm_answer_apply_failed(answer_id=answer_id, exc=exc)
+        if isinstance(exc, _EffortPairParseError):
+            failed_addressee = exc.norm_addressee
+            prompt_label = exc.prompt_id
+            detail_exc = exc.primary_exc
+            handled_answer_ids = exc.handled_answer_ids
+        else:
+            failed_addressee = norm_addressee
+            prompt_label = PromptId.EFFORT_CALCULATION
+            detail_exc = exc
+            handled_answer_ids = set()
         sibling_ids = [
             answer_id
             for answer_id in pending_answer_ids.values()
-            if answer_id not in set(failed_ids)
+            if answer_id not in handled_answer_ids
         ]
         _promote_pending_retry(sibling_ids)
         detail = _format_atomic_step_error(
             step_label=RUN_ALL_STEP_BY_KEY["effort"][0],
             step_key="effort",
             norm_addressee=failed_addressee,
-            prompt_label=PromptId.EFFORT_CALCULATION,
-            detail=_step_error_message(exc),
+            prompt_label=prompt_label,
+            detail=_step_error_message(detail_exc),
         )
         await _emit_event(
             event_hook,
@@ -1523,12 +1605,12 @@ async def _run_atomic_effort_step(
             {
                 "key": "effort",
                 "norm_addressee": failed_addressee,
-                "prompt_id": PromptId.EFFORT_CALCULATION,
+                "prompt_id": prompt_label,
                 "message": detail,
             },
         )
         raise HTTPException(
-            status_code=getattr(exc, "status_code", 422),
+            status_code=getattr(detail_exc, "status_code", 422),
             detail=detail,
         ) from exc
 
@@ -2848,24 +2930,6 @@ def _format_compliance_export_metadata_lines(metadata: dict[str, object]) -> lis
     ):
         if value:
             lines.append(f"<b>{label}:</b> {html.escape(str(value))}")
-    token_parts = [
-        f"in {metadata.get('input_tokens')}" if metadata.get("input_tokens") is not None else None,
-        f"out {metadata.get('output_tokens')}" if metadata.get("output_tokens") is not None else None,
-        (
-            f"thinking {metadata.get('hidden_thinking_tokens')}"
-            if metadata.get("hidden_thinking_tokens") is not None
-            else None
-        ),
-    ]
-    tokens = " / ".join(part for part in token_parts if part)
-    if tokens:
-        lines.append(f"<b>Token:</b> {html.escape(tokens)}")
-    cost = metadata.get("estimated_cost_usd")
-    if cost is not None:
-        try:
-            lines.append(f"<b>Geschaetzte API-Kosten:</b> ${float(cost):.4f}")
-        except (TypeError, ValueError):
-            lines.append(f"<b>Geschaetzte API-Kosten:</b> {html.escape(str(cost))}")
     return lines
 
 
