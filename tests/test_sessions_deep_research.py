@@ -154,6 +154,27 @@ def test_render_research_report_pdf_builds_document_with_lists_and_markup():
     assert pdf.startswith(b"%PDF")
 
 
+def test_research_pdf_async_helper_runs_renderer(monkeypatch):
+    calls = []
+
+    def fake_render(*args, **kwargs):
+        calls.append((args, kwargs))
+        return b"PDF"
+
+    monkeypatch.setattr(sessions_router, "_render_research_report_pdf", fake_render)
+
+    result = asyncio.run(
+        sessions_router._render_research_report_pdf_async(
+            "markdown",
+            "Titel",
+            metadata={"session": "ABC"},
+        )
+    )
+
+    assert result == b"PDF"
+    assert calls == [(("markdown", "Titel"), {"metadata": {"session": "ABC"}})]
+
+
 def test_research_pdf_heading_detection_rejects_long_heading_like_paragraphs():
     assert sessions_router._is_research_pdf_heading("# E. Erfüllungsaufwand") is True
     assert sessions_router._is_research_pdf_heading("# 4. Erfüllungsaufwand") is True
@@ -288,6 +309,10 @@ def test_format_compliance_export_metadata_lines_includes_scope_disclaimer():
             "deep_research_status": "Nicht verwendet",
             "user_edit_status": "Keine bearbeiteten EA-Werte im Quellstand.",
             "source_snapshot_sha256": "abcdef123456",
+            "input_tokens": 100,
+            "output_tokens": 200,
+            "hidden_thinking_tokens": 30,
+            "estimated_cost_usd": 0.0042,
         }
     )
 
@@ -295,6 +320,8 @@ def test_format_compliance_export_metadata_lines_includes_scope_disclaimer():
     assert "jaehrlichen Erfuellungsaufwand" in joined
     assert "Einmaliger Erfuellungsaufwand ist nicht Gegenstand" in joined
     assert "Bundesebene und Landesebene" in joined
+    assert "Token:" not in joined
+    assert "Geschaetzte API-Kosten" not in joined
 
 
 def test_case_group_research_toggle_locks_after_run_started(test_client):

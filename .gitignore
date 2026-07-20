@@ -4,6 +4,7 @@
 # Env
 .env
 .env.*
+!.env.example
 CLAUDE.local.md
 
 # IDE
@@ -28,6 +29,8 @@ results/
 regulations/
 *.db
 *.db.backup*
+*.db-shm
+*.db-wal
 tmp/
 REVIEW_*.md
 

@@ -8,7 +8,7 @@ import { apiClient } from "@/lib/api";
 jest.mock("@/lib/api", () => ({
   apiClient: {
     getSessionStatus: jest.fn(),
-    upsertSession: jest.fn(),
+    createSession: jest.fn(),
   },
 }));
 
@@ -28,6 +28,10 @@ function ContextProbe() {
 describe("AppContext session status sync", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    (apiClient.createSession as jest.Mock).mockResolvedValue({
+      app_session_id: "a".repeat(32),
+      created: true,
+    });
     (apiClient.getSessionStatus as jest.Mock).mockResolvedValue({
       summary_ready: true,
       regulations_ready: true,

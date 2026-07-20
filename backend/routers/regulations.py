@@ -24,6 +24,7 @@ from backend.core.prompts import PromptId, render_prompt
 from backend.core.session_graph import sync_all_norm_addressee_tile_snapshots
 from backend.core.models import Tile
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
+from backend.core.auth import AuthUser, get_current_user
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
@@ -95,8 +96,10 @@ class RegulationIdentifyRequest(BaseModel):
 
 
 @router.get("")
-async def list_regulations() -> dict:
-    files = db.list_law_file_names()
+async def list_regulations(
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    files = db.list_law_file_names(owner_user_id=user.user_id)
     return {"files": files}
 
 
@@ -104,13 +107,14 @@ async def list_regulations() -> dict:
 async def upload_regulation(
     file: UploadFile = File(...),
     filename: str | None = Form(default=None),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename")
     desired_name = Path(filename or file.filename).name
     if not desired_name:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    if db.get_law_by_filename(desired_name):
+    if db.get_law_by_filename(desired_name, owner_user_id=user.user_id):
         raise HTTPException(
             status_code=409,
             detail={"error": "exists", "filename": desired_name},
@@ -121,7 +125,12 @@ async def upload_regulation(
     law_text = content.decode("utf-8", errors="ignore").strip()
     if not law_text:
         raise HTTPException(status_code=400, detail="Empty file")
-    document_id = db.insert_law(desired_name, law_text)
+    document_id = db.insert_law(
+        desired_name,
+        law_text,
+        owner_user_id=user.user_id,
+        is_builtin=False,
+    )
     return {"ok": True, "filename": desired_name, "document_id": document_id}
 
 
@@ -389,10 +398,12 @@ def _render_law_mode_context(prompt_id: str, law_mode: str) -> str:
 async def identify_regulations(
     payload: RegulationIdentifyRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     current_text, proposed_text = db.get_session_law_texts(session_id)
     law_mode, current_prompt_text = _resolve_law_mode(current_text, proposed_text)
@@ -455,11 +466,20 @@ async def identify_regulations(
 async def summarize_regulation(
     payload: RegulationSummaryRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
+    if not payload.app_session_id:
+        raise HTTPException(status_code=400, detail="app_session_id is required")
+    session_id, _created, model = ensure_session_or_400(
+        payload.app_session_id,
+        payload.model,
+        user,
+    )
+
     filename = Path(payload.filename).name
     if not filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    proposed_law = db.get_law_by_filename(filename)
+    proposed_law = db.get_law_by_filename(filename, owner_user_id=user.user_id)
     if not proposed_law:
         raise HTTPException(status_code=404, detail="File not found")
     content = str(proposed_law.get("law_text", "")).strip()
@@ -472,7 +492,7 @@ async def summarize_regulation(
         current_filename = Path(payload.current_filename).name
         if not current_filename:
             raise HTTPException(status_code=400, detail="Invalid current filename")
-        current_law = db.get_law_by_filename(current_filename)
+        current_law = db.get_law_by_filename(current_filename, owner_user_id=user.user_id)
         if not current_law:
             raise HTTPException(status_code=404, detail="Current file not found")
         current_content = str(current_law.get("law_text", "")).strip()
@@ -487,20 +507,6 @@ async def summarize_regulation(
         law_mode_context=_render_law_mode_context(PromptId.LAW_SUMMARY, law_mode),
     )
 
-    if payload.app_session_id:
-        session_id, _created, model = ensure_session_or_400(
-            payload.app_session_id,
-            payload.model,
-        )
-    else:
-        model = str(payload.model or "").strip()
-        if not model:
-            raise HTTPException(status_code=400, detail="Model is required")
-        latest = db.get_latest_session()
-        if latest:
-            session_id = int(latest["session_id"])
-        else:
-            session_id, _created = db.upsert_session("SUMMARY-AUTO", model)
     answer_id, llm_result = await query_and_stage_or_http(
         session_id=session_id,
         prompt_id=PromptId.LAW_SUMMARY,
@@ -517,15 +523,15 @@ async def summarize_regulation(
 
     def _apply() -> None:
         with db.transaction():
-            if payload.app_session_id:
-                try:
-                    db.update_session_documents(
-                        payload.app_session_id,
-                        current_filename,
-                        filename,
-                    )
-                except ValueError as exc:
-                    raise HTTPException(status_code=404, detail=str(exc)) from exc
+            try:
+                db.update_session_documents(
+                    payload.app_session_id,
+                    current_filename,
+                    filename,
+                    owner_user_id=user.user_id,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
             _clear_existing_tiles(session_id)
             _update_law_tile(
                 session_id,
@@ -535,16 +541,15 @@ async def summarize_regulation(
                 model,
                 current_filename=current_filename,
             )
-            if payload.app_session_id:
-                db.update_session_summary(
-                    payload.app_session_id,
-                    title,
-                    summary,
-                    law_diff_blurb=blurb,
-                )
-                session = db.get_session_by_app_id(payload.app_session_id)
-                if session:
-                    sync_all_norm_addressee_tile_snapshots(session)
+            db.update_session_summary(
+                payload.app_session_id,
+                title,
+                summary,
+                law_diff_blurb=blurb,
+            )
+            session = db.get_session_by_app_id(payload.app_session_id)
+            if session:
+                sync_all_norm_addressee_tile_snapshots(session)
             mark_llm_answer_applied(
                 answer_id=answer_id,
                 session_id=session_id,

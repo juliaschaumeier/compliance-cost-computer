@@ -2099,9 +2099,16 @@ def test_effort_step_parse_failure_applies_no_sibling_metrics_and_keeps_valid_pe
 ):
     app_session_id = "STEP-EFFORT-ATOMIC-FAIL"
     session_id = _seed_step6_prerequisites(app_session_id)
+    calls: dict[tuple[str, str], int] = {}
 
     async def fake_effort_llm(prompt, *_args, **_kwargs):
         addressee = _detect_addressee_from_prompt(prompt)
+        prompt_id = (
+            PromptId.EFFORT_CALCULATION
+            if _is_effort_prompt(prompt)
+            else PromptId.CASES_CALCULATION
+        )
+        calls[(prompt_id, addressee)] = calls.get((prompt_id, addressee), 0) + 1
         processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
@@ -2190,8 +2197,221 @@ def test_effort_step_parse_failure_applies_no_sibling_metrics_and_keeps_valid_pe
     for addressee in (ADMINISTRATION, CITIZENS):
         assert by_key[(PromptId.CASES_CALCULATION, addressee)]["answer_state"] == "pending"
         assert by_key[(PromptId.EFFORT_CALCULATION, addressee)]["answer_state"] == "pending"
-    assert by_key[(PromptId.CASES_CALCULATION, BUSINESS)]["answer_state"] == "invalid"
+        assert (
+            by_key[(PromptId.CASES_CALCULATION, addressee)]["state_reason"]
+            == "waiting_for_paired_retry"
+        )
+        assert (
+            by_key[(PromptId.EFFORT_CALCULATION, addressee)]["state_reason"]
+            == "waiting_for_paired_retry"
+        )
+    assert by_key[(PromptId.CASES_CALCULATION, BUSINESS)]["answer_state"] == "pending"
+    assert (
+        by_key[(PromptId.CASES_CALCULATION, BUSINESS)]["state_reason"]
+        == "waiting_for_paired_retry"
+    )
     assert by_key[(PromptId.EFFORT_CALCULATION, BUSINESS)]["answer_state"] == "invalid"
+    assert by_key[(PromptId.EFFORT_CALCULATION, BUSINESS)]["state_reason"].startswith(
+        "session_update_failed"
+    )
+
+    async def retry_business_effort_only(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        assert addressee == BUSINESS
+        assert _is_effort_prompt(prompt)
+        calls[(PromptId.EFFORT_CALCULATION, addressee)] = (
+            calls.get((PromptId.EFFORT_CALCULATION, addressee), 0) + 1
+        )
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeiten_id": str(steps[0]["step_id"]),
+                                        "personalaufwand_vorschlag": [
+                                            _personalaufwand_row(addressee, "30")
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(effort_router, "query_llm", retry_business_effort_only)
+    retry_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert retry_response.status_code == 200
+    retry_payload = _wait_for_run_completion(test_client, retry_response.json()["run_id"])
+    assert retry_payload["status"] == "completed"
+    assert db.has_effort_metrics(session_id, ADMINISTRATION)
+    assert db.has_effort_metrics(session_id, BUSINESS)
+    assert db.has_effort_metrics(session_id, CITIZENS)
+    assert calls == {
+        (PromptId.CASES_CALCULATION, ADMINISTRATION): 1,
+        (PromptId.EFFORT_CALCULATION, ADMINISTRATION): 1,
+        (PromptId.CASES_CALCULATION, BUSINESS): 1,
+        (PromptId.EFFORT_CALCULATION, BUSINESS): 2,
+        (PromptId.CASES_CALCULATION, CITIZENS): 1,
+        (PromptId.EFFORT_CALCULATION, CITIZENS): 1,
+    }
+
+
+def test_effort_step_cases_failure_keeps_valid_effort_pending_and_reuses_it(
+    test_client,
+    monkeypatch,
+):
+    app_session_id = "STEP-EFFORT-CASES-FAIL"
+    session_id = _seed_step6_prerequisites(app_session_id)
+    calls: dict[tuple[str, str], int] = {}
+
+    def cases_payload(addressee: str) -> str:
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "anzahl_betroffene_vorschlag": "10",
+                                "haeufigkeit_pro_jahr_vorschlag": "2",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    def effort_payload(addressee: str) -> str:
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
+        case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
+        steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
+        if addressee == CITIZENS:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "zeitaufwand_in_min_vorschlag": "30",
+                "sachaufwand_vorschlag": "10",
+            }
+        else:
+            effort_entry = {
+                "taetigkeiten_id": str(steps[0]["step_id"]),
+                "personalaufwand_vorschlag": [_personalaufwand_row(addressee, "30")],
+            }
+        return json.dumps(
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+    async def first_effort_llm(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        prompt_id = (
+            PromptId.EFFORT_CALCULATION
+            if _is_effort_prompt(prompt)
+            else PromptId.CASES_CALCULATION
+        )
+        calls[(prompt_id, addressee)] = calls.get((prompt_id, addressee), 0) + 1
+        if prompt_id == PromptId.CASES_CALCULATION and addressee == BUSINESS:
+            return '{"prozesse": ['
+        if prompt_id == PromptId.CASES_CALCULATION:
+            return cases_payload(addressee)
+        return effort_payload(addressee)
+
+    monkeypatch.setattr(effort_router, "query_llm", first_effort_llm)
+    start_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = _wait_for_run_completion(test_client, start_response.json()["run_id"])
+    assert payload["status"] == "failed"
+    assert "Die Antwort für Wirtschaft konnte nicht verarbeitet werden" in payload["last_error"]
+    assert not db.has_effort_metrics(session_id, BUSINESS)
+
+    rows = [
+        row
+        for row in db.list_recent_llm_answers_for_session(session_id)
+        if row["prompt_id"] in {PromptId.CASES_CALCULATION, PromptId.EFFORT_CALCULATION}
+    ]
+    by_key = {(row["prompt_id"], row["norm_addressee"]): row for row in rows}
+    assert by_key[(PromptId.CASES_CALCULATION, BUSINESS)]["answer_state"] == "invalid"
+    assert by_key[(PromptId.CASES_CALCULATION, BUSINESS)]["state_reason"].startswith(
+        "session_update_failed"
+    )
+    assert by_key[(PromptId.EFFORT_CALCULATION, BUSINESS)]["answer_state"] == "pending"
+    assert (
+        by_key[(PromptId.EFFORT_CALCULATION, BUSINESS)]["state_reason"]
+        == "waiting_for_paired_retry"
+    )
+
+    async def retry_business_cases_only(prompt, *_args, **_kwargs):
+        addressee = _detect_addressee_from_prompt(prompt)
+        assert addressee == BUSINESS
+        assert not _is_effort_prompt(prompt)
+        calls[(PromptId.CASES_CALCULATION, addressee)] = (
+            calls.get((PromptId.CASES_CALCULATION, addressee), 0) + 1
+        )
+        return cases_payload(addressee)
+
+    monkeypatch.setattr(effort_router, "query_llm", retry_business_cases_only)
+    retry_response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+    assert retry_response.status_code == 200
+    retry_payload = _wait_for_run_completion(test_client, retry_response.json()["run_id"])
+    assert retry_payload["status"] == "completed"
+    assert db.has_effort_metrics(session_id, ADMINISTRATION)
+    assert db.has_effort_metrics(session_id, BUSINESS)
+    assert db.has_effort_metrics(session_id, CITIZENS)
+    assert calls == {
+        (PromptId.CASES_CALCULATION, ADMINISTRATION): 1,
+        (PromptId.EFFORT_CALCULATION, ADMINISTRATION): 1,
+        (PromptId.CASES_CALCULATION, BUSINESS): 2,
+        (PromptId.EFFORT_CALCULATION, BUSINESS): 1,
+        (PromptId.CASES_CALCULATION, CITIZENS): 1,
+        (PromptId.EFFORT_CALCULATION, CITIZENS): 1,
+    }
 
 
 def test_effort_step_tile_refresh_failure_rolls_back_metrics_and_answers(

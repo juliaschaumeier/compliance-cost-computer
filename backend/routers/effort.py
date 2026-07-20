@@ -624,6 +624,141 @@ def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict]
     return parsed, fallback_kinds
 
 
+def _expected_case_group_ids(context: dict) -> set[int]:
+    return {int(group["case_group_id"]) for group in context["case_groups"]}
+
+
+def _expected_step_ids(context: dict) -> set[int]:
+    return {int(step["step_id"]) for step in context["steps"]}
+
+
+def _validate_parsed_cases(parsed_cases: list[dict], context: dict) -> None:
+    if not parsed_cases:
+        raise HTTPException(status_code=422, detail="No case group metrics parsed")
+
+    case_group_ids = _expected_case_group_ids(context)
+    missing_case_groups = [
+        str(entry["case_group_id"])
+        for entry in parsed_cases
+        if entry["case_group_id"] not in case_group_ids
+    ]
+    if missing_case_groups:
+        raise HTTPException(
+            status_code=422,
+            detail="Unknown fallgruppen_id values: " + ", ".join(missing_case_groups),
+        )
+
+    # #13/#25: Jede fallgruppen_id genau einmal (kein stilles last-write-wins)
+    # und jede Fallgruppe des Normadressaten muss Kennzahlen erhalten.
+    seen_case_group_ids: set[int] = set()
+    duplicate_case_groups: list[str] = []
+    for entry in parsed_cases:
+        case_group_id = int(entry["case_group_id"])
+        if case_group_id in seen_case_group_ids:
+            duplicate_case_groups.append(str(case_group_id))
+        else:
+            seen_case_group_ids.add(case_group_id)
+    if duplicate_case_groups:
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate fallgruppen_id values: "
+            + ", ".join(sorted(set(duplicate_case_groups))),
+        )
+
+    uncovered_case_groups = sorted(
+        str(case_group_id) for case_group_id in case_group_ids - seen_case_group_ids
+    )
+    if uncovered_case_groups:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing metrics for fallgruppen_id values: "
+            + ", ".join(uncovered_case_groups),
+        )
+
+
+def _validate_parsed_effort(parsed_effort: list[dict], context: dict) -> None:
+    if not parsed_effort:
+        raise HTTPException(status_code=422, detail="No effort metrics parsed")
+
+    step_ids = _expected_step_ids(context)
+    missing_steps = [
+        str(entry["step_id"])
+        for entry in parsed_effort
+        if entry["step_id"] not in step_ids
+    ]
+    if missing_steps:
+        raise HTTPException(
+            status_code=422,
+            detail="Unknown taetigkeiten_id values: " + ", ".join(missing_steps),
+        )
+
+    # #13/#25: Jede taetigkeiten_id genau einmal und jeder Schritt des
+    # Normadressaten muss einen Aufwandswert erhalten (symmetrisch zu den
+    # Fallgruppen oben).
+    seen_step_ids: set[int] = set()
+    duplicate_steps: list[str] = []
+    for entry in parsed_effort:
+        step_id = int(entry["step_id"])
+        if step_id in seen_step_ids:
+            duplicate_steps.append(str(step_id))
+        else:
+            seen_step_ids.add(step_id)
+    if duplicate_steps:
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate taetigkeiten_id values: "
+            + ", ".join(sorted(set(duplicate_steps))),
+        )
+
+    uncovered_steps = sorted(str(step_id) for step_id in step_ids - seen_step_ids)
+    if uncovered_steps:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing effort for taetigkeiten_id values: "
+            + ", ".join(uncovered_steps),
+        )
+
+
+def parse_cases_calculation_output(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    context: dict,
+    cases_text: str,
+    cases_answer_id: int | None,
+) -> list[dict]:
+    parsed_cases, fallback_kinds = _parse_cases_payload(cases_text, norm_addressee)
+    for fallback_kind in sorted(fallback_kinds):
+        mark_llm_parse_fallback(
+            answer_id=cases_answer_id,
+            session_id=session_id,
+            prompt_id=PromptId.CASES_CALCULATION,
+            fallback_kind=fallback_kind,
+        )
+    _validate_parsed_cases(parsed_cases, context)
+    return parsed_cases
+
+
+def parse_effort_calculation_output(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    context: dict,
+    effort_text: str,
+    effort_answer_id: int | None,
+) -> list[dict]:
+    parsed_effort, fallback_kinds = _parse_effort_payload(effort_text, norm_addressee)
+    for fallback_kind in sorted(fallback_kinds):
+        mark_llm_parse_fallback(
+            answer_id=effort_answer_id,
+            session_id=session_id,
+            prompt_id=PromptId.EFFORT_CALCULATION,
+            fallback_kind=fallback_kind,
+        )
+    _validate_parsed_effort(parsed_effort, context)
+    return parsed_effort
+
+
 def prepare_effort_calculation(
     *,
     session_id: int,
@@ -725,111 +860,20 @@ def parse_effort_calculation_outputs(
     if not skip_cases_calculation:
         if cases_text is None:
             raise HTTPException(status_code=500, detail="Missing cases_calculation answer")
-        parsed_cases, cases_fallback_kinds = _parse_cases_payload(
-            cases_text,
-            norm_addressee,
-        )
-        for fallback_kind in sorted(cases_fallback_kinds):
-            mark_llm_parse_fallback(
-                answer_id=cases_answer_id,
-                session_id=session_id,
-                prompt_id=PromptId.CASES_CALCULATION,
-                fallback_kind=fallback_kind,
-            )
-        if not parsed_cases:
-            raise HTTPException(status_code=422, detail="No case group metrics parsed")
-
-    parsed_effort, effort_fallback_kinds = _parse_effort_payload(
-        effort_text,
-        norm_addressee,
-    )
-    for fallback_kind in sorted(effort_fallback_kinds):
-        mark_llm_parse_fallback(
-            answer_id=effort_answer_id,
+        parsed_cases = parse_cases_calculation_output(
             session_id=session_id,
-            prompt_id=PromptId.EFFORT_CALCULATION,
-            fallback_kind=fallback_kind,
+            norm_addressee=norm_addressee,
+            context=context,
+            cases_text=cases_text,
+            cases_answer_id=cases_answer_id,
         )
-    if not parsed_effort:
-        raise HTTPException(status_code=422, detail="No effort metrics parsed")
-
-    case_group_ids = {int(group["case_group_id"]) for group in context["case_groups"]}
-    step_ids = {int(step["step_id"]) for step in context["steps"]}
-
-    if not skip_cases_calculation:
-        missing_case_groups = [
-            str(entry["case_group_id"])
-            for entry in parsed_cases
-            if entry["case_group_id"] not in case_group_ids
-        ]
-        if missing_case_groups:
-            raise HTTPException(
-                status_code=422,
-                detail="Unknown fallgruppen_id values: " + ", ".join(missing_case_groups),
-            )
-
-        # #13/#25: Jede fallgruppen_id genau einmal (kein stilles last-write-wins)
-        # und jede Fallgruppe des Normadressaten muss Kennzahlen erhalten.
-        seen_case_group_ids: set[int] = set()
-        duplicate_case_groups: list[str] = []
-        for entry in parsed_cases:
-            case_group_id = int(entry["case_group_id"])
-            if case_group_id in seen_case_group_ids:
-                duplicate_case_groups.append(str(case_group_id))
-            else:
-                seen_case_group_ids.add(case_group_id)
-        if duplicate_case_groups:
-            raise HTTPException(
-                status_code=422,
-                detail="Duplicate fallgruppen_id values: "
-                + ", ".join(sorted(set(duplicate_case_groups))),
-            )
-
-        uncovered_case_groups = sorted(
-            str(cg_id) for cg_id in case_group_ids - seen_case_group_ids
-        )
-        if uncovered_case_groups:
-            raise HTTPException(
-                status_code=422,
-                detail="Missing metrics for fallgruppen_id values: "
-                + ", ".join(uncovered_case_groups),
-            )
-
-    missing_steps = [
-        str(entry["step_id"])
-        for entry in parsed_effort
-        if entry["step_id"] not in step_ids
-    ]
-    if missing_steps:
-        raise HTTPException(
-            status_code=422,
-            detail="Unknown taetigkeiten_id values: " + ", ".join(missing_steps),
-        )
-
-    # #13/#25: Jede taetigkeiten_id genau einmal und jeder Schritt des
-    # Normadressaten muss einen Aufwandswert erhalten (symmetrisch zu den
-    # Fallgruppen oben).
-    seen_step_ids: set[int] = set()
-    duplicate_steps: list[str] = []
-    for entry in parsed_effort:
-        step_id = int(entry["step_id"])
-        if step_id in seen_step_ids:
-            duplicate_steps.append(str(step_id))
-        else:
-            seen_step_ids.add(step_id)
-    if duplicate_steps:
-        raise HTTPException(
-            status_code=422,
-            detail="Duplicate taetigkeiten_id values: "
-            + ", ".join(sorted(set(duplicate_steps))),
-        )
-
-    uncovered_steps = sorted(str(step_id) for step_id in step_ids - seen_step_ids)
-    if uncovered_steps:
-        raise HTTPException(
-            status_code=422,
-            detail="Missing effort for taetigkeiten_id values: " + ", ".join(uncovered_steps),
-        )
+    parsed_effort = parse_effort_calculation_output(
+        session_id=session_id,
+        norm_addressee=norm_addressee,
+        context=context,
+        effort_text=effort_text,
+        effort_answer_id=effort_answer_id,
+    )
 
     return parsed_cases, parsed_effort
 

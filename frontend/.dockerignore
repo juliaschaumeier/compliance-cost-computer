@@ -1,0 +1,12 @@
+# Build-context exclusions for the frontend image (context = ./frontend).
+
+node_modules
+.next
+out
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.turbo
+coverage
+.DS_Store

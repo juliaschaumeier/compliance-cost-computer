@@ -20,19 +20,18 @@ def _tile_payload(tile_id: str, title: str) -> dict:
 
 
 def test_tiles_are_scoped_by_app_session_id(test_client):
-    session_a = "SCOPE-A"
-    session_b = "SCOPE-B"
-
     resp_a = test_client.post(
         "/sessions",
-        json={"app_session_id": session_a, "llm_model": "test-model"},
+        json={"llm_model": "test-model"},
     )
     assert resp_a.status_code == 200
+    session_a = resp_a.json()["app_session_id"]
     resp_b = test_client.post(
         "/sessions",
-        json={"app_session_id": session_b, "llm_model": "test-model"},
+        json={"llm_model": "test-model"},
     )
     assert resp_b.status_code == 200
+    session_b = resp_b.json()["app_session_id"]
 
     create_a = test_client.post(
         f"/tiles?app_session_id={session_a}",
@@ -57,16 +56,14 @@ def test_tiles_are_scoped_by_app_session_id(test_client):
 
 
 def test_tile_delete_is_scoped_by_session(test_client):
-    session_a = "DEL-A"
-    session_b = "DEL-B"
-    test_client.post(
+    session_a = test_client.post(
         "/sessions",
-        json={"app_session_id": session_a, "llm_model": "test-model"},
-    )
-    test_client.post(
+        json={"llm_model": "test-model"},
+    ).json()["app_session_id"]
+    session_b = test_client.post(
         "/sessions",
-        json={"app_session_id": session_b, "llm_model": "test-model"},
-    )
+        json={"llm_model": "test-model"},
+    ).json()["app_session_id"]
 
     test_client.post(
         f"/tiles?app_session_id={session_a}",

@@ -42,7 +42,23 @@ class Settings(BaseSettings):
     db_path: Path = DEFAULT_DB_PATH
     regulations_path: Path = DEFAULT_REGULATIONS_PATH
 
-    model_config = ConfigDict(env_file=".env")
+    # Authentication / accounts.
+    auth_secret_key: str = ""
+    auth_token_ttl_minutes: int = 1440
+    auth_cookie_name: str = "ccc_auth"
+    # Set true behind a TLS-terminating proxy so the auth cookie is Secure-only.
+    auth_cookie_secure: bool = False
+    # Bootstrap admin seeded on startup when the users table has no admin yet.
+    admin_bootstrap_email: str = ""
+    admin_bootstrap_password: str = ""
+    # Comma-separated allowlist of emails an admin may provision. Empty = no
+    # additional restriction beyond "admin-provisioned only" (no self-signup).
+    auth_allowed_emails: str = ""
+    # Comma-separated CORS origins. Defaults to local dev; production behind the
+    # same-origin proxy should set this empty.
+    cors_allow_origins: str = "http://localhost:3000,http://localhost:3001"
+
+    model_config = ConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

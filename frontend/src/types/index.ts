@@ -1,5 +1,20 @@
 export type Provider = "OpenAI" | "DeepInfra" | "Gemini";
 export type NormAddressee = "administration" | "business" | "citizens";
+
+export interface AuthUser {
+  user_id: number;
+  email: string;
+  is_admin: boolean;
+}
+
+export interface AdminUser {
+  user_id: number;
+  email: string;
+  is_admin: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
 export const AUTOMATED_NORM_ADDRESSEES: NormAddressee[] = [
   "administration",
   "business",

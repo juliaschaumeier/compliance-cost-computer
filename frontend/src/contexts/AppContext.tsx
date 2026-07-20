@@ -5,7 +5,6 @@ import React, {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { apiClient } from "@/lib/api";
@@ -225,7 +224,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [currentTab, setCurrentTab] = useState(0);
   const [appSessionId, setAppSessionIdState] = useState("");
-  const [isFreshAppSessionId, setIsFreshAppSessionId] = useState(false);
   const [selectedNormAddressee, setSelectedNormAddresseeState] =
     useState<NormAddressee>("administration");
   const [selectedModel, setSelectedModel] = useState("");
@@ -254,26 +252,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastFailedLabel, setLastFailedLabel] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const [isComplianceExportRunning, setIsComplianceExportRunning] = useState(false);
-  const appSessionIdAttempts = useRef(0);
-
-  const generateAppSessionId = useCallback(() => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    return Array.from({ length: 6 }, () =>
-      chars[Math.floor(Math.random() * chars.length)]
-    ).join("");
-  }, []);
-
-  const setNewAppSessionId = useCallback(() => {
-    const generated = generateAppSessionId();
-    appSessionIdAttempts.current += 1;
-    setAppSessionIdState(generated);
-    setIsFreshAppSessionId(true);
-  }, [generateAppSessionId]);
 
   const setAppSessionId = useCallback((nextAppSessionId: string) => {
     setAppSessionIdState(nextAppSessionId);
-    setIsFreshAppSessionId(false);
-    appSessionIdAttempts.current = 0;
   }, []);
 
   const setSelectedNormAddressee = useCallback((normAddressee: NormAddressee) => {
@@ -326,15 +307,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const storedAppSessionId =
       sessionStorage.getItem(APP_SESSION_STORAGE_KEY) ||
       sessionStorage.getItem(LEGACY_SESSION_STORAGE_KEY);
-    if (storedAppSessionId && /^[A-Z0-9]{6}$/.test(storedAppSessionId)) {
+    if (storedAppSessionId && /^[A-Za-z0-9_-]{1,64}$/.test(storedAppSessionId)) {
       setAppSessionIdState(storedAppSessionId);
-      setIsFreshAppSessionId(false);
       sessionStorage.setItem(APP_SESSION_STORAGE_KEY, storedAppSessionId);
       sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
-      return;
     }
-    setNewAppSessionId();
-  }, [setNewAppSessionId]);
+    // When there is no stored session id, a new one is created server-side by
+    // the syncSession effect once a model is selected (the server generates and
+    // returns the app_session_id).
+  }, []);
 
   useEffect(() => {
     const stored = sessionStorage.getItem(SELECTED_NORM_ADDRESSEE_STORAGE_KEY);
@@ -417,8 +398,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           typeof (error as { status?: unknown })?.status === "number"
             ? ((error as { status: number }).status as number)
             : undefined;
-        // New app session IDs are created client-side first and may not exist
-        // server-side until the first upsert completes.
+        // A stored session id may no longer exist or may not be owned by the
+        // current user (the backend returns 404 in that case).
         if (status === 404) {
           return;
         }
@@ -502,39 +483,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [addresseeReadiness, regulationsReady, summaryReady]);
 
   useEffect(() => {
-    if (!appSessionId || !selectedModel) {
+    // A session id is only created server-side, on demand, once a model is
+    // selected. The server generates the id and we adopt the returned value.
+    if (appSessionId || !selectedModel) {
       return;
     }
     let cancelled = false;
-    const syncSession = async () => {
+    const createSession = async () => {
       try {
-        const { created } = await apiClient.upsertSession(appSessionId, selectedModel);
+        const { app_session_id } = await apiClient.createSession(selectedModel);
         if (cancelled) {
           return;
         }
-        if (created) {
-          appSessionIdAttempts.current = 0;
-          setIsFreshAppSessionId(false);
-          return;
-        }
-        if (isFreshAppSessionId && appSessionIdAttempts.current < 5) {
-          setNewAppSessionId();
-          return;
-        }
-        setIsFreshAppSessionId(false);
+        setAppSessionIdState(app_session_id);
       } catch (error) {
-        logDebug("[AppContext] Failed to upsert session", {
-          appSessionId,
+        logDebug("[AppContext] Failed to create session", {
           selectedModel,
           error,
         });
       }
     };
-    syncSession();
+    createSession();
     return () => {
       cancelled = true;
     };
-  }, [appSessionId, selectedModel, isFreshAppSessionId, setNewAppSessionId, logDebug]);
+  }, [appSessionId, selectedModel, logDebug]);
 
   return (
     <AppContext.Provider

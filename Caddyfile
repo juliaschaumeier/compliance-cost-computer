@@ -1,0 +1,25 @@
+# Caddy reverse proxy for the Compliance-Cost Computer (CCC).
+#
+# Terminates TLS (automatic HTTPS via the public domain) and serves the app
+# same-origin: /api/* -> backend (prefix stripped), everything else -> frontend.
+#
+# The site address comes from the DOMAIN env var (set in .env / passed to the
+# caddy container). Caddy obtains and renews certificates automatically for it.
+
+{$DOMAIN} {
+	encode gzip
+
+	# API requests: strip the /api prefix so the backend sees /sessions, etc.
+	# flush_interval -1 disables response buffering so SSE streams
+	# (run-all events, llm-monitor) are delivered immediately.
+	handle_path /api/* {
+		reverse_proxy backend:5000 {
+			flush_interval -1
+		}
+	}
+
+	# Everything else goes to the Next.js frontend.
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

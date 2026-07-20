@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.core import db
@@ -26,6 +26,7 @@ from backend.routers._edit_validation import validate_non_empty_rows
 from backend.routers._edit_validation import validate_non_noop_update_count
 from backend.routers._edit_validation import validate_unique_ids
 from backend.routers._edit_validation import validate_wage_source_kind
+from backend.routers._llm_router_utils import require_session_owner
 from backend.routers._norm_addressee import normalize_norm_addressee_or_422
 from backend.routers._session_activity_guard import guarded_session_activity
 from backend.routers._session_validation import (
@@ -179,7 +180,7 @@ def parse_process_step_analysis_answer(
     # (Schritt-5-Vollstaendigkeit) -> 422 vor der Persistenz, statt die Luecke
     # erst spaeter in Schritt 6 aufzudecken.
     uncovered_case_groups = sorted(
-        str(cg_id) for cg_id in set(case_group_lookup) - seen_case_group_ids
+        str(case_group_id) for case_group_id in set(case_group_lookup) - seen_case_group_ids
     )
     if uncovered_case_groups:
         raise HTTPException(
@@ -230,7 +231,7 @@ def apply_process_step_analysis(
     )
 
 
-@router.get("/editable", response_model=EditableProcessStepsResponse)
+@router.get("/editable", response_model=EditableProcessStepsResponse, dependencies=[Depends(require_session_owner)])
 async def list_editable_process_steps(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     case_group_id: int | None = None,
@@ -264,7 +265,7 @@ async def list_editable_process_steps(
     return EditableProcessStepsResponse(rows=rows)
 
 
-@router.post("/bulk-update", response_model=BulkUpdateResponse)
+@router.post("/bulk-update", response_model=BulkUpdateResponse, dependencies=[Depends(require_session_owner)])
 async def bulk_update_process_steps(
     payload: ProcessStepBulkUpdateRequest,
 ) -> BulkUpdateResponse:
@@ -318,7 +319,7 @@ async def bulk_update_process_steps(
     return BulkUpdateResponse(updated=updated)
 
 
-@router.post("/personnel-effort-edit", response_model=BulkUpdateResponse)
+@router.post("/personnel-effort-edit", response_model=BulkUpdateResponse, dependencies=[Depends(require_session_owner)])
 async def edit_personnel_effort_time(
     payload: PersonnelEffortTimeEditRequest,
 ) -> BulkUpdateResponse:

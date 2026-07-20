@@ -16,27 +16,28 @@ def _parse_contract(model_cls, payload):
 def test_sessions_upsert_and_list_contract(test_client):
     upsert_resp = test_client.post(
         "/sessions",
-        json={"app_session_id": "CONTRACT-UPSERT", "llm_model": "gpt-5"},
+        json={"llm_model": "gpt-5"},
     )
     assert upsert_resp.status_code == 200
     upsert_payload = upsert_resp.json()
     upsert = _parse_contract(sessions_router.SessionUpsertResponse, upsert_payload)
-    assert upsert.app_session_id == "CONTRACT-UPSERT"
+    assert upsert.app_session_id
+    assert upsert.created is True
 
     list_resp = test_client.get("/sessions", params={"limit": 1})
     assert list_resp.status_code == 200
     listed = _parse_contract(sessions_router.SessionListResponse, list_resp.json())
     assert len(listed.sessions) == 1
-    assert listed.sessions[0].app_session_id == "CONTRACT-UPSERT"
+    assert listed.sessions[0].app_session_id == upsert.app_session_id
 
 
 def test_sessions_list_includes_used_llm_models(test_client):
-    app_session_id = "CONTRACT-USED-MODELS"
     upsert_resp = test_client.post(
         "/sessions",
-        json={"app_session_id": app_session_id, "llm_model": "gpt-5"},
+        json={"llm_model": "gpt-5"},
     )
     assert upsert_resp.status_code == 200
+    app_session_id = upsert_resp.json()["app_session_id"]
 
     session_id = db.get_session_id_by_app_id(app_session_id)
     assert session_id is not None
@@ -62,12 +63,12 @@ def test_sessions_list_includes_used_llm_models(test_client):
 
 
 def test_sessions_used_llm_models_triggers_update_and_delete(test_client):
-    app_session_id = "CONTRACT-USED-MODELS-TRIGGERS"
     upsert_resp = test_client.post(
         "/sessions",
-        json={"app_session_id": app_session_id, "llm_model": "gpt-5"},
+        json={"llm_model": "gpt-5"},
     )
     assert upsert_resp.status_code == 200
+    app_session_id = upsert_resp.json()["app_session_id"]
 
     session_id = db.get_session_id_by_app_id(app_session_id)
     assert session_id is not None
@@ -104,13 +105,14 @@ def test_sessions_used_llm_models_triggers_update_and_delete(test_client):
 
 
 def test_sessions_status_contract(test_client):
-    test_client.post(
+    created = test_client.post(
         "/sessions",
-        json={"app_session_id": "CONTRACT-STATUS", "llm_model": "gpt-5"},
+        json={"llm_model": "gpt-5"},
     )
+    app_session_id = created.json()["app_session_id"]
 
     resp = test_client.get(
-        "/sessions/status", params={"app_session_id": "CONTRACT-STATUS"}
+        "/sessions/status", params={"app_session_id": app_session_id}
     )
     assert resp.status_code == 200
     status_payload = resp.json()
@@ -120,11 +122,11 @@ def test_sessions_status_contract(test_client):
 
 
 def test_sessions_edit_audit_contract(test_client):
-    app_session_id = "CONTRACT-EDIT-AUDIT"
-    test_client.post(
+    created = test_client.post(
         "/sessions",
-        json={"app_session_id": app_session_id, "llm_model": "gpt-5"},
+        json={"llm_model": "gpt-5"},
     )
+    app_session_id = created.json()["app_session_id"]
 
     update_resp = test_client.post(
         "/sessions/pay-rates",
@@ -288,22 +290,23 @@ def test_pay_rates_save_and_reset_for_laender_session_no_422(test_client):
 
 
 def test_sessions_undo_contract(test_client):
-    test_client.post(
+    created = test_client.post(
         "/sessions",
-        json={"app_session_id": "CONTRACT-UNDO", "llm_model": "gpt-5"},
+        json={"llm_model": "gpt-5"},
     )
+    app_session_id = created.json()["app_session_id"]
 
     noop_resp = test_client.post(
-        "/sessions/undo", json={"app_session_id": "CONTRACT-UNDO"}
+        "/sessions/undo", json={"app_session_id": app_session_id}
     )
     assert noop_resp.status_code == 200
     noop = _parse_contract(sessions_router.SessionUndoResponse, noop_resp.json())
     assert noop.status == "no-op"
     assert noop.message == "No completed steps"
 
-    db.update_session_summary("CONTRACT-UNDO", "Titel", "Zusammenfassung")
+    db.update_session_summary(app_session_id, "Titel", "Zusammenfassung")
     ok_resp = test_client.post(
-        "/sessions/undo", json={"app_session_id": "CONTRACT-UNDO"}
+        "/sessions/undo", json={"app_session_id": app_session_id}
     )
     assert ok_resp.status_code == 200
     undone = _parse_contract(sessions_router.SessionUndoResponse, ok_resp.json())

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, StringConstraints
 
-from backend.core.auth import ApiKeys, get_api_keys
+from backend.core.auth import ApiKeys, AuthUser, get_api_keys, get_current_user
 from backend.core.compliance_text_export import (
     USER_EDIT_REJECT,
     USER_EDIT_USE,
@@ -67,6 +67,8 @@ from backend.core.workflow import (
 from backend.routers._llm_router_utils import (
     ensure_session_or_400,
     query_and_stage_or_http,
+    require_owned_session,
+    require_session_owner,
     run_with_answer_apply_guard,
 )
 from backend.routers._edit_validation import validate_wage_source_kind
@@ -102,7 +104,7 @@ ModelName = Annotated[
 
 
 class SessionUpsertRequest(BaseModel):
-    app_session_id: AppSessionId
+    # app_session_id is server-generated; only the model is supplied by the client.
     llm_model: ModelName
 
 
@@ -1125,6 +1127,100 @@ def _promote_pending_retry(answer_ids: list[int]) -> None:
         )
 
 
+class _EffortPairParseError(Exception):
+    def __init__(
+        self,
+        *,
+        norm_addressee: str,
+        prompt_id: str,
+        primary_exc: Exception,
+        handled_answer_ids: set[int],
+    ) -> None:
+        self.norm_addressee = norm_addressee
+        self.prompt_id = prompt_id
+        self.primary_exc = primary_exc
+        self.handled_answer_ids = handled_answer_ids
+        super().__init__(str(primary_exc))
+
+
+def _parse_effort_pair_for_addressee(
+    *,
+    session_id: int,
+    norm_addressee: str,
+    context: dict,
+    use_deep_research: bool,
+    query_results: dict[str, LlmResult],
+    pending_answer_ids: dict[str, int],
+) -> tuple[list[dict], list[dict]]:
+    effort_key = _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
+    cases_key = _result_key(PromptId.CASES_CALCULATION, norm_addressee)
+    effort_answer_id = pending_answer_ids[effort_key]
+    handled_answer_ids: set[int] = set()
+    parsed_cases: list[dict] = []
+    parsed_effort: list[dict] | None = None
+    cases_exc: Exception | None = None
+    effort_exc: Exception | None = None
+
+    if not use_deep_research:
+        cases_answer_id = pending_answer_ids[cases_key]
+        try:
+            parsed_cases = effort_router.parse_cases_calculation_output(
+                session_id=session_id,
+                norm_addressee=norm_addressee,
+                context=context,
+                cases_text=query_results[cases_key].text,
+                cases_answer_id=cases_answer_id,
+            )
+        except Exception as exc:
+            cases_exc = exc
+        else:
+            handled_answer_ids.add(cases_answer_id)
+
+    try:
+        parsed_effort = effort_router.parse_effort_calculation_output(
+            session_id=session_id,
+            norm_addressee=norm_addressee,
+            context=context,
+            effort_text=query_results[effort_key].text,
+            effort_answer_id=effort_answer_id,
+        )
+    except Exception as exc:
+        effort_exc = exc
+    else:
+        handled_answer_ids.add(effort_answer_id)
+
+    if cases_exc is None and effort_exc is None:
+        assert parsed_effort is not None
+        return parsed_cases, parsed_effort
+
+    if not use_deep_research:
+        cases_answer_id = pending_answer_ids[cases_key]
+        if cases_exc is not None:
+            mark_llm_answer_apply_failed(answer_id=cases_answer_id, exc=cases_exc)
+            handled_answer_ids.add(cases_answer_id)
+        else:
+            _promote_pending_retry([cases_answer_id])
+    if effort_exc is not None:
+        mark_llm_answer_apply_failed(answer_id=effort_answer_id, exc=effort_exc)
+        handled_answer_ids.add(effort_answer_id)
+    else:
+        _promote_pending_retry([effort_answer_id])
+
+    primary_prompt = (
+        PromptId.CASES_CALCULATION
+        if cases_exc is not None
+        else PromptId.EFFORT_CALCULATION
+    )
+    primary_exc = cases_exc or effort_exc
+    assert primary_exc is not None
+    raise _EffortPairParseError(
+        norm_addressee=norm_addressee,
+        prompt_id=primary_prompt,
+        primary_exc=primary_exc,
+        handled_answer_ids=handled_answer_ids,
+    )
+
+
 async def _run_atomic_single_prompt_step(
     *,
     step: _AtomicSinglePromptStep,
@@ -1471,49 +1567,37 @@ async def _run_atomic_effort_step(
         for norm_addressee, context in contexts.items():
             if context["status"] != "ready":
                 continue
-            effort_key = _result_key(PromptId.EFFORT_CALCULATION, norm_addressee)
-            cases_key = _result_key(PromptId.CASES_CALCULATION, norm_addressee)
-            parsed_by_addressee[norm_addressee] = effort_router.parse_effort_calculation_outputs(
+            parsed_by_addressee[norm_addressee] = _parse_effort_pair_for_addressee(
                 session_id=session_id,
                 norm_addressee=norm_addressee,
                 context=context,
-                cases_text=(
-                    None
-                    if use_deep_research
-                    else query_results[cases_key].text
-                ),
-                effort_text=query_results[effort_key].text,
-                cases_answer_id=(
-                    None
-                    if use_deep_research
-                    else pending_answer_ids[cases_key]
-                ),
-                effort_answer_id=pending_answer_ids[effort_key],
+                use_deep_research=use_deep_research,
+                query_results=query_results,
+                pending_answer_ids=pending_answer_ids,
             )
     except Exception as exc:
-        failed_addressee = norm_addressee
-        failed_ids = [
-            pending_answer_ids[key]
-            for key in (
-                _result_key(PromptId.CASES_CALCULATION, failed_addressee),
-                _result_key(PromptId.EFFORT_CALCULATION, failed_addressee),
-            )
-            if key in pending_answer_ids
-        ]
-        for answer_id in failed_ids:
-            mark_llm_answer_apply_failed(answer_id=answer_id, exc=exc)
+        if isinstance(exc, _EffortPairParseError):
+            failed_addressee = exc.norm_addressee
+            prompt_label = exc.prompt_id
+            detail_exc = exc.primary_exc
+            handled_answer_ids = exc.handled_answer_ids
+        else:
+            failed_addressee = norm_addressee
+            prompt_label = PromptId.EFFORT_CALCULATION
+            detail_exc = exc
+            handled_answer_ids = set()
         sibling_ids = [
             answer_id
             for answer_id in pending_answer_ids.values()
-            if answer_id not in set(failed_ids)
+            if answer_id not in handled_answer_ids
         ]
         _promote_pending_retry(sibling_ids)
         detail = _format_atomic_step_error(
             step_label=RUN_ALL_STEP_BY_KEY["effort"][0],
             step_key="effort",
             norm_addressee=failed_addressee,
-            prompt_label=PromptId.EFFORT_CALCULATION,
-            detail=_step_error_message(exc),
+            prompt_label=prompt_label,
+            detail=_step_error_message(detail_exc),
         )
         await _emit_event(
             event_hook,
@@ -1521,12 +1605,12 @@ async def _run_atomic_effort_step(
             {
                 "key": "effort",
                 "norm_addressee": failed_addressee,
-                "prompt_id": PromptId.EFFORT_CALCULATION,
+                "prompt_id": prompt_label,
                 "message": detail,
             },
         )
         raise HTTPException(
-            status_code=getattr(exc, "status_code", 422),
+            status_code=getattr(detail_exc, "status_code", 422),
             detail=detail,
         ) from exc
 
@@ -1611,6 +1695,7 @@ async def _run_single_step(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    user: AuthUser,
     event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> None:
     addressee_labels = {
@@ -1691,7 +1776,7 @@ async def _run_single_step(
             model=model,
             provider=payload.provider,
         )
-        await regulations_router.summarize_regulation(summary_payload, api_keys)
+        await regulations_router.summarize_regulation(summary_payload, api_keys, user)
         return
 
     if step_key == "regulations":
@@ -1700,7 +1785,7 @@ async def _run_single_step(
             model=model,
             provider=payload.provider,
         )
-        await regulations_router.identify_regulations(identify_payload, api_keys)
+        await regulations_router.identify_regulations(identify_payload, api_keys, user)
         return
 
     if step_key == "processes":
@@ -1807,6 +1892,7 @@ async def _execute_run_all_steps(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    user: AuthUser,
     event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> tuple[list[SessionRunStepResult], SessionStatusResponse, bool]:
     step_results: list[SessionRunStepResult] = []
@@ -1850,6 +1936,7 @@ async def _execute_run_all_steps(
                 payload,
                 api_keys,
                 model,
+                user,
                 event_hook=event_hook,
             )
         except Exception as exc:
@@ -1936,6 +2023,7 @@ async def _execute_single_step(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys,
     model: str,
+    user: AuthUser,
     event_hook: Callable[[str, dict], Awaitable[None] | None] | None = None,
 ) -> tuple[list[SessionRunStepResult], SessionStatusResponse, bool]:
     step_definition = RUN_ALL_STEP_BY_KEY.get(step_key)
@@ -1981,6 +2069,7 @@ async def _execute_single_step(
             payload,
             api_keys,
             model,
+            user,
             event_hook=event_hook,
         )
     except Exception as exc:
@@ -2073,21 +2162,33 @@ async def _execute_single_step(
 
 
 @router.post("", response_model=SessionUpsertResponse)
-async def upsert_session(payload: SessionUpsertRequest) -> SessionUpsertResponse:
-    _, created = db.upsert_session(payload.app_session_id, payload.llm_model)
-    return SessionUpsertResponse(
-        app_session_id=payload.app_session_id,
-        created=created,
-    )
+async def upsert_session(
+    payload: SessionUpsertRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionUpsertResponse:
+    try:
+        app_session_id, _session_id = db.create_owned_session(
+            user.user_id, payload.llm_model
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SessionUpsertResponse(app_session_id=app_session_id, created=True)
 
 
 @router.get("", response_model=SessionListResponse)
-async def list_sessions(limit: int = Query(default=50, ge=1, le=200)) -> SessionListResponse:
-    sessions = db.list_sessions(limit=limit)
+async def list_sessions(
+    limit: int = Query(default=50, ge=1, le=200),
+    user: AuthUser = Depends(get_current_user),
+) -> SessionListResponse:
+    sessions = db.list_sessions(limit=limit, owner_user_id=user.user_id)
     return SessionListResponse(sessions=sessions)
 
 
-@router.get("/status", response_model=SessionStatusResponse)
+@router.get(
+    "/status",
+    response_model=SessionStatusResponse,
+    dependencies=[Depends(require_session_owner)],
+)
 async def session_status(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION
 ) -> SessionStatusResponse:
@@ -2112,7 +2213,7 @@ def _ensure_ea_edit_allowed(app_session_id: str) -> None:
         )
 
 
-@router.post("/ea-edit-activity/acquire", response_model=SessionEaEditActivityResponse)
+@router.post("/ea-edit-activity/acquire", response_model=SessionEaEditActivityResponse, dependencies=[Depends(require_session_owner)])
 async def acquire_ea_edit_activity(
     payload: SessionEaEditActivityRequest,
 ) -> SessionEaEditActivityResponse:
@@ -2137,7 +2238,7 @@ async def acquire_ea_edit_activity(
     )
 
 
-@router.post("/ea-edit-activity/heartbeat", response_model=SessionEaEditActivityResponse)
+@router.post("/ea-edit-activity/heartbeat", response_model=SessionEaEditActivityResponse, dependencies=[Depends(require_session_owner)])
 async def heartbeat_ea_edit_activity(
     payload: SessionEaEditActivityRequest,
 ) -> SessionEaEditActivityResponse:
@@ -2161,7 +2262,7 @@ async def heartbeat_ea_edit_activity(
     )
 
 
-@router.post("/ea-edit-activity/release")
+@router.post("/ea-edit-activity/release", dependencies=[Depends(require_session_owner)])
 async def release_ea_edit_activity(payload: SessionEaEditActivityRequest) -> dict:
     session_id = _session_id_or_404(payload.app_session_id)
     if payload.activity_id:
@@ -2173,7 +2274,7 @@ async def release_ea_edit_activity(payload: SessionEaEditActivityRequest) -> dic
     return {"ok": True}
 
 
-@router.get("/pay-rates", response_model=SessionPayRatesResponse)
+@router.get("/pay-rates", response_model=SessionPayRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_pay_rates(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     norm_addressee: str | None = None,
@@ -2181,7 +2282,7 @@ async def session_pay_rates(
     return _as_session_pay_rates_response(app_session_id, norm_addressee=norm_addressee)
 
 
-@router.post("/pay-rates", response_model=SessionPayRatesResponse)
+@router.post("/pay-rates", response_model=SessionPayRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_pay_rates_update(
     payload: SessionPayRatesUpdateRequest,
 ) -> SessionPayRatesResponse:
@@ -2228,7 +2329,7 @@ def _as_session_wage_rates_response(
     )
 
 
-@router.get("/wage-rates", response_model=SessionWageRatesResponse)
+@router.get("/wage-rates", response_model=SessionWageRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_wage_rates(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     norm_addressee: str | None = None,
@@ -2240,7 +2341,7 @@ async def session_wage_rates(
     return _as_session_wage_rates_response(app_session_id, session_id, resolved)
 
 
-@router.post("/wage-rates", response_model=SessionWageRatesResponse)
+@router.post("/wage-rates", response_model=SessionWageRatesResponse, dependencies=[Depends(require_session_owner)])
 async def session_wage_rates_update(
     payload: SessionWageRateUpdateRequest,
 ) -> SessionWageRatesResponse:
@@ -2283,7 +2384,7 @@ async def session_wage_rates_update(
     return _as_session_wage_rates_response(payload.app_session_id, session_id, resolved)
 
 
-@router.get("/edit-audit", response_model=SessionEditAuditResponse)
+@router.get("/edit-audit", response_model=SessionEditAuditResponse, dependencies=[Depends(require_session_owner)])
 async def session_edit_audit(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     limit: int = Query(default=200, ge=1, le=1000),
@@ -2295,7 +2396,7 @@ async def session_edit_audit(
     return SessionEditAuditResponse(app_session_id=app_session_id, rows=rows)
 
 
-@router.post("/ea-edits/reset", response_model=SessionEaEditResetResponse)
+@router.post("/ea-edits/reset", response_model=SessionEaEditResetResponse, dependencies=[Depends(require_session_owner)])
 async def reset_session_ea_edits(
     payload: SessionEaEditResetRequest,
 ) -> SessionEaEditResetResponse:
@@ -2352,14 +2453,14 @@ def _research_settings_response(app_session_id: str) -> CaseGroupResearchSetting
     )
 
 
-@router.get("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+@router.get("/case-group-research", response_model=CaseGroupResearchSettingsResponse, dependencies=[Depends(require_session_owner)])
 async def case_group_research_settings(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
 ) -> CaseGroupResearchSettingsResponse:
     return _research_settings_response(app_session_id)
 
 
-@router.post("/case-group-research", response_model=CaseGroupResearchSettingsResponse)
+@router.post("/case-group-research", response_model=CaseGroupResearchSettingsResponse, dependencies=[Depends(require_session_owner)])
 async def case_group_research_settings_update(
     payload: CaseGroupResearchSettingsRequest,
 ) -> CaseGroupResearchSettingsResponse:
@@ -2393,6 +2494,10 @@ def _compliance_export_filename(app_session_id: str, user_edit_policy: str) -> s
     return f"ccc_vorblatt_begruendung_{app_session_id}{suffix}.pdf"
 
 
+async def _render_research_report_pdf_async(*args, **kwargs) -> bytes:
+    return await asyncio.to_thread(_render_research_report_pdf, *args, **kwargs)
+
+
 def _compliance_metadata_for_pdf(
     *,
     app_session_id: str,
@@ -2405,6 +2510,10 @@ def _compliance_metadata_for_pdf(
     used_user_edits: bool,
     reused: bool,
     created_at: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    hidden_thinking_tokens: int | None = None,
+    estimated_cost_usd: float | None = None,
 ) -> dict[str, object]:
     if not has_user_edits:
         user_edit_status = "Keine bearbeiteten EA-Werte im Quellstand."
@@ -2429,17 +2538,23 @@ def _compliance_metadata_for_pdf(
         "deep_research_status": dr_status,
         "user_edit_status": user_edit_status,
         "source_snapshot_sha256": source_snapshot_sha256[:12],
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "hidden_thinking_tokens": hidden_thinking_tokens,
+        "estimated_cost_usd": estimated_cost_usd,
     }
 
 
-@router.post("/compliance-text-export")
+@router.post("/compliance-text-export", dependencies=[Depends(require_session_owner)])
 async def export_compliance_text(
     payload: ComplianceTextExportRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> Response:
     session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     status = db.get_session_status(payload.app_session_id)
     if not status or not bool(status.get("total_cost_ready")):
@@ -2491,8 +2606,12 @@ async def export_compliance_text(
             used_user_edits=bool(cached.get("used_user_edits")),
             reused=True,
             created_at=cached.get("created_at"),
+            input_tokens=cached.get("input_tokens"),
+            output_tokens=cached.get("output_tokens"),
+            hidden_thinking_tokens=cached.get("hidden_thinking_tokens"),
+            estimated_cost_usd=cached.get("estimated_cost_usd"),
         )
-        pdf = _render_research_report_pdf(
+        pdf = await _render_research_report_pdf_async(
             str(cached["generated_markdown"]),
             f"Vorblatt und Begründung {payload.app_session_id}",
             metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
@@ -2575,8 +2694,12 @@ async def export_compliance_text(
         has_user_edits=context.has_user_edits,
         used_user_edits=context.used_user_edits,
         reused=False,
+        input_tokens=llm_result.input_tokens,
+        output_tokens=llm_result.output_tokens,
+        hidden_thinking_tokens=llm_result.hidden_thinking_tokens,
+        estimated_cost_usd=llm_result.estimated_cost_usd,
     )
-    pdf = _render_research_report_pdf(
+    pdf = await _render_research_report_pdf_async(
         llm_result.text,
         f"Vorblatt und Begründung {payload.app_session_id}",
         metadata_lines=_format_compliance_export_metadata_lines(pdf_metadata),
@@ -2971,7 +3094,7 @@ def _render_research_report_pdf(
     return buffer.getvalue()
 
 
-@router.get("/deep-research-report")
+@router.get("/deep-research-report", dependencies=[Depends(require_session_owner)])
 async def download_deep_research_report(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     format: Literal["pdf", "md"] = "pdf",
@@ -3002,7 +3125,7 @@ async def download_deep_research_report(
             media_type="text/markdown; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
         )
-    pdf = _render_research_report_pdf(
+    pdf = await _render_research_report_pdf_async(
         report_md,
         f"Deep Research Report {app_session_id}",
         metadata={
@@ -3024,7 +3147,7 @@ async def download_deep_research_report(
     )
 
 
-@router.post("/undo", response_model=SessionUndoResponse)
+@router.post("/undo", response_model=SessionUndoResponse, dependencies=[Depends(require_session_owner)])
 async def undo_last_step(payload: SessionUndoRequest) -> SessionUndoResponse:
     session = db.get_session_by_app_id(payload.app_session_id)
     if not session:
@@ -3120,6 +3243,7 @@ async def _run_all_background(
     api_keys: ApiKeys,
     model: str,
     workflow_activity_id: str,
+    user: AuthUser,
 ) -> None:
     session_id = db.get_session_id_by_app_id(payload.app_session_id)
     try:
@@ -3144,6 +3268,7 @@ async def _run_all_background(
                     payload=payload,
                     api_keys=api_keys,
                     model=model,
+                    user=user,
                     event_hook=lambda event, data: _publish_run_event(run_id, event, data),
                 )
         except asyncio.CancelledError:
@@ -3210,6 +3335,7 @@ async def _run_single_step_background(
     api_keys: ApiKeys,
     model: str,
     workflow_activity_id: str,
+    user: AuthUser,
 ) -> None:
     session_id = db.get_session_id_by_app_id(payload.app_session_id)
     try:
@@ -3227,6 +3353,7 @@ async def _run_single_step_background(
                     payload=payload,
                     api_keys=api_keys,
                     model=model,
+                    user=user,
                     event_hook=lambda event, data: _publish_run_event(run_id, event, data),
                 )
         except asyncio.CancelledError:
@@ -3275,12 +3402,14 @@ async def _run_single_step_background(
 async def start_step_run(
     payload: SessionStepRunRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunAllStartResponse:
     if payload.step_key not in RUN_ALL_STEP_BY_KEY:
         raise HTTPException(status_code=400, detail=f"Unknown step: {payload.step_key}")
     _session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     workflow_activity_id: str | None = None
 
@@ -3333,6 +3462,7 @@ async def start_step_run(
             api_keys,
             model,
             workflow_activity_id,
+            user,
         )
     )
     async with _RUN_REGISTRY_LOCK:
@@ -3348,31 +3478,41 @@ async def start_step_run(
 
 
 @router.get("/step-runs/{run_id}", response_model=SessionRunStatusResponse)
-async def get_step_run_status(run_id: str) -> SessionRunStatusResponse:
-    return await get_run_all_status(run_id)
+async def get_step_run_status(
+    run_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionRunStatusResponse:
+    return await get_run_all_status(run_id, user)
 
 
 @router.post("/step-runs/{run_id}/cancel", response_model=SessionRunCancelResponse)
 async def cancel_step_run(
     run_id: str,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunCancelResponse:
-    return await cancel_run_all(run_id, api_keys)
+    return await cancel_run_all(run_id, api_keys, user)
 
 
 @router.get("/step-runs/{run_id}/events")
-async def stream_step_run_events(run_id: str, request: Request) -> StreamingResponse:
-    return await stream_run_all_events(run_id, request)
+async def stream_step_run_events(
+    run_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    return await stream_run_all_events(run_id, request, user)
 
 
 @router.post("/run-all/start", response_model=SessionRunAllStartResponse)
 async def start_run_all_steps(
     payload: SessionRunAllRequest,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunAllStartResponse:
     _session_id, _created, model = ensure_session_or_400(
         payload.app_session_id,
         payload.model,
+        user,
     )
     workflow_activity_id: str | None = None
 
@@ -3411,7 +3551,7 @@ async def start_run_all_steps(
         _ACTIVE_RUN_BY_SESSION[payload.app_session_id] = run_id
 
     task = asyncio.create_task(
-        _run_all_background(run_id, payload, api_keys, model, workflow_activity_id)
+        _run_all_background(run_id, payload, api_keys, model, workflow_activity_id, user)
     )
     async with _RUN_REGISTRY_LOCK:
         active = _RUNS_BY_ID.get(run_id)
@@ -3429,11 +3569,13 @@ async def start_run_all_steps(
 async def cancel_run_all(
     run_id: str,
     api_keys: ApiKeys = Depends(get_api_keys),
+    user: AuthUser = Depends(get_current_user),
 ) -> SessionRunCancelResponse:
     async with _RUN_REGISTRY_LOCK:
         record = _RUNS_BY_ID.get(run_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Run not found")
+        require_owned_session(record.app_session_id, user)
         if record.status != "running":
             return SessionRunCancelResponse(
                 run_id=record.run_id,
@@ -3467,8 +3609,12 @@ async def cancel_run_all(
 
 
 @router.get("/run-all/{run_id}", response_model=SessionRunStatusResponse)
-async def get_run_all_status(run_id: str) -> SessionRunStatusResponse:
+async def get_run_all_status(
+    run_id: str,
+    user: AuthUser = Depends(get_current_user),
+) -> SessionRunStatusResponse:
     record = await _get_run_record(run_id)
+    require_owned_session(record.app_session_id, user)
     return SessionRunStatusResponse(
         run_id=record.run_id,
         app_session_id=record.app_session_id,
@@ -3484,8 +3630,13 @@ async def get_run_all_status(run_id: str) -> SessionRunStatusResponse:
 
 
 @router.get("/run-all/{run_id}/events")
-async def stream_run_all_events(run_id: str, request: Request) -> StreamingResponse:
-    await _get_run_record(run_id)
+async def stream_run_all_events(
+    run_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> StreamingResponse:
+    record = await _get_run_record(run_id)
+    require_owned_session(record.app_session_id, user)
 
     async def _event_generator() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue[tuple[str, dict]] = asyncio.Queue(maxsize=128)
@@ -3537,7 +3688,7 @@ async def stream_run_all_events(run_id: str, request: Request) -> StreamingRespo
     )
 
 
-@router.get("/llm-monitor", response_model=SessionLlmMonitorSnapshotResponse)
+@router.get("/llm-monitor", response_model=SessionLlmMonitorSnapshotResponse, dependencies=[Depends(require_session_owner)])
 async def get_llm_monitor_snapshot(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
     limit: int = Query(default=80, ge=1, le=500),
@@ -3563,7 +3714,7 @@ async def get_llm_monitor_snapshot(
     )
 
 
-@router.get("/llm-monitor/events")
+@router.get("/llm-monitor/events", dependencies=[Depends(require_session_owner)])
 async def stream_llm_monitor_events(
     request: Request,
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
@@ -3618,6 +3769,7 @@ async def stream_llm_monitor_events(
 @router.get(
     "/llm-monitor/stream/{attempt_id}",
     response_model=SessionLlmMonitorStreamAttemptResponse,
+    dependencies=[Depends(require_session_owner)],
 )
 async def get_llm_monitor_stream_attempt(
     attempt_id: str,
