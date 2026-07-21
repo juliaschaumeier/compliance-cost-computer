@@ -1,56 +1,77 @@
-### I. Gesetzlicher Status quo (Betrachtung nur für Arbeitnehmer)
+§ 9 Abs. 1 S. 3 Nr. 4 EStG
+Aktuelle Rechtslage
+Aufwendungen des Arbeitnehmers für die Wege zwischen Wohnung und erster Tätigkeitsstätte im Sinne des Absatzes 4. Zur Abgeltung dieser Aufwendungen ist für jeden Arbeitstag, an dem der Arbeitnehmer die erste Tätigkeitsstätte aufsucht eine Entfernungspauschale für jeden vollen Kilometer der Entfernung zwischen Wohnung und erster Tätigkeitsstätte von 0,30 Euro anzusetzen, höchstens jedoch 4 500 Euro im Kalenderjahr; ein höherer Betrag als 4 500 Euro ist anzusetzen, soweit der Arbeitnehmer einen eigenen oder ihm zur Nutzung überlassenen Kraftwagen benutzt. Die Entfernungspauschale gilt nicht für Flugstrecken und Strecken mit steuerfreier Sammelbeförderung nach § 3 Nummer 32. Für die Bestimmung der Entfernung ist die kürzeste Straßenverbindung zwischen Wohnung und erster Tätigkeitsstätte maßgebend; eine andere als die kürzeste Straßenverbindung kann zugrunde gelegt werden, wenn diese offensichtlich verkehrsgünstiger ist und vom Arbeitnehmer regelmäßig für die Wege zwischen Wohnung und erster Tätigkeitsstätte benutzt wird. Nach § 8 Absatz 2 Satz 11 oder Absatz 3 steuerfreie Sachbezüge für Fahrten zwischen Wohnung und erster Tätigkeitsstätte mindern den nach Satz 2 abziehbaren Betrag; ist der Arbeitgeber selbst der Verkehrsträger, ist der Preis anzusetzen, den ein dritter Arbeitgeber an den Verkehrsträger zu entrichten hätte. Hat ein Arbeitnehmer mehrere Wohnungen, so sind die Wege von einer Wohnung, die nicht der ersten Tätigkeitsstätte am nächsten liegt, nur zu berücksichtigen, wenn sie den Mittelpunkt der Lebensinteressen des Arbeitnehmers bildet und nicht nur gelegentlich aufgesucht wird. Nach § 3 Nummer 37 steuerfreie Sachbezüge mindern den nach Satz 2 abziehbaren Betrag nicht; § 3c Absatz 1 ist nicht anzuwenden. Zur Abgeltung der Aufwendungen im Sinne des Satzes 1 ist für die Veranlagungszeiträume 2021 bis 2026 abweichend von Satz 2 für jeden Arbeitstag, an dem der Arbeitnehmer die erste Tätigkeitsstätte aufsucht, eine Entfernungspauschale für jeden vollen Kilometer der ersten 20 Kilometer der Entfernung zwischen Wohnung und erster Tätigkeitsstätte von 0,30 Euro und für jeden weiteren vollen Kilometer
+a) von 0,35 Euro für 2021,
+b) von 0,38 Euro für 2022 bis 2026
+anzusetzen, höchstens 4 500 Euro im Kalenderjahr; ein höherer Betrag als 4 500 Euro ist anzusetzen, soweit der Arbeitnehmer einen eigenen oder ihm zur Nutzung überlassenen Kraftwagen benutzt.
 
-- Pendlerpauschale
-  - Voraussetzungen (tageweise Betrachtung):
-    - [Aufwendung für Weg zwischen Wohnung und erster Tätigkeitsstätte]
-    - Aufsuchen erster Tätigkeitsstätte ODER
-    - Arbeitnehmer hat keine erste Tätigkeitsstätte i.S.d. § 9 Abs. 4 und ist angewiesen dauerhaft denselben Ort oder dasselbe weiträumige Tätigkeitsgebiet typischerweise arbeitstäglich aufzusuchen (Siehe Verweis in § 9 Abs. 1 S. 3 Nr. 4a S. 3)
-  - Folge:
-    - Entfernungspauschale für jeden vollen Kilometer der Entfernung zwischen Wohnung und erster Tätigkeitsstätte i.H.v. 0,30 €
-      - Ausnahme: Gilt nicht für Flugstrecken und Strecken mit steuerfreier Sammelbeförderung nach § 3 Nummer 32 —> dann keine überhaupt keine Geltendmachung möglich!
-      - Veranlagungszeiträume 2021 bis 2026 andere Berechnung, siehe § 9 Abs. 1 S. 3 Nr. 4 S. 7
-        - Erste 20 km Pauschale i.H.v. 0,30 €
-        - Ab 21 km i.H.v. von 0,35 Euro (für 2021) bzw. von 0,38 Euro (für 2022 bis 2026) (”Fernpendlerpauschale”)
-    - Entfernung
-      - wird grundsätzlich nach kürzester Straßenverbindung zwischen Wohnung und erster Tätigkeitsstätte berechnet, Ausnahme: regelmäßig genutzte, offensichtlich verkehrsgünstigere Strecke
-      - Bei mehreren Wohnungen darf nur die längere Strecke zur ersten Tätigkeitsstätte angesetzt werden, wenn die betroffene Wohnung den Mittelpunkt der Lebensinteressen des Arbeitnehmers bildet (Hauptwohnung) und nicht nur gelegentlich aufgesucht wird
-    - Hat Arbeitnehmer keine erste Tätigkeitsstätte i.S.d. § 9 Abs. 4 (vgl. oben) ist für die Berechnung der typischerweise aufgesuchte Ort bzw. der dem zur Wohnung nächstgelegenen Zugang zum Tätigkeitsgebiet maßgebend (siehe Verweis in § 9 Abs. 1 S. 3 Nr. 4a S. 3)
-    - Kappung der Entfernungspauschale auf 4.500 € im Jahr, Ausnahme: insoweit KFZ genutzt wird Kappung erhöht
-    - Minderung der berechneten Pauschale insoweit § 8 Absatz 2 Satz 11 oder Absatz 3 steuerfreie Sachbezüge durch Arbeitgeber für Fahrten
-    - Pauschale hat abgeltende Wirkung. Ausnahmen:
-      - Aufwendungen für die Benutzung öffentlicher Verkehrsmittel können angesetzt werden, soweit sie den im Kalenderjahr insgesamt als Entfernungspauschale abziehbaren Betrag übersteigen
-      - Menschen mit erheblichen Behinderungen können STATT der Entfernungspauschalen die tatsächlichen Aufwendungen geltend machen
-  - Rechtsgrundlage: §§ 9 Abs. 1 S. 3 Nr. 4, 9 Abs. 2 EStG
-- Sonstige beruflich veranlasste Fahrten
-  - Voraussetzungen
-    - Entweder
-      - Berufliche veranlasste Fahrt
-      - Fahrt keine Fahrt zwischen Wohnung und erster Tätigkeitsstätte
-      - Fahrt keine Familienheimfahrt
 
-    - ODER
+§ 9 Abs. 1 S. 3 Nr. 4a EStG
+Aktuelle Rechtslage
+Aufwendungen des Arbeitnehmers für beruflich veranlasste Fahrten, die nicht Fahrten zwischen Wohnung und erster Tätigkeitsstätte im Sinne des Absatzes 4 sowie keine Familienheimfahrten sind. Anstelle der tatsächlichen Aufwendungen, die dem Arbeitnehmer durch die persönliche Benutzung eines Beförderungsmittels entstehen, können die Fahrtkosten mit den pauschalen Kilometersätzen angesetzt werden, die für das jeweils benutzte Beförderungsmittel (Fahrzeug) als höchste Wegstreckenentschädigung nach dem Bundesreisekostengesetz festgesetzt sind. Hat ein Arbeitnehmer keine erste Tätigkeitsstätte (§ 9 Absatz 4) und hat er nach den dienst- oder arbeitsrechtlichen Festlegungen sowie den diese ausfüllenden Absprachen und Weisungen zur Aufnahme seiner beruflichen Tätigkeit dauerhaft denselben Ort oder dasselbe weiträumige Tätigkeitsgebiet typischerweise arbeitstäglich aufzusuchen, gilt Absatz 1 Satz 3 Nummer 4 und Absatz 2 für die Fahrten von der Wohnung zu diesem Ort oder dem zur Wohnung nächstgelegenen Zugang zum Tätigkeitsgebiet entsprechend. Für die Fahrten innerhalb des weiträumigen Tätigkeitsgebietes gelten die Sätze 1 und 2 entsprechend.
 
-      - Arbeitnehmer hat keine erste Tätigkeitsstätte i.S.d. § 9 Abs. 4 und ist angewiesen dauerhaft dasselbe weiträumige Tätigkeitsgebiet typischerweise arbeitstäglich aufzusuchen (Siehe Verweis in § 9 Abs. 1 S. 3 Nr. 4a S. 3 u. S. 4)
-  - Folge
-    - Geltendmachung tatsächlicher Aufwendung für das Beförderungsmittel ODER
-    - Anwendung pauschaler Kilometersätze für persönliches Beförderungsmittel i.V.m. Bundesreisekostengesetz
-    - Für Fahrten innerhalb des weiträumigen Tätigkeitsgebiets gelten obenstehende Folgen entsprechend
-  - Rechtsgrundlage: § 9 Abs. 1 S. 3 Nr. 4a S. 3 und S. 4 EStG
-- Aufwendungen für Arbeitszimmer
-  - Voraussetzungen:
-    - Häusliches Arbeitszimmer
-    - Arbeitszimmer ist Mittelpunkt der betrieblichen bzw. beruflichen Betätigung
-  - Folge: Absetzbar sind:
-    - Aufwendungen für das häusliche Arbeitszimmer ODER Jahrespauschale i.H.v. 1260 € (ggf. pro rata)
-    - Kosten der Ausstattung für das häusliche Arbeitszimmer
-  - Rechtsgrundlage: § 9 Abs. 5 S. 1 EStG i.V.m. § 4 Abs. 5 Satz 1 Nr. 6b EStG
-- Home-Office-Pauschale
-  - Voraussetzungen (tagweise Betrachtung):
-    - Überwiegende Ausübung der betrieblichen oder beruflichen Tätigkeit in der häuslichen Wohnung
-      —> Ausnahme: Steht für die betriebliche oder berufliche Tätigkeit dauerhaft kein anderer Arbeitsplatz zur Verfügung, ist ein Abzug der Tagespauschale zulässig, auch wenn die Tätigkeit am selben Kalendertag auswärts ausgeübt wird.
-    - Kein Aufsuchen einer außerhalb der häuslichen Wohnung gelegene erste Tätigkeitsstätte
-      —> Ausnahme: Steht für die betriebliche oder berufliche Tätigkeit dauerhaft kein anderer Arbeitsplatz zur Verfügung, ist ein Abzug der Tagespauschale zulässig, auch wenn die Tätigkeit an der ersten Tätigkeitsstätte ausgeübt wird.
-    - Für die Wohnung KÖNNEN keine Unterkunftskosten im Rahmen der Nummer § 4 Abs. 5 S. 1 Nr. 6a (doppelte Haushaltsführung als Betriebsausgaben) oder des § 9 Absatz 1 Satz 3 Nummer 5 (doppelte Haushaltsführung und Familienheimfahrten als Werbungskosten) abgezogen werden
-    - Für die Wohnung WIRD kein Abzug nach Nummer § 4 Abs. 5 S. 1 Nr. 6b (Aufwendungen für Arbeitszimmer, siehe oben) vorgenommen
-  - Folge: Tagespauschale i.H.v. 6 €, gedeckelt auf 1260 € im Jahr
-  - Rechtsgrundlage: § 9 Abs. 5 S. 1 EStG i.V.m. § 4 Abs. 5 Satz 1 Nr. 6c EStG
+
+§ 9 Abs. 2 EStG
+Aktuelle Rechtslage
+Durch die Entfernungspauschalen sind sämtliche Aufwendungen abgegolten, die durch die Wege zwischen Wohnung und erster Tätigkeitsstätte im Sinne des Absatzes 4 und durch die Familienheimfahrten veranlasst sind. Aufwendungen für die Benutzung öffentlicher Verkehrsmittel können angesetzt werden, soweit sie den im Kalenderjahr insgesamt als Entfernungspauschale abziehbaren Betrag übersteigen. Menschen mit Behinderungen,
+1. deren Grad der Behinderung mindestens 70 beträgt,
+2. deren Grad der Behinderung weniger als 70, aber mindestens 50 beträgt und die in ihrer Bewegungsfähigkeit im Straßenverkehr erheblich beeinträchtigt sind,
+können anstelle der Entfernungspauschalen die tatsächlichen Aufwendungen für die Wege zwischen Wohnung und erster Tätigkeitsstätte und für Familienheimfahrten ansetzen. Die Voraussetzungen der Nummern 1 und 2 sind durch amtliche Unterlagen nachzuweisen.
+
+
+§ 9 Abs. 4 EStG
+Aktuelle Rechtslage
+Erste Tätigkeitsstätte ist die ortsfeste betriebliche Einrichtung des Arbeitgebers, eines verbundenen Unternehmens (§ 15 des Aktiengesetzes) oder eines vom Arbeitgeber bestimmten Dritten, der der Arbeitnehmer dauerhaft zugeordnet ist. Die Zuordnung im Sinne des Satzes 1 wird durch die dienst- oder arbeitsrechtlichen Festlegungen sowie die diese ausfüllenden Absprachen und Weisungen bestimmt. Von einer dauerhaften Zuordnung ist insbesondere auszugehen, wenn der Arbeitnehmer unbefristet, für die Dauer des Dienstverhältnisses oder über einen Zeitraum von 48 Monaten hinaus an einer solchen Tätigkeitsstätte tätig werden soll. Fehlt eine solche dienst- oder arbeitsrechtliche Festlegung auf eine Tätigkeitsstätte oder ist sie nicht eindeutig, ist erste Tätigkeitsstätte die betriebliche Einrichtung, an der der Arbeitnehmer dauerhaft
+1. typischerweise arbeitstäglich tätig werden soll oder
+2. je Arbeitswoche zwei volle Arbeitstage oder mindestens ein Drittel seiner vereinbarten regelmäßigen Arbeitszeit tätig werden soll.
+Je Dienstverhältnis hat der Arbeitnehmer höchstens eine erste Tätigkeitsstätte. Liegen die Voraussetzungen der Sätze 1 bis 4 für mehrere Tätigkeitsstätten vor, ist diejenige Tätigkeitsstätte erste Tätigkeitsstätte, die der Arbeitgeber bestimmt. Fehlt es an dieser Bestimmung oder ist sie nicht eindeutig, ist die der Wohnung örtlich am nächsten liegende Tätigkeitsstätte die erste Tätigkeitsstätte. Als erste Tätigkeitsstätte gilt auch eine Bildungseinrichtung, die außerhalb eines Dienstverhältnisses zum Zwecke eines Vollzeitstudiums oder einer vollzeitigen Bildungsmaßnahme aufgesucht wird; die Regelungen für Arbeitnehmer nach Absatz 1 Satz 3 Nummer 4 und 5 sowie Absatz 4a sind entsprechend anzuwenden.
+
+
+§ 9 Abs. 4a EStG
+Aktuelle Rechtslage
+
+Mehraufwendungen des Arbeitnehmers für die Verpflegung sind nur nach Maßgabe der folgenden Sätze als Werbungskosten abziehbar. Wird der Arbeitnehmer außerhalb seiner Wohnung und ersten Tätigkeitsstätte beruflich tätig (auswärtige berufliche Tätigkeit), ist zur Abgeltung der ihm tatsächlich entstandenen, beruflich veranlassten Mehraufwendungen eine Verpflegungspauschale anzusetzen. Diese beträgt
+
+1. 28 Euro für jeden Kalendertag, an dem der Arbeitnehmer 24 Stunden von seiner Wohnung und ersten Tätigkeitsstätte abwesend ist
+
+2. jeweils 14 Euro für den An- und Abreisetag, wenn der Arbeitnehmer an diesem, einem anschließenden oder vorhergehenden Tag außerhalb seiner Wohnung übernachtet,
+
+3. 14 Euro für den Kalendertag, an dem der Arbeitnehmer ohne Übernachtung außerhalb seiner Wohnung mehr als 8 Stunden von seiner Wohnung und der ersten Tätigkeitsstätte abwesend ist; beginnt die auswärtige berufliche Tätigkeit an einem Kalendertag und endet am nachfolgenden Kalendertag ohne Übernachtung, werden 14 Euro für den Kalendertag gewährt, an dem der Arbeitnehmer den überwiegenden Teil der insgesamt mehr als 8 Stunden von seiner Wohnung und der ersten Tätigkeitsstätte abwesend ist.
+
+Hat der Arbeitnehmer keine erste Tätigkeitsstätte, gelten die Sätze 2 und 3 entsprechend; Wohnung im Sinne der Sätze 2 und 3 ist der Hausstand, der den Mittelpunkt der Lebensinteressen des Arbeitnehmers bildet sowie eine Unterkunft am Ort der ersten Tätigkeitsstätte im Rahmen der doppelten Haushaltsführung. 5ei einer Tätigkeit im Ausland treten an die Stelle der Pauschbeträge nach Satz 3 länderweise unterschiedliche Pauschbeträge, die für die Fälle der Nummer 1 mit 120 sowie der Nummern 2 und 3 mit 80 Prozent der Auslandstagegelder nach dem Bundesreisekostengesetz vom Bundesministerium der Finanzen im Einvernehmen mit den obersten Finanzbehörden der Länder aufgerundet auf volle Euro festgesetzt werden; dabei bestimmt sich der Pauschbetrag nach dem Ort, den der Arbeitnehmer vor 24 Uhr Ortszeit zuletzt erreicht, oder, wenn dieser Ort im Inland liegt, nach dem letzten Tätigkeitsort im Ausland. Der Abzug der Verpflegungspauschalen ist auf die ersten drei Monate einer längerfristigen beruflichen Tätigkeit an derselben Tätigkeitsstätte beschränkt. Eine Unterbrechung der beruflichen Tätigkeit an derselben Tätigkeitsstätte führt zu einem Neubeginn, wenn sie mindestens vier Wochen dauert. Wird dem Arbeitnehmer anlässlich oder während einer Tätigkeit außerhalb seiner ersten Tätigkeitsstätte vom Arbeitgeber oder auf dessen Veranlassung von einem Dritten eine Mahlzeit zur Verfügung gestellt, sind die nach den Sätzen 3 und 5 ermittelten Verpflegungspauschalen zu kürzen:
+
+1. für Frühstück um 20 Prozent,
+
+2. für Mittag- und Abendessen um jeweils 40 Prozent,
+
+der nach Satz 3 Nummer 1 gegebenenfalls in Verbindung mit Satz 5 maßgebenden Verpflegungspauschale für einen vollen Kalendertag; die Kürzung darf die ermittelte Verpflegungspauschale nicht übersteigen. Satz 8 gilt auch, wenn Reisekostenvergütungen wegen der zur Verfügung gestellten Mahlzeiten einbehalten oder gekürzt werden oder die Mahlzeiten nach § 40 Absatz 2 Satz 1 Nummer 1a pauschal besteuert werden. Hat der Arbeitnehmer für die Mahlzeit ein Entgelt gezahlt, mindert dieser Betrag den Kürzungsbetrag nach Satz 8. Erhält der Arbeitnehmer steuerfreie Erstattungen für Verpflegung, ist ein Werbungskostenabzug insoweit ausgeschlossen. Die Verpflegungspauschalen nach den Sätzen 3 und 5, die Dreimonatsfrist nach den Sätzen 6 und 7 sowie die Kürzungsregelungen nach den Sätzen 8 bis 10 gelten entsprechend auch für den Abzug von Mehraufwendungen für Verpflegung, die bei einer beruflich veranlassten doppelten Haushaltsführung entstehen, soweit der Arbeitnehmer vom eigenen Hausstand im Sinne des § 9 Absatz 1 Satz 3 Nummer 5 abwesend ist; dabei ist für jeden Kalendertag innerhalb der Dreimonatsfrist, an dem gleichzeitig eine Tätigkeit im Sinne des Satzes 2 oder des Satzes 4 ausgeübt wird, nur der jeweils höchste in Betracht kommende Pauschbetrag abziehbar. Die Dauer einer Tätigkeit im Sinne des Satzes 2 an dem Tätigkeitsort, an dem die doppelte Haushaltsführung begründet wurde, ist auf die Dreimonatsfrist anzurechnen, wenn sie ihr unmittelbar vorausgegangen ist.
+
+
+§ 9 Abs. 5 EStG
+Aktuelle Rechtslage
+§ 4 Absatz 5 Satz 1 Nummer 1 bis 4, 6b bis 8a, 10, 12 und Absatz 6 gilt sinngemäß. Die §§ 4j, 4k, 6 Absatz 1 Nummer 1a und § 6e gelten entsprechend.
+
+
+§ 3 Nr. 15 EStG
+Aktuelle Rechtslage
+Zuschüsse des Arbeitgebers, die zusätzlich zum ohnehin geschuldeten Arbeitslohn zu den Aufwendungen des Arbeitnehmers für Fahrten mit öffentlichen Verkehrsmitteln im Linienverkehr (ohne Luftverkehr) zwischen Wohnung und erster Tätigkeitsstätte und nach § 9 Absatz 1 Satz 3 Nummer 4a Satz 3 sowie für Fahrten im öffentlichen Personennahverkehr gezahlt werden. Das Gleiche gilt für die unentgeltliche oder verbilligte Nutzung öffentlicher Verkehrsmittel im Linienverkehr (ohne Luftverkehr) für Fahrten zwischen Wohnung und erster Tätigkeitsstätte und nach § 9 Absatz 1 Satz 3 Nummer 4a Satz 3 sowie für Fahrten im öffentlichen Personennahverkehr, die der Arbeitnehmer auf Grund seines Dienstverhältnisses zusätzlich zum ohnehin geschuldeten Arbeitslohn in Anspruch nehmen kann. Die nach den Sätzen 1 und 2 steuerfreien Leistungen mindern den nach § 9 Absatz 1 Satz 3 Nummer 4 Satz 2 abziehbaren Betrag;
+
+
+§ 3 Nr. 32 EStG
+Aktuelle Rechtslage
+die unentgeltliche oder verbilligte Sammelbeförderung eines Arbeitnehmers zwischen Wohnung und erster Tätigkeitsstätte sowie bei Fahrten nach § 9 Absatz 1 Satz 3 Nummer 4a Satz 3 mit einem vom Arbeitgeber gestellten Beförderungsmittel, soweit die Sammelbeförderung für den betrieblichen Einsatz des Arbeitnehmers notwendig ist;
+
+
+§ 4 Abs. 5 S. 1 Nr. 6 EStG
+Aktuelle Rechtslage
+Aufwendungen für die Wege des Steuerpflichtigen zwischen Wohnung und Betriebsstätte und für Familienheimfahrten, soweit in den folgenden Sätzen nichts anderes bestimmt ist. Zur Abgeltung dieser Aufwendungen ist § 9 Absatz 1 Satz 3 Nummer 4 Satz 2 bis 6 und Nummer 5 Satz 5 bis 7 und Absatz 2 entsprechend anzuwenden. Bei der Nutzung eines Kraftfahrzeugs dürfen die Aufwendungen in Höhe des positiven Unterschiedsbetrags zwischen 0,03 Prozent des inländischen Listenpreises im Sinne des § 6 Absatz 1 Nummer 4 Satz 2 des Kraftfahrzeugs im Zeitpunkt der Erstzulassung je Kalendermonat für jeden Entfernungskilometer und dem sich nach § 9 Absatz 1 Satz 3 Nummer 4 Satz 2 bis 6 oder Absatz 2 ergebenden Betrag sowie Aufwendungen für Familienheimfahrten in Höhe des positiven Unterschiedsbetrags zwischen 0,002 Prozent des inländischen Listenpreises im Sinne des § 6 Absatz 1 Nummer 4 Satz 2 für jeden Entfernungskilometer und dem sich nach § 9 Absatz 1 Satz 3 Nummer 5 Satz 5 bis 7 oder Absatz 2 ergebenden Betrag den Gewinn nicht mindern; ermittelt der Steuerpflichtige die private Nutzung des Kraftfahrzeugs nach § 6 Absatz 1 Nummer 4 Satz 1 oder Satz 3, treten an die Stelle des mit 0,03 oder 0,002 Prozent des inländischen Listenpreises ermittelten Betrags für Fahrten zwischen Wohnung und Betriebsstätte und für Familienheimfahrten die auf diese Fahrten entfallenden tatsächlichen Aufwendungen; § 6 Absatz 1 Nummer 4 Satz 3 zweiter Halbsatz gilt sinngemäß. § 9 Absatz 1 Satz 3 Nummer 4 Satz 8 und Nummer 5 Satz 9 gilt entsprechend;
+
+
+§ 4 Abs. 5 S. 1 Nr. 6b EStG
+Aktuelle Rechtslage
+Aufwendungen für ein häusliches Arbeitszimmer sowie die Kosten der Ausstattung. Dies gilt nicht, wenn das Arbeitszimmer den Mittelpunkt der gesamten betrieblichen und beruflichen Betätigung bildet. Anstelle der Aufwendungen kann pauschal ein Betrag von 1 260 Euro (Jahrespauschale) für das Wirtschafts- oder Kalenderjahr abgezogen werden. Für jeden vollen Kalendermonat, in dem die Voraussetzungen nach Satz 2 nicht vorliegen, ermäßigt sich der Betrag von 1 260 Euro um ein Zwölftel;
+
+
+§ 4 Abs. 5 S. 1 Nr. 6c EStG
+Aktuelle Rechtslage
+für jeden Kalendertag, an dem die betriebliche oder berufliche Tätigkeit überwiegend in der häuslichen Wohnung ausgeübt und keine außerhalb der häuslichen Wohnung belegene erste Tätigkeitsstätte aufgesucht wird, kann für die gesamte betriebliche und berufliche Betätigung ein Betrag von 6 Euro (Tagespauschale), höchstens 1 260 Euro im Wirtschafts- oder Kalenderjahr, abgezogen werden. Steht für die betriebliche oder berufliche Tätigkeit dauerhaft kein anderer Arbeitsplatz zur Verfügung, ist ein Abzug der Tagespauschale zulässig, auch wenn die Tätigkeit am selben Kalendertag auswärts oder an der ersten Tätigkeitsstätte ausgeübt wird. Der Abzug der Tagespauschale ist nicht zulässig, soweit für die Wohnung Unterkunftskosten im Rahmen der Nummer 6a oder des § 9 Absatz 1 Satz 3 Nummer 5 abgezogen werden können oder soweit ein Abzug nach Nummer 6b vorgenommen wird;
