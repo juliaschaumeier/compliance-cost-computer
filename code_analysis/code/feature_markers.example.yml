@@ -1,0 +1,23 @@
+markers:
+  - date: "2026-01-15"
+    label: "Multi-addressee automation"
+    git_sha: "unknown"
+    area: "workflow"
+    affects:
+      - issue_02_unnecessary_addressee_steps
+      - issue_05_structure_consistency
+    notes: "Replace with the actual date/SHA when multi-addressee automation landed."
+  - date: "2026-02-01"
+    label: "JSON parser hardening"
+    git_sha: "unknown"
+    area: "parser"
+    affects:
+      - issue_03_json_truncation
+    notes: "Replace with the actual parser/schema hardening milestone."
+  - date: "2026-03-01"
+    label: "Bureaucracy cost allocation"
+    git_sha: "unknown"
+    area: "costs"
+    affects:
+      - issue_08_bureaucracy_cost
+    notes: "Replace with the actual bureaucracy cost allocation milestone."
