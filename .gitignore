@@ -68,3 +68,14 @@ prompt_audits/
 
 # TypeScript incremental build info (artifact, not source)
 frontend/tsconfig.tsbuildinfo
+
+# Historical CCC analysis: keep code/docs, ignore DB-dependent outputs.
+code_analysis/*
+!code_analysis/README.md
+!code_analysis/analysis_config.example.json
+!code_analysis/code/
+!code_analysis/code/**
+code_analysis/analysis_config.json
+code_analysis/analysis_config.local.json
+code_analysis/output/
+code_analysis/code/__pycache__/
