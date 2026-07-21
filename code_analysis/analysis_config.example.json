@@ -1,0 +1,17 @@
+{
+  "db_path": "backend/ccc.db",
+  "law_pair_groups": [
+    {
+      "name": "e-sports",
+      "pairs": ["1->2", "9->10"]
+    },
+    {
+      "name": "arbeitstagepauschale",
+      "pairs": ["3->4", "7->8"]
+    },
+    {
+      "name": "491 bgb",
+      "pairs": ["5->6", "11->12"]
+    }
+  ]
+}
