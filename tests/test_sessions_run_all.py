@@ -2117,24 +2117,18 @@ def test_effort_step_parse_failure_applies_no_sibling_metrics_and_keeps_valid_pe
         calls[(PromptId.EFFORT_CALCULATION, addressee)] = (
             calls.get((PromptId.EFFORT_CALCULATION, addressee), 0) + 1
         )
-        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
         return json.dumps(
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(processes[0]["process_id"]),
-                        "fallgruppen": [
+                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                        "taetigkeiten": [
                             {
-                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                                "taetigkeiten": [
-                                    {
-                                        "taetigkeiten_id": str(steps[0]["step_id"]),
-                                        "personalaufwand_vorschlag": [
-                                            _personalaufwand_row(addressee, "30")
-                                        ],
-                                    }
+                                "taetigkeiten_id": str(steps[0]["step_id"]),
+                                "personalaufwand_vorschlag": [
+                                    _personalaufwand_row(addressee, "30")
                                 ],
                             }
                         ],
@@ -2178,27 +2172,20 @@ def test_effort_step_cases_failure_keeps_valid_effort_pending_and_reuses_it(
     calls: dict[tuple[str, str], int] = {}
 
     def cases_payload(addressee: str) -> str:
-        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         return json.dumps(
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(processes[0]["process_id"]),
-                        "fallgruppen": [
-                            {
-                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                                "anzahl_betroffene_vorschlag": "10",
-                                "haeufigkeit_pro_jahr_vorschlag": "2",
-                            }
-                        ],
+                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                        "anzahl_betroffene_vorschlag": "10",
+                        "haeufigkeit_pro_jahr_vorschlag": "2",
                     }
                 ]
             }
         )
 
     def effort_payload(addressee: str) -> str:
-        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
         if addressee == CITIZENS:
@@ -2214,15 +2201,10 @@ def test_effort_step_cases_failure_keeps_valid_effort_pending_and_reuses_it(
             }
         return json.dumps(
             {
-                "prozesse": [
+                "fallgruppen": [
                     {
-                        "prozess_id": str(processes[0]["process_id"]),
-                        "fallgruppen": [
-                            {
-                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                                "taetigkeiten": [effort_entry],
-                            }
-                        ],
+                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                        "taetigkeiten": [effort_entry],
                     }
                 ]
             }
@@ -2237,7 +2219,7 @@ def test_effort_step_cases_failure_keeps_valid_effort_pending_and_reuses_it(
         )
         calls[(prompt_id, addressee)] = calls.get((prompt_id, addressee), 0) + 1
         if prompt_id == PromptId.CASES_CALCULATION and addressee == BUSINESS:
-            return '{"prozesse": ['
+            return '{"fallgruppen": ['
         if prompt_id == PromptId.CASES_CALCULATION:
             return cases_payload(addressee)
         return effort_payload(addressee)
