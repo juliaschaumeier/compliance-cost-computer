@@ -24,7 +24,6 @@ export default function EffortPanel() {
   } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
-    stepKey: "effort",
     appSessionId: state.appSessionId,
     setStatus,
     logScope: "EffortPanel.cancelRunAll",

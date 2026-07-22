@@ -50,6 +50,29 @@ def isolated_db(tmp_path, monkeypatch):
 
     monkeypatch.setattr(db, "upsert_session", _upsert_session_with_owner)
 
+    real_insert_law = db.insert_law
+
+    def _insert_law_with_owner(
+        file_name,
+        law_text,
+        owner_user_id=None,
+        is_builtin=False,
+    ):
+        if (
+            owner_user_id is None
+            and not is_builtin
+            and db.get_user_by_id(TEST_USER_ID) is not None
+        ):
+            owner_user_id = TEST_USER_ID
+        return real_insert_law(
+            file_name,
+            law_text,
+            owner_user_id=owner_user_id,
+            is_builtin=is_builtin,
+        )
+
+    monkeypatch.setattr(db, "insert_law", _insert_law_with_owner)
+
     # Authenticate every request as the seeded test user by default.
     app.dependency_overrides[auth_core.get_current_user] = override_current_user
     yield

@@ -23,7 +23,6 @@ export default function RegulationsPanel() {
   } = useApp();
   const [status, setStatus] = useState<string | null>(null);
   const runAllCancel = useRunAllStepCancel({
-    stepKey: "regulations",
     appSessionId: state.appSessionId,
     setStatus,
     logScope: "RegulationsPanel.cancelRunAll",

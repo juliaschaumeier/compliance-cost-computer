@@ -6,6 +6,7 @@ genuine cookie-based login and ownership checks.
 """
 
 import re
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -200,17 +201,15 @@ def test_regulation_summary_succeeds_for_owned_session(client, monkeypatch):
 
 def test_uploaded_laws_are_private_but_builtin_laws_are_shared(client):
     _login(client, TEST_USER_EMAIL, TEST_USER_PASSWORD)
-    db.insert_law("builtin-law.txt", "shared fixture")
+    db.insert_law("builtin-law.txt", "shared fixture", is_builtin=True)
 
     upload = client.post(
         "/regulations/upload",
         files={"file": ("private-law.txt", b"user a law", "text/plain")},
     )
     assert upload.status_code == 200
-    assert set(client.get("/regulations").json()["files"]) == {
-        "builtin-law.txt",
-        "private-law.txt",
-    }
+    user_a_files = set(client.get("/regulations").json()["files"])
+    assert {"builtin-law.txt", "private-law.txt"}.issubset(user_a_files)
 
     client.post(
         "/auth/users",
@@ -219,7 +218,9 @@ def test_uploaded_laws_are_private_but_builtin_laws_are_shared(client):
     client.post("/auth/logout")
     _login(client, "law-other@example.com", "otherpass")
 
-    assert client.get("/regulations").json()["files"] == ["builtin-law.txt"]
+    user_b_files = set(client.get("/regulations").json()["files"])
+    assert "builtin-law.txt" in user_b_files
+    assert "private-law.txt" not in user_b_files
 
     own_session = client.post("/sessions", json={"llm_model": "test-model"})
     assert own_session.status_code == 200
@@ -244,3 +245,42 @@ def test_uploaded_laws_are_private_but_builtin_laws_are_shared(client):
         files={"file": ("builtin-law.txt", b"shadow builtin", "text/plain")},
     )
     assert builtin_conflict.status_code == 409
+
+
+def test_legacy_ownerless_laws_are_hidden_but_resource_builtins_are_shared(
+    tmp_path,
+    monkeypatch,
+):
+    db_path = tmp_path / "legacy-laws.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE laws (
+            document_id INTEGER PRIMARY KEY,
+            file_name TEXT NOT NULL,
+            law_text TEXT NOT NULL,
+            text_length INTEGER NOT NULL,
+            uploaded_at TEXT NOT NULL DEFAULT current_timestamp,
+            owner_user_id INTEGER,
+            is_builtin INTEGER NOT NULL DEFAULT 1
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO laws (file_name, law_text, text_length, owner_user_id, is_builtin)
+        VALUES ('legacy-upload.txt', 'alter Upload', 12, NULL, 1)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(config.settings, "db_path", db_path)
+    db.init_db()
+
+    visible = set(db.list_law_file_names(owner_user_id=1))
+    assert "legacy-upload.txt" not in visible
+    assert {
+        "arbeitstagepauschale_gueltig.txt",
+        "arbeitstagepauschale_vorschlag.txt",
+    }.issubset(visible)

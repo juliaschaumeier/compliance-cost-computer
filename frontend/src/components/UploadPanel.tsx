@@ -46,7 +46,6 @@ export default function UploadPanel() {
     proposed: false,
   });
   const runAllCancel = useRunAllStepCancel({
-    stepKey: "summary",
     appSessionId: state.appSessionId,
     setStatus,
     logScope: "UploadPanel.cancelRunAll",
@@ -153,11 +152,29 @@ export default function UploadPanel() {
     try {
       const response = await apiClient.fetchRegulations();
       setAvailableRegulations(response.files);
+      if (
+        state.selectedCurrentLaw &&
+        !response.files.includes(state.selectedCurrentLaw)
+      ) {
+        setSelectedCurrentLaw("");
+      }
+      if (
+        state.selectedRegulation &&
+        !response.files.includes(state.selectedRegulation)
+      ) {
+        setSelectedRegulation("");
+      }
     } catch (error) {
       logClientError("UploadPanel.loadRegulations", error);
       setStatus("Regelungen konnten nicht geladen werden.");
     }
-  }, [setAvailableRegulations]);
+  }, [
+    setAvailableRegulations,
+    setSelectedCurrentLaw,
+    setSelectedRegulation,
+    state.selectedCurrentLaw,
+    state.selectedRegulation,
+  ]);
 
   useEffect(() => {
     loadRegulations();
@@ -308,7 +325,12 @@ export default function UploadPanel() {
           </StepRunButton>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div
+          data-testid="law-selection-grid"
+          className={
+            isBusy ? "hidden" : "grid grid-cols-1 gap-4 lg:grid-cols-2"
+          }
+        >
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-800">
               Gültiges Gesetz

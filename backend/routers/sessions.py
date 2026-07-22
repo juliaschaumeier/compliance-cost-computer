@@ -594,15 +594,17 @@ def _get_latest_failed_step_status(
     session_id = db.get_session_id_by_app_id(app_session_id)
     if session_id is None:
         return None
-    seen_prompts: set[str] = set()
+    seen_prompt_addressees: set[tuple[str, str]] = set()
     for row in db.list_recent_llm_answers_for_session(session_id, limit=50):
         prompt_id = str(row.get("prompt_id") or "")
         mapping = _FAILED_PROMPT_STEP.get(prompt_id)
         if mapping is None:
             continue
-        if prompt_id in seen_prompts:
+        norm_addressee = str(row.get("norm_addressee") or "").strip()
+        seen_key = (prompt_id, norm_addressee)
+        if seen_key in seen_prompt_addressees:
             continue
-        seen_prompts.add(prompt_id)
+        seen_prompt_addressees.add(seen_key)
         if row.get("answer_state") != "invalid":
             continue
         step_key, label, ready_flag = mapping

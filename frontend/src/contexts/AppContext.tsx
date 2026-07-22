@@ -401,6 +401,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // A stored session id may no longer exist or may not be owned by the
         // current user (the backend returns 404 in that case).
         if (status === 404) {
+          setAppSessionIdState("");
+          sessionStorage.removeItem(APP_SESSION_STORAGE_KEY);
+          sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
+          sessionStorage.removeItem(NORM_ADDRESSEE_READINESS_STORAGE_KEY);
+          setSummaryReady(false);
+          setRegulationsReady(false);
+          setProcessesReady(false);
+          setCaseGroupsReady(false);
+          setProcessStepsReady(false);
+          setEffortReady(false);
+          setTotalCostReady(false);
+          setAddresseeReadiness(createDefaultAddresseeReadiness());
+          setCurrentTab(0);
+          setLastCompletedStep(null);
+          setLastCompletedLabel(null);
+          setLastFailedStep(null);
+          setLastFailedLabel(null);
+          setLastFailedMessage(null);
           return;
         }
         logDebug("[AppContext] Failed to sync session status", {

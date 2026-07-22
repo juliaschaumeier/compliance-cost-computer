@@ -27,8 +27,9 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the backend package.
+# Copy runtime source and bundled example resources.
 COPY backend/ ./backend/
+COPY resources/ ./resources/
 
 # Create a non-root user and a persistent data directory it owns.
 RUN useradd --create-home --uid 10001 appuser \

@@ -21,6 +21,7 @@ function ContextProbe() {
       data-effort={state.effortReady}
       data-total={state.totalCostReady}
       data-addressee={state.selectedNormAddressee}
+      data-session={state.appSessionId}
     />
   );
 }
@@ -28,6 +29,8 @@ function ContextProbe() {
 describe("AppContext session status sync", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    localStorage.clear();
+    localStorage.setItem("selected_model", "gpt-5.4");
     (apiClient.createSession as jest.Mock).mockResolvedValue({
       app_session_id: "a".repeat(32),
       created: true,
@@ -165,6 +168,51 @@ describe("AppContext session status sync", () => {
       expect(node.getAttribute("data-total")).toBe("true");
       expect(node.getAttribute("data-tab")).toBe("6");
     });
+  });
+
+  it("replaces a stored session id that the backend no longer owns", async () => {
+    const freshSessionId = "FRESH1";
+    sessionStorage.setItem("app_session_id", "STALE1");
+    sessionStorage.setItem(
+      "norm_addressee_readiness",
+      JSON.stringify({
+        administration: { totalCostReady: true },
+        business: { totalCostReady: true },
+        citizens: { totalCostReady: true },
+      })
+    );
+    (apiClient.createSession as jest.Mock).mockResolvedValue({
+      app_session_id: freshSessionId,
+      created: true,
+    });
+    (apiClient.getSessionStatus as jest.Mock)
+      .mockRejectedValueOnce({ status: 404 })
+      .mockResolvedValue({
+        summary_ready: false,
+        regulations_ready: false,
+        processes_ready: false,
+        case_groups_ready: false,
+        process_steps_ready: false,
+        effort_ready: false,
+        total_cost_ready: false,
+      });
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      expect(apiClient.createSession).toHaveBeenCalledWith("gpt-5.4");
+      expect(getByTestId("state").getAttribute("data-session")).toBe(
+        freshSessionId
+      );
+    });
+    expect(sessionStorage.getItem("app_session_id")).toBe(freshSessionId);
+    expect(sessionStorage.getItem("norm_addressee_readiness")).not.toContain(
+      "true"
+    );
   });
 
   it("restores the selected norm addressee from session storage", async () => {

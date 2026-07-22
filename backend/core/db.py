@@ -962,6 +962,46 @@ def _seed_compliance_text_examples(cur: sqlite3.Cursor) -> None:
         )
 
 
+def _seed_builtin_laws(cur: sqlite3.Cursor) -> None:
+    builtins_dir = Path(__file__).resolve().parents[2] / "resources" / "built_in_laws"
+    if not builtins_dir.exists():
+        return
+    law_files = sorted(path for path in builtins_dir.iterdir() if path.suffix.lower() == ".txt")
+    for path in law_files:
+        law_text = path.read_text(encoding="utf-8").strip()
+        if not law_text:
+            continue
+        file_name = path.name
+        cur.execute(
+            """
+            SELECT document_id
+            FROM laws
+            WHERE file_name = ? AND owner_user_id IS NULL
+            ORDER BY is_builtin DESC, document_id ASC
+            LIMIT 1
+            """,
+            (file_name,),
+        )
+        row = cur.fetchone()
+        if row:
+            cur.execute(
+                """
+                UPDATE laws
+                SET law_text = ?, text_length = ?, is_builtin = 1
+                WHERE document_id = ?
+                """,
+                (law_text, len(law_text), int(row["document_id"])),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO laws (file_name, law_text, text_length, owner_user_id, is_builtin)
+                VALUES (?, ?, ?, NULL, 1)
+                """,
+                (file_name, law_text, len(law_text)),
+            )
+
+
 def _create_session_pay_rate_overrides_by_addressee_table(
     cur: sqlite3.Cursor,
     table_name: str = "session_pay_rate_overrides_by_addressee",
@@ -1663,7 +1703,7 @@ def init_db() -> None:
             text_length     INTEGER NOT NULL,
             uploaded_at     TEXT NOT NULL DEFAULT current_timestamp,
             owner_user_id   INTEGER REFERENCES users(user_id),
-            is_builtin      INTEGER NOT NULL DEFAULT 1
+            is_builtin      INTEGER NOT NULL DEFAULT 0
         )
         """
     )
@@ -1711,8 +1751,8 @@ def init_db() -> None:
     )
     _create_users_table(cur)
     _ensure_column(cur, "laws", "owner_user_id", "INTEGER REFERENCES users(user_id)")
-    _ensure_column(cur, "laws", "is_builtin", "INTEGER NOT NULL DEFAULT 1")
-    cur.execute("UPDATE laws SET is_builtin = 1 WHERE is_builtin IS NULL")
+    _ensure_column(cur, "laws", "is_builtin", "INTEGER NOT NULL DEFAULT 0")
+    cur.execute("UPDATE laws SET is_builtin = 0 WHERE owner_user_id IS NULL")
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_laws_owner_file ON laws(owner_user_id, file_name)"
     )
@@ -1730,6 +1770,7 @@ def init_db() -> None:
     _create_compliance_text_examples_table(cur)
     _create_compliance_text_exports_table(cur)
     _seed_compliance_text_examples(cur)
+    _seed_builtin_laws(cur)
     _create_deep_research_runs_table(cur)
     _create_session_scoped_tile_tables(cur)
     cur.execute(
@@ -2080,15 +2121,25 @@ def list_law_file_names(owner_user_id: int | None = None) -> List[str]:
     cur = conn.cursor()
     if owner_user_id is None:
         cur.execute(
-            "SELECT file_name FROM laws ORDER BY uploaded_at DESC, document_id DESC"
+            """
+            SELECT file_name, MAX(uploaded_at) AS uploaded_at, MAX(document_id) AS document_id
+            FROM laws
+            GROUP BY file_name
+            ORDER BY uploaded_at DESC, document_id DESC
+            """
         )
     else:
         cur.execute(
             """
-            SELECT file_name
+            SELECT
+                file_name,
+                MAX(is_builtin) AS builtin_rank,
+                MAX(uploaded_at) AS uploaded_at,
+                MAX(document_id) AS document_id
             FROM laws
             WHERE is_builtin = 1 OR owner_user_id = ?
-            ORDER BY is_builtin DESC, uploaded_at DESC, document_id DESC
+            GROUP BY file_name
+            ORDER BY builtin_rank DESC, uploaded_at DESC, document_id DESC
             """,
             (int(owner_user_id),),
         )
@@ -2159,7 +2210,7 @@ def insert_law(
     file_name: str,
     law_text: str,
     owner_user_id: int | None = None,
-    is_builtin: bool = True,
+    is_builtin: bool = False,
 ) -> int:
     conn = get_conn()
     cur = conn.cursor()
