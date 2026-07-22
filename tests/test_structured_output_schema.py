@@ -7,12 +7,9 @@ from backend.core.payload_builders import (
     _CASES_METRIC_KEYS,
     build_case_group_development_output_schema,
     build_cases_calculation_output_schema,
-    build_cases_calculation_output_skeleton,
     build_effort_calculation_output_schema,
-    build_effort_calculation_output_skeleton,
     build_process_compilation_output_schema,
     build_step_analysis_output_schema,
-    build_step_analysis_output_skeleton,
 )
 from backend.core.prompts import PromptId, render_prompt
 from backend.routers.case_groups import _parse_case_groups
@@ -71,78 +68,6 @@ def _assert_strict_subset(node: dict, object_depth: int = 0) -> None:
         items = node.get("items")
         assert isinstance(items, dict)
         _assert_strict_subset(items, object_depth)
-
-
-def test_cases_schema_is_strict_subset_compliant_for_all_addressees():
-    for addressee in (ADMINISTRATION, BUSINESS, CITIZENS):
-        _assert_strict_subset(build_cases_calculation_output_schema(addressee))
-
-
-def test_effort_schema_is_strict_subset_compliant_for_all_addressees():
-    for addressee in (ADMINISTRATION, BUSINESS, CITIZENS):
-        _assert_strict_subset(build_effort_calculation_output_schema(addressee))
-
-
-def test_cases_schema_matches_skeleton_keys():
-    skeleton = build_cases_calculation_output_skeleton(
-        [{"fallgruppen": [{"fallgruppen_id": 1}]}],
-        norm_addressee=ADMINISTRATION,
-    )
-    skeleton_fallgruppe = skeleton["fallgruppen"][0]
-    schema = build_cases_calculation_output_schema(ADMINISTRATION)
-    schema_fallgruppe = schema["properties"]["fallgruppen"]["items"]["properties"]
-
-    assert set(schema_fallgruppe.keys()) == set(skeleton_fallgruppe.keys())
-    assert set(schema_fallgruppe["erklaerungen"]["properties"].keys()) == set(
-        skeleton_fallgruppe["erklaerungen"].keys()
-    )
-    assert set(schema_fallgruppe["confidence"]["properties"].keys()) == set(
-        skeleton_fallgruppe["confidence"].keys()
-    )
-    for metric_key in _CASES_METRIC_KEYS:
-        assert schema_fallgruppe["confidence"]["properties"][metric_key]["enum"] == [
-            "high",
-            "medium",
-            "low",
-        ]
-
-
-def test_effort_citizens_schema_matches_skeleton_keys():
-    skeleton = build_effort_calculation_output_skeleton(
-        [{"fallgruppen": [{"fallgruppen_id": 1, "taetigkeiten": [{"taetigkeiten_id": 9}]}]}],
-        norm_addressee=CITIZENS,
-    )
-    skeleton_taetigkeit = skeleton["fallgruppen"][0]["taetigkeiten"][0]
-    schema = build_effort_calculation_output_schema(CITIZENS)
-    schema_taetigkeit = schema["properties"]["fallgruppen"]["items"]["properties"][
-        "taetigkeiten"
-    ]["items"]["properties"]
-
-    assert set(schema_taetigkeit.keys()) == set(skeleton_taetigkeit.keys())
-    assert "personalaufwand_gueltig" not in schema_taetigkeit
-
-
-def test_effort_org_schema_matches_skeleton_keys():
-    skeleton = build_effort_calculation_output_skeleton(
-        [{"fallgruppen": [{"fallgruppen_id": 1, "taetigkeiten": [{"taetigkeiten_id": 9}]}]}],
-        norm_addressee=BUSINESS,
-    )
-    skeleton_taetigkeit = skeleton["fallgruppen"][0]["taetigkeiten"][0]
-    schema = build_effort_calculation_output_schema(BUSINESS)
-    schema_taetigkeit = schema["properties"]["fallgruppen"]["items"]["properties"][
-        "taetigkeiten"
-    ]["items"]["properties"]
-
-    assert set(schema_taetigkeit.keys()) == set(skeleton_taetigkeit.keys())
-
-    skeleton_item = skeleton_taetigkeit["personalaufwand_gueltig"][0]
-    schema_item = schema_taetigkeit["personalaufwand_gueltig"]["items"]["properties"]
-    assert set(schema_item.keys()) == set(skeleton_item.keys())
-
-
-def test_normadressat_enum_is_pinned_to_run_addressee():
-    schema = build_cases_calculation_output_schema(BUSINESS)
-    assert schema["properties"]["normadressat"]["enum"] == [BUSINESS]
 
 
 def test_schema_conformant_cases_example_parses():

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from backend.core import db
 from backend.core.change_status import extract_change_status, normalize_change_status
-from backend.core.llm_json import extract_fallgruppen, require_json_object
+from backend.core.llm_json import extract_fallgruppen, require_fallgruppen_envelope
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
@@ -14,11 +14,7 @@ from backend.core.norm_addressees import (
     NORM_ADDRESSEE_ECHO_MISMATCH,
     check_norm_addressee_echo,
 )
-from backend.core.payload_builders import (
-    build_case_groups_payload,
-    build_step_analysis_output_skeleton,
-    dump_prompt_json,
-)
+from backend.core.payload_builders import build_case_groups_payload, dump_prompt_json
 from backend.core.prompts import PromptId, render_prompt
 from backend.core.tile_refresh import refresh_step_tiles
 from backend.routers._edit_schemas import (
@@ -110,12 +106,6 @@ def build_process_step_analysis_prompt(
         PromptId.PROCESS_STEP_ANALYSIS,
         session_id=session_id,
         case_groups_json=dump_prompt_json(payload_groups),
-        output_skeleton_json=dump_prompt_json(
-            build_step_analysis_output_skeleton(
-                payload_groups,
-                norm_addressee=norm_addressee,
-            )
-        ),
         norm_addressee=norm_addressee,
     )
     return prompt, {
@@ -374,12 +364,13 @@ def _parse_process_steps(
     payload: str,
     norm_addressee: str | None = None,
 ) -> tuple[list[dict], set[str]]:
-    data, parse_mode = require_json_object(
+    data, parse_mode, envelope_mode = require_fallgruppen_envelope(
         payload,
         error_context="Invalid process_step_analysis payload",
-        required_top_level_key="fallgruppen",
     )
     fallback_kinds: set[str] = set()
+    if envelope_mode == "nested_prozesse":
+        fallback_kinds.add("process_steps_nested_prozesse")
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
     echo_kinds = check_norm_addressee_echo(data, norm_addressee)

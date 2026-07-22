@@ -92,6 +92,43 @@ def require_json_object(
     return data, parse_mode
 
 
+def require_fallgruppen_envelope(
+    payload: str,
+    *,
+    error_context: str,
+) -> tuple[dict[str, Any], str, str]:
+    """Accept the flat contract and the legacy nested envelope explicitly.
+
+    A present flat key is authoritative: if it is malformed, a parallel legacy
+    envelope must not hide that contract violation.
+    """
+    data, parse_mode = require_json_object(
+        payload,
+        error_context=error_context,
+    )
+    if "fallgruppen" in data:
+        if not isinstance(data["fallgruppen"], list):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{error_context}: expected top-level key 'fallgruppen' "
+                    "to contain an array"
+                ),
+            )
+        return data, parse_mode, "flat_fallgruppen"
+
+    if isinstance(data.get("prozesse"), list):
+        return data, parse_mode, "nested_prozesse"
+
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"{error_context}: expected top-level key 'fallgruppen' or legacy "
+            "'prozesse' array in LLM response"
+        ),
+    )
+
+
 def extract_fallgruppen(data: dict[str, Any]) -> list[dict[str, Any]]:
     if "fallgruppen" in data and isinstance(data["fallgruppen"], list):
         return [item for item in data["fallgruppen"] if isinstance(item, dict)]

@@ -33,16 +33,6 @@ from backend.core.request_context import get_request_context
 
 logger = logging.getLogger("uvicorn.error")
 
-STRUCTURED_JSON_PROMPT_IDS = frozenset(
-    {
-        PromptId.PROCESS_COMPILATION,
-        PromptId.CASE_GROUP_DEVELOPMENT,
-        PromptId.PROCESS_STEP_ANALYSIS,
-        PromptId.CASES_CALCULATION,
-        PromptId.EFFORT_CALCULATION,
-    }
-)
-
 JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
 
 _JSON_SCHEMA_BUILDERS = {
@@ -68,6 +58,8 @@ _JSON_SCHEMA_BUILDERS = {
     ),
 }
 
+STRUCTURED_JSON_PROMPT_IDS = frozenset(_JSON_SCHEMA_BUILDERS)
+
 
 def _structured_response_format(
     prompt_id: str,
@@ -75,10 +67,9 @@ def _structured_response_format(
 ) -> dict[str, Any] | None:
     if prompt_id not in STRUCTURED_JSON_PROMPT_IDS:
         return None
-    builder = _JSON_SCHEMA_BUILDERS.get(prompt_id)
-    if builder is None or not norm_addressee:
+    if not norm_addressee:
         return JSON_OBJECT_RESPONSE_FORMAT
-    schema_name, build_schema = builder
+    schema_name, build_schema = _JSON_SCHEMA_BUILDERS[prompt_id]
     return {
         "type": "json_schema",
         "name": schema_name,

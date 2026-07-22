@@ -163,11 +163,16 @@ def test_parse_process_steps_rejects_mismatch():
     payload = """
     {
       "normadressat": "business",
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": 10,
-          "taetigkeiten": [
-            {"taetigkeit": "T", "beschreibung": "B"}
+          "prozess_id": 1,
+          "fallgruppen": [
+            {
+              "fallgruppen_id": 10,
+              "taetigkeiten": [
+                {"taetigkeit": "T", "beschreibung": "B"}
+              ]
+            }
           ]
         }
       ]
@@ -182,11 +187,16 @@ def test_parse_process_steps_rejects_mismatch():
 def test_parse_process_steps_flags_missing():
     payload = """
     {
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": 10,
-          "taetigkeiten": [
-            {"taetigkeit": "T", "beschreibung": "B"}
+          "prozess_id": 1,
+          "fallgruppen": [
+            {
+              "fallgruppen_id": 10,
+              "taetigkeiten": [
+                {"taetigkeit": "T", "beschreibung": "B"}
+              ]
+            }
           ]
         }
       ]
@@ -206,11 +216,15 @@ def test_parse_cases_payload_rejects_mismatch():
     payload = """
     {
       "normadressat": "administration",
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": 42,
-          "anzahl_betroffene_vorschlag": "10",
-          "haeufigkeit_pro_jahr_vorschlag": "1"
+          "fallgruppen": [
+            {
+              "fallgruppen_id": 42,
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "1"
+            }
+          ]
         }
       ]
     }
@@ -224,11 +238,15 @@ def test_parse_cases_payload_rejects_mismatch():
 def test_parse_cases_payload_flags_missing():
     payload = """
     {
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": 42,
-          "anzahl_betroffene_vorschlag": "10",
-          "haeufigkeit_pro_jahr_vorschlag": "1"
+          "fallgruppen": [
+            {
+              "fallgruppen_id": 42,
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "1"
+            }
+          ]
         }
       ]
     }
@@ -247,17 +265,21 @@ def test_parse_effort_payload_rejects_mismatch():
     payload = """
     {
       "normadressat": "citizens",
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": 10,
-          "taetigkeiten": [
+          "fallgruppen": [
             {
-              "taetigkeiten_id": 100,
-              "personalaufwand_vorschlag": [
-                {"qualifikation": "einfacher_und_mittlerer_dienst",
-                 "lohnquelle": "bund", "zeitaufwand_in_min": "6"}
-              ],
-              "sachaufwand_vorschlag": "2"
+              "fallgruppen_id": 10,
+              "taetigkeiten": [
+                {
+                  "taetigkeiten_id": 100,
+                  "personalaufwand_vorschlag": [
+                    {"qualifikation": "einfacher_und_mittlerer_dienst",
+                     "lohnquelle": "bund", "zeitaufwand_in_min": "6"}
+                  ],
+                  "sachaufwand_vorschlag": "2"
+                }
+              ]
             }
           ]
         }
@@ -273,14 +295,18 @@ def test_parse_effort_payload_rejects_mismatch():
 def test_parse_effort_payload_flags_missing():
     payload = """
     {
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": 10,
-          "taetigkeiten": [
+          "fallgruppen": [
             {
-              "taetigkeiten_id": 100,
-              "zeitaufwand_in_min_vorschlag": "6",
-              "sachaufwand_vorschlag": "2"
+              "fallgruppen_id": 10,
+              "taetigkeiten": [
+                {
+                  "taetigkeiten_id": 100,
+                  "zeitaufwand_in_min_vorschlag": "6",
+                  "sachaufwand_vorschlag": "2"
+                }
+              ]
             }
           ]
         }
@@ -296,14 +322,18 @@ def test_parse_effort_payload_no_fallback_on_match():
     payload = """
     {
       "normadressat": "citizens",
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": 10,
-          "taetigkeiten": [
+          "fallgruppen": [
             {
-              "taetigkeiten_id": 100,
-              "zeitaufwand_in_min_vorschlag": "6",
-              "sachaufwand_vorschlag": "2"
+              "fallgruppen_id": 10,
+              "taetigkeiten": [
+                {
+                  "taetigkeiten_id": 100,
+                  "zeitaufwand_in_min_vorschlag": "6",
+                  "sachaufwand_vorschlag": "2"
+                }
+              ]
             }
           ]
         }

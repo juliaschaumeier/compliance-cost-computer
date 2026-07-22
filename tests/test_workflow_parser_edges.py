@@ -107,11 +107,15 @@ def _seed_effort_context(
 def _cases_payload(case_group_id: int) -> str:
     return f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "anzahl_betroffene_vorschlag": "10",
-          "haeufigkeit_pro_jahr_vorschlag": "2"
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }}
+          ]
         }}
       ]
     }}
@@ -126,15 +130,19 @@ def _org_effort_payload(
 ) -> str:
     return f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "anzahl_betroffene_vorschlag": "10",
-          "haeufigkeit_pro_jahr_vorschlag": "2",
-          "taetigkeiten": [
+          "fallgruppen": [
             {{
-              "taetigkeiten_id": "{step_id}",
-              {entry_fields}
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  {entry_fields}
+                }}
+              ]
             }}
           ]
         }}
@@ -304,11 +312,15 @@ def test_process_step_parser_rejects_unknown_case_group_id():
     )
     payload = """
     {
-      "fallgruppen": [
+      "prozesse": [
         {
-          "fallgruppen_id": "999",
-          "taetigkeiten": [
-            {"taetigkeit": "Schritt X", "beschreibung": "Beschreibung"}
+          "fallgruppen": [
+            {
+              "fallgruppen_id": "999",
+              "taetigkeiten": [
+                {"taetigkeit": "Schritt X", "beschreibung": "Beschreibung"}
+              ]
+            }
           ]
         }
       ]
@@ -332,14 +344,18 @@ def test_process_step_parser_rejects_unknown_regulation_links():
     )
     payload = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "taetigkeiten": [
+          "fallgruppen": [
             {{
-              "taetigkeit": "Schritt X",
-              "beschreibung": "Beschreibung",
-              "vorgaben_ids": [999]
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeit": "Schritt X",
+                  "beschreibung": "Beschreibung",
+                  "vorgaben_ids": [999]
+                }}
+              ]
             }}
           ]
         }}
@@ -358,22 +374,48 @@ def test_process_step_parser_rejects_unknown_regulation_links():
     assert "Unknown vorgaben_ids in process steps" in exc_info.value.detail
 
 
-def test_process_step_parser_rejects_nested_without_top_level_fallgruppen():
-    # #64 (Option 4): Step 5 ist strikt flach. Eine verschachtelte Form (oberstes
-    # `prozesse`, kein top-level `fallgruppen`) wird jetzt bewusst als 422
-    # abgelehnt - die Envelope-Pflicht verlangt durchgaengig top-level `fallgruppen`.
+def test_process_step_parser_accepts_flat_primary_envelope_without_fallback():
+    _session_id, _process_id, _regulation_id, case_group_id, context = (
+        _seed_process_step_context("PARSER-STEPS-FLAT")
+    )
+    payload = f"""
+    {{
+      "normadressat": "administration",
+      "fallgruppen": [
+        {{
+          "fallgruppen_id": "{case_group_id}",
+          "taetigkeiten": [
+            {{"taetigkeit": "Schritt X", "beschreibung": "Flat primary"}}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    parsed, fallback_kinds = process_steps_router.parse_process_step_analysis_answer(
+        response_text=payload,
+        norm_addressee=ADMINISTRATION,
+        context=context,
+    )
+
+    assert parsed[0]["case_group_id"] == case_group_id
+    assert fallback_kinds == set()
+
+
+def test_process_step_parser_marks_nested_compatibility_fallback():
     _session_id, _process_id, _regulation_id, case_group_id, context = (
         _seed_process_step_context("PARSER-STEPS-NESTED")
     )
     payload = f"""
     {{
+      "normadressat": "administration",
       "prozesse": [
         {{
           "fallgruppen": [
             {{
               "fallgruppen_id": "{case_group_id}",
               "taetigkeiten": [
-                {{"taetigkeit": "Schritt X", "beschreibung": "Nested nicht mehr erlaubt"}}
+                {{"taetigkeit": "Schritt X", "beschreibung": "Nested fallback"}}
               ]
             }}
           ]
@@ -382,18 +424,80 @@ def test_process_step_parser_rejects_nested_without_top_level_fallgruppen():
     }}
     """
 
-    with pytest.raises(HTTPException) as exc_info:
-        process_steps_router.parse_process_step_analysis_answer(
-            response_text=payload,
-            norm_addressee=ADMINISTRATION,
-            context=context,
-        )
-
-    assert exc_info.value.status_code == 422
-    assert exc_info.value.detail == (
-        "Invalid process_step_analysis payload: expected top-level key "
-        "'fallgruppen' in LLM response"
+    parsed, fallback_kinds = process_steps_router.parse_process_step_analysis_answer(
+        response_text=payload,
+        norm_addressee=ADMINISTRATION,
+        context=context,
     )
+
+    assert parsed[0]["case_group_id"] == case_group_id
+    assert fallback_kinds == {"process_steps_nested_prozesse"}
+
+
+def test_cases_parser_marks_nested_compatibility_fallback():
+    _session_id, case_group_id, _step_id, _context = _seed_effort_context(
+        "PARSER-CASES-NESTED"
+    )
+    payload = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    parsed, fallback_kinds = effort_router._parse_cases_payload(
+        payload,
+        ADMINISTRATION,
+    )
+
+    assert parsed[0]["case_group_id"] == case_group_id
+    assert fallback_kinds == {"cases_nested_prozesse"}
+
+
+def test_effort_parser_marks_nested_compatibility_fallback():
+    _session_id, case_group_id, step_id, _context = _seed_effort_context(
+        "PARSER-EFFORT-NESTED"
+    )
+    payload = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    parsed, fallback_kinds = effort_router._parse_effort_payload(
+        payload,
+        ADMINISTRATION,
+    )
+
+    assert parsed[0]["step_id"] == step_id
+    assert fallback_kinds == {"effort_nested_prozesse"}
 
 
 def test_effort_parser_logs_alias_fallbacks(monkeypatch):
@@ -402,13 +506,17 @@ def test_effort_parser_logs_alias_fallbacks(monkeypatch):
     )
     cases_text = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "anzahl_betroffene_current": "10",
-          "haeufigkeit_pro_jahr_current": "3",
-          "anzahl_betroffene_proposed": "12",
-          "haeufigkeit_pro_jahr_proposed": "4"
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_current": "10",
+              "haeufigkeit_pro_jahr_current": "3",
+              "anzahl_betroffene_proposed": "12",
+              "haeufigkeit_pro_jahr_proposed": "4"
+            }}
+          ]
         }}
       ]
     }}
@@ -447,95 +555,6 @@ def test_effort_parser_logs_alias_fallbacks(monkeypatch):
 
     assert "cases_legacy_english_alias" in fallback_kinds
     assert "effort_legacy_english_alias" in fallback_kinds
-
-
-def test_cases_parser_rejects_nested_without_top_level_fallgruppen():
-    # #64 (Option 4, Schritt 6): cases ist strikt flach. Eine verschachtelte Form
-    # (oberstes `prozesse`, kein top-level `fallgruppen`) wird jetzt als 422
-    # abgelehnt.
-    session_id, case_group_id, step_id, context = _seed_effort_context(
-        "PARSER-CASES-NESTED"
-    )
-    cases_text = f"""
-    {{
-      "prozesse": [
-        {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "anzahl_betroffene_vorschlag": "10",
-              "haeufigkeit_pro_jahr_vorschlag": "2"
-            }}
-          ]
-        }}
-      ]
-    }}
-    """
-    effort_text = _org_effort_payload(
-        case_group_id,
-        step_id,
-        entry_fields="""
-        "personalaufwand_vorschlag": [
-          {"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}
-        ]
-        """,
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        _parse_effort(
-            session_id=session_id,
-            context=context,
-            cases_text=cases_text,
-            effort_text=effort_text,
-        )
-
-    assert exc_info.value.status_code == 422
-    assert exc_info.value.detail == (
-        "Invalid cases_calculation payload: expected top-level key "
-        "'fallgruppen' in LLM response"
-    )
-
-
-def test_effort_parser_rejects_nested_without_top_level_fallgruppen():
-    # #64 (Option 4, Schritt 6): effort ist strikt flach - nested-only 422.
-    session_id, case_group_id, step_id, context = _seed_effort_context(
-        "PARSER-EFFORT-NESTED"
-    )
-    effort_text = f"""
-    {{
-      "prozesse": [
-        {{
-          "fallgruppen": [
-            {{
-              "fallgruppen_id": "{case_group_id}",
-              "taetigkeiten": [
-                {{
-                  "taetigkeiten_id": "{step_id}",
-                  "personalaufwand_vorschlag": [
-                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
-                  ]
-                }}
-              ]
-            }}
-          ]
-        }}
-      ]
-    }}
-    """
-
-    with pytest.raises(HTTPException) as exc_info:
-        _parse_effort(
-            session_id=session_id,
-            context=context,
-            cases_text=_cases_payload(case_group_id),
-            effort_text=effort_text,
-        )
-
-    assert exc_info.value.status_code == 422
-    assert exc_info.value.detail == (
-        "Invalid effort_calculation payload for administration: expected "
-        "top-level key 'fallgruppen' in LLM response"
-    )
 
 
 def test_effort_parser_rejects_invalid_cases_json_payload():
@@ -636,22 +655,26 @@ def test_effort_parser_rejects_missing_step_id_after_empty_effort_entry():
     )
     effort_text = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "taetigkeiten": [
+          "fallgruppen": [
             {{
-              "taetigkeiten_id": "{step_id}",
-              "personalaufwand_vorschlag": [
-                {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ]
+                }},
+                {{
+                  "taetigkeiten_id": "{missing_step_id}",
+                  "personalaufwand_gueltig": [],
+                  "personalaufwand_vorschlag": [],
+                  "sachaufwand_gueltig": "",
+                  "sachaufwand_vorschlag": ""
+                }}
               ]
-            }},
-            {{
-              "taetigkeiten_id": "{missing_step_id}",
-              "personalaufwand_gueltig": [],
-              "personalaufwand_vorschlag": [],
-              "sachaufwand_gueltig": "",
-              "sachaufwand_vorschlag": ""
             }}
           ]
         }}
@@ -864,17 +887,25 @@ def test_process_step_parser_rejects_duplicate_case_group_id():
     )
     payload = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "taetigkeiten": [
-            {{"taetigkeit": "Schritt A", "beschreibung": "Erste Kette"}}
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt A", "beschreibung": "Erste Kette"}}
+              ]
+            }}
           ]
         }},
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "taetigkeiten": [
-            {{"taetigkeit": "Schritt B", "beschreibung": "Zweite Kette"}}
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt B", "beschreibung": "Zweite Kette"}}
+              ]
+            }}
           ]
         }}
       ]
@@ -995,34 +1026,39 @@ def test_process_step_persist_guard_allows_single_chain_per_case_group():
     )
 
 
-def test_process_step_parser_rejects_duplicate_case_group_id_identical_metadata():
-    # #64 (AC6): Reproduziert die gemeldete O9EBJR-Form flach - dieselbe
-    # fallgruppen_id taucht ZWEIMAL im top-level `fallgruppen`-Array auf, mit
-    # identischen Wrapper-Metadaten (Bezeichnung/Beschreibung/aenderungsstatus),
-    # aber unterschiedlichen Taetigkeiten. Der Parser appended je Fallgruppe ->
-    # der Duplikat-Guard muss diese Form vor der Persistenz mit 422 abweisen.
-    _session_id, _process_id, _regulation_id, case_group_id, context = (
-        _seed_process_step_context("PARSER-STEPS-DUP-METADATA")
+def test_process_step_parser_rejects_duplicate_case_group_id_same_process():
+    # #64: Reproduziert die gemeldete O9EBJR-Form: dieselbe fallgruppen_id
+    # taucht ZWEIMAL im SELBEN Prozessblock auf, mit identischen Wrapper-Metadaten
+    # (Bezeichnung/Beschreibung/aenderungsstatus), aber unterschiedlichen
+    # Taetigkeiten. Der Parser appended je Fallgruppe -> der Duplikat-Guard muss
+    # auch diese Same-Process-Form vor der Persistenz mit 422 abweisen.
+    _session_id, process_id, _regulation_id, case_group_id, context = (
+        _seed_process_step_context("PARSER-STEPS-DUP-SAME-PROCESS")
     )
     payload = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "fallgruppe_bezeichnung": "Identische Fallgruppe",
-          "fallgruppe_beschreibung": "Gleiche Metadaten",
-          "aenderungsstatus": "eingefuehrt",
-          "taetigkeiten": [
-            {{"taetigkeit": "Block 1 - Schritt A", "beschreibung": "Erste Kette"}}
-          ]
-        }},
-        {{
-          "fallgruppen_id": "{case_group_id}",
-          "fallgruppe_bezeichnung": "Identische Fallgruppe",
-          "fallgruppe_beschreibung": "Gleiche Metadaten",
-          "aenderungsstatus": "eingefuehrt",
-          "taetigkeiten": [
-            {{"taetigkeit": "Block 2 - Schritt X", "beschreibung": "Zweite Kette"}}
+          "prozess_id": {process_id},
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "fallgruppe_bezeichnung": "Identische Fallgruppe",
+              "fallgruppe_beschreibung": "Gleiche Metadaten",
+              "aenderungsstatus": "eingefuehrt",
+              "taetigkeiten": [
+                {{"taetigkeit": "Block 1 - Schritt A", "beschreibung": "Erste Kette"}}
+              ]
+            }},
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "fallgruppe_bezeichnung": "Identische Fallgruppe",
+              "fallgruppe_beschreibung": "Gleiche Metadaten",
+              "aenderungsstatus": "eingefuehrt",
+              "taetigkeiten": [
+                {{"taetigkeit": "Block 2 - Schritt X", "beschreibung": "Zweite Kette"}}
+              ]
+            }}
           ]
         }}
       ]
@@ -1049,16 +1085,20 @@ def test_effort_parser_rejects_duplicate_case_group_id():
     )
     cases_text = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "anzahl_betroffene_vorschlag": "10",
-          "haeufigkeit_pro_jahr_vorschlag": "2"
-        }},
-        {{
-          "fallgruppen_id": "{case_group_id}",
-          "anzahl_betroffene_vorschlag": "12",
-          "haeufigkeit_pro_jahr_vorschlag": "2"
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }},
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "12",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }}
+          ]
         }}
       ]
     }}
@@ -1140,22 +1180,26 @@ def test_effort_parser_rejects_duplicate_step_id():
     )
     effort_text = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "anzahl_betroffene_vorschlag": "10",
-          "haeufigkeit_pro_jahr_vorschlag": "2",
-          "taetigkeiten": [
+          "fallgruppen": [
             {{
-              "taetigkeiten_id": "{step_id}",
-              "personalaufwand_vorschlag": [
-                {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
-              ]
-            }},
-            {{
-              "taetigkeiten_id": "{step_id}",
-              "personalaufwand_vorschlag": [
-                {{"qualifikation": "gehobener_dienst", "lohnquelle": "laender", "zeitaufwand_in_min": "12"}}
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ]
+                }},
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "gehobener_dienst", "lohnquelle": "laender", "zeitaufwand_in_min": "12"}}
+                  ]
+                }}
               ]
             }}
           ]
@@ -1245,11 +1289,15 @@ def test_process_step_parser_rejects_missing_case_group():
     )
     payload = f"""
     {{
-      "fallgruppen": [
+      "prozesse": [
         {{
-          "fallgruppen_id": "{case_group_id}",
-          "taetigkeiten": [
-            {{"taetigkeit": "Schritt A", "beschreibung": "Nur erste Fallgruppe"}}
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt A", "beschreibung": "Nur erste Fallgruppe"}}
+              ]
+            }}
           ]
         }}
       ]

@@ -302,69 +302,12 @@ def build_step_analysis_payload(
     return payload
 
 
-def build_step_analysis_output_skeleton(
-    case_groups_payload: list[dict],
-    *,
-    norm_addressee: str,
-) -> dict:
-    fallgruppen = [
-        {
-            "fallgruppen_id": group["fallgruppen_id"],
-            "taetigkeiten": [],
-        }
-        for process in case_groups_payload
-        for group in process.get("fallgruppen", [])
-    ]
-    return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}
-
-
 _CASES_METRIC_KEYS = (
     "anzahl_betroffene_gueltig",
     "haeufigkeit_pro_jahr_gueltig",
     "anzahl_betroffene_vorschlag",
     "haeufigkeit_pro_jahr_vorschlag",
 )
-
-
-def build_cases_calculation_output_skeleton(
-    case_groups_payload: list[dict],
-    *,
-    norm_addressee: str,
-) -> dict:
-    fallgruppen = [
-        {
-            **_CASES_FALLGRUPPE.to_slots(),
-            "fallgruppen_id": group["fallgruppen_id"],
-        }
-        for process in case_groups_payload
-        for group in process.get("fallgruppen", [])
-    ]
-    return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}
-
-
-def build_effort_calculation_output_skeleton(
-    step_analysis_payload: list[dict],
-    *,
-    norm_addressee: str,
-) -> dict:
-    taetigkeit = _effort_taetigkeit(norm_addressee)
-    fallgruppen: list[dict] = []
-    for process in step_analysis_payload:
-        for group in process.get("fallgruppen", []):
-            taetigkeiten = [
-                {
-                    **taetigkeit.to_slots(),
-                    "taetigkeiten_id": step["taetigkeiten_id"],
-                }
-                for step in group.get("taetigkeiten", [])
-            ]
-            fallgruppen.append(
-                {
-                    "fallgruppen_id": group["fallgruppen_id"],
-                    "taetigkeiten": taetigkeiten,
-                }
-            )
-    return {"normadressat": norm_addressee, "fallgruppen": fallgruppen}
 
 
 _CONFIDENCE_ENUM = ("high", "medium", "low")
@@ -379,15 +322,9 @@ def _strict_object(properties: dict[str, Any]) -> dict:
     }
 
 
-_EMPTY_SLOT = ""
-
-
 class _Node:
     def to_schema(self) -> dict:
         raise NotImplementedError
-
-    def to_slots(self) -> Any:
-        return _EMPTY_SLOT
 
 
 @dataclass(frozen=True)
@@ -423,9 +360,6 @@ class _Arr(_Node):
     def to_schema(self) -> dict:
         return {"type": "array", "items": self.item.to_schema()}
 
-    def to_slots(self) -> Any:
-        return [self.item.to_slots()]
-
 
 @dataclass(frozen=True)
 class _Obj(_Node):
@@ -435,9 +369,6 @@ class _Obj(_Node):
         return _strict_object(
             {key: node.to_schema() for key, node in self.properties.items()}
         )
-
-    def to_slots(self) -> Any:
-        return {key: node.to_slots() for key, node in self.properties.items()}
 
 
 _CHANGE_STATUS = _Enum(("eingefuehrt", "geaendert", "abgeschafft"))

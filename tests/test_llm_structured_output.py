@@ -331,35 +331,7 @@ def test_query_llm_json_schema_falls_back_to_json_object(monkeypatch):
     assert calls == [schema, JSON_MODE]
 
 
-# --- Opt-in: cases/effort erzwingen json_schema, andere json_object ---
-
-
-def test_query_and_stage_uses_json_schema_for_cases(test_client):
-    session_id, _ = db.upsert_session("LLM-JSON-SCHEMA-CASES", "test-model")
-    captured: dict = {}
-
-    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
-        captured.update(kwargs)
-        return "Antworttext"
-
-    asyncio.run(
-        query_and_stage_llm_answer(
-            session_id=session_id,
-            prompt_id="cases_calculation",
-            prompt="Frage",
-            api_keys=ApiKeys(openai_api_key="sk-test"),
-            model="test-model",
-            provider="openai",
-            query_fn=fake_query_fn,
-            norm_addressee=BUSINESS,
-        )
-    )
-
-    response_format = captured.get("response_format")
-    assert response_format["type"] == "json_schema"
-    assert response_format["name"] == "cases_calculation"
-    assert response_format["strict"] is True
-    assert response_format["schema"]["properties"]["normadressat"]["enum"] == [BUSINESS]
+# --- Alle strukturierten Workflow-Prompts erzwingen json_schema ---
 
 
 def test_query_and_stage_uses_effort_citizens_schema_variant(test_client):

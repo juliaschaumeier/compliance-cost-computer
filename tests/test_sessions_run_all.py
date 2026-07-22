@@ -253,30 +253,41 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
     async def fake_steps_llm(prompt, *_args, **_kwargs):
         session_id = db.get_session_id_by_app_id(app_session_id)
         assert session_id is not None
+        processes = db.list_processes_for_session(session_id)
         case_groups = db.list_case_groups_for_session(session_id)
         return _json_for_prompt(
             prompt,
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
                             {
-                                "taetigkeit": "Schritt A1",
-                                "beschreibung": "Beschreibung A1",
-                            },
-                            {
-                                "taetigkeit": "Schritt A2",
-                                "beschreibung": "Beschreibung A2",
-                            },
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": "Schritt A1",
+                                        "beschreibung": "Beschreibung A1",
+                                    },
+                                    {
+                                        "taetigkeit": "Schritt A2",
+                                        "beschreibung": "Beschreibung A2",
+                                    },
+                                ],
+                            }
                         ],
                     },
                     {
-                        "fallgruppen_id": str(case_groups[1]["case_group_id"]),
-                        "taetigkeiten": [
+                        "prozess_id": str(processes[1]["process_id"]),
+                        "fallgruppen": [
                             {
-                                "taetigkeit": "Schritt B1",
-                                "beschreibung": "Beschreibung B1",
+                                "fallgruppen_id": str(case_groups[1]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": "Schritt B1",
+                                        "beschreibung": "Beschreibung B1",
+                                    }
+                                ],
                             }
                         ],
                     },
@@ -297,16 +308,26 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
             return _json_for_prompt(
                 prompt,
                 {
-                    "fallgruppen": [
+                    "prozesse": [
                         {
-                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                            "anzahl_betroffene_vorschlag": "10",
-                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "prozess_id": str(processes[0]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
+                                }
+                            ],
                         },
                         {
-                            "fallgruppen_id": str(case_groups[1]["case_group_id"]),
-                            "anzahl_betroffene_vorschlag": "5",
-                            "haeufigkeit_pro_jahr_vorschlag": "1",
+                            "prozess_id": str(processes[1]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[1]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "5",
+                                    "haeufigkeit_pro_jahr_vorschlag": "1",
+                                }
+                            ],
                         },
                     ]
                 }
@@ -337,7 +358,18 @@ def _patch_run_all_llms(monkeypatch, app_session_id: str) -> None:
             )
         return _json_for_prompt(
             prompt,
-            {"fallgruppen": effort_fallgruppen}
+            {
+                "prozesse": [
+                    {
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [effort_fallgruppen[0]],
+                    },
+                    {
+                        "prozess_id": str(processes[1]["process_id"]),
+                        "fallgruppen": [effort_fallgruppen[1]],
+                    },
+                ]
+            }
         )
 
     monkeypatch.setattr(regulations_router, "query_llm", fake_regulations_llm)
@@ -437,13 +469,18 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         return _json_for_prompt(
             prompt,
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
                             {
-                                "taetigkeit": f"Schritt {addressee}",
-                                "beschreibung": f"Beschreibung Schritt {addressee}",
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": f"Schritt {addressee}",
+                                        "beschreibung": f"Beschreibung Schritt {addressee}",
+                                    }
+                                ],
                             }
                         ],
                     }
@@ -465,11 +502,16 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
             return _json_for_prompt(
                 prompt,
                 {
-                    "fallgruppen": [
+                    "prozesse": [
                         {
-                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                            "anzahl_betroffene_vorschlag": "10",
-                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "prozess_id": str(processes[0]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -495,10 +537,15 @@ def _patch_run_all_llms_for_all_addressees(monkeypatch, app_session_id: str) -> 
         return _json_for_prompt(
             prompt,
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
                 ]
             }
@@ -591,13 +638,18 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
         return _json_for_prompt(
             prompt,
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
                             {
-                                "taetigkeit": f"Schritt {addressee}",
-                                "beschreibung": f"Beschreibung Schritt {addressee}",
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": f"Schritt {addressee}",
+                                        "beschreibung": f"Beschreibung Schritt {addressee}",
+                                    }
+                                ],
                             }
                         ],
                     }
@@ -619,11 +671,16 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
             return _json_for_prompt(
                 prompt,
                 {
-                    "fallgruppen": [
+                    "prozesse": [
                         {
-                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                            "anzahl_betroffene_vorschlag": "10",
-                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "prozess_id": str(processes[0]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -631,18 +688,23 @@ def _patch_run_all_llms_for_business_only(monkeypatch, app_session_id: str) -> N
         return _json_for_prompt(
             prompt,
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
                             {
-                                "taetigkeiten_id": str(steps[0]["step_id"]),
-                                "taetigkeit": steps[0]["step"],
-                                "beschreibung": steps[0]["description"],
-                                "personalaufwand_vorschlag": [
-                                    _personalaufwand_row(addressee, "30")
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeiten_id": str(steps[0]["step_id"]),
+                                        "taetigkeit": steps[0]["step"],
+                                        "beschreibung": steps[0]["description"],
+                                        "personalaufwand_vorschlag": [
+                                            _personalaufwand_row(addressee, "30")
+                                        ],
+                                        "sachaufwand_vorschlag": "10",
+                                    }
                                 ],
-                                "sachaufwand_vorschlag": "10",
                             }
                         ],
                     }
@@ -867,13 +929,18 @@ def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypa
             }
         return json.dumps(
             {
-                "normadressat": addressee,
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "normadressat": addressee,
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
-                ],
+                ]
             }
         )
 
@@ -1427,13 +1494,20 @@ def test_process_step_step_partial_failure_applies_nothing(test_client, monkeypa
         case_group_id = admin_case_group if addressee == ADMINISTRATION else 999999
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_group_id),
-                        "taetigkeiten": [
+                        "prozess_id": str(
+                            admin_process if addressee == ADMINISTRATION else business_process
+                        ),
+                        "fallgruppen": [
                             {
-                                "taetigkeit": f"Schritt {addressee}",
-                                "beschreibung": "Beschreibung",
+                                "fallgruppen_id": str(case_group_id),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": f"Schritt {addressee}",
+                                        "beschreibung": "Beschreibung",
+                                    }
+                                ],
                             }
                         ],
                     }
@@ -1563,14 +1637,19 @@ def test_single_step_success_normalizes_change_status_for_processes_case_groups_
         assert _detect_addressee_from_prompt(prompt) == ADMINISTRATION
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_group["case_group_id"]),
-                        "taetigkeiten": [
+                        "prozess_id": str(process["process_id"]),
+                        "fallgruppen": [
                             {
-                                "taetigkeit": "Schritt Verwaltung",
-                                "beschreibung": "Beschreibung",
-                                "status_change": "unchanged",
+                                "fallgruppen_id": str(case_group["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": "Schritt Verwaltung",
+                                        "beschreibung": "Beschreibung",
+                                        "status_change": "unchanged",
+                                    }
+                                ],
                             }
                         ],
                     }
@@ -1771,18 +1850,24 @@ def test_process_step_apply_failure_rolls_back_rows_tiles_links_and_answers(
 
     async def valid_process_steps_llm(prompt, *_args, **_kwargs):
         addressee = _detect_addressee_from_prompt(prompt)
+        process_id = admin_process if addressee == ADMINISTRATION else business_process
         case_group_id = (
             admin_case_group if addressee == ADMINISTRATION else business_case_group
         )
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_group_id),
-                        "taetigkeiten": [
+                        "prozess_id": str(process_id),
+                        "fallgruppen": [
                             {
-                                "taetigkeit": f"Schritt {addressee}",
-                                "beschreibung": "Beschreibung",
+                                "fallgruppen_id": str(case_group_id),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeit": f"Schritt {addressee}",
+                                        "beschreibung": "Beschreibung",
+                                    }
+                                ],
                             }
                         ],
                     }
@@ -1937,11 +2022,16 @@ def test_effort_step_stages_all_normal_prompts_concurrently(test_client, monkeyp
         if prompt_kind == "cases":
             return json.dumps(
                 {
-                    "fallgruppen": [
+                    "prozesse": [
                         {
-                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                            "anzahl_betroffene_vorschlag": "10",
-                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "prozess_id": str(processes[0]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -1962,10 +2052,15 @@ def test_effort_step_stages_all_normal_prompts_concurrently(test_client, monkeyp
             }
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
                 ]
             }
@@ -2020,11 +2115,16 @@ def test_effort_step_parse_failure_applies_no_sibling_metrics_and_keeps_valid_pe
         if not _is_effort_prompt(prompt):
             return json.dumps(
                 {
-                    "fallgruppen": [
+                    "prozesse": [
                         {
-                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                            "anzahl_betroffene_vorschlag": "10",
-                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "prozess_id": str(processes[0]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -2050,10 +2150,15 @@ def test_effort_step_parse_failure_applies_no_sibling_metrics_and_keeps_valid_pe
             }
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
                 ]
             }
@@ -2117,18 +2222,24 @@ def test_effort_step_parse_failure_applies_no_sibling_metrics_and_keeps_valid_pe
         calls[(PromptId.EFFORT_CALCULATION, addressee)] = (
             calls.get((PromptId.EFFORT_CALCULATION, addressee), 0) + 1
         )
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
                             {
-                                "taetigkeiten_id": str(steps[0]["step_id"]),
-                                "personalaufwand_vorschlag": [
-                                    _personalaufwand_row(addressee, "30")
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [
+                                    {
+                                        "taetigkeiten_id": str(steps[0]["step_id"]),
+                                        "personalaufwand_vorschlag": [
+                                            _personalaufwand_row(addressee, "30")
+                                        ],
+                                    }
                                 ],
                             }
                         ],
@@ -2172,20 +2283,27 @@ def test_effort_step_cases_failure_keeps_valid_effort_pending_and_reuses_it(
     calls: dict[tuple[str, str], int] = {}
 
     def cases_payload(addressee: str) -> str:
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "anzahl_betroffene_vorschlag": "10",
-                        "haeufigkeit_pro_jahr_vorschlag": "2",
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "anzahl_betroffene_vorschlag": "10",
+                                "haeufigkeit_pro_jahr_vorschlag": "2",
+                            }
+                        ],
                     }
                 ]
             }
         )
 
     def effort_payload(addressee: str) -> str:
+        processes = db.list_processes_for_session_and_addressee(session_id, addressee)
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         steps = db.list_process_steps_for_session_and_addressee(session_id, addressee)
         if addressee == CITIZENS:
@@ -2201,10 +2319,15 @@ def test_effort_step_cases_failure_keeps_valid_effort_pending_and_reuses_it(
             }
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
                 ]
             }
@@ -2219,7 +2342,7 @@ def test_effort_step_cases_failure_keeps_valid_effort_pending_and_reuses_it(
         )
         calls[(prompt_id, addressee)] = calls.get((prompt_id, addressee), 0) + 1
         if prompt_id == PromptId.CASES_CALCULATION and addressee == BUSINESS:
-            return '{"fallgruppen": ['
+            return '{"prozesse": ['
         if prompt_id == PromptId.CASES_CALCULATION:
             return cases_payload(addressee)
         return effort_payload(addressee)
@@ -2306,11 +2429,16 @@ def test_effort_step_tile_refresh_failure_rolls_back_metrics_and_answers(
         if not _is_effort_prompt(prompt):
             return json.dumps(
                 {
-                    "fallgruppen": [
+                    "prozesse": [
                         {
-                            "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                            "anzahl_betroffene_vorschlag": "10",
-                            "haeufigkeit_pro_jahr_vorschlag": "2",
+                            "prozess_id": str(processes[0]["process_id"]),
+                            "fallgruppen": [
+                                {
+                                    "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                    "anzahl_betroffene_vorschlag": "10",
+                                    "haeufigkeit_pro_jahr_vorschlag": "2",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -2329,10 +2457,15 @@ def test_effort_step_tile_refresh_failure_rolls_back_metrics_and_answers(
             }
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
                 ]
             }
@@ -2730,13 +2863,18 @@ def test_single_step_run_effort_uses_deep_research_when_enabled(
             }
         return json.dumps(
             {
-                "normadressat": addressee,
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "normadressat": addressee,
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
-                ],
+                ]
             }
         )
 
@@ -2835,13 +2973,18 @@ def test_single_step_run_effort_reuses_waiting_effort_after_completed_deep_resea
             }
         response = json.dumps(
             {
-                "normadressat": addressee,
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "normadressat": addressee,
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
-                ],
+                ]
             }
         )
         effort_payloads[addressee] = response
@@ -3054,7 +3197,7 @@ def test_single_step_run_effort_cancel_promotes_staged_effort_for_retry(
         return json.dumps(
             {
                 "normadressat": addressee,
-                "fallgruppen": [],
+                "prozesse": [],
             }
         )
 
@@ -3117,11 +3260,16 @@ def test_single_step_run_effort_cancel_preserves_completed_normal_answer_for_ret
         case_groups = db.list_case_groups_for_session_and_addressee(session_id, addressee)
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "anzahl_betroffene_vorschlag": "10",
-                        "haeufigkeit_pro_jahr_vorschlag": "1",
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "anzahl_betroffene_vorschlag": "10",
+                                "haeufigkeit_pro_jahr_vorschlag": "1",
+                            }
+                        ],
                     }
                 ]
             }
@@ -3145,10 +3293,15 @@ def test_single_step_run_effort_cancel_preserves_completed_normal_answer_for_ret
             }
         return json.dumps(
             {
-                "fallgruppen": [
+                "prozesse": [
                     {
-                        "fallgruppen_id": str(case_groups[0]["case_group_id"]),
-                        "taetigkeiten": [effort_entry],
+                        "prozess_id": str(processes[0]["process_id"]),
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": str(case_groups[0]["case_group_id"]),
+                                "taetigkeiten": [effort_entry],
+                            }
+                        ],
                     }
                 ]
             }

@@ -12,7 +12,6 @@ from backend.core.norm_addressees import (
     BUSINESS,
     CITIZENS,
 )
-from backend.core.payload_builders import dump_prompt_json
 
 
 class PromptId:
@@ -789,15 +788,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     ),
     # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
-    # - output_skeleton_json: JSON string of the prefilled flat output shell
-    #   ({"normadressat", "fallgruppen": [{"fallgruppen_id", "taetigkeiten": []}]})
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - step_analysis_checklist
     # - norm_addressee_prompt_opening
     # - step_analysis_addressee_rule
-    # - output_skeleton_json (empty-fallgruppen default when not provided)
     PromptId.PROCESS_STEP_ANALYSIS: (
         LEGIST_PROMPT_OPENING
         + """
@@ -833,7 +829,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Geben Sie jede vorgegebene `fallgruppen_id` genau einmal aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf und uebernehmen Sie alle IDs exakt wie vorgegeben.
 
-        Geben Sie nur und ausschliesslich JSON zurueck. Fuellen Sie ausschliesslich das Feld `taetigkeiten` im folgenden vorbefuellten Skelett aus. Fuegen Sie keine Fallgruppen-Objekte hinzu, entfernen, verschieben oder duplizieren Sie keine und uebernehmen Sie jede `fallgruppen_id` exakt an ihrer vorgegebenen Position.
+        Geben Sie nur und ausschliesslich JSON in Form eines flachen Objekts mit genau den Top-Level-Feldern `normadressat` und `fallgruppen` zurueck. `fallgruppen` ist ein Array mit genau einem Objekt je vorgegebener `fallgruppen_id`. Jedes Fallgruppen-Objekt enthaelt genau `fallgruppen_id` und `taetigkeiten`; geben Sie keine Prozess- oder Fallgruppenbeschreibungen im Output zurueck.
 
         Jedes Element von `taetigkeiten` hat folgende Form:
 
@@ -843,8 +839,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
         }}
 
-        {output_skeleton_json}
-
         Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
@@ -853,8 +847,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     ),
     # Render contract:
     # - case_groups_json: JSON string of list[ProzessWithFallgruppenPayload]
-    # - output_skeleton_json: JSON string of the prefilled flat output shell
-    #   ({"normadressat", "fallgruppen": [{"fallgruppen_id", <cases slots>}]})
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
@@ -862,7 +854,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     # - handbook_cases_case_example
     # - norm_addressee_prompt_opening
     # - norm_addressee_rule
-    # - output_skeleton_json (empty-fallgruppen default when not provided)
     PromptId.CASES_CALCULATION: (
         LEGIST_PROMPT_OPENING
         + """
@@ -881,8 +872,8 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Pruefen Sie dabei aktiv, ob die Gesetzesaenderung ueber den reinen Aufwand pro Fall hinaus auch die Fallzahl beeinflusst. Typische Treiber sind
         Verhaltens- und Nachfrageeffekte (ein einfacheres oder attraktiveres Verfahren fuehrt zu mehr Antraegen; hoehere Anforderungen schrecken ab),
         Erweiterung oder Einschraenkung des Adressatenkreises (neue Zielgruppe wird einbezogen bzw. ausgeschlossen), Aenderung der Antrags- oder
-        Pruefhaeufigkeit sowie Rechtsklarstellungen, die latente Faelle erstmals in das Verfahren ueberfuehren. Begruenden Sie in der Fallgruppen-
-        beschreibung kurz, falls Sie aus solchen Gruenden unterschiedliche Werte fuer _gueltig und _vorschlag ansetzen.
+        Pruefhaeufigkeit sowie Rechtsklarstellungen, die latente Faelle erstmals in das Verfahren ueberfuehren. Begruenden Sie in den jeweiligen
+        `erklaerungen` kurz, falls Sie aus solchen Gruenden unterschiedliche Werte fuer _gueltig und _vorschlag ansetzen.
 
         Identische Werte fuer _gueltig und _vorschlag sind nur dann plausibel, wenn weder Betroffenenkreis noch Haeufigkeit durch die Aenderung
         beruehrt werden und auch kein indirekter Verhaltens- oder Nachfrageeffekt zu erwarten ist. Umgekehrt duerfen Sie Fallzahlen nicht ohne sachlichen
@@ -908,7 +899,7 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Geben Sie zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Uebernehmen Sie alle IDs exakt wie vorgegeben.
 
-        Geben Sie nur und ausschliesslich JSON zurueck. Fuellen Sie ausschliesslich die Kennzahlenfelder je Fallgruppe im folgenden vorbefuellten Skelett aus. Fuegen Sie keine Fallgruppen-Objekte hinzu, entfernen, verschieben oder duplizieren Sie keine und uebernehmen Sie jede `fallgruppen_id` exakt an ihrer vorgegebenen Position.
+        Geben Sie nur und ausschliesslich JSON in Form eines flachen Objekts mit genau den Top-Level-Feldern `normadressat` und `fallgruppen` zurueck. `fallgruppen` ist ein Array mit genau einem Objekt je vorgegebener `fallgruppen_id`; jedes Objekt entspricht exakt der folgenden Kennzahlenform. Geben Sie keine Prozess- oder Fallgruppenbeschreibungen im Output zurueck.
 
         Fuegen Sie fuer jede Fallgruppe zusaetzlich erklaerungen und confidence hinzu. Die erklaerungen
         muessen pro Kennzahl kurz und eigenstaendig darstellen, auf welcher Grundlage der jeweilige Wert hergeleitet wurde.
@@ -937,8 +928,6 @@ PROMPT_TEMPLATES: Dict[str, str] = {
             }}
         }}
 
-        {output_skeleton_json}
-
         Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
@@ -948,16 +937,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
     #                        Vorgaben kann jedoch zusaetzlichen Sach- und Personalaufwand erzeugen.
     # Render contract:
     # - step_analysis_json: JSON string of list[ProzessStepAnalysisPayload]
-    # - output_skeleton_json: JSON string of the prefilled flat output shell
-    #   ({"normadressat", "fallgruppen": [{"fallgruppen_id", "taetigkeiten":
-    #   [{"taetigkeiten_id", <effort slots by addressee>}]}]})
     # - norm_addressee: "administration" | "business" | "citizens"
     # - law_summary: str, optional if session_id/app_session_id is provided
     # Auto-filled by render_prompt:
     # - effort_method_guidance
     # - effort_appendix
     # - effort_taetigkeit_form
-    # - output_skeleton_json (empty-fallgruppen default when not provided)
     # - norm_addressee_prompt_opening
     PromptId.EFFORT_CALCULATION: (
         LEGIST_PROMPT_OPENING
@@ -986,13 +971,13 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         Geben Sie zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt aus und lassen Sie keine aus; faellt fuer eine Taetigkeit kein Aufwand an, geben Sie das Objekt mit ausdruecklichen Nullwerten aus. Pruefen Sie vor der Ausgabe, dass keine `taetigkeiten_id` mehrfach vorkommt, und uebernehmen Sie alle IDs exakt wie vorgegeben.
 
-        Geben Sie nur und ausschliesslich JSON zurueck. Fuellen Sie ausschliesslich die Aufwandsfelder je Taetigkeit im folgenden vorbefuellten Skelett aus. Fuegen Sie keine Fallgruppen- oder Taetigkeits-Objekte hinzu, entfernen, verschieben oder duplizieren Sie keine und uebernehmen Sie jede `fallgruppen_id` und `taetigkeiten_id` exakt an ihrer vorgegebenen Position. Die Aufwandsangaben innerhalb einer Taetigkeit fuellen und gliedern Sie hingegen selbst gemaess den obigen Hinweisen.
+        Geben Sie nur und ausschliesslich JSON in Form eines flachen Objekts mit genau den Top-Level-Feldern `normadressat` und `fallgruppen` zurueck. `fallgruppen` ist ein Array mit genau einem Objekt je vorgegebener `fallgruppen_id`; jedes Fallgruppen-Objekt enthaelt genau `fallgruppen_id` und `taetigkeiten`. `taetigkeiten` enthaelt genau ein Ergebnisobjekt je vorgegebener `taetigkeiten_id` in der folgenden Aufwandsform. Geben Sie keine Prozess-, Fallgruppen- oder Taetigkeitsbeschreibungen im Output zurueck.
 
         Jede Taetigkeit hat folgende Aufwandsform:
 
         {effort_taetigkeit_form}
 
-        {output_skeleton_json}
+        Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
         Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
         """
@@ -1477,25 +1462,11 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
         render_values["step_analysis_addressee_rule"] = _render_step_analysis_addressee_rule(
             norm_addressee,
         )
-        render_values.setdefault(
-            "output_skeleton_json",
-            dump_prompt_json({"normadressat": norm_addressee, "fallgruppen": []}),
-        )
-
-    if prompt_id == PromptId.CASES_CALCULATION:
-        render_values.setdefault(
-            "output_skeleton_json",
-            dump_prompt_json({"normadressat": norm_addressee, "fallgruppen": []}),
-        )
 
     if prompt_id == PromptId.EFFORT_CALCULATION:
         render_values["effort_method_guidance"] = _render_effort_method_guidance(norm_addressee)
         render_values["effort_appendix"] = _render_effort_appendix(norm_addressee)
         render_values["effort_taetigkeit_form"] = _render_effort_taetigkeit_form(norm_addressee)
-        render_values.setdefault(
-            "output_skeleton_json",
-            dump_prompt_json({"normadressat": norm_addressee, "fallgruppen": []}),
-        )
 
     needs_law_summary = "{law_summary}" in template and not render_values.get("law_summary")
     needs_regulation_laws = (

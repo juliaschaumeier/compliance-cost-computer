@@ -8,7 +8,7 @@ from backend.core.change_status import extract_change_status
 from backend.core.llm_attempts import (
     mark_llm_parse_fallback,
 )
-from backend.core.llm_json import extract_fallgruppen, require_json_object
+from backend.core.llm_json import extract_fallgruppen, require_fallgruppen_envelope
 from backend.core.llm_service import query_llm
 from backend.core.norm_addressees import (
     ADMINISTRATION,
@@ -20,8 +20,6 @@ from backend.core.norm_addressees import (
 from backend.core.parsing import parse_first_int, parse_optional_number
 from backend.core.payload_builders import (
     build_case_groups_payload,
-    build_cases_calculation_output_skeleton,
-    build_effort_calculation_output_skeleton,
     build_step_analysis_payload,
     dump_prompt_json,
 )
@@ -59,12 +57,13 @@ def _parse_cases_payload(
     payload: str,
     norm_addressee: str | None = None,
 ) -> tuple[list[dict], set[str]]:
-    data, parse_mode = require_json_object(
+    data, parse_mode, envelope_mode = require_fallgruppen_envelope(
         payload,
         error_context="Invalid cases_calculation payload",
-        required_top_level_key="fallgruppen",
     )
     fallback_kinds: set[str] = set()
+    if envelope_mode == "nested_prozesse":
+        fallback_kinds.add("cases_nested_prozesse")
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
     echo_kinds = check_norm_addressee_echo(data, norm_addressee)
@@ -577,12 +576,13 @@ def _parse_org_effort_entry(
 
 
 def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict], set[str]]:
-    data, parse_mode = require_json_object(
+    data, parse_mode, envelope_mode = require_fallgruppen_envelope(
         payload,
         error_context=f"Invalid effort_calculation payload for {norm_addressee}",
-        required_top_level_key="fallgruppen",
     )
     fallback_kinds: set[str] = set()
+    if envelope_mode == "nested_prozesse":
+        fallback_kinds.add("effort_nested_prozesse")
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
     echo_kinds = check_norm_addressee_echo(data, norm_addressee)
@@ -817,12 +817,6 @@ def prepare_effort_calculation(
         PromptId.EFFORT_CALCULATION,
         session_id=session_id,
         step_analysis_json=dump_prompt_json(steps_payload),
-        output_skeleton_json=dump_prompt_json(
-            build_effort_calculation_output_skeleton(
-                steps_payload,
-                norm_addressee=norm_addressee,
-            )
-        ),
         norm_addressee=norm_addressee,
     )
 
@@ -838,12 +832,6 @@ def prepare_effort_calculation(
             PromptId.CASES_CALCULATION,
             session_id=session_id,
             case_groups_json=dump_prompt_json(case_groups_payload),
-            output_skeleton_json=dump_prompt_json(
-                build_cases_calculation_output_skeleton(
-                    case_groups_payload,
-                    norm_addressee=norm_addressee,
-                )
-            ),
             norm_addressee=norm_addressee,
         )
 

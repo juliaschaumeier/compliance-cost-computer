@@ -2,14 +2,6 @@ import re
 
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 from backend.core import prompts
-from backend.core.payload_builders import (
-    build_case_groups_payload,
-    build_cases_calculation_output_skeleton,
-    build_effort_calculation_output_skeleton,
-    build_step_analysis_output_skeleton,
-    build_step_analysis_payload,
-    dump_prompt_json,
-)
 from backend.core.prompts import NORM_ADDRESSEE_PROMPT_OPENINGS, PromptId, render_prompt
 import pytest
 
@@ -131,10 +123,7 @@ def test_effort_prompt_schema_uses_single_json_braces(norm_addressee):
     assert "}}" not in prompt
 
 
-def test_render_prompt_effort_default_skeleton_echoes_run_addressee():
-    # #64 (Schritt 6): ohne Router-Skelett faellt render_prompt auf ein leeres
-    # Default-Skelett zurueck, das den Lauf-Normadressaten fest echot; ein
-    # Kontext-Override (norm_addressee_prompt_opening) wird weiterhin ignoriert.
+def test_render_prompt_effort_pins_run_addressee_without_skeleton():
     prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,
         law_summary="Kurzfassung",
@@ -144,8 +133,8 @@ def test_render_prompt_effort_default_skeleton_echoes_run_addressee():
     )
 
     assert "BROKEN CONTEXT" not in prompt
-    assert '"normadressat": "business"' in prompt
-    assert '"normadressat": "citizens"' not in prompt
+    assert "muss exakt `business` lauten" in prompt
+    assert "vorbefuellten Skelett" not in prompt
 
 
 def test_process_compilation_prompt_omits_handbook_example():
@@ -441,7 +430,10 @@ def test_norm_addressee_prompts_integrate_guidance_before_schema(prompt_id, norm
 
     assert context_marker in prompt
     assert prompt.index(context_marker) < prompt.index(schema_marker)
-    assert f'"normadressat": "{norm_addressee}"' in prompt
+    if prompt_id in {PromptId.PROCESS_COMPILATION, PromptId.CASE_GROUP_DEVELOPMENT}:
+        assert f'"normadressat": "{norm_addressee}"' in prompt
+    else:
+        assert f"muss exakt `{norm_addressee}` lauten" in prompt
     assert '"normadressat": "administration | business | citizens"' not in prompt
     assert '"normadressat": "administration | business"' not in prompt
 
@@ -456,7 +448,7 @@ def test_process_step_analysis_prompt_sets_known_norm_addressee_after_context():
     assert prompt.index("Das Gesetz bzw. die Gesetzesaenderung ist wie folgt") < prompt.index(
         "Dieser Lauf betrifft nur den Normadressaten Wirtschaft"
     )
-    assert '"normadressat": "business"' in prompt
+    assert "muss exakt `business` lauten" in prompt
     assert '"normadressat": "administration | business | citizens"' not in prompt
 
 
@@ -468,11 +460,11 @@ _ADDRESSEE_GERMAN = {
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_prefills_each_known_norm_addressee(norm_addressee):
+def test_process_step_analysis_prompt_pins_each_known_norm_addressee(norm_addressee):
     prompt = _render_step_analysis_prompt(norm_addressee)
 
     assert f"Dieser Lauf betrifft nur den Normadressaten {_ADDRESSEE_GERMAN[norm_addressee]}" in prompt
-    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert f"muss exakt `{norm_addressee}` lauten" in prompt
     assert '"normadressat": "administration | business | citizens"' not in prompt
 
 
@@ -562,44 +554,24 @@ def test_process_step_analysis_prompt_demands_unique_fallgruppen(norm_addressee)
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_injects_flat_output_skeleton(norm_addressee):
-    # #64 (Option 4): Statt eines nested Schemas zeigt der Prompt ein aus
-    # case_groups_json vorbefuelltes FLACHES Skelett (nur fallgruppen_id,
-    # taetigkeiten leer, keine Prozess-Ebene); das Modell fuellt nur taetigkeiten.
-    processes = [
-        {"process_id": 312, "process": "Prozess 312", "description": "d", "change_status": "geaendert"},
-        {"process_id": 313, "process": "Prozess 313", "description": "d", "change_status": "geaendert"},
-    ]
-    case_groups = [
-        {"case_group_id": 491, "process_id": 312, "case_group": "F491", "description": "d", "change_status": "geaendert"},
-        {"case_group_id": 492, "process_id": 313, "case_group": "F492", "description": "d", "change_status": "geaendert"},
-    ]
-    payload_groups = build_case_groups_payload(
-        processes=processes,
-        case_groups=case_groups,
-        norm_addressee=norm_addressee,
-    )
+def test_process_step_analysis_prompt_keeps_flat_contract_without_skeleton(
+    norm_addressee,
+):
+    marker_id = 8491001
     prompt = render_prompt(
         PromptId.PROCESS_STEP_ANALYSIS,
         law_summary="Kurzfassung",
-        case_groups_json=dump_prompt_json(payload_groups),
-        output_skeleton_json=dump_prompt_json(
-            build_step_analysis_output_skeleton(payload_groups, norm_addressee=norm_addressee)
+        case_groups_json=(
+            '[{"prozess_id": 312, "fallgruppen": '
+            f'[{{"fallgruppen_id": {marker_id}}}]}}]'
         ),
         norm_addressee=norm_addressee,
     )
 
-    output_section = prompt.split("vorbefuellten Skelett", 1)[1]
-    assert "Fuellen Sie ausschliesslich das Feld `taetigkeiten`" in prompt
-    assert (
-        "Fuegen Sie keine Fallgruppen-Objekte hinzu, entfernen, "
-        "verschieben oder duplizieren Sie keine" in prompt
-    )
-    assert '"fallgruppen_id": 491' in prompt
-    assert '"fallgruppen_id": 492' in prompt
-    assert '"taetigkeiten": []' in prompt
-    assert '"fallgruppen_id": ""' not in prompt
-    assert '"prozess_id"' not in output_section
+    assert prompt.count(f'"fallgruppen_id": {marker_id}') == 1
+    assert "Top-Level-Feldern `normadressat` und `fallgruppen`" in prompt
+    assert "genau `fallgruppen_id` und `taetigkeiten`" in prompt
+    assert "vorbefuellten Skelett" not in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -610,6 +582,16 @@ def test_cases_calculation_prompt_demands_unique_fallgruppen(norm_addressee):
 
     assert "zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge" in prompt
     assert "keine `fallgruppen_id` mehrfach vorkommt" in prompt
+
+
+@pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
+def test_cases_calculation_prompt_places_change_reason_in_explanations(norm_addressee):
+    prompt = _compact(
+        _render_prompt_for_contract(PromptId.CASES_CALCULATION, norm_addressee)
+    )
+
+    assert "in den jeweiligen `erklaerungen`" in prompt
+    assert "in der Fallgruppenbeschreibung" not in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -783,78 +765,44 @@ def test_effort_prompt_business_guidance_names_wirtschaftsabschnitt():
     assert "gesamtwirtschaft" in prompt.lower()
 
 
-def _step6_processes_and_case_groups():
-    processes = [
-        {"process_id": 312, "process": "Prozess 312", "description": "d", "change_status": "geaendert"},
-        {"process_id": 313, "process": "Prozess 313", "description": "d", "change_status": "geaendert"},
-    ]
-    case_groups = [
-        {"case_group_id": 491, "process_id": 312, "case_group": "F491", "description": "d", "change_status": "geaendert"},
-        {"case_group_id": 492, "process_id": 313, "case_group": "F492", "description": "d", "change_status": "geaendert"},
-    ]
-    return processes, case_groups
-
-
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_cases_calculation_prompt_injects_prefilled_skeleton_ids(norm_addressee):
-    processes, case_groups = _step6_processes_and_case_groups()
-    case_groups_payload = build_case_groups_payload(
-        processes=processes,
-        case_groups=case_groups,
-        norm_addressee=norm_addressee,
-    )
-
+def test_cases_calculation_prompt_keeps_flat_contract_without_skeleton(norm_addressee):
+    marker_id = 8491002
     prompt = render_prompt(
         PromptId.CASES_CALCULATION,
         law_summary="Kurzfassung",
-        case_groups_json=dump_prompt_json(case_groups_payload),
-        output_skeleton_json=dump_prompt_json(
-            build_cases_calculation_output_skeleton(
-                case_groups_payload,
-                norm_addressee=norm_addressee,
-            )
+        case_groups_json=(
+            '[{"prozess_id": 312, "fallgruppen": '
+            f'[{{"fallgruppen_id": {marker_id}}}]}}]'
         ),
         norm_addressee=norm_addressee,
     )
 
-    assert '"fallgruppen_id": 491' in prompt
-    assert '"fallgruppen_id": 492' in prompt
-    assert f'"normadressat": "{norm_addressee}"' in prompt
-    assert '"fallgruppen": []' not in prompt
+    assert prompt.count(f'"fallgruppen_id": {marker_id}') == 1
+    assert "Top-Level-Feldern `normadressat` und `fallgruppen`" in prompt
+    assert "Jede Fallgruppe hat folgende Kennzahlenform" in prompt
+    assert f"muss exakt `{norm_addressee}` lauten" in prompt
+    assert "vorbefuellten Skelett" not in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_effort_calculation_prompt_injects_prefilled_skeleton_ids(norm_addressee):
-    processes, case_groups = _step6_processes_and_case_groups()
-    steps = [
-        {"step_id": 40, "case_group_id": 491, "step": "Schritt 1", "description": "", "change_status": "geaendert", "previous_id": None, "next_id": 41},
-        {"step_id": 41, "case_group_id": 491, "step": "Schritt 2", "description": "", "change_status": "geaendert", "previous_id": 40, "next_id": None},
-        {"step_id": 42, "case_group_id": 492, "step": "Schritt 3", "description": "", "change_status": "geaendert", "previous_id": None, "next_id": None},
-    ]
-    steps_payload = build_step_analysis_payload(
-        processes=processes,
-        case_groups=case_groups,
-        steps=steps,
-        norm_addressee=norm_addressee,
-    )
-
+def test_effort_calculation_prompt_keeps_flat_contract_without_skeleton(norm_addressee):
+    marker_group_id = 8491003
+    marker_step_id = 8491004
     prompt = render_prompt(
         PromptId.EFFORT_CALCULATION,
         law_summary="Kurzfassung",
-        step_analysis_json=dump_prompt_json(steps_payload),
-        output_skeleton_json=dump_prompt_json(
-            build_effort_calculation_output_skeleton(
-                steps_payload,
-                norm_addressee=norm_addressee,
-            )
+        step_analysis_json=(
+            '[{"prozess_id": 312, "fallgruppen": '
+            f'[{{"fallgruppen_id": {marker_group_id}, "taetigkeiten": '
+            f'[{{"taetigkeiten_id": {marker_step_id}}}]}}]}}]'
         ),
         norm_addressee=norm_addressee,
     )
 
-    assert '"fallgruppen_id": 491' in prompt
-    assert '"fallgruppen_id": 492' in prompt
-    assert '"taetigkeiten_id": 40' in prompt
-    assert '"taetigkeiten_id": 41' in prompt
-    assert '"taetigkeiten_id": 42' in prompt
-    assert f'"normadressat": "{norm_addressee}"' in prompt
-    assert '"fallgruppen": []' not in prompt
+    assert prompt.count(f'"fallgruppen_id": {marker_group_id}') == 1
+    assert prompt.count(f'"taetigkeiten_id": {marker_step_id}') == 1
+    assert "Top-Level-Feldern `normadressat` und `fallgruppen`" in prompt
+    assert "Jede Taetigkeit hat folgende Aufwandsform" in prompt
+    assert f"muss exakt `{norm_addressee}` lauten" in prompt
+    assert "vorbefuellten Skelett" not in prompt
