@@ -145,6 +145,46 @@ def deterministic_decision(
             "Repeated-run variance was confirmed as a reproducible diagnostic signal, but this does not decide which run is legally preferable.",
         )
 
+    if judgement == "review_signal":
+        if issue_id == "issue_02_unnecessary_addressee_steps":
+            bucket = str(evidence.get("classification_bucket") or "")
+            if bucket == "applies_but_downstream_says_not_applicable":
+                return reviewed(
+                    "quality_issue",
+                    "high",
+                    "Persisted applicability says the addressee is in scope, but downstream answer or tile content says there is nothing relevant to do.",
+                )
+            if bucket == "missing_regulation_context_but_downstream_work":
+                return reviewed(
+                    "incomplete_state_signal",
+                    "medium",
+                    "Downstream work exists without persisted regulation context; this is useful workflow evidence but not enough to classify the content itself as wrong.",
+                )
+        if issue_id == "issue_03_json_truncation":
+            parse_class = str(evidence.get("parse_class") or "")
+            if parse_class == "empty_or_invalid_top_level":
+                return reviewed(
+                    "quality_issue",
+                    "high",
+                    "The answer parsed as JSON but returned an empty or unusable required root payload where the workflow expected entities.",
+                )
+        if issue_id == "issue_04_change_status_inconsistency":
+            reason = str(evidence.get("reason") or "")
+            if reason == "changed_but_values_equal":
+                return reviewed(
+                    "status_value_review_signal",
+                    "medium",
+                    "The entity is marked changed while current/proposed numeric values are equal; this can reflect non-numeric legal/text changes, so it is a diagnostic signal rather than a decisive quality failure.",
+                )
+        if issue_id == "issue_08_bureaucracy_cost":
+            reason = str(evidence.get("reason") or "")
+            if reason == "suspicious_all_business_cost_marked_bureaucracy":
+                return reviewed(
+                    "cost_split_review_signal",
+                    "medium",
+                    "Nearly all business cost is marked as bureaucracy cost despite mixed regulation evidence; this is a strong cost-split diagnostic but still needs content/legal review.",
+                )
+
     if issue_id == "issue_03_json_truncation" and "current_contract_mismatch" in {str(key) for key in detail_keys}:
         return reviewed(
             "historical_contract_mismatch",

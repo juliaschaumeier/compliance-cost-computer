@@ -325,7 +325,7 @@ class HistoricalQualityTests(unittest.TestCase):
             self.assertEqual(summary["reviewed_count"], 1)
             self.assertEqual(summary["decision_counts"], {"quality_issue": 1})
 
-    def test_rules_adjudication_leaves_interpretive_packet_pending(self):
+    def test_rules_adjudication_reviews_changed_equal_values_as_signal(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             packet_dir = root / "review_packets"
@@ -344,8 +344,9 @@ class HistoricalQualityTests(unittest.TestCase):
             }
             (packet_dir / "p1.json").write_text(json.dumps(packet), encoding="utf-8")
             summary = adjudication.adjudicate(packet_dir, root / "adjudication", mode="rules")
-            self.assertEqual(summary["status"], "partial")
-            self.assertEqual(summary["pending_count"], 1)
+            self.assertEqual(summary["status"], "complete")
+            self.assertEqual(summary["pending_count"], 0)
+            self.assertEqual(summary["decision_counts"], {"status_value_review_signal": 1})
 
     def test_variance_findings_are_diagnostic_not_hard_failure(self):
         row = {"issue_id": "issue_05_structure_consistency", "evidence": {}}
