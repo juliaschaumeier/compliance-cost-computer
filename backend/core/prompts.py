@@ -799,12 +799,12 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {norm_addressee_prompt_opening}
 
-        Das Gesetz bzw. die Gesetzesaenderung fuehrt fuer diesen Normadressaten zu folgenden,
-        positiven oder negativen Erfuellungsaufwand ausloesenden Prozessen und
-        Fallgruppen: {case_groups_json}
+        Die folgende Eingabe `case_groups_json` enthaelt fuer den betroffenen Normadressaten
+        die relevanten Prozesse und Fallgruppen: {case_groups_json}
 
-        Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten zur Erfuellung einer Vorgabe oder eines Prozesses pro Fallgruppe
-        zu identifizieren und je Taetigkeit den Aenderungsstatus anzugeben
+        Ihre Aufgabe ist es, je Fallgruppe die wesentlichen wiederkehrenden Taetigkeiten zu identifizieren,
+        die der betroffene Normadressat zur Erfuellung der Vorgabe oder des Prozesses ausfuehrt,
+        und je Taetigkeit den Aenderungsstatus anzugeben
         (`eingefuehrt | geaendert | abgeschafft | unveraendert`). Orientieren Sie sich dabei, wenn noetig, an den vorhandenen
         Statusangaben in den Fallgruppen und Prozessen.
 
@@ -827,17 +827,34 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {step_analysis_checklist}
 
-        Geben Sie jede vorgegebene `fallgruppen_id` genau einmal aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf und uebernehmen Sie alle IDs exakt wie vorgegeben.
+        Nachdem Sie die wiederkehrenden Taetigkeiten fachlich bestimmt haben, geben Sie das Ergebnis
+        je Fallgruppe aus. Die Eingabe `case_groups_json` enthaelt Prozesse und Fallgruppen als
+        fachlichen Kontext. Fuer die Ausgabe ist jedoch nur die Fallgruppenebene massgeblich.
 
-        Geben Sie nur und ausschliesslich JSON in Form eines flachen Objekts mit genau den Top-Level-Feldern `normadressat` und `fallgruppen` zurueck. `fallgruppen` ist ein Array mit genau einem Objekt je vorgegebener `fallgruppen_id`. Jedes Fallgruppen-Objekt enthaelt genau `fallgruppen_id` und `taetigkeiten`; geben Sie keine Prozess- oder Fallgruppenbeschreibungen im Output zurueck.
+        Geben Sie fuer jede vorgegebene Fallgruppe genau ein Objekt im Array `fallgruppen` zurueck
+        und ersetzen Sie `<fallgruppen_id aus der Eingabe>` durch die jeweilige ID aus der Eingabe.
+        Fuehren Sie Fallgruppen nicht zusammen und teilen Sie sie nicht auf.
+        Innerhalb jeder Fallgruppe erfassen Sie die ermittelten Taetigkeiten im Array `taetigkeiten`.
 
-        Jedes Element von `taetigkeiten` hat folgende Form:
+        Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:
 
         {{
-            "taetigkeit": "",
-            "beschreibung": "",
-            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
+            "normadressat": "{norm_addressee}",
+            "fallgruppen": [
+                {{
+                    "fallgruppen_id": "<fallgruppen_id aus der Eingabe>",
+                    "taetigkeiten": [
+                        {{
+                            "taetigkeit": "",
+                            "beschreibung": "",
+                            "aenderungsstatus": "eingefuehrt | geaendert | abgeschafft | unveraendert"
+                        }}
+                    ]
+                }}
+            ]
         }}
+
+        Geben Sie keine Prozesse, keine `prozess_id`, keine Prozessstruktur und keine Prozess- oder Fallgruppenbeschreibungen im Output zurueck.
 
         Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
@@ -859,12 +876,16 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {norm_addressee_prompt_opening}
 
-        Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen
-        differenziert werden: {case_groups_json}
+        Die folgende Eingabe `case_groups_json` enthaelt fuer den betroffenen Normadressaten
+        die relevanten Prozesse und Fallgruppen: {case_groups_json}
 
-        Ihre Aufgabe ist es, die Aenderung der Fallzahlen jeder dieser Fallgruppen zu bestimmen. Hierzu werden die Haeufigkeit und die Anzahl der Betroffenen 
-        vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung einer Fallgruppe werden typischerweise nur die 
-        _vorschlag-Werte angegeben, bei der Loeschung nur die _gueltig-Werte und bei einer Aenderung beide.
+        Ihre Aufgabe ist es, die Aenderung der Fallzahlen fuer jede dieser Fallgruppen zu bestimmen.
+        Dazu betrachten Sie die Haeufigkeit und die Anzahl der Betroffenen vor (_gueltig)
+        und nach (_vorschlag) der geplanten Gesetzesaenderung. Alle vier Kennzahlenfelder
+        bleiben im Output enthalten. Wenn fuer eine Fallgruppe fachlich keine Betroffenen
+        oder keine Haeufigkeit bestehen, geben Sie in den betreffenden Kennzahlenfeldern 0 aus.
+        Ansonsten leiten Sie einen bestmoeglichen Zahlenwert her und markieren die Belastbarkeit
+        in `confidence`.
 
         Massgeblich ist auch hier die Aenderung des Erfuellungsaufwands. Schaetzen Sie deshalb nicht losgeloest einen abstrakten Gesamtbestand an Faellen,
         sondern die fuer die geltende und die vorgeschlagene Rechtslage jeweils sachgerechte Fallzahl derselben Fallgruppe.
@@ -897,36 +918,46 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         Gesetzesbegruendungen oder der OnDEA-Datenbank des StBA (https://www.ondea.de/) uebernommen werden. Bevor solche Angaben verwendet werden, sollten 
         sie ggf. aktualisiert werden.
 
-        Geben Sie zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge aus; pruefen Sie vor der Ausgabe, dass keine `fallgruppen_id` mehrfach vorkommt. Uebernehmen Sie alle IDs exakt wie vorgegeben.
+        Nachdem Sie die Fallzahlen fachlich hergeleitet haben, geben Sie das Ergebnis je Fallgruppe
+        aus. Die Eingabe `case_groups_json` enthaelt Prozesse und Fallgruppen als fachlichen Kontext.
+        Fuer die Ausgabe ist jedoch nur die Fallgruppenebene massgeblich.
 
-        Geben Sie nur und ausschliesslich JSON in Form eines flachen Objekts mit genau den Top-Level-Feldern `normadressat` und `fallgruppen` zurueck. `fallgruppen` ist ein Array mit genau einem Objekt je vorgegebener `fallgruppen_id`; jedes Objekt entspricht exakt der folgenden Kennzahlenform. Geben Sie keine Prozess- oder Fallgruppenbeschreibungen im Output zurueck.
+        Geben Sie fuer jede vorgegebene Fallgruppe genau ein Objekt im Array `fallgruppen` zurueck
+        und ersetzen Sie `<fallgruppen_id aus der Eingabe>` durch die jeweilige ID aus der Eingabe.
+        In diesem Objekt tragen Sie die Fallzahl-Kennzahlen sowie `erklaerungen` und `confidence` ein.
+        Die `erklaerungen` muessen pro Kennzahl kurz und eigenstaendig darstellen, auf welcher
+        Grundlage der jeweilige Wert hergeleitet wurde. `confidence` muss pro Kennzahl genau
+        einen der Werte high, medium oder low enthalten und gibt an, wie belastbar die
+        jeweilige Schaetzung ist.
 
-        Fuegen Sie fuer jede Fallgruppe zusaetzlich erklaerungen und confidence hinzu. Die erklaerungen
-        muessen pro Kennzahl kurz und eigenstaendig darstellen, auf welcher Grundlage der jeweilige Wert hergeleitet wurde.
-        confidence muss pro Kennzahl genau einen der Werte high, medium oder low enthalten und gibt an,
-        wie belastbar die jeweilige Schaetzung ist.
-
-        Jede Fallgruppe hat folgende Kennzahlenform:
+        Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:
 
         {{
-            "fallgruppen_id": "",
-            "anzahl_betroffene_gueltig": "",
-            "haeufigkeit_pro_jahr_gueltig": "",
-            "anzahl_betroffene_vorschlag": "",
-            "haeufigkeit_pro_jahr_vorschlag": "",
-            "erklaerungen": {{
-                "anzahl_betroffene_gueltig": "",
-                "haeufigkeit_pro_jahr_gueltig": "",
-                "anzahl_betroffene_vorschlag": "",
-                "haeufigkeit_pro_jahr_vorschlag": ""
-            }},
-            "confidence": {{
-                "anzahl_betroffene_gueltig": "high | medium | low",
-                "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
-                "anzahl_betroffene_vorschlag": "high | medium | low",
-                "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
-            }}
+            "normadressat": "{norm_addressee}",
+            "fallgruppen": [
+                {{
+                    "fallgruppen_id": "<fallgruppen_id aus der Eingabe>",
+                    "anzahl_betroffene_gueltig": "",
+                    "haeufigkeit_pro_jahr_gueltig": "",
+                    "anzahl_betroffene_vorschlag": "",
+                    "haeufigkeit_pro_jahr_vorschlag": "",
+                    "erklaerungen": {{
+                        "anzahl_betroffene_gueltig": "",
+                        "haeufigkeit_pro_jahr_gueltig": "",
+                        "anzahl_betroffene_vorschlag": "",
+                        "haeufigkeit_pro_jahr_vorschlag": ""
+                    }},
+                    "confidence": {{
+                        "anzahl_betroffene_gueltig": "high | medium | low",
+                        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
+                        "anzahl_betroffene_vorschlag": "high | medium | low",
+                        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
+                    }}
+                }}
+            ]
         }}
+
+        Geben Sie keine Prozesse, keine `prozess_id`, keine Prozessstruktur und keine Prozess- oder Fallgruppenbeschreibungen im Output zurueck.
 
         Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 
@@ -949,12 +980,14 @@ PROMPT_TEMPLATES: Dict[str, str] = {
         + """
         {norm_addressee_prompt_opening}
 
-        Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten, welche durch folgende Fallgruppen und
-        Prozessschritte differenziert werden: {step_analysis_json}
+        Die folgende Eingabe `step_analysis_json` enthaelt fuer den betroffenen Normadressaten
+        die relevanten Prozesse, Fallgruppen und Prozessschritte: {step_analysis_json}
 
         Ihre Aufgabe ist es, den anfallenden Personal- und ggf. Sachaufwand der anfallenden Taetigkeiten pro Einzelfall zu identifizieren. 
         Hierzu werden die Stundenloehne, Zeit- und Sachaufwaende vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung betrachtet. Bei der Einfuehrung
         eines Prozessschrittes werden typischerweise nur die _vorschlag-Werte angegeben, bei der Loeschung nur die _gueltig-Werte und bei einer Aenderung beide.
+        Alle vorgesehenen Aufwandfelder bleiben im Output enthalten. Wenn fuer eine Taetigkeit fachlich kein Zeit-, Personal- oder Sachaufwand anfaellt,
+        geben Sie in den betreffenden Zahlenfeldern 0 aus. Ansonsten leiten Sie einen bestmoeglichen Aufwand her.
 
         Entscheidend ist die Aenderung des Erfuellungsaufwands je Fall. Schaetzen Sie daher nicht den gesamten denkbaren Bearbeitungsaufwand eines Verfahrens
         neu, sondern den fuer die geltende und die vorgeschlagene Rechtslage jeweils relevanten Aufwand derselben Taetigkeit. Wenn sich nur ein Teilaspekt
@@ -969,13 +1002,33 @@ PROMPT_TEMPLATES: Dict[str, str] = {
 
         {effort_appendix}
 
-        Geben Sie zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt aus und lassen Sie keine aus; faellt fuer eine Taetigkeit kein Aufwand an, geben Sie das Objekt mit ausdruecklichen Nullwerten aus. Pruefen Sie vor der Ausgabe, dass keine `taetigkeiten_id` mehrfach vorkommt, und uebernehmen Sie alle IDs exakt wie vorgegeben.
+        Nachdem Sie den Aufwand fachlich bestimmt haben, geben Sie das Ergebnis je Fallgruppe und
+        Taetigkeit aus. Die Eingabe `step_analysis_json` enthaelt Prozesse, Fallgruppen und
+        Taetigkeiten als fachlichen Kontext. Fuer die Ausgabe sind jedoch nur die Ebenen
+        Fallgruppen und Taetigkeiten massgeblich.
 
-        Geben Sie nur und ausschliesslich JSON in Form eines flachen Objekts mit genau den Top-Level-Feldern `normadressat` und `fallgruppen` zurueck. `fallgruppen` ist ein Array mit genau einem Objekt je vorgegebener `fallgruppen_id`; jedes Fallgruppen-Objekt enthaelt genau `fallgruppen_id` und `taetigkeiten`. `taetigkeiten` enthaelt genau ein Ergebnisobjekt je vorgegebener `taetigkeiten_id` in der folgenden Aufwandsform. Geben Sie keine Prozess-, Fallgruppen- oder Taetigkeitsbeschreibungen im Output zurueck.
+        Geben Sie fuer jede vorgegebene Fallgruppe genau ein Objekt im Array `fallgruppen` zurueck
+        und ersetzen Sie `<fallgruppen_id aus der Eingabe>` durch die jeweilige ID aus der Eingabe.
+        Innerhalb jeder Fallgruppe geben Sie fuer jede vorgegebene `taetigkeiten_id`
+        genau ein Ergebnisobjekt im Array `taetigkeiten` zurueck und ersetzen `taetigkeiten_id`
+        durch die jeweilige ID aus der Eingabe. Lassen Sie keine Taetigkeit aus, auch wenn
+        einzelne Aufwandwerte 0 betragen.
 
-        Jede Taetigkeit hat folgende Aufwandsform:
+        Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:
 
-        {effort_taetigkeit_form}
+        {{
+            "normadressat": "{norm_addressee}",
+            "fallgruppen": [
+                {{
+                    "fallgruppen_id": "<fallgruppen_id aus der Eingabe>",
+                    "taetigkeiten": [
+                        {effort_taetigkeit_form}
+                    ]
+                }}
+            ]
+        }}
+
+        Geben Sie keine Prozesse, keine `prozess_id`, keine Prozessstruktur und keine Prozess-, Fallgruppen- oder Taetigkeitsbeschreibungen im Output zurueck.
 
         Das Feld `normadressat` ist fuer diesen Lauf fest vorgegeben und muss exakt `{norm_addressee}` lauten.
 

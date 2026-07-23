@@ -118,6 +118,11 @@ def test_build_deep_research_cases_prompt_combines_addressees(monkeypatch):
     assert '"normadressat": "citizens"' not in prompt
     assert '"fallgruppen_id": 100' in prompt
     assert '"fallgruppen_id": 200' in prompt
+    assert "Prozess-ID" not in prompt
+    assert "maschinenlesbare JSON-Block soll davon unabhaengig flach bleiben" in prompt
+    assert "keine Prozesse, keine `prozess_id` und keine Prozessstruktur" in prompt
+    assert '  "fallgruppen": [' in prompt
+    assert '  "prozesse": [' not in prompt
     assert "process_steps" not in prompt
     assert "taetigkeiten_id" not in prompt
     assert '"gesetz_gueltig"' not in prompt

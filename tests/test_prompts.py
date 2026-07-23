@@ -258,12 +258,13 @@ def test_cases_calculation_prompt_requests_case_metric_evidence():
         case_groups_json="[]",
         norm_addressee=BUSINESS,
     )
+    compact_prompt = _compact(prompt)
 
     assert '"erklaerungen"' in prompt
     assert '"confidence"' in prompt
     assert "high | medium | low" in prompt
-    assert "auf welcher Grundlage der jeweilige Wert hergeleitet wurde" in prompt
-    assert "wie belastbar die jeweilige Schaetzung ist" in prompt
+    assert "auf welcher Grundlage der jeweilige Wert hergeleitet wurde" in compact_prompt
+    assert "wie belastbar die jeweilige Schaetzung ist" in compact_prompt
     for key in (
         "anzahl_betroffene_gueltig",
         "haeufigkeit_pro_jahr_gueltig",
@@ -470,10 +471,11 @@ def test_process_step_analysis_prompt_pins_each_known_norm_addressee(norm_addres
 
 def test_process_step_analysis_prompt_uses_integrated_step_specific_intro():
     prompt = _render_step_analysis_prompt(BUSINESS)
+    task_intro = "Ihre Aufgabe ist es, je Fallgruppe die wesentlichen wiederkehrenden Taetigkeiten"
 
-    assert "Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten" in prompt
+    assert task_intro in prompt
     assert prompt.index("Sie sind Legist und unterstuetzen die fachliche Pruefung") < prompt.index(
-        "Ihre Aufgabe ist es, die wesentlichen anfallenden Taetigkeiten"
+        task_intro
     )
 
 
@@ -545,16 +547,24 @@ def test_process_step_analysis_prompt_demands_unique_fallgruppen(norm_addressee)
         case_groups_json="[]",
         norm_addressee=norm_addressee,
     )
+    compact_prompt = _compact(prompt)
 
-    assert "Geben Sie jede vorgegebene `fallgruppen_id` genau einmal aus" in prompt
-    assert "keine `fallgruppen_id` mehrfach vorkommt" in prompt
-    assert "Fuehren Sie Fallgruppen nicht zusammen, teilen Sie sie nicht auf" in prompt
+    assert (
+        "Eingabe `case_groups_json` enthaelt Prozesse und Fallgruppen als fachlichen Kontext"
+        in compact_prompt
+    )
+    assert (
+        "ersetzen Sie `<fallgruppen_id aus der Eingabe>` durch die jeweilige ID aus der Eingabe"
+        in compact_prompt
+    )
+    assert "genau ein Objekt im Array `fallgruppen`" in compact_prompt
+    assert "Fuehren Sie Fallgruppen nicht zusammen und teilen Sie sie nicht auf" in prompt
     assert "unter ihrem vorgegebenen Prozess" not in prompt
     assert "unter einem fremden Prozess" not in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_process_step_analysis_prompt_keeps_flat_contract_without_skeleton(
+def test_process_step_analysis_prompt_keeps_flat_contract_with_full_skeleton(
     norm_addressee,
 ):
     marker_id = 8491001
@@ -569,8 +579,11 @@ def test_process_step_analysis_prompt_keeps_flat_contract_without_skeleton(
     )
 
     assert prompt.count(f'"fallgruppen_id": {marker_id}') == 1
-    assert "Top-Level-Feldern `normadressat` und `fallgruppen`" in prompt
-    assert "genau `fallgruppen_id` und `taetigkeiten`" in prompt
+    assert "genau dieser Struktur" in prompt
+    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert '"fallgruppen": [' in prompt
+    assert '"fallgruppen_id": "<fallgruppen_id aus der Eingabe>"' in prompt
+    assert '"taetigkeiten": [' in prompt
     assert "vorbefuellten Skelett" not in prompt
 
 
@@ -579,9 +592,17 @@ def test_cases_calculation_prompt_demands_unique_fallgruppen(norm_addressee):
     # #13/#25: jede fallgruppen_id genau einmal in den Kennzahlen, damit Schritt 6
     # doppelte Fallgruppen nicht still ueberschreibt (last-write-wins).
     prompt = _render_prompt_for_contract(PromptId.CASES_CALCULATION, norm_addressee)
+    compact_prompt = _compact(prompt)
 
-    assert "zu jeder vorgegebenen `fallgruppen_id` genau eine Kennzahlenmenge" in prompt
-    assert "keine `fallgruppen_id` mehrfach vorkommt" in prompt
+    assert (
+        "Eingabe `case_groups_json` enthaelt Prozesse und Fallgruppen als fachlichen Kontext"
+        in compact_prompt
+    )
+    assert (
+        "ersetzen Sie `<fallgruppen_id aus der Eingabe>` durch die jeweilige ID aus der Eingabe"
+        in compact_prompt
+    )
+    assert "genau ein Objekt im Array `fallgruppen`" in compact_prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -599,9 +620,14 @@ def test_effort_calculation_prompt_demands_unique_taetigkeiten(norm_addressee):
     # #13/#25: jede taetigkeiten_id genau einmal, keine auslassen (Nullwerte statt
     # Weglassen), keine Duplikate.
     prompt = _render_prompt_for_contract(PromptId.EFFORT_CALCULATION, norm_addressee)
+    compact_prompt = _compact(prompt)
 
-    assert "zu jeder vorgegebenen `taetigkeiten_id` genau ein Ergebnisobjekt" in prompt
-    assert "keine `taetigkeiten_id` mehrfach vorkommt" in prompt
+    assert (
+        "ersetzen Sie `<fallgruppen_id aus der Eingabe>` durch die jeweilige ID aus der Eingabe"
+        in compact_prompt
+    )
+    assert "jede vorgegebene `taetigkeiten_id`" in compact_prompt
+    assert "genau ein Ergebnisobjekt im Array `taetigkeiten`" in compact_prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
@@ -766,7 +792,7 @@ def test_effort_prompt_business_guidance_names_wirtschaftsabschnitt():
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_cases_calculation_prompt_keeps_flat_contract_without_skeleton(norm_addressee):
+def test_cases_calculation_prompt_keeps_flat_contract_with_full_skeleton(norm_addressee):
     marker_id = 8491002
     prompt = render_prompt(
         PromptId.CASES_CALCULATION,
@@ -779,14 +805,17 @@ def test_cases_calculation_prompt_keeps_flat_contract_without_skeleton(norm_addr
     )
 
     assert prompt.count(f'"fallgruppen_id": {marker_id}') == 1
-    assert "Top-Level-Feldern `normadressat` und `fallgruppen`" in prompt
-    assert "Jede Fallgruppe hat folgende Kennzahlenform" in prompt
+    assert "genau dieser Struktur" in prompt
+    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert '"fallgruppen": [' in prompt
+    assert '"fallgruppen_id": "<fallgruppen_id aus der Eingabe>"' in prompt
+    assert '"anzahl_betroffene_gueltig": ""' in prompt
     assert f"muss exakt `{norm_addressee}` lauten" in prompt
     assert "vorbefuellten Skelett" not in prompt
 
 
 @pytest.mark.parametrize("norm_addressee", [ADMINISTRATION, BUSINESS, CITIZENS])
-def test_effort_calculation_prompt_keeps_flat_contract_without_skeleton(norm_addressee):
+def test_effort_calculation_prompt_keeps_flat_contract_with_full_skeleton(norm_addressee):
     marker_group_id = 8491003
     marker_step_id = 8491004
     prompt = render_prompt(
@@ -802,7 +831,10 @@ def test_effort_calculation_prompt_keeps_flat_contract_without_skeleton(norm_add
 
     assert prompt.count(f'"fallgruppen_id": {marker_group_id}') == 1
     assert prompt.count(f'"taetigkeiten_id": {marker_step_id}') == 1
-    assert "Top-Level-Feldern `normadressat` und `fallgruppen`" in prompt
-    assert "Jede Taetigkeit hat folgende Aufwandsform" in prompt
+    assert "genau dieser Struktur" in prompt
+    assert f'"normadressat": "{norm_addressee}"' in prompt
+    assert '"fallgruppen": [' in prompt
+    assert '"fallgruppen_id": "<fallgruppen_id aus der Eingabe>"' in prompt
+    assert '"taetigkeiten": [' in prompt
     assert f"muss exakt `{norm_addressee}` lauten" in prompt
     assert "vorbefuellten Skelett" not in prompt

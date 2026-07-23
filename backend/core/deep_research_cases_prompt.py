@@ -247,14 +247,22 @@ Teil 3: Tabellarische Kurzfassung und JSON-Block
 Fuegen Sie eine kurze Tabelle mit folgenden Spalten hinzu:
 
 - Normadressat
-- Prozess-ID
 - Fallgruppen-ID
 - Kennzahl
 - empfohlener Wert
 - kurze Begruendung
 - Konfidenz (`high`, `medium` oder `low`)
 
-Fuegen Sie am Ende einen maschinenlesbaren JSON-Block genau nach folgendem Schema hinzu. Verwenden Sie echte Zahlen, keine verbalen Platzhalter. Fuehren Sie alle Normadressaten und Fallgruppen aus dem Session-Kontext auf.
+Der Session-Kontext enthaelt Prozesse und Fallgruppen als fachlichen Kontext. Der
+maschinenlesbare JSON-Block soll davon unabhaengig flach bleiben: Geben Sie dort nur
+Fallgruppen aus, keine Prozesse, keine `prozess_id` und keine Prozessstruktur.
+
+Verwenden Sie fuer Zahlenwerte echte Zahlen, keine verbalen Platzhalter. Fuehren Sie alle
+Normadressaten und Fallgruppen aus dem Session-Kontext auf. Geben Sie fuer jede vorgegebene
+Fallgruppe genau ein Objekt im Array `fallgruppen` zurueck und uebernehmen Sie
+`normadressat` und `fallgruppen_id` exakt aus dem Session-Kontext.
+
+Fuegen Sie am Ende einen maschinenlesbaren JSON-Block genau nach folgendem Schema hinzu:
 
 ```json
 {{
@@ -262,40 +270,33 @@ Fuegen Sie am Ende einen maschinenlesbaren JSON-Block genau nach folgendem Schem
     "session_id": 0,
     "app_session_id": ""
   }},
-  "prozesse": [
+  "fallgruppen": [
     {{
       "normadressat": "administration | business | citizens",
-      "prozess_id": 0,
-      "prozess_bezeichnung": "",
-      "fallgruppen": [
+      "fallgruppen_id": 0,
+      "anzahl_betroffene_gueltig": 0,
+      "haeufigkeit_pro_jahr_gueltig": 0,
+      "fallzahl_gueltig": 0,
+      "anzahl_betroffene_vorschlag": 0,
+      "haeufigkeit_pro_jahr_vorschlag": 0,
+      "fallzahl_vorschlag": 0,
+      "erklaerungen": {{
+        "anzahl_betroffene_gueltig": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
+        "haeufigkeit_pro_jahr_gueltig": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
+        "anzahl_betroffene_vorschlag": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
+        "haeufigkeit_pro_jahr_vorschlag": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich"
+      }},
+      "confidence": {{
+        "anzahl_betroffene_gueltig": "high | medium | low",
+        "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
+        "anzahl_betroffene_vorschlag": "high | medium | low",
+        "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
+      }},
+      "quellen": [
         {{
-          "fallgruppen_id": 0,
-          "fallgruppe_bezeichnung": "",
-          "anzahl_betroffene_gueltig": 0,
-          "haeufigkeit_pro_jahr_gueltig": 0,
-          "fallzahl_gueltig": 0,
-          "anzahl_betroffene_vorschlag": 0,
-          "haeufigkeit_pro_jahr_vorschlag": 0,
-          "fallzahl_vorschlag": 0,
-          "erklaerungen": {{
-            "anzahl_betroffene_gueltig": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
-            "haeufigkeit_pro_jahr_gueltig": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
-            "anzahl_betroffene_vorschlag": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich",
-            "haeufigkeit_pro_jahr_vorschlag": "kurze, eigenstaendige Begruendung mit Quellenhinweis/URL, soweit fuer die Einordnung erforderlich"
-          }},
-          "confidence": {{
-            "anzahl_betroffene_gueltig": "high | medium | low",
-            "haeufigkeit_pro_jahr_gueltig": "high | medium | low",
-            "anzahl_betroffene_vorschlag": "high | medium | low",
-            "haeufigkeit_pro_jahr_vorschlag": "high | medium | low"
-          }},
-          "quellen": [
-            {{
-              "titel": "",
-              "url": "",
-              "verwendung": ""
-            }}
-          ]
+          "titel": "",
+          "url": "",
+          "verwendung": ""
         }}
       ]
     }}

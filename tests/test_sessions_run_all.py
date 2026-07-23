@@ -20,7 +20,7 @@ from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
 
 def _is_effort_prompt(prompt: str) -> bool:
-    return "prozessschritte differenziert werden" in prompt.lower()
+    return "personal- und ggf. sachaufwand" in prompt.lower()
 
 
 def _detect_addressee_from_prompt(prompt: str) -> str:
