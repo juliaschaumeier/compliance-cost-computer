@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from typing import Any
 
@@ -299,3 +300,215 @@ def build_step_analysis_payload(
         )
         payload.append(process_payload.model_dump())
     return payload
+
+
+_CASES_METRIC_KEYS = (
+    "anzahl_betroffene_gueltig",
+    "haeufigkeit_pro_jahr_gueltig",
+    "anzahl_betroffene_vorschlag",
+    "haeufigkeit_pro_jahr_vorschlag",
+)
+
+
+_CONFIDENCE_ENUM = ("high", "medium", "low")
+
+
+def _strict_object(properties: dict[str, Any]) -> dict:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties.keys()),
+        "additionalProperties": False,
+    }
+
+
+class _Node:
+    def to_schema(self) -> dict:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class _Str(_Node):
+    def to_schema(self) -> dict:
+        return {"type": "string"}
+
+
+@dataclass(frozen=True)
+class _Int(_Node):
+    def to_schema(self) -> dict:
+        return {"type": "integer"}
+
+
+@dataclass(frozen=True)
+class _Num(_Node):
+    def to_schema(self) -> dict:
+        return {"type": ["number", "null"]}
+
+
+@dataclass(frozen=True)
+class _Enum(_Node):
+    values: tuple[str, ...]
+
+    def to_schema(self) -> dict:
+        return {"type": "string", "enum": list(self.values)}
+
+
+@dataclass(frozen=True)
+class _Arr(_Node):
+    item: _Node
+
+    def to_schema(self) -> dict:
+        return {"type": "array", "items": self.item.to_schema()}
+
+
+@dataclass(frozen=True)
+class _Obj(_Node):
+    properties: dict[str, _Node]
+
+    def to_schema(self) -> dict:
+        return _strict_object(
+            {key: node.to_schema() for key, node in self.properties.items()}
+        )
+
+
+_CHANGE_STATUS = _Enum(("eingefuehrt", "geaendert", "abgeschafft"))
+
+_CHANGE_STATUS_WITH_UNCHANGED = _Enum(
+    ("eingefuehrt", "geaendert", "abgeschafft", "unveraendert")
+)
+
+
+_STEP_ANALYSIS_TAETIGKEIT = _Obj(
+    {
+        "taetigkeit": _Str(),
+        "beschreibung": _Str(),
+        "aenderungsstatus": _CHANGE_STATUS_WITH_UNCHANGED,
+    }
+)
+
+
+def _fallgruppen_envelope(norm_addressee: str, fallgruppe: _Node) -> _Obj:
+    return _Obj(
+        {
+            "normadressat": _Enum((norm_addressee,)),
+            "fallgruppen": _Arr(fallgruppe),
+        }
+    )
+
+
+def _prozesse_envelope(norm_addressee: str, prozess: _Node) -> _Obj:
+    return _Obj(
+        {
+            "normadressat": _Enum((norm_addressee,)),
+            "prozesse": _Arr(prozess),
+        }
+    )
+
+
+def build_step_analysis_output_schema(norm_addressee: str) -> dict:
+    fallgruppe = _Obj(
+        {
+            "fallgruppen_id": _Int(),
+            "taetigkeiten": _Arr(_STEP_ANALYSIS_TAETIGKEIT),
+        }
+    )
+    return _fallgruppen_envelope(norm_addressee, fallgruppe).to_schema()
+
+
+_VORGABE = _Obj(
+    {
+        "vorgaben_id": _Int(),
+        "normzitat": _Str(),
+        "beschreibung": _Str(),
+        "aenderungsstatus": _CHANGE_STATUS,
+    }
+)
+
+_CASE_GROUP_FALLGRUPPE = _Obj(
+    {
+        "fallgruppe_bezeichnung": _Str(),
+        "fallgruppe_beschreibung": _Str(),
+        "aenderungsstatus": _CHANGE_STATUS,
+    }
+)
+
+
+def build_case_group_development_output_schema(norm_addressee: str) -> dict:
+    prozess = _Obj(
+        {
+            "prozess_id": _Int(),
+            "prozess_bezeichnung": _Str(),
+            "prozess_beschreibung": _Str(),
+            "aenderungsstatus": _CHANGE_STATUS,
+            "vorgaben": _Arr(_VORGABE),
+            "fallgruppen": _Arr(_CASE_GROUP_FALLGRUPPE),
+        }
+    )
+    return _prozesse_envelope(norm_addressee, prozess).to_schema()
+
+
+def build_process_compilation_output_schema(norm_addressee: str) -> dict:
+    prozess = _Obj(
+        {
+            "prozess_bezeichnung": _Str(),
+            "prozess_beschreibung": _Str(),
+            "aenderungsstatus": _CHANGE_STATUS,
+            "vorgaben": _Arr(_VORGABE),
+        }
+    )
+    return _prozesse_envelope(norm_addressee, prozess).to_schema()
+
+
+_CASES_FALLGRUPPE = _Obj(
+    {
+        "fallgruppen_id": _Int(),
+        **{key: _Num() for key in _CASES_METRIC_KEYS},
+        "erklaerungen": _Obj({key: _Str() for key in _CASES_METRIC_KEYS}),
+        "confidence": _Obj({key: _Enum(_CONFIDENCE_ENUM) for key in _CASES_METRIC_KEYS}),
+    }
+)
+
+
+def build_cases_calculation_output_schema(norm_addressee: str) -> dict:
+    return _fallgruppen_envelope(norm_addressee, _CASES_FALLGRUPPE).to_schema()
+
+
+def _effort_taetigkeit(norm_addressee: str) -> _Obj:
+    if norm_addressee == CITIZENS:
+        return _Obj(
+            {
+                "taetigkeiten_id": _Int(),
+                "zeitaufwand_in_min_gueltig": _Num(),
+                "sachaufwand_gueltig": _Num(),
+                "zeitaufwand_in_min_vorschlag": _Num(),
+                "sachaufwand_vorschlag": _Num(),
+            }
+        )
+    personalaufwand = _Arr(
+        _Obj(
+            {
+                "qualifikation": _Str(),
+                "lohnquelle": _Str(),
+                "zeitaufwand_in_min": _Num(),
+            }
+        )
+    )
+    return _Obj(
+        {
+            "taetigkeiten_id": _Int(),
+            "personalaufwand_gueltig": personalaufwand,
+            "sachaufwand_gueltig": _Num(),
+            "personalaufwand_vorschlag": personalaufwand,
+            "sachaufwand_vorschlag": _Num(),
+        }
+    )
+
+
+def build_effort_calculation_output_schema(norm_addressee: str) -> dict:
+    fallgruppe = _Obj(
+        {
+            "fallgruppen_id": _Int(),
+            "taetigkeiten": _Arr(_effort_taetigkeit(norm_addressee)),
+        }
+    )
+    return _fallgruppen_envelope(norm_addressee, fallgruppe).to_schema()

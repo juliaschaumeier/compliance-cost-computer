@@ -8,7 +8,7 @@ from backend.core.change_status import extract_change_status
 from backend.core.llm_attempts import (
     mark_llm_parse_fallback,
 )
-from backend.core.llm_json import extract_fallgruppen, require_json_object
+from backend.core.llm_json import extract_fallgruppen, require_fallgruppen_envelope
 from backend.core.llm_service import query_llm
 from backend.core.norm_addressees import (
     ADMINISTRATION,
@@ -57,12 +57,13 @@ def _parse_cases_payload(
     payload: str,
     norm_addressee: str | None = None,
 ) -> tuple[list[dict], set[str]]:
-    data, parse_mode = require_json_object(
+    data, parse_mode, envelope_mode = require_fallgruppen_envelope(
         payload,
         error_context="Invalid cases_calculation payload",
-        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
+    if envelope_mode == "nested_prozesse":
+        fallback_kinds.add("cases_nested_prozesse")
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
     echo_kinds = check_norm_addressee_echo(data, norm_addressee)
@@ -575,12 +576,13 @@ def _parse_org_effort_entry(
 
 
 def _parse_effort_payload(payload: str, norm_addressee: str) -> tuple[list[dict], set[str]]:
-    data, parse_mode = require_json_object(
+    data, parse_mode, envelope_mode = require_fallgruppen_envelope(
         payload,
         error_context=f"Invalid effort_calculation payload for {norm_addressee}",
-        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
+    if envelope_mode == "nested_prozesse":
+        fallback_kinds.add("effort_nested_prozesse")
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
     echo_kinds = check_norm_addressee_echo(data, norm_addressee)

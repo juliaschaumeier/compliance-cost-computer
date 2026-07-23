@@ -374,38 +374,130 @@ def test_process_step_parser_rejects_unknown_regulation_links():
     assert "Unknown vorgaben_ids in process steps" in exc_info.value.detail
 
 
-def test_process_step_parser_rejects_flattened_fallgruppen_without_prozesse():
-    # #13/#25: Abgeflachte Form (oberstes `fallgruppen`, kein `prozesse`) wird
-    # mit der Envelope-Pflicht bewusst als 422 abgelehnt - einheitlich mit den
-    # uebrigen Parsern, die durchgaengig top-level `prozesse` verlangen.
+def test_process_step_parser_accepts_flat_primary_envelope_without_fallback():
     _session_id, _process_id, _regulation_id, case_group_id, context = (
-        _seed_process_step_context("PARSER-STEPS-FALLBACK")
+        _seed_process_step_context("PARSER-STEPS-FLAT")
     )
     payload = f"""
     {{
+      "normadressat": "administration",
       "fallgruppen": [
         {{
           "fallgruppen_id": "{case_group_id}",
           "taetigkeiten": [
-            {{"taetigkeit": "Schritt X", "beschreibung": "Aus fallback parser"}}
+            {{"taetigkeit": "Schritt X", "beschreibung": "Flat primary"}}
           ]
         }}
       ]
     }}
     """
 
-    with pytest.raises(HTTPException) as exc_info:
-        process_steps_router.parse_process_step_analysis_answer(
-            response_text=payload,
-            norm_addressee=ADMINISTRATION,
-            context=context,
-        )
-
-    assert exc_info.value.status_code == 422
-    assert exc_info.value.detail == (
-        "Invalid process_step_analysis payload: expected top-level key "
-        "'prozesse' in LLM response"
+    parsed, fallback_kinds = process_steps_router.parse_process_step_analysis_answer(
+        response_text=payload,
+        norm_addressee=ADMINISTRATION,
+        context=context,
     )
+
+    assert parsed[0]["case_group_id"] == case_group_id
+    assert fallback_kinds == set()
+
+
+def test_process_step_parser_marks_nested_compatibility_fallback():
+    _session_id, _process_id, _regulation_id, case_group_id, context = (
+        _seed_process_step_context("PARSER-STEPS-NESTED")
+    )
+    payload = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{"taetigkeit": "Schritt X", "beschreibung": "Nested fallback"}}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    parsed, fallback_kinds = process_steps_router.parse_process_step_analysis_answer(
+        response_text=payload,
+        norm_addressee=ADMINISTRATION,
+        context=context,
+    )
+
+    assert parsed[0]["case_group_id"] == case_group_id
+    assert fallback_kinds == {"process_steps_nested_prozesse"}
+
+
+def test_cases_parser_marks_nested_compatibility_fallback():
+    _session_id, case_group_id, _step_id, _context = _seed_effort_context(
+        "PARSER-CASES-NESTED"
+    )
+    payload = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "anzahl_betroffene_vorschlag": "10",
+              "haeufigkeit_pro_jahr_vorschlag": "2"
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    parsed, fallback_kinds = effort_router._parse_cases_payload(
+        payload,
+        ADMINISTRATION,
+    )
+
+    assert parsed[0]["case_group_id"] == case_group_id
+    assert fallback_kinds == {"cases_nested_prozesse"}
+
+
+def test_effort_parser_marks_nested_compatibility_fallback():
+    _session_id, case_group_id, step_id, _context = _seed_effort_context(
+        "PARSER-EFFORT-NESTED"
+    )
+    payload = f"""
+    {{
+      "normadressat": "administration",
+      "prozesse": [
+        {{
+          "fallgruppen": [
+            {{
+              "fallgruppen_id": "{case_group_id}",
+              "taetigkeiten": [
+                {{
+                  "taetigkeiten_id": "{step_id}",
+                  "personalaufwand_vorschlag": [
+                    {{"qualifikation": "einfacher_und_mittlerer_dienst", "lohnquelle": "bund", "zeitaufwand_in_min": "10"}}
+                  ]
+                }}
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+    """
+
+    parsed, fallback_kinds = effort_router._parse_effort_payload(
+        payload,
+        ADMINISTRATION,
+    )
+
+    assert parsed[0]["step_id"] == step_id
+    assert fallback_kinds == {"effort_nested_prozesse"}
 
 
 def test_effort_parser_logs_alias_fallbacks(monkeypatch):

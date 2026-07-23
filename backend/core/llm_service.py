@@ -168,6 +168,49 @@ async def _emit_stream_event(
         await maybe_awaitable
 
 
+def _is_json_schema_response_format(response_format: dict[str, Any] | None) -> bool:
+    return (
+        isinstance(response_format, dict)
+        and response_format.get("type") == "json_schema"
+    )
+
+
+def _response_format_for_responses(
+    response_format: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not _is_json_schema_response_format(response_format):
+        return response_format
+    return {
+        "type": "json_schema",
+        "name": response_format["name"],
+        "schema": response_format["schema"],
+        "strict": response_format.get("strict", True),
+    }
+
+
+def _response_format_for_chat(
+    response_format: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not _is_json_schema_response_format(response_format):
+        return response_format
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": response_format["name"],
+            "strict": response_format.get("strict", True),
+            "schema": response_format["schema"],
+        },
+    }
+
+
+def _response_format_fallback_chain(
+    response_format: dict[str, Any],
+) -> list[dict[str, Any] | None]:
+    if _is_json_schema_response_format(response_format):
+        return [response_format, {"type": "json_object"}, None]
+    return [response_format, None]
+
+
 async def query_llm(
     prompt: str,
     api_keys: ApiKeys,
@@ -181,8 +224,10 @@ async def query_llm(
 
     `response_format` erzwingt (wo der Provider/das Modell es unterstuetzt) die
     JSON-Ausgabe bereits am Generierungszeitpunkt. Lehnt der Provider den
-    Parameter ab (Bad Request), wird der Call einmal ohne Erzwingung wiederholt,
-    sodass der Workflow nicht an fehlender Provider-Unterstuetzung scheitert.
+    Parameter mit Bad Request ab, wird gestaffelt zurueckgefallen:
+    `json_schema -> json_object -> None`. So verliert ein Provider in diesem
+    Bad-Request-Fall, wenn er nur das strikte Schema ablehnt, nicht auch die
+    reine JSON-Syntax-Erzwingung.
     """
     provider = (provider or "").lower().strip()
     if not provider:
@@ -223,12 +268,15 @@ async def query_llm(
 
     if response_format is None:
         return await _dispatch(None)
-    try:
-        return await _dispatch(response_format)
-    except LlmQueryError as exc:
-        if exc.status_code == 400:
-            return await _dispatch(None)
-        raise
+    chain = _response_format_fallback_chain(response_format)
+    for index, candidate in enumerate(chain):
+        try:
+            return await _dispatch(candidate)
+        except LlmQueryError as exc:
+            if exc.status_code == 400 and index < len(chain) - 1:
+                continue
+            raise
+    raise RuntimeError("unreachable response_format fallback state")
 
 
 def _is_stream_unsupported_error(exc: Exception) -> bool:
@@ -475,7 +523,7 @@ async def query_openai(
         "messages": [{"role": "user", "content": prompt}],
     }
     if response_format is not None:
-        payload["response_format"] = response_format
+        payload["response_format"] = _response_format_for_chat(response_format)
     if settings.openai_max_tokens > 0:
         payload[_openai_chat_token_limit_key(model)] = _openai_chat_max_tokens(
             model,
@@ -604,7 +652,7 @@ async def query_gemini_openai(
         "messages": [{"role": "user", "content": prompt}],
     }
     if response_format is not None:
-        payload["response_format"] = response_format
+        payload["response_format"] = _response_format_for_chat(response_format)
     if settings.enable_web_search:
         payload["tools"] = [{"type": "web_search"}]
     async def _run_once(local_payload: dict[str, Any]) -> LlmResult:
@@ -697,7 +745,7 @@ async def _query_openai_responses(
 ) -> LlmResult:
     payload = {"model": model, "input": prompt}
     if response_format is not None:
-        payload["text"] = {"format": response_format}
+        payload["text"] = {"format": _response_format_for_responses(response_format)}
     if settings.openai_max_tokens > 0:
         payload["max_output_tokens"] = _openai_safe_max_tokens(
             settings.openai_max_tokens
@@ -946,7 +994,7 @@ async def _query_openai_responses_stream(
 ) -> LlmResult:
     payload = {"model": model, "input": prompt}
     if response_format is not None:
-        payload["text"] = {"format": response_format}
+        payload["text"] = {"format": _response_format_for_responses(response_format)}
     if settings.openai_max_tokens > 0:
         payload["max_output_tokens"] = _openai_safe_max_tokens(
             settings.openai_max_tokens
@@ -1064,7 +1112,7 @@ async def _query_deepinfra_non_stream(
         "temperature": settings.deepinfra_temperature,
     }
     if response_format is not None:
-        payload["response_format"] = response_format
+        payload["response_format"] = _response_format_for_chat(response_format)
     if settings.deepinfra_max_tokens > 0:
         payload["max_tokens"] = settings.deepinfra_max_tokens
     timeout = httpx.Timeout(600.0)
@@ -1128,7 +1176,7 @@ async def _query_deepinfra_stream(
         "stream_options": {"include_usage": True},
     }
     if response_format is not None:
-        payload["response_format"] = response_format
+        payload["response_format"] = _response_format_for_chat(response_format)
     if settings.deepinfra_max_tokens > 0:
         payload["max_tokens"] = settings.deepinfra_max_tokens
     timeout = httpx.Timeout(600.0)

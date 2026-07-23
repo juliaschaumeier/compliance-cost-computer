@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from backend.core import db
 from backend.core.change_status import extract_change_status, normalize_change_status
-from backend.core.llm_json import extract_fallgruppen, require_json_object
+from backend.core.llm_json import extract_fallgruppen, require_fallgruppen_envelope
 from backend.core.llm_service import query_llm
 from backend.core.parsing import parse_first_int
 from backend.core.models import Tile
@@ -364,12 +364,13 @@ def _parse_process_steps(
     payload: str,
     norm_addressee: str | None = None,
 ) -> tuple[list[dict], set[str]]:
-    data, parse_mode = require_json_object(
+    data, parse_mode, envelope_mode = require_fallgruppen_envelope(
         payload,
         error_context="Invalid process_step_analysis payload",
-        required_top_level_key="prozesse",
     )
     fallback_kinds: set[str] = set()
+    if envelope_mode == "nested_prozesse":
+        fallback_kinds.add("process_steps_nested_prozesse")
     if parse_mode == "extract_last_json_object":
         fallback_kinds.add("json_extract_last_object")
     echo_kinds = check_norm_addressee_echo(data, norm_addressee)
@@ -381,72 +382,6 @@ def _parse_process_steps(
     fallback_kinds.update(echo_kinds)
 
     parsed: list[dict] = []
-    processes = data.get("prozesse")
-    if not isinstance(processes, list):
-        processes = []
-
-    for process in processes:
-        if not isinstance(process, dict):
-            continue
-        process_status = extract_change_status(process)
-        fallgruppen = process.get("fallgruppen")
-        if not isinstance(fallgruppen, list):
-            continue
-        for fallgruppe in fallgruppen:
-            if not isinstance(fallgruppe, dict):
-                continue
-            case_group_id = parse_first_int(
-                fallgruppe,
-                "fallgruppen_id",
-                "fallgruppe_id",
-                "case_group_id",
-            )
-            if case_group_id is None:
-                continue
-            case_group_status = extract_change_status(fallgruppe)
-            taetigkeiten = fallgruppe.get("taetigkeiten") or fallgruppe.get("tätigkeiten")
-            if not isinstance(taetigkeiten, list):
-                taetigkeiten = []
-            steps: list[dict] = []
-            for entry in taetigkeiten:
-                if not isinstance(entry, dict):
-                    continue
-                step = str(
-                    entry.get("taetigkeit")
-                    or entry.get("tätigkeit")
-                    or entry.get("step")
-                    or ""
-                ).strip()
-                description = str(
-                    entry.get("beschreibung")
-                    or entry.get("description")
-                    or ""
-                ).strip()
-                step_status = extract_change_status(entry)
-                if not step and not description:
-                    continue
-                steps.append(
-                    {
-                        "taetigkeit": step,
-                        "beschreibung": description,
-                        "aenderungsstatus": step_status,
-                        "regulation_ids": _parse_regulation_ids(
-                            entry.get("vorgaben_ids") or entry.get("vorgaben")
-                        ),
-                    }
-                )
-            if steps:
-                parsed.append(
-                    {
-                        "case_group_id": case_group_id,
-                        "aenderungsstatus": case_group_status or process_status,
-                        "taetigkeiten": steps,
-                    }
-                )
-
-    if parsed:
-        return parsed, fallback_kinds
-
     fallgruppen = extract_fallgruppen(data)
     for fallgruppe in fallgruppen:
         case_group_id = parse_first_int(
@@ -497,8 +432,6 @@ def _parse_process_steps(
                     "taetigkeiten": steps,
                 }
             )
-    if parsed:
-        fallback_kinds.add("process_steps_flattened_fallgruppen")
     return parsed, fallback_kinds
 
 

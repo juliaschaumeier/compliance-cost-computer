@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from backend.core.llm_json import (
     clean_llm_payload,
     extract_fallgruppen,
+    require_fallgruppen_envelope,
     require_json_object,
 )
 
@@ -24,6 +25,40 @@ def test_extract_fallgruppen_accepts_top_level_or_nested_payload():
     }
     assert extract_fallgruppen(top_level) == [{"fallgruppen_id": 1}]
     assert extract_fallgruppen(nested) == [{"fallgruppen_id": 2}]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_mode"),
+    [
+        ('{"fallgruppen": []}', "flat_fallgruppen"),
+        ('{"prozesse": [{"fallgruppen": []}]}', "nested_prozesse"),
+    ],
+)
+def test_require_fallgruppen_envelope_accepts_flat_or_nested(payload, expected_mode):
+    data, parse_mode, envelope_mode = require_fallgruppen_envelope(
+        payload,
+        error_context="Invalid structured payload",
+    )
+
+    assert isinstance(data, dict)
+    assert parse_mode == "direct_json_loads"
+    assert envelope_mode == expected_mode
+
+
+def test_require_fallgruppen_envelope_rejects_malformed_flat_even_with_nested_data():
+    payload = '{"fallgruppen": {}, "prozesse": [{"fallgruppen": []}]}'
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_fallgruppen_envelope(
+            payload,
+            error_context="Invalid structured payload",
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "Invalid structured payload: expected top-level key 'fallgruppen' "
+        "to contain an array"
+    )
 
 
 def test_require_json_object_rejects_fallback_inner_object_without_envelope():
