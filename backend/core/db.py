@@ -1733,7 +1733,7 @@ def init_db() -> None:
             law_diff_title      TEXT,
             law_diff_blurb      TEXT,
             law_diff_summary    TEXT,
-            case_group_research_enabled INTEGER NOT NULL DEFAULT 1,
+            case_group_research_enabled INTEGER NOT NULL DEFAULT 0,
             cc_cost             REAL,
             FOREIGN KEY (current_law_id) 
             REFERENCES laws(document_id) 
@@ -3455,7 +3455,7 @@ def upsert_session(
                 app_session_id,
                 llm_model,
                 owner_user_id,
-                1,
+                0,
                 PAY_RATE_LEVEL_BUND,
                 defaults["a"],
                 defaults["b"],

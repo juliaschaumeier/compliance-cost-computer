@@ -10,6 +10,7 @@ import {
   type ApiClientError,
   type ComplianceTextUserEditPolicy,
 } from "@/lib/api";
+import { hasPlausibleApiKey } from "@/lib/apiKeys";
 import { logClientError } from "@/lib/errorFeedback";
 import { createAuthenticatedEventSource } from "@/lib/eventSource";
 import { useAnchoredPopoverPosition } from "@/lib/useAnchoredPopoverPosition";
@@ -99,9 +100,6 @@ function getApiDetailMessage(error: unknown): string | null {
   return typeof message === "string" && message.trim() ? message : null;
 }
 
-const isLikelyValidApiKey = (value: string | null) =>
-  Boolean(value && value.trim().length > 10);
-
 const menuSectionLabelClass =
   "text-[10px] font-semibold uppercase tracking-wide text-slate-400";
 const menuButtonBaseClass =
@@ -168,6 +166,8 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
   >(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [researchLocked, setResearchLocked] = useState(false);
+  const [researchGeminiKeyAvailable, setResearchGeminiKeyAvailable] =
+    useState(false);
   const [isUpdatingResearch, setIsUpdatingResearch] = useState(false);
   const [isDownloadingResearch, setIsDownloadingResearch] = useState(false);
   const [isDownloadingComplianceExport, setIsDownloadingComplianceExport] =
@@ -217,6 +217,7 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
         setResearchEnabled(research.enabled);
         setResearchStatus(research.status);
         setResearchLocked(research.locked);
+        setResearchGeminiKeyAvailable(Boolean(research.gemini_key_available));
         setResearchElapsedSeconds(research.elapsed_seconds ?? null);
         setResearchElapsedLoadedAt(
           typeof research.elapsed_seconds === "number" ? Date.now() : null
@@ -481,7 +482,11 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
     if (isUpdatingResearch || researchLocked || hasActiveWorkflowRun) {
       return;
     }
-    if (!researchEnabled && !isLikelyValidApiKey(localStorage.getItem("gemini_api_key"))) {
+    if (
+      !researchEnabled &&
+      !researchGeminiKeyAvailable &&
+      !hasPlausibleApiKey(localStorage.getItem("gemini_api_key"))
+    ) {
       setStatus(
         "Deep Research benötigt einen Gemini API Key. Bitte in der LLM-Auswahl hinterlegen."
       );
@@ -497,6 +502,7 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
       setResearchEnabled(result.enabled);
       setResearchStatus(result.status);
       setResearchLocked(result.locked);
+      setResearchGeminiKeyAvailable(Boolean(result.gemini_key_available));
       setResearchElapsedSeconds(result.elapsed_seconds ?? null);
       setResearchElapsedLoadedAt(
         typeof result.elapsed_seconds === "number" ? Date.now() : null

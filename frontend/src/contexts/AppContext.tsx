@@ -509,11 +509,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const createSession = async () => {
       try {
-        const { app_session_id } = await apiClient.createSession(selectedModel);
+        const { app_session_id, case_group_research_enabled } =
+          await apiClient.createSession(selectedModel);
         if (cancelled) {
           return;
         }
         setAppSessionIdState(app_session_id);
+        if (case_group_research_enabled) {
+          logDebug("[AppContext] Deep Research enabled for new session", {
+            appSessionId: app_session_id,
+          });
+        } else {
+          logDebug("[AppContext] Deep Research default skipped without Gemini key", {
+            appSessionId: app_session_id,
+          });
+        }
       } catch (error) {
         logDebug("[AppContext] Failed to create session", {
           selectedModel,

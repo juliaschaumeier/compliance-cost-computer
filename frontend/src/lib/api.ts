@@ -24,6 +24,7 @@ import {
   AuthUser,
   AdminUser,
 } from "@/types";
+import { hasPlausibleApiKey } from "@/lib/apiKeys";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
@@ -69,10 +70,26 @@ export function buildLlmRequestOptions({
     model: selectedModel || undefined,
     provider: selectedModelData?.provider?.toLowerCase(),
     keys: {
-      openaiApiKey: activeStorage?.getItem("openai_api_key") || undefined,
-      deepinfraApiKey: activeStorage?.getItem("deepinfra_api_key") || undefined,
-      geminiApiKey: activeStorage?.getItem("gemini_api_key") || undefined,
+      openaiApiKey: normalizeStoredApiKey(activeStorage?.getItem("openai_api_key")),
+      deepinfraApiKey: normalizeStoredApiKey(activeStorage?.getItem("deepinfra_api_key")),
+      geminiApiKey: normalizeStoredApiKey(activeStorage?.getItem("gemini_api_key")),
     },
+  };
+}
+
+function normalizeStoredApiKey(value: string | null | undefined): string | undefined {
+  if (!hasPlausibleApiKey(value)) {
+    return undefined;
+  }
+  return value?.trim();
+}
+
+function readStoredApiKeys(): ApiKeys {
+  const activeStorage = typeof window !== "undefined" ? window.localStorage : null;
+  return {
+    openaiApiKey: normalizeStoredApiKey(activeStorage?.getItem("openai_api_key")),
+    deepinfraApiKey: normalizeStoredApiKey(activeStorage?.getItem("deepinfra_api_key")),
+    geminiApiKey: normalizeStoredApiKey(activeStorage?.getItem("gemini_api_key")),
   };
 }
 
@@ -263,12 +280,17 @@ export const apiClient = {
   },
   async createSession(
     llmModel: string
-  ): Promise<{ app_session_id: string; created: boolean }> {
+  ): Promise<{
+    app_session_id: string;
+    created: boolean;
+    case_group_research_enabled: boolean;
+  }> {
     const response = await fetch(`${API_BASE_URL}/sessions`, {
       credentials: "include",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...buildKeyHeaders(readStoredApiKeys()),
       },
       body: JSON.stringify({
         llm_model: llmModel,
@@ -425,6 +447,7 @@ export const apiClient = {
       )}`,
       {
         credentials: "include",
+        headers: buildKeyHeaders(readStoredApiKeys()),
       }
     );
     if (!response.ok) {
@@ -444,6 +467,7 @@ export const apiClient = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...buildKeyHeaders(readStoredApiKeys()),
       },
       body: JSON.stringify({
         app_session_id: appSessionId,

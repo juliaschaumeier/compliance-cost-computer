@@ -24,10 +24,14 @@ def get_api_keys(
     x_deepinfra_key: Optional[str] = Header(default=None, alias="x-deepinfra-key"),
     x_gemini_key: Optional[str] = Header(default=None, alias="x-gemini-key"),
 ) -> ApiKeys:
+    def pick(header_value: Optional[str], settings_value: str) -> str:
+        trimmed = (header_value or "").strip()
+        return trimmed or (settings_value or "").strip()
+
     return ApiKeys(
-        openai_api_key=x_openai_key or settings.openai_api_key,
-        deepinfra_api_key=x_deepinfra_key or settings.deepinfra_api_key,
-        gemini_api_key=x_gemini_key or settings.gemini_api_key,
+        openai_api_key=pick(x_openai_key, settings.openai_api_key),
+        deepinfra_api_key=pick(x_deepinfra_key, settings.deepinfra_api_key),
+        gemini_api_key=pick(x_gemini_key, settings.gemini_api_key),
     )
 
 

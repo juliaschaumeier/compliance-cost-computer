@@ -82,6 +82,7 @@ describe("SessionMenu", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
     emitRunAllStepCleared();
     mockUseApp.mockReturnValue({
       state: {
@@ -172,6 +173,7 @@ describe("SessionMenu", () => {
       status: "idle",
       locked: false,
       elapsed_seconds: null,
+      gemini_key_available: false,
     });
     mockStartRunAllSteps.mockResolvedValue({
       run_id: "run-123",
@@ -504,6 +506,38 @@ describe("SessionMenu", () => {
       "ABC123",
       false
     );
+  });
+
+  it("enables Deep Research when the Gemini key is configured on the backend", async () => {
+    mockGetCaseGroupResearchSettings.mockResolvedValue({
+      app_session_id: "ABC123",
+      enabled: false,
+      status: "idle",
+      locked: false,
+      elapsed_seconds: null,
+      gemini_key_available: true,
+    });
+    (apiClient.updateCaseGroupResearchSettings as jest.Mock).mockResolvedValue({
+      app_session_id: "ABC123",
+      enabled: true,
+      status: "idle",
+      locked: false,
+      elapsed_seconds: null,
+      gemini_key_available: true,
+    });
+
+    const user = await openMenu();
+    const toggle = await screen.findByRole("switch");
+
+    await user.click(toggle);
+
+    expect(apiClient.updateCaseGroupResearchSettings).toHaveBeenCalledWith(
+      "ABC123",
+      true
+    );
+    expect(
+      screen.queryByText(/Deep Research benötigt einen Gemini API Key/i)
+    ).not.toBeInTheDocument();
   });
 
   it("does not toggle Deep Research while run-all is being prepared", async () => {

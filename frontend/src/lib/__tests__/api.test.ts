@@ -56,3 +56,136 @@ describe("apiClient.rebuildTiles", () => {
     );
   });
 });
+
+describe("apiClient session key forwarding", () => {
+  const fetchMock = jest.fn();
+
+  beforeEach(() => {
+    localStorage.clear();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        app_session_id: "ABC123",
+        created: true,
+        case_group_research_enabled: true,
+      }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  it("sends the stored Gemini key when creating a session", async () => {
+    localStorage.setItem("gemini_api_key", "browser-gemini-key");
+
+    await apiClient.createSession("gpt-5.4");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/sessions",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "x-gemini-key": "browser-gemini-key",
+        }),
+      })
+    );
+  });
+
+  it("does not send an implausible stored Gemini key when creating a session", async () => {
+    localStorage.setItem("gemini_api_key", "short");
+
+    await apiClient.createSession("gpt-5.4");
+
+    const headers = fetchMock.mock.calls[0][1].headers;
+    expect(headers).toEqual(
+      expect.objectContaining({
+        "Content-Type": "application/json",
+      })
+    );
+    expect(headers).not.toEqual(
+      expect.objectContaining({
+        "x-gemini-key": expect.any(String),
+      })
+    );
+  });
+
+  it("sends the stored Gemini key when loading Deep Research settings", async () => {
+    localStorage.setItem("gemini_api_key", "browser-gemini-key");
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        app_session_id: "ABC123",
+        enabled: false,
+        status: "idle",
+        locked: false,
+        gemini_key_available: true,
+      }),
+    });
+
+    await apiClient.getCaseGroupResearchSettings("ABC123");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/sessions/case-group-research?app_session_id=ABC123",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-gemini-key": "browser-gemini-key",
+        }),
+      })
+    );
+  });
+
+  it("does not send an implausible stored Gemini key when loading Deep Research settings", async () => {
+    localStorage.setItem("gemini_api_key", "short");
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        app_session_id: "ABC123",
+        enabled: true,
+        status: "idle",
+        locked: false,
+        gemini_key_available: true,
+      }),
+    });
+
+    await apiClient.getCaseGroupResearchSettings("ABC123");
+
+    const headers = fetchMock.mock.calls[0][1].headers;
+    expect(headers).not.toEqual(
+      expect.objectContaining({
+        "x-gemini-key": expect.any(String),
+      })
+    );
+  });
+
+  it("does not send stored API keys when loading session status", async () => {
+    localStorage.setItem("gemini_api_key", "browser-gemini-key");
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        summary_ready: false,
+        regulations_ready: false,
+        processes_ready: false,
+        case_groups_ready: false,
+        process_steps_ready: false,
+        effort_ready: false,
+        total_cost_ready: false,
+      }),
+    });
+
+    await apiClient.getSessionStatus("ABC123");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5000/sessions/status?app_session_id=ABC123",
+      expect.objectContaining({
+        credentials: "include",
+      })
+    );
+    expect(fetchMock.mock.calls[0][1]).not.toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-gemini-key": "browser-gemini-key",
+        }),
+      })
+    );
+  });
+});

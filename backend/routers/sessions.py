@@ -115,6 +115,7 @@ class SessionUndoRequest(BaseModel):
 class SessionUpsertResponse(BaseModel):
     app_session_id: str
     created: bool
+    case_group_research_enabled: bool = False
 
 
 class SessionSummary(BaseModel):
@@ -248,6 +249,7 @@ class CaseGroupResearchSettingsResponse(BaseModel):
     status: str = "idle"
     locked: bool = False
     elapsed_seconds: int | None = None
+    gemini_key_available: bool = False
 
 
 class ComplianceTextExportRequest(BaseModel):
@@ -350,6 +352,10 @@ RUN_ALL_STEPS: tuple[tuple[str, str, str], ...] = (
     ("total_cost", "Gesamtkosten berechnen", "total_cost_ready"),
 )
 RUN_ALL_STEP_BY_KEY = {key: (label, status_flag) for key, label, status_flag in RUN_ALL_STEPS}
+DEEP_RESEARCH_GEMINI_KEY_REQUIRED_MESSAGE = (
+    "Deep Research ist für diese Session aktiviert. Bitte hinterlegen Sie einen "
+    "Gemini API Key oder deaktivieren Sie Deep Research."
+)
 
 
 @dataclass(frozen=True)
@@ -492,6 +498,40 @@ async def _get_run_record(run_id: str) -> _RunRecord:
     return record
 
 
+def _deep_research_needs_gemini_key(session_id: int) -> bool:
+    if not db.get_case_group_research_enabled(session_id):
+        return False
+    latest = db.get_latest_deep_research_run(session_id, CASE_GROUP_RESEARCH_PURPOSE)
+    latest_status = str((latest or {}).get("status") or "idle")
+    if latest_status in {"parsed", "completed"} and (latest or {}).get("report_md"):
+        return False
+    if latest_status == "running":
+        return False
+    return True
+
+
+def _ensure_gemini_key_for_deep_research_effort(
+    *,
+    session_id: int,
+    app_session_id: str,
+    api_keys: ApiKeys,
+) -> None:
+    session_status = db.get_session_status(app_session_id) or {}
+    if bool(session_status.get("effort_ready")):
+        return
+    if not _deep_research_needs_gemini_key(session_id):
+        return
+    if str(api_keys.gemini_api_key or "").strip():
+        return
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": "deep_research_gemini_key_required",
+            "message": DEEP_RESEARCH_GEMINI_KEY_REQUIRED_MESSAGE,
+        },
+    )
+
+
 async def _trim_finished_runs() -> None:
     async with _RUN_REGISTRY_LOCK:
         if len(_RUNS_BY_ID) <= _MAX_STORED_RUNS:
@@ -587,6 +627,23 @@ def _format_failed_answer_message(row: dict) -> str | None:
     return None
 
 
+def _format_failed_deep_research_message(run: dict) -> str | None:
+    error = str(run.get("error") or "").strip()
+    if not error:
+        return None
+    if "gemini api key is required" in error.lower():
+        detail = DEEP_RESEARCH_GEMINI_KEY_REQUIRED_MESSAGE
+    else:
+        detail = error
+    return (
+        "Deep Research für Fallzahlen konnte nicht ausgeführt werden. "
+        "Bitte prüfen Sie die Deep-Research-Einstellungen und führen Sie den "
+        "Schritt erneut aus.\n"
+        f"Technische Details: {RUN_ALL_STEP_BY_KEY['effort'][0]} / effort / "
+        f"deep_research: {detail}"
+    )
+
+
 def _get_latest_failed_step_status(
     app_session_id: str,
     status: dict,
@@ -594,6 +651,21 @@ def _get_latest_failed_step_status(
     session_id = db.get_session_id_by_app_id(app_session_id)
     if session_id is None:
         return None
+    if bool(status.get("case_group_research_enabled")) and not bool(
+        status.get("effort_ready")
+    ):
+        latest_research = db.get_latest_deep_research_run(
+            session_id,
+            CASE_GROUP_RESEARCH_PURPOSE,
+        )
+        if latest_research and str(latest_research.get("status") or "") == "failed":
+            message = _format_failed_deep_research_message(latest_research)
+            if message:
+                return {
+                    "step": "effort",
+                    "label": RUN_ALL_STEP_BY_KEY["effort"][0],
+                    "message": message,
+                }
     seen_prompt_addressees: set[tuple[str, str]] = set()
     for row in db.list_recent_llm_answers_for_session(session_id, limit=50):
         prompt_id = str(row.get("prompt_id") or "")
@@ -716,6 +788,8 @@ def _step_error_message(exc: Exception) -> str:
     if isinstance(exc, HTTPException):
         detail = exc.detail
         if isinstance(detail, dict):
+            if "message" in detail:
+                return str(detail["message"])
             if "error" in detail:
                 return str(detail["error"])
             return str(detail)
@@ -2166,6 +2240,7 @@ async def _execute_single_step(
 @router.post("", response_model=SessionUpsertResponse)
 async def upsert_session(
     payload: SessionUpsertRequest,
+    api_keys: ApiKeys = Depends(get_api_keys),
     user: AuthUser = Depends(get_current_user),
 ) -> SessionUpsertResponse:
     try:
@@ -2174,7 +2249,14 @@ async def upsert_session(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return SessionUpsertResponse(app_session_id=app_session_id, created=True)
+    research_enabled = bool(str(api_keys.gemini_api_key or "").strip())
+    if research_enabled:
+        db.update_case_group_research_enabled(_session_id, True)
+    return SessionUpsertResponse(
+        app_session_id=app_session_id,
+        created=True,
+        case_group_research_enabled=research_enabled,
+    )
 
 
 @router.get("", response_model=SessionListResponse)
@@ -2432,7 +2514,14 @@ async def reset_session_ea_edits(
     )
 
 
-def _research_settings_response(app_session_id: str) -> CaseGroupResearchSettingsResponse:
+def _has_gemini_key(api_keys: ApiKeys) -> bool:
+    return bool(str(api_keys.gemini_api_key or "").strip())
+
+
+def _research_settings_response(
+    app_session_id: str,
+    api_keys: ApiKeys,
+) -> CaseGroupResearchSettingsResponse:
     session = db.get_session_by_app_id(app_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -2452,19 +2541,22 @@ def _research_settings_response(app_session_id: str) -> CaseGroupResearchSetting
             session_id,
             CASE_GROUP_RESEARCH_PURPOSE,
         ),
+        gemini_key_available=_has_gemini_key(api_keys),
     )
 
 
 @router.get("/case-group-research", response_model=CaseGroupResearchSettingsResponse, dependencies=[Depends(require_session_owner)])
 async def case_group_research_settings(
     app_session_id: str = APP_SESSION_ID_QUERY_VALIDATION,
+    api_keys: ApiKeys = Depends(get_api_keys),
 ) -> CaseGroupResearchSettingsResponse:
-    return _research_settings_response(app_session_id)
+    return _research_settings_response(app_session_id, api_keys)
 
 
 @router.post("/case-group-research", response_model=CaseGroupResearchSettingsResponse, dependencies=[Depends(require_session_owner)])
 async def case_group_research_settings_update(
     payload: CaseGroupResearchSettingsRequest,
+    api_keys: ApiKeys = Depends(get_api_keys),
 ) -> CaseGroupResearchSettingsResponse:
     session = db.get_session_by_app_id(payload.app_session_id)
     if not session:
@@ -2472,7 +2564,15 @@ async def case_group_research_settings_update(
     session_id = int(session["session_id"])
     current_enabled = bool(session.get("case_group_research_enabled"))
     if current_enabled == payload.enabled:
-        return _research_settings_response(payload.app_session_id)
+        return _research_settings_response(payload.app_session_id, api_keys)
+    if payload.enabled and not _has_gemini_key(api_keys):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "deep_research_gemini_key_required",
+                "message": DEEP_RESEARCH_GEMINI_KEY_REQUIRED_MESSAGE,
+            },
+        )
     session_status = db.get_session_status(payload.app_session_id) or {}
     if bool(session_status.get("effort_ready")) or bool(session_status.get("total_cost_ready")):
         raise HTTPException(
@@ -2486,7 +2586,7 @@ async def case_group_research_settings_update(
             detail="Deep Research mode is locked after a research run has started. Revert effort to change it.",
         )
     db.update_case_group_research_enabled(session_id, payload.enabled)
-    return _research_settings_response(payload.app_session_id)
+    return _research_settings_response(payload.app_session_id, api_keys)
 
 
 def _compliance_export_filename(app_session_id: str, user_edit_policy: str) -> str:
@@ -3413,6 +3513,12 @@ async def start_step_run(
         payload.model,
         user,
     )
+    if payload.step_key == "effort":
+        _ensure_gemini_key_for_deep_research_effort(
+            session_id=_session_id,
+            app_session_id=payload.app_session_id,
+            api_keys=api_keys,
+        )
     workflow_activity_id: str | None = None
 
     async with _RUN_REGISTRY_LOCK:
@@ -3515,6 +3621,11 @@ async def start_run_all_steps(
         payload.app_session_id,
         payload.model,
         user,
+    )
+    _ensure_gemini_key_for_deep_research_effort(
+        session_id=_session_id,
+        app_session_id=payload.app_session_id,
+        api_keys=api_keys,
     )
     workflow_activity_id: str | None = None
 

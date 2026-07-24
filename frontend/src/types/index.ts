@@ -99,6 +99,7 @@ export interface CaseGroupResearchSettingsResponse {
   status: string;
   locked: boolean;
   elapsed_seconds?: number | null;
+  gemini_key_available?: boolean;
 }
 
 export interface UndoStepResponse {

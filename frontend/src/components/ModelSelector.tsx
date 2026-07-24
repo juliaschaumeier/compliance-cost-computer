@@ -5,12 +5,12 @@ import { createPortal } from "react-dom";
 
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
+import { hasPlausibleApiKey } from "@/lib/apiKeys";
 import { logClientError } from "@/lib/errorFeedback";
 import { useAnchoredPopoverPosition } from "@/lib/useAnchoredPopoverPosition";
 import { Model, OrganizedModels, ProviderModels } from "@/types";
 
 const emptyProvider: ProviderModels = { recommended: [], additional: [] };
-const isLikelyValidApiKey = (value: string) => value.trim().length > 10;
 const modelMenuWidth = 340;
 const recommendedModelsCheckedAt = "02.07.2026";
 const recommendedModelPriceLabels: Record<string, string> = {
@@ -109,13 +109,13 @@ export default function ModelSelector() {
     setLoading(true);
     try {
       const organized = await apiClient.fetchOrganizedModels({
-        openaiApiKey: isLikelyValidApiKey(openaiKey)
+        openaiApiKey: hasPlausibleApiKey(openaiKey)
           ? openaiKey.trim()
           : undefined,
-        deepinfraApiKey: isLikelyValidApiKey(deepinfraKey)
+        deepinfraApiKey: hasPlausibleApiKey(deepinfraKey)
           ? deepinfraKey.trim()
           : undefined,
-        geminiApiKey: isLikelyValidApiKey(geminiKey)
+        geminiApiKey: hasPlausibleApiKey(geminiKey)
           ? geminiKey.trim()
           : undefined,
       });
@@ -139,9 +139,9 @@ export default function ModelSelector() {
   }, [loadModels]);
 
   const visibleOrganizedModels = useMemo<OrganizedModels>(() => {
-    const hasOpenAiKey = isLikelyValidApiKey(openaiApiKey);
-    const hasDeepinfraKey = isLikelyValidApiKey(deepinfraApiKey);
-    const hasGeminiKey = isLikelyValidApiKey(geminiApiKey);
+    const hasOpenAiKey = hasPlausibleApiKey(openaiApiKey);
+    const hasDeepinfraKey = hasPlausibleApiKey(deepinfraApiKey);
+    const hasGeminiKey = hasPlausibleApiKey(geminiApiKey);
     return {
       openai: hasOpenAiKey ? organizedModels.openai : emptyProvider,
       deepinfra: hasDeepinfraKey ? organizedModels.deepinfra : emptyProvider,
@@ -193,7 +193,7 @@ export default function ModelSelector() {
         localStorage.removeItem("gemini_api_key");
       }
     }
-    if (isLikelyValidApiKey(value) || normalized.length === 0) {
+    if (hasPlausibleApiKey(value) || normalized.length === 0) {
       loadModels(
         type === "openai" ? value : openaiApiKey,
         type === "deepinfra" ? value : deepinfraApiKey,

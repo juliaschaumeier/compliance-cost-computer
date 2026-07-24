@@ -324,7 +324,8 @@ def test_format_compliance_export_metadata_lines_includes_scope_disclaimer():
     assert "Geschaetzte API-Kosten" not in joined
 
 
-def test_case_group_research_toggle_locks_after_run_started(test_client):
+def test_case_group_research_toggle_locks_after_run_started(test_client, monkeypatch):
+    monkeypatch.setattr(sessions_router.settings, "gemini_api_key", "")
     app_session_id = "DR-TOGGLE"
     session_id, _ = db.upsert_session(app_session_id, "test-model")
 
@@ -339,10 +340,12 @@ def test_case_group_research_toggle_locks_after_run_started(test_client):
         "status": "idle",
         "locked": False,
         "elapsed_seconds": None,
+        "gemini_key_available": False,
     }
 
     enabled = test_client.post(
         "/sessions/case-group-research",
+        headers={"x-gemini-key": "test-gemini-key"},
         json={"app_session_id": app_session_id, "enabled": True},
     )
     assert enabled.status_code == 200
