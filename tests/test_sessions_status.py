@@ -55,6 +55,50 @@ def test_session_status_formats_persisted_cancelled_query_as_user_message(test_c
     assert "gemini:cancelled" not in payload["last_failed_message"]
 
 
+def test_session_status_prefers_failed_deep_research_over_cancelled_sibling_query(
+    test_client,
+):
+    session_id, _ = db.upsert_session("STATUS-FAILED-DR-MASKED", "test-model")
+    db.update_session_summary("STATUS-FAILED-DR-MASKED", "Titel", "Zusammenfassung")
+    db.update_case_group_research_enabled(session_id, True)
+    research_run_id = db.create_deep_research_run(
+        session_id=session_id,
+        purpose="case_group_metrics",
+        agent="test-agent",
+        status="running",
+    )
+    db.update_deep_research_run(
+        research_run_id,
+        status="failed",
+        error="Gemini API key is required for Deep Research",
+    )
+    db.insert_llm_answer(
+        session_id=session_id,
+        prompt_id="effort_calculation",
+        model="test-model",
+        answer_text="",
+        metadata={
+            "error": "gemini:cancelled - LLM query was cancelled before completion",
+            "error_kind": "cancelled",
+        },
+        answer_state=db.LLM_ANSWER_STATE_INVALID,
+        state_reason="query_failed",
+        norm_addressee="business",
+    )
+
+    resp = test_client.get(
+        "/sessions/status", params={"app_session_id": "STATUS-FAILED-DR-MASKED"}
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["last_failed_step"] == "effort"
+    assert payload["last_failed_label"] == "Aufwand quantifizieren"
+    assert "Deep Research für Fallzahlen" in payload["last_failed_message"]
+    assert "Gemini API Key" in payload["last_failed_message"]
+    assert "Der Schritt wurde abgebrochen" not in payload["last_failed_message"]
+
+
 def test_session_status_exposes_latest_failed_step_message(test_client):
     session_id, _ = db.upsert_session("STATUS-FAILED-STEP", "test-model")
     db.update_session_summary("STATUS-FAILED-STEP", "Titel", "Zusammenfassung")

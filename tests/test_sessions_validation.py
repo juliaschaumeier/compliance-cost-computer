@@ -1,3 +1,6 @@
+from backend.core.config import settings
+
+
 def test_upsert_session_ignores_client_app_session_id(test_client):
     # app_session_id is now server-generated; any client-supplied value is ignored.
     resp = test_client.post(
@@ -24,16 +27,22 @@ def test_status_rejects_invalid_app_session_id_query(test_client):
     assert resp.status_code in (404, 422)
 
 
-def test_upsert_session_response_shape(test_client):
+def test_upsert_session_response_shape(test_client, monkeypatch):
+    monkeypatch.setattr(settings, "gemini_api_key", "")
     resp = test_client.post(
         "/sessions",
         json={"llm_model": "gpt-5"},
     )
     assert resp.status_code == 200
     payload = resp.json()
-    assert set(payload.keys()) == {"app_session_id", "created"}
+    assert set(payload.keys()) == {
+        "app_session_id",
+        "created",
+        "case_group_research_enabled",
+    }
     assert isinstance(payload["app_session_id"], str) and payload["app_session_id"]
     assert isinstance(payload["created"], bool)
+    assert payload["case_group_research_enabled"] is False
 
 
 def test_list_sessions_response_shape(test_client):

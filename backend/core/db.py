@@ -3442,18 +3442,20 @@ def upsert_session(
                 app_session_id,
                 llm_model,
                 owner_user_id,
+                case_group_research_enabled,
                 pay_rate_administration_level,
                 pay_rate_default_a,
                 pay_rate_default_b,
                 pay_rate_default_c,
                 pay_rate_default_d
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 app_session_id,
                 llm_model,
                 owner_user_id,
+                0,
                 PAY_RATE_LEVEL_BUND,
                 defaults["a"],
                 defaults["b"],

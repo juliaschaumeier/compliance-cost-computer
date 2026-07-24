@@ -168,18 +168,18 @@ _RENDER_KWARGS = {
 _FORM_ANCHORS = {
     PromptId.PROCESS_COMPILATION: "Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:",
     PromptId.CASE_GROUP_DEVELOPMENT: "Geben Sie nur und ausschliesslich JSON im folgenden Format zurueck:",
-    PromptId.PROCESS_STEP_ANALYSIS: "Jedes Element von `taetigkeiten` hat folgende Form:",
-    PromptId.CASES_CALCULATION: "Jede Fallgruppe hat folgende Kennzahlenform:",
-    PromptId.EFFORT_CALCULATION: "Jede Taetigkeit hat folgende Aufwandsform:",
+    PromptId.PROCESS_STEP_ANALYSIS: "Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:",
+    PromptId.CASES_CALCULATION: "Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:",
+    PromptId.EFFORT_CALCULATION: "Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:",
 }
 
 # Wo im Schema die extrahierte Beispielform haengt.
 _SCHEMA_SUBTREE = {
     PromptId.PROCESS_COMPILATION: (),
     PromptId.CASE_GROUP_DEVELOPMENT: (),
-    PromptId.PROCESS_STEP_ANALYSIS: ("fallgruppen", "taetigkeiten"),
-    PromptId.CASES_CALCULATION: ("fallgruppen",),
-    PromptId.EFFORT_CALCULATION: ("fallgruppen", "taetigkeiten"),
+    PromptId.PROCESS_STEP_ANALYSIS: (),
+    PromptId.CASES_CALCULATION: (),
+    PromptId.EFFORT_CALCULATION: (),
 }
 
 _SCHEMA_BUILDERS = {

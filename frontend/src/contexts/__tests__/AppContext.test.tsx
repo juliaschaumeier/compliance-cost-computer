@@ -9,6 +9,7 @@ jest.mock("@/lib/api", () => ({
   apiClient: {
     getSessionStatus: jest.fn(),
     createSession: jest.fn(),
+    updateCaseGroupResearchSettings: jest.fn(),
   },
 }));
 
@@ -28,12 +29,17 @@ function ContextProbe() {
 
 describe("AppContext session status sync", () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     sessionStorage.clear();
     localStorage.clear();
     localStorage.setItem("selected_model", "gpt-5.4");
     (apiClient.createSession as jest.Mock).mockResolvedValue({
       app_session_id: "a".repeat(32),
       created: true,
+      case_group_research_enabled: false,
+    });
+    (apiClient.updateCaseGroupResearchSettings as jest.Mock).mockResolvedValue({
+      enabled: true,
     });
     (apiClient.getSessionStatus as jest.Mock).mockResolvedValue({
       summary_ready: true,
@@ -173,6 +179,7 @@ describe("AppContext session status sync", () => {
   it("replaces a stored session id that the backend no longer owns", async () => {
     const freshSessionId = "FRESH1";
     sessionStorage.setItem("app_session_id", "STALE1");
+    localStorage.setItem("gemini_api_key", "AIza-valid-test-key");
     sessionStorage.setItem(
       "norm_addressee_readiness",
       JSON.stringify({
@@ -213,6 +220,50 @@ describe("AppContext session status sync", () => {
     expect(sessionStorage.getItem("norm_addressee_readiness")).not.toContain(
       "true"
     );
+  });
+
+  it("adopts a frontend-created session with Deep Research enabled", async () => {
+    const freshSessionId = "FRONT1";
+    (apiClient.createSession as jest.Mock).mockResolvedValue({
+      app_session_id: freshSessionId,
+      created: true,
+      case_group_research_enabled: true,
+    });
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      expect(getByTestId("state").getAttribute("data-session")).toBe(
+        freshSessionId
+      );
+    });
+    expect(apiClient.updateCaseGroupResearchSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not update Deep Research settings after creating a disabled session", async () => {
+    const freshSessionId = "FRONT2";
+    (apiClient.createSession as jest.Mock).mockResolvedValue({
+      app_session_id: freshSessionId,
+      created: true,
+      case_group_research_enabled: false,
+    });
+
+    const { getByTestId } = render(
+      <AppProvider>
+        <ContextProbe />
+      </AppProvider>
+    );
+
+    await waitFor(() => {
+      expect(getByTestId("state").getAttribute("data-session")).toBe(
+        freshSessionId
+      );
+    });
+    expect(apiClient.updateCaseGroupResearchSettings).not.toHaveBeenCalled();
   });
 
   it("restores the selected norm addressee from session storage", async () => {

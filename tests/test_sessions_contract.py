@@ -2,6 +2,7 @@ import asyncio
 import time
 
 from backend.core import db, llm_monitor
+from backend.core.auth import get_api_keys
 from backend.core.config import settings
 from backend.routers import sessions as sessions_router
 from tests.activity_helpers import ea_payload_for_session
@@ -29,6 +30,116 @@ def test_sessions_upsert_and_list_contract(test_client):
     listed = _parse_contract(sessions_router.SessionListResponse, list_resp.json())
     assert len(listed.sessions) == 1
     assert listed.sessions[0].app_session_id == upsert.app_session_id
+
+
+def test_api_created_sessions_keep_case_group_research_disabled_without_gemini_key(
+    test_client,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    upsert_resp = test_client.post(
+        "/sessions",
+        json={"llm_model": "gpt-5"},
+    )
+    assert upsert_resp.status_code == 200
+    app_session_id = upsert_resp.json()["app_session_id"]
+
+    settings_resp = test_client.get(
+        "/sessions/case-group-research",
+        params={"app_session_id": app_session_id},
+    )
+
+    assert settings_resp.status_code == 200
+    assert upsert_resp.json()["case_group_research_enabled"] is False
+    assert settings_resp.json()["enabled"] is False
+    assert settings_resp.json()["gemini_key_available"] is False
+
+
+def test_api_created_sessions_enable_case_group_research_with_header_gemini_key(
+    test_client,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    upsert_resp = test_client.post(
+        "/sessions",
+        headers={"x-gemini-key": "test-gemini-key"},
+        json={"llm_model": "gpt-5"},
+    )
+    assert upsert_resp.status_code == 200
+    assert upsert_resp.json()["case_group_research_enabled"] is True
+    app_session_id = upsert_resp.json()["app_session_id"]
+
+    settings_resp = test_client.get(
+        "/sessions/case-group-research",
+        headers={"x-gemini-key": "test-gemini-key"},
+        params={"app_session_id": app_session_id},
+    )
+
+    assert settings_resp.status_code == 200
+    assert settings_resp.json()["enabled"] is True
+    assert settings_resp.json()["gemini_key_available"] is True
+
+
+def test_api_created_sessions_enable_case_group_research_with_server_gemini_key(
+    test_client,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "gemini_api_key", "server-gemini-key")
+    upsert_resp = test_client.post(
+        "/sessions",
+        json={"llm_model": "gpt-5"},
+    )
+    assert upsert_resp.status_code == 200
+    assert upsert_resp.json()["case_group_research_enabled"] is True
+    app_session_id = upsert_resp.json()["app_session_id"]
+
+    settings_resp = test_client.get(
+        "/sessions/case-group-research",
+        params={"app_session_id": app_session_id},
+    )
+
+    assert settings_resp.status_code == 200
+    assert settings_resp.json()["enabled"] is True
+    assert settings_resp.json()["gemini_key_available"] is True
+
+
+def test_blank_header_key_falls_back_to_server_gemini_key(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_api_key", "server-gemini-key")
+
+    api_keys = get_api_keys(
+        x_openai_key=None,
+        x_deepinfra_key=None,
+        x_gemini_key="   ",
+    )
+
+    assert api_keys.gemini_api_key == "server-gemini-key"
+
+
+def test_case_group_research_enable_requires_gemini_key(test_client, monkeypatch):
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    upsert_resp = test_client.post(
+        "/sessions",
+        json={"llm_model": "gpt-5"},
+    )
+    assert upsert_resp.status_code == 200
+    app_session_id = upsert_resp.json()["app_session_id"]
+
+    enable_resp = test_client.post(
+        "/sessions/case-group-research",
+        json={"app_session_id": app_session_id, "enabled": True},
+    )
+
+    assert enable_resp.status_code == 400
+    payload = enable_resp.json()["detail"]
+    assert payload["error"] == "deep_research_gemini_key_required"
+    assert "Gemini API Key" in payload["message"]
+
+    settings_resp = test_client.get(
+        "/sessions/case-group-research",
+        params={"app_session_id": app_session_id},
+    )
+    assert settings_resp.status_code == 200
+    assert settings_resp.json()["enabled"] is False
 
 
 def test_sessions_list_includes_used_llm_models(test_client):

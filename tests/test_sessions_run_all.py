@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from backend.core import auth as auth_core
 from backend.core import db, llm_monitor
 from backend.core.deep_research_service import DeepResearchError, DeepResearchResult
 from backend.core.models import Tile
@@ -19,12 +20,32 @@ from backend.routers import (
 from backend.core.norm_addressees import ADMINISTRATION, BUSINESS, CITIZENS
 
 
+GEMINI_HEADERS = {"x-gemini-key": "test-gemini-key"}
+
+
 def _is_effort_prompt(prompt: str) -> bool:
-    return "prozessschritte differenziert werden" in prompt.lower()
+    lowered = prompt.lower()
+    return (
+        "personalaufwand_gueltig" in lowered
+        or "personalaufwand_vorschlag" in lowered
+        or "zeitaufwand_in_min_gueltig" in lowered
+        or "zeitaufwand_in_min_vorschlag" in lowered
+    )
 
 
 def _detect_addressee_from_prompt(prompt: str) -> str:
     lowered = prompt.lower()
+    if "dieser lauf betrifft nur den normadressaten verwaltung" in lowered:
+        return ADMINISTRATION
+    if "dieser lauf betrifft nur den normadressaten wirtschaft" in lowered:
+        return BUSINESS
+    if (
+        "dieser lauf betrifft nur den normadressaten buergerinnen und buerger"
+        in lowered
+        or "dieser lauf betrifft nur den normadressaten bürgerinnen und bürger"
+        in lowered
+    ):
+        return CITIZENS
     if (
         '"normadressat": "citizens"' in lowered
         or "normadressat `citizens`" in lowered
@@ -990,6 +1011,7 @@ def test_run_all_uses_deep_research_for_case_group_metrics(test_client, monkeypa
 
     start_response = test_client.post(
         "/sessions/run-all/start",
+        headers=GEMINI_HEADERS,
         json={
             "app_session_id": app_session_id,
             "current_filename": "current_deep.txt",
@@ -2921,6 +2943,7 @@ def test_single_step_run_effort_uses_deep_research_when_enabled(
 
     start_response = test_client.post(
         "/sessions/step-runs/start",
+        headers=GEMINI_HEADERS,
         json={
             "app_session_id": app_session_id,
             "step_key": "effort",
@@ -2940,6 +2963,57 @@ def test_single_step_run_effort_uses_deep_research_when_enabled(
     assert "cases_calculation" not in {
         row["prompt_id"] for row in db.list_recent_llm_answers_for_session(session_id)
     }
+
+
+def test_single_step_run_effort_requires_gemini_key_when_deep_research_enabled(
+    test_client,
+    monkeypatch,
+):
+    monkeypatch.setattr(auth_core.settings, "gemini_api_key", "")
+    app_session_id = "STEP-RUN-EFFORT-DR-NO-KEY"
+    session_id = _seed_step6_prerequisites(app_session_id)
+    db.update_case_group_research_enabled(session_id, True)
+
+    response = test_client.post(
+        "/sessions/step-runs/start",
+        json={
+            "app_session_id": app_session_id,
+            "step_key": "effort",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()["detail"]
+    assert payload["error"] == "deep_research_gemini_key_required"
+    assert "Gemini API Key" in payload["message"]
+
+
+def test_run_all_requires_gemini_key_when_deep_research_enabled(
+    test_client,
+    monkeypatch,
+):
+    monkeypatch.setattr(auth_core.settings, "gemini_api_key", "")
+    app_session_id = "RUNALL-DR-NO-KEY"
+    session_id, _ = db.upsert_session(app_session_id, "test-model")
+    db.update_case_group_research_enabled(session_id, True)
+
+    response = test_client.post(
+        "/sessions/run-all/start",
+        json={
+            "app_session_id": app_session_id,
+            "current_filename": "current.txt",
+            "proposed_filename": "proposed.txt",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()["detail"]
+    assert payload["error"] == "deep_research_gemini_key_required"
+    assert "Gemini API Key" in payload["message"]
 
 
 def test_single_step_run_effort_reuses_waiting_effort_after_completed_deep_research(
@@ -3000,6 +3074,7 @@ def test_single_step_run_effort_reuses_waiting_effort_after_completed_deep_resea
 
     start_response = test_client.post(
         "/sessions/step-runs/start",
+        headers=GEMINI_HEADERS,
         json={
             "app_session_id": app_session_id,
             "step_key": "effort",
@@ -3114,6 +3189,7 @@ def test_single_step_run_effort_deep_research_timeout_leaves_step_incomplete(
 
     start_response = test_client.post(
         "/sessions/step-runs/start",
+        headers=GEMINI_HEADERS,
         json={
             "app_session_id": app_session_id,
             "step_key": "effort",
@@ -3209,6 +3285,7 @@ def test_single_step_run_effort_cancel_promotes_staged_effort_for_retry(
 
     start_response = test_client.post(
         "/sessions/step-runs/start",
+        headers=GEMINI_HEADERS,
         json={
             "app_session_id": app_session_id,
             "step_key": "effort",
