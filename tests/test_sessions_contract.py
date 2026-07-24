@@ -31,6 +31,23 @@ def test_sessions_upsert_and_list_contract(test_client):
     assert listed.sessions[0].app_session_id == upsert.app_session_id
 
 
+def test_new_sessions_enable_case_group_research_by_default(test_client):
+    upsert_resp = test_client.post(
+        "/sessions",
+        json={"llm_model": "gpt-5"},
+    )
+    assert upsert_resp.status_code == 200
+    app_session_id = upsert_resp.json()["app_session_id"]
+
+    settings_resp = test_client.get(
+        "/sessions/case-group-research",
+        params={"app_session_id": app_session_id},
+    )
+
+    assert settings_resp.status_code == 200
+    assert settings_resp.json()["enabled"] is True
+
+
 def test_sessions_list_includes_used_llm_models(test_client):
     upsert_resp = test_client.post(
         "/sessions",
