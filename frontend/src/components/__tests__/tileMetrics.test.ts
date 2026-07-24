@@ -335,11 +335,14 @@ describe("tileMetrics", () => {
     });
 
     const table = buildTileMetricTable(tile);
-    expect(table?.rows.map((row) => row.label)).toEqual([
-      "Länder - gD",
-      "Bund - hD",
-      "Kosten/Jahr",
-    ]);
+    expect(table).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Länder - gD" },
+        { label: "Bund - hD" },
+        { label: "Kosten/Jahr" },
+      ],
+    });
   });
 
   it("prefers personnel_rows over stale slot time on the step metric table", () => {
@@ -356,6 +359,7 @@ describe("tileMetrics", () => {
     });
 
     const table = buildTileMetricTable(tile, "business");
+    expect(table).toMatchObject({ variant: "table" });
     expect(table?.rows.map((row) => row.label)).toEqual(["R - Mittel"]);
     expect(table?.rows[0].current).toContain("12");
     expect(table?.rows[0].current).not.toContain("999");

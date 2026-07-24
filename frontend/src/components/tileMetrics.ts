@@ -601,7 +601,7 @@ export function buildTileMetricTable(
     if (usePersonnel) {
       // Meta is authoritative here; do not merge the free-text fallback.
       const orderedRows = orderRows(rows, order);
-      return orderedRows.length > 0 ? { rows: orderedRows } : null;
+      return orderedRows.length > 0 ? buildTableMetricTable(orderedRows) : null;
     }
     const fallbackRows = parseLegacyStepText(tile.text || "").rows;
     const mergedRows = orderRows(mergeRows(rows, fallbackRows), order);
