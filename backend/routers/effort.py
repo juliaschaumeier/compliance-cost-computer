@@ -337,11 +337,12 @@ def _parse_personnel_effort_entries(
             raw_item.get("qualifikation") or raw_item.get("qualification") or ""
         ).strip()
         raw_source = str(raw_item.get("lohnquelle") or "").strip()
-        duration = parse_optional_number(
-            raw_item.get("zeitaufwand_in_min")
-            or raw_item.get("zeitaufwand")
-            or raw_item.get("time_required_in_min")
+        duration_raw, _duration_alias = _value_from_keys(
+            raw_item,
+            "zeitaufwand_in_min",
+            ("zeitaufwand", "time_required_in_min"),
         )
+        duration = parse_optional_number(duration_raw)
         if not raw_qualification:
             # Fully empty placeholder rows (prompt template) are skipped; a row that
             # carries a `lohnquelle` or a time but no `qualifikation` is rejected, so
@@ -453,26 +454,38 @@ def _parse_citizens_effort_entry(entry: dict, step_id: int) -> dict | None:
                     f"unexpected roles array '{key}' for step_id {step_id}"
                 ),
             )
-    time_current = parse_optional_number(
-        entry.get("zeitaufwand_in_min_current")
-        or entry.get("zeitaufwand_in_min_gueltig")
-        or entry.get("time_required_in_min_current")
-        or entry.get("time_required_in_min_gueltig")
+    time_current_raw, _time_current_alias = _value_from_keys(
+        entry,
+        "zeitaufwand_in_min_gueltig",
+        (
+            "zeitaufwand_in_min_current",
+            "time_required_in_min_gueltig",
+            "time_required_in_min_current",
+        ),
     )
-    time_proposed = parse_optional_number(
-        entry.get("zeitaufwand_in_min_proposed")
-        or entry.get("zeitaufwand_in_min_vorschlag")
-        or entry.get("time_required_in_min_proposed")
-        or entry.get("time_required_in_min_vorschlag")
+    time_proposed_raw, _time_proposed_alias = _value_from_keys(
+        entry,
+        "zeitaufwand_in_min_vorschlag",
+        (
+            "zeitaufwand_in_min_proposed",
+            "time_required_in_min_vorschlag",
+            "time_required_in_min_proposed",
+        ),
     )
-    expenses_current = parse_optional_number(
-        entry.get("sachaufwand_current")
-        or entry.get("sachaufwand_gueltig")
+    expenses_current_raw, _expenses_current_alias = _value_from_keys(
+        entry,
+        "sachaufwand_gueltig",
+        ("sachaufwand_current",),
     )
-    expenses_proposed = parse_optional_number(
-        entry.get("sachaufwand_proposed")
-        or entry.get("sachaufwand_vorschlag")
+    expenses_proposed_raw, _expenses_proposed_alias = _value_from_keys(
+        entry,
+        "sachaufwand_vorschlag",
+        ("sachaufwand_proposed",),
     )
+    time_current = parse_optional_number(time_current_raw)
+    time_proposed = parse_optional_number(time_proposed_raw)
+    expenses_current = parse_optional_number(expenses_current_raw)
+    expenses_proposed = parse_optional_number(expenses_proposed_raw)
 
     if (
         time_current is None

@@ -22,7 +22,7 @@ def parse_optional_number(value: object) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool):
-        return float(int(value))
+        return None
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
