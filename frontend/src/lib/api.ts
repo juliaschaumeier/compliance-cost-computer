@@ -395,8 +395,12 @@ export const apiClient = {
     return response.json();
   },
 
-  async listSessions(limit = 50): Promise<SessionsResponse> {
-    const response = await fetch(`${API_BASE_URL}/sessions?limit=${limit}`, {
+  async listSessions(limit = 50, offset = 0): Promise<SessionsResponse> {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const response = await fetch(`${API_BASE_URL}/sessions?${params.toString()}`, {
       credentials: "include",
     });
     if (!response.ok) {

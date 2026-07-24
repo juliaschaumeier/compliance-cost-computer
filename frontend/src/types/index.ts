@@ -68,6 +68,7 @@ export interface SessionSummary {
 
 export interface SessionsResponse {
   sessions: SessionSummary[];
+  has_more?: boolean;
 }
 
 export interface SessionStatus {

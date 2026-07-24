@@ -115,6 +115,7 @@ const menuCancellingButtonClass =
 const menuDisabledButtonClass =
   `${menuButtonBaseClass} cursor-not-allowed border border-slate-100 bg-slate-100 text-slate-400`;
 const menuExportButtonClass = `${menuSecondaryButtonClass} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`;
+const SESSION_PAGE_SIZE = 50;
 
 function isTransientWorkflowStatus(status: string | null): boolean {
   if (!status) {
@@ -153,6 +154,10 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState("");
+  const [isSessionPickerOpen, setIsSessionPickerOpen] = useState(false);
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
@@ -252,14 +257,21 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
     let cancelled = false;
     const loadSessions = async () => {
       try {
-        const payload = await apiClient.listSessions(50);
+        setIsLoadingSessions(true);
+        const payload = await apiClient.listSessions(SESSION_PAGE_SIZE, 0);
         if (!cancelled) {
           setSessions(payload.sessions);
+          setHasMoreSessions(Boolean(payload.has_more));
         }
       } catch (error) {
         logClientError("SessionMenu.loadSessions", error);
         if (!cancelled) {
           setSessions([]);
+          setHasMoreSessions(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSessions(false);
         }
       }
     };
@@ -272,6 +284,9 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
 
   useEffect(() => {
     setSelectedSession(isOpen ? state.appSessionId : "");
+    if (!isOpen) {
+      setIsSessionPickerOpen(false);
+    }
   }, [isOpen, state.appSessionId]);
 
   useEffect(() => {
@@ -309,6 +324,15 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
       };
     });
   }, [sessions]);
+
+  const selectedSessionLabel = useMemo(() => {
+    return (
+      formattedSessions.find((session) => session.app_session_id === selectedSession)
+        ?.label ||
+      selectedSession ||
+      "Session auswählen"
+    );
+  }, [formattedSessions, selectedSession]);
 
   const getSessionModel = (appSessionId: string): string | null =>
     sessions.find((session) => session.app_session_id === appSessionId)?.llm_model || null;
@@ -438,7 +462,34 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
 
   const handleSessionSelect = (targetSession: string) => {
     setSelectedSession(targetSession);
+    setIsSessionPickerOpen(false);
     void handleLoadSession(targetSession);
+  };
+
+  const handleLoadMoreSessions = async () => {
+    if (isLoadingMoreSessions || !hasMoreSessions) {
+      return;
+    }
+    try {
+      setIsLoadingMoreSessions(true);
+      const payload = await apiClient.listSessions(
+        SESSION_PAGE_SIZE,
+        sessions.length
+      );
+      setSessions((current) => {
+        const seen = new Set(current.map((session) => session.app_session_id));
+        return [
+          ...current,
+          ...payload.sessions.filter((session) => !seen.has(session.app_session_id)),
+        ];
+      });
+      setHasMoreSessions(Boolean(payload.has_more));
+    } catch (error) {
+      logClientError("SessionMenu.loadMoreSessions", error);
+      setStatus("Weitere Sessions konnten nicht geladen werden.");
+    } finally {
+      setIsLoadingMoreSessions(false);
+    }
   };
 
   const handleUndoLastStep = async () => {
@@ -1067,20 +1118,79 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
         >
           Neue Session starten
         </button>
-        <select
-          value={selectedSession}
-          onChange={(event) => handleSessionSelect(event.target.value)}
-          disabled={isLoadingSession}
-          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-wait disabled:bg-slate-100 disabled:text-slate-400"
-          aria-label="Session wechseln"
-        >
-          <option value="">Session auswählen</option>
-          {formattedSessions.map((session) => (
-            <option key={session.app_session_id} value={session.app_session_id}>
-              {session.label}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsSessionPickerOpen((open) => !open)}
+            disabled={isLoadingSession}
+            className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:bg-slate-100 disabled:text-slate-400"
+            aria-haspopup="listbox"
+            aria-expanded={isSessionPickerOpen}
+            aria-label="Session wechseln"
+          >
+            <span className="min-w-0 truncate">{selectedSessionLabel}</span>
+            <span className="shrink-0 text-slate-500" aria-hidden="true">
+              {isSessionPickerOpen ? "⌃" : "⌄"}
+            </span>
+          </button>
+          {isSessionPickerOpen && (
+            <div
+              role="listbox"
+              aria-label="Verfügbare Sessions"
+              className="mt-2 max-h-[280px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+            >
+              <div className="space-y-0.5">
+                {isLoadingSessions ? (
+                  <div className="px-3 py-2 text-xs font-semibold text-slate-400">
+                    Sessions werden geladen...
+                  </div>
+                ) : formattedSessions.length === 0 ? (
+                  <div className="px-3 py-2 text-xs font-semibold text-slate-400">
+                    Keine Sessions gefunden.
+                  </div>
+                ) : (
+                  formattedSessions.map((session) => {
+                    const isSelected = session.app_session_id === selectedSession;
+                    return (
+                      <button
+                        key={session.app_session_id}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => handleSessionSelect(session.app_session_id)}
+                        disabled={isLoadingSession}
+                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[11px] font-semibold transition ${
+                          isSelected
+                            ? "bg-slate-100 text-slate-900"
+                            : "text-slate-700 hover:bg-slate-50"
+                        } disabled:cursor-wait disabled:text-slate-400`}
+                      >
+                        <span className="w-4 shrink-0 text-center text-slate-500">
+                          {isSelected ? "✓" : ""}
+                        </span>
+                        <span className="min-w-0 truncate">{session.label}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              {hasMoreSessions && (
+                <div className="sticky bottom-0 mt-1 bg-white pt-1">
+                  <button
+                    type="button"
+                    onClick={handleLoadMoreSessions}
+                    disabled={isLoadingMoreSessions}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-wait disabled:text-slate-400"
+                  >
+                    {isLoadingMoreSessions
+                      ? "Weitere Sessions werden geladen..."
+                      : "Weitere Sessions laden"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
         <div className={menuSectionLabelClass}>

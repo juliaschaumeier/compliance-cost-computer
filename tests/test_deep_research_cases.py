@@ -85,6 +85,36 @@ def test_parse_deep_research_case_metrics_keeps_legacy_nested_payload():
     assert parsed[0].case_group_id == 81
 
 
+def test_parse_deep_research_case_metrics_preserves_zero_and_ignores_booleans():
+    payload = """
+    {
+      "fallgruppen": [
+        {
+          "normadressat": "citizens",
+          "fallgruppen_id": 81,
+          "anzahl_betroffene_gueltig": 0,
+          "haeufigkeit_pro_jahr_gueltig": false,
+          "anzahl_betroffene_vorschlag": "0,0",
+          "haeufigkeit_pro_jahr_vorschlag": true,
+          "fallzahl_gueltig": "0",
+          "fallzahl_vorschlag": false
+        }
+      ]
+    }
+    """
+
+    _data, parsed = parse_deep_research_case_metrics(payload)
+
+    assert len(parsed) == 1
+    entry = parsed[0]
+    assert entry.addressees_current == 0.0
+    assert entry.annual_frequency_current is None
+    assert entry.addressees_proposed == 0.0
+    assert entry.annual_frequency_proposed is None
+    assert entry.metadata["fallzahl_gueltig"] == 0.0
+    assert entry.metadata["fallzahl_vorschlag"] is None
+
+
 def test_apply_deep_research_flat_payload_uses_db_process_assignment(test_client):
     session_id, _ = db.upsert_session("DR-FLAT", "test-model")
     process_id = db.insert_process(session_id, "Prozess A", "Beschreibung")
