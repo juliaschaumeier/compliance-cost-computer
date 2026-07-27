@@ -247,12 +247,17 @@ export default function HeaderHelpPopover() {
         <TabContent activeTab={activeTab} />
       </div>
       <div className="mt-4 shrink-0 border-t border-slate-100 pt-4">
-        <button
-          type="button"
-          className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-white"
+        <a
+          href="/demo/index.html"
+          target="_blank"
+          rel="noreferrer"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
         >
-          Demo-Session laden
-        </button>
+          <span aria-hidden="true" className="text-xs leading-none">
+            ▶
+          </span>
+          Demo-Video ansehen
+        </a>
       </div>
     </div>
   );

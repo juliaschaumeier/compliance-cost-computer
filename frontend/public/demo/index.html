@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CCC Demo-Video</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #172235;
+        --muted: #65748a;
+        --line: #d8e0ea;
+        --panel: #ffffff;
+        --canvas-a: #e2f4f5;
+        --canvas-b: #f7efeb;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(110deg, var(--canvas-a), var(--canvas-b));
+        color: var(--ink);
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      main {
+        box-sizing: border-box;
+        width: min(1080px, 100%);
+        margin: 0 auto;
+        padding: 48px 24px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 4vw, 44px);
+        line-height: 1.1;
+      }
+
+      p {
+        margin: 0 0 24px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      .panel {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        box-shadow: 0 24px 60px rgba(23, 34, 53, 0.14);
+      }
+
+      .video-frame {
+        position: relative;
+        min-height: min(56vw, 560px);
+        background:
+          radial-gradient(circle at 20% 20%, rgba(226, 244, 245, 0.95), transparent 38%),
+          linear-gradient(110deg, var(--canvas-a), var(--canvas-b));
+      }
+
+      video,
+      .video-missing {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: min(56vw, 560px);
+        max-height: calc(100vh - 220px);
+      }
+
+      video {
+        display: block;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(226, 244, 245, 0.95), transparent 38%),
+          linear-gradient(110deg, var(--canvas-a), var(--canvas-b));
+      }
+
+      .video-missing {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+        text-align: center;
+        color: #56657a;
+      }
+
+      .video-frame.is-missing video {
+        display: none;
+      }
+
+      .video-frame.is-missing .video-missing {
+        display: flex;
+      }
+
+      .video-missing p {
+        max-width: 520px;
+        margin: 0;
+        color: #56657a;
+      }
+
+      .video-missing strong {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--ink);
+        font-size: 20px;
+      }
+
+      .video-missing-card {
+        border: 1px solid #d8e0ea;
+        border-radius: 18px;
+        background: linear-gradient(180deg, #ffffff, #f6f9fc);
+        padding: 28px;
+        box-shadow: 0 18px 45px rgba(23, 34, 53, 0.16);
+      }
+
+      .video-missing-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        margin-bottom: 14px;
+        border-radius: 20px;
+        background: #fff3d8;
+        color: #9a5d16;
+        font-size: 28px;
+        box-shadow: inset 0 0 0 1px #f2cf89;
+      }
+
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>CCC Demo-Video</h1>
+      <p>Kurzer Einblick in Ablauf und Bedienung des Compliance-Cost Computers.</p>
+      <section class="panel" aria-label="Demo-Video">
+        <div class="video-frame" id="video-frame">
+          <video id="demo-video" controls preload="metadata">
+            <source src="./ccc-demo.mp4" type="video/mp4" />
+          </video>
+          <div class="video-missing" role="status">
+            <div class="video-missing-card">
+              <div class="video-missing-icon" aria-hidden="true">◔_◔</div>
+              <p>
+                <strong>
+                  Hier sollte das Demo-Video loslegen, es hat sich nur noch nicht
+                  auf den Server getraut.
+                </strong>
+                Bitte kurz Bescheid geben, damit <code>ccc-demo.mp4</code>
+                bereitgestellt wird.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const video = document.getElementById("demo-video");
+      const frame = document.getElementById("video-frame");
+      const showMissingVideo = () => {
+        frame?.classList.add("is-missing");
+      };
+
+      video?.addEventListener("error", showMissingVideo);
+      for (const source of video?.querySelectorAll("source") ?? []) {
+        source.addEventListener("error", showMissingVideo);
+      }
+    </script>
+  </body>
+</html>
