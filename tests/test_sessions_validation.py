@@ -50,12 +50,33 @@ def test_list_sessions_response_shape(test_client):
     resp = test_client.get("/sessions")
     assert resp.status_code == 200
     payload = resp.json()
-    assert set(payload.keys()) == {"sessions"}
+    assert set(payload.keys()) == {"sessions", "has_more"}
     assert isinstance(payload["sessions"], list)
+    assert isinstance(payload["has_more"], bool)
     assert payload["sessions"]
     first = payload["sessions"][0]
     assert {"app_session_id", "created_at", "llm_model", "used_llm_models"}.issubset(
         first.keys()
+    )
+
+
+def test_list_sessions_supports_offset_pagination(test_client):
+    test_client.post("/sessions", json={"app_session_id": "PAGE01", "llm_model": "gpt-5"})
+    test_client.post("/sessions", json={"app_session_id": "PAGE02", "llm_model": "gpt-5"})
+
+    first_page = test_client.get("/sessions", params={"limit": 1, "offset": 0})
+    assert first_page.status_code == 200
+    first_payload = first_page.json()
+    assert first_payload["has_more"] is True
+    assert len(first_payload["sessions"]) == 1
+
+    second_page = test_client.get("/sessions", params={"limit": 1, "offset": 1})
+    assert second_page.status_code == 200
+    second_payload = second_page.json()
+    assert len(second_payload["sessions"]) == 1
+    assert (
+        second_payload["sessions"][0]["app_session_id"]
+        != first_payload["sessions"][0]["app_session_id"]
     )
 
 

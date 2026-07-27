@@ -125,6 +125,25 @@ function resolveDeltaValues(
   return null;
 }
 
+function resolveDisplayValues(
+  currentRaw: unknown,
+  proposedRaw: unknown,
+  changeStatusRaw: unknown,
+): { current: number | null; proposed: number | null } {
+  let current = toFiniteNumber(currentRaw);
+  let proposed = toFiniteNumber(proposedRaw);
+  const changeStatus = normalizeChangeStatus(changeStatusRaw);
+
+  if (changeStatus === "eingefuehrt" && current === null && proposed !== null) {
+    current = 0;
+  }
+  if (changeStatus === "abgeschafft" && proposed === null && current !== null) {
+    proposed = 0;
+  }
+
+  return { current, proposed };
+}
+
 function normalizeStepLabel(raw: string): string | null {
   const lower = raw.trim().toLowerCase();
   if (!lower) {
@@ -489,33 +508,42 @@ export function buildTileMetricTable(
   }
 
   if (tile.id.startsWith("case_group_")) {
-    const addresseesCurrent = toFiniteNumber(meta.addressees_current);
-    const annualFrequencyCurrent = toFiniteNumber(meta.annual_frequency_current);
-    const casesCurrent = toFiniteNumber(meta.cases_current);
-    const addresseesProposed = toFiniteNumber(meta.addressees_proposed);
-    const annualFrequencyProposed = toFiniteNumber(meta.annual_frequency_proposed);
-    const casesProposed = toFiniteNumber(meta.cases_proposed);
+    const addressees = resolveDisplayValues(
+      meta.addressees_current,
+      meta.addressees_proposed,
+      meta.change_status,
+    );
+    const annualFrequency = resolveDisplayValues(
+      meta.annual_frequency_current,
+      meta.annual_frequency_proposed,
+      meta.change_status,
+    );
+    const cases = resolveDisplayValues(
+      meta.cases_current,
+      meta.cases_proposed,
+      meta.change_status,
+    );
 
     const rows: TileTableRow[] = [];
-    if (addresseesCurrent !== null || addresseesProposed !== null) {
+    if (addressees.current !== null || addressees.proposed !== null) {
       rows.push({
         label: "Betroffene",
-        current: formatCount(addresseesCurrent),
-        proposed: formatCount(addresseesProposed),
+        current: formatCount(addressees.current),
+        proposed: formatCount(addressees.proposed),
       });
     }
-    if (annualFrequencyCurrent !== null || annualFrequencyProposed !== null) {
+    if (annualFrequency.current !== null || annualFrequency.proposed !== null) {
       rows.push({
         label: "Häufigkeit/Jahr",
-        current: formatCount(annualFrequencyCurrent),
-        proposed: formatCount(annualFrequencyProposed),
+        current: formatCount(annualFrequency.current),
+        proposed: formatCount(annualFrequency.proposed),
       });
     }
-    if (casesCurrent !== null || casesProposed !== null) {
+    if (cases.current !== null || cases.proposed !== null) {
       rows.push({
         label: "Fälle/Jahr",
-        current: formatCount(casesCurrent),
-        proposed: formatCount(casesProposed),
+        current: formatCount(cases.current),
+        proposed: formatCount(cases.proposed),
         emphasizeTop: true,
       });
     }
@@ -538,8 +566,11 @@ export function buildTileMetricTable(
     let timeLabels: string[];
     if (usePersonnel) {
       (personnelRows as Array<Record<string, unknown>>).forEach((entry) => {
-        const current = toFiniteNumber(entry.current_min);
-        const proposed = toFiniteNumber(entry.proposed_min);
+        const { current, proposed } = resolveDisplayValues(
+          entry.current_min,
+          entry.proposed_min,
+          meta.change_status,
+        );
         if (current === null && proposed === null) {
           return;
         }
@@ -562,8 +593,11 @@ export function buildTileMetricTable(
         { key: "d", label: getColumnLabel(normAddressee, "d") },
       ];
       rowDefs.forEach(({ key, label }) => {
-        const current = toFiniteNumber(timeCurrent[key]);
-        const proposed = toFiniteNumber(timeProposed[key]);
+        const { current, proposed } = resolveDisplayValues(
+          timeCurrent[key],
+          timeProposed[key],
+          meta.change_status,
+        );
         if (current === null && proposed === null) {
           return;
         }
@@ -576,23 +610,29 @@ export function buildTileMetricTable(
       timeLabels = rowDefs.map((row) => row.label);
     }
 
-    const expensesCurrent = toFiniteNumber(meta.expenses_current);
-    const expensesProposed = toFiniteNumber(meta.expenses_proposed);
-    if (expensesCurrent !== null || expensesProposed !== null) {
+    const expenses = resolveDisplayValues(
+      meta.expenses_current,
+      meta.expenses_proposed,
+      meta.change_status,
+    );
+    if (expenses.current !== null || expenses.proposed !== null) {
       rows.push({
         label: "Sachaufwand",
-        current: formatEuro(expensesCurrent),
-        proposed: formatEuro(expensesProposed),
+        current: formatEuro(expenses.current),
+        proposed: formatEuro(expenses.proposed),
       });
     }
 
-    const costCurrent = toFiniteNumber(meta.cost_current);
-    const costProposed = toFiniteNumber(meta.cost_proposed);
-    if (costCurrent !== null || costProposed !== null) {
+    const cost = resolveDisplayValues(
+      meta.cost_current,
+      meta.cost_proposed,
+      meta.change_status,
+    );
+    if (cost.current !== null || cost.proposed !== null) {
       rows.push({
         label: "Kosten/Jahr",
-        current: formatEuro(costCurrent),
-        proposed: formatEuro(costProposed),
+        current: formatEuro(cost.current),
+        proposed: formatEuro(cost.proposed),
         emphasizeTop: true,
       });
     }
@@ -601,7 +641,7 @@ export function buildTileMetricTable(
     if (usePersonnel) {
       // Meta is authoritative here; do not merge the free-text fallback.
       const orderedRows = orderRows(rows, order);
-      return orderedRows.length > 0 ? { rows: orderedRows } : null;
+      return orderedRows.length > 0 ? buildTableMetricTable(orderedRows) : null;
     }
     const fallbackRows = parseLegacyStepText(tile.text || "").rows;
     const mergedRows = orderRows(mergeRows(rows, fallbackRows), order);

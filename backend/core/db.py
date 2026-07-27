@@ -2492,7 +2492,11 @@ def get_latest_session() -> dict | None:
     return dict(row)
 
 
-def list_sessions(limit: int = 50, owner_user_id: int | None = None) -> List[dict]:
+def list_sessions(
+    limit: int = 50,
+    owner_user_id: int | None = None,
+    offset: int = 0,
+) -> List[dict]:
     conn = get_conn()
     cur = conn.cursor()
     where = ""
@@ -2500,7 +2504,7 @@ def list_sessions(limit: int = 50, owner_user_id: int | None = None) -> List[dic
     if owner_user_id is not None:
         where = "WHERE s.owner_user_id = ?"
         params.append(int(owner_user_id))
-    params.append(limit)
+    params.extend([limit, offset])
     cur.execute(
         f"""
         SELECT
@@ -2512,7 +2516,7 @@ def list_sessions(limit: int = 50, owner_user_id: int | None = None) -> List[dic
         FROM sessions AS s
         {where}
         ORDER BY s.created_at DESC, s.session_id DESC
-        LIMIT ?
+        LIMIT ? OFFSET ?
         """,
         tuple(params),
     )

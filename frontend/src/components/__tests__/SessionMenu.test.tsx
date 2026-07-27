@@ -212,6 +212,11 @@ describe("SessionMenu", () => {
     return user;
   }
 
+  async function chooseSession(user: ReturnType<typeof userEvent.setup>, sessionId: string) {
+    await user.click(screen.getByRole("button", { name: "Session wechseln" }));
+    await user.click(screen.getByRole("option", { name: new RegExp(sessionId) }));
+  }
+
   it("rebuilds the selected norm addressee after loading another session", async () => {
     mockGetSessionStatus.mockImplementation((appSessionId: string) =>
       Promise.resolve(
@@ -243,7 +248,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalled());
-    await user.selectOptions(screen.getByRole("combobox"), "XYZ789");
+    await chooseSession(user, "XYZ789");
 
     await waitFor(() =>
       expect(mockRebuildTiles).toHaveBeenCalledWith("XYZ789", "business")
@@ -558,10 +563,11 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalled());
-    const select = screen.getByRole("combobox");
-    expect(select).toHaveValue("ABC123");
+    expect(screen.getByRole("button", { name: "Session wechseln" })).toHaveTextContent(
+      "ABC123"
+    );
 
-    await user.selectOptions(select, "XYZ789");
+    await chooseSession(user, "XYZ789");
 
     await waitFor(() =>
       expect(mockGetSessionStatus).toHaveBeenCalledWith("XYZ789")
@@ -576,7 +582,48 @@ describe("SessionMenu", () => {
 
     await user.click(screen.getByTitle("Session Aktionen"));
     await screen.findByText("Session Aktionen");
-    expect(screen.getByRole("combobox")).toHaveValue("ABC123");
+    expect(screen.getByRole("button", { name: "Session wechseln" })).toHaveTextContent(
+      "ABC123"
+    );
+  });
+
+  it("loads additional sessions from the picker", async () => {
+    mockListSessions
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            app_session_id: "ABC123",
+            created_at: "2026-04-14T08:00:00Z",
+            llm_model: "gpt-5.4",
+            used_llm_models: "gpt-5.4",
+          },
+        ],
+        has_more: true,
+      })
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            app_session_id: "OLDER1",
+            created_at: "2026-04-13T08:00:00Z",
+            llm_model: "gemini-3.5-flash",
+            used_llm_models: "gemini-3.5-flash",
+          },
+        ],
+        has_more: false,
+      });
+    const user = await openMenu();
+
+    await user.click(screen.getByRole("button", { name: "Session wechseln" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Weitere Sessions laden" })
+    );
+
+    expect(mockListSessions).toHaveBeenNthCalledWith(1, 50, 0);
+    expect(mockListSessions).toHaveBeenNthCalledWith(2, 50, 1);
+    expect(await screen.findByRole("option", { name: /OLDER1/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Weitere Sessions laden" })
+    ).not.toBeInTheDocument();
   });
 
   it("does not commit a session switch when rebuilding tiles fails", async () => {
@@ -611,7 +658,7 @@ describe("SessionMenu", () => {
     const user = await openMenu();
 
     await waitFor(() => expect(mockListSessions).toHaveBeenCalled());
-    await user.selectOptions(screen.getByRole("combobox"), "XYZ789");
+    await chooseSession(user, "XYZ789");
 
     await waitFor(() =>
       expect(mockRebuildTiles).toHaveBeenCalledWith("XYZ789", "business")
@@ -620,7 +667,9 @@ describe("SessionMenu", () => {
     expect(applySessionStatus).not.toHaveBeenCalledWith(
       expect.objectContaining({ total_cost_ready: true })
     );
-    expect(screen.getByRole("combobox")).toHaveValue("ABC123");
+    expect(screen.getByRole("button", { name: "Session wechseln" })).toHaveTextContent(
+      "ABC123"
+    );
     expect(
       await screen.findByText("Session konnte nicht geladen werden.")
     ).toBeInTheDocument();

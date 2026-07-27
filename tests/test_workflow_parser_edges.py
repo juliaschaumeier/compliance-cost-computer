@@ -3,11 +3,30 @@ from fastapi import HTTPException
 
 from backend.core import db
 from backend.core.norm_addressees import ADMINISTRATION, CITIZENS
+from backend.core.parsing import parse_optional_number
 from backend.core.prompts import PromptId
 from backend.routers import case_groups as case_groups_router
 from backend.routers import effort as effort_router
 from backend.routers import process_steps as process_steps_router
 from backend.routers import processes as processes_router
+
+
+def test_parse_optional_number_rejects_booleans_but_keeps_numeric_one():
+    assert parse_optional_number(False) is None
+    assert parse_optional_number(True) is None
+    assert parse_optional_number(1) == 1.0
+    assert parse_optional_number("1") == 1.0
+
+
+def test_boolean_primary_effort_alias_does_not_block_numeric_fallback():
+    value, alias = effort_router._value_from_keys(
+        {"zeitaufwand_in_min": False, "zeitaufwand": 5},
+        "zeitaufwand_in_min",
+        ("zeitaufwand", "time_required_in_min"),
+    )
+
+    assert value == 5
+    assert alias == "zeitaufwand"
 
 
 def _seed_process_context(app_session_id: str = "PARSER-PROCESSES") -> tuple[int, int, dict]:
@@ -557,6 +576,34 @@ def test_effort_parser_logs_alias_fallbacks(monkeypatch):
     assert "effort_legacy_english_alias" in fallback_kinds
 
 
+def test_cases_parser_preserves_explicit_zero_case_values():
+    payload = """
+    {
+      "normadressat": "citizens",
+      "fallgruppen": [
+        {
+          "fallgruppen_id": 101,
+          "anzahl_betroffene_gueltig": 0,
+          "haeufigkeit_pro_jahr_gueltig": "0",
+          "anzahl_betroffene_vorschlag": "0.0",
+          "haeufigkeit_pro_jahr_vorschlag": "0,0"
+        }
+      ]
+    }
+    """
+
+    parsed, fallback_kinds = effort_router._parse_cases_payload(payload, CITIZENS)
+
+    assert fallback_kinds == set()
+    assert len(parsed) == 1
+    assert parsed[0]["case_group_id"] == 101
+    assert parsed[0]["addressees_current"] == 0.0
+    assert parsed[0]["annual_frequency_current"] == 0.0
+    assert parsed[0]["addressees_proposed"] == 0.0
+    assert parsed[0]["annual_frequency_proposed"] == 0.0
+    assert parsed[0]["case_metric_research_json"] is None
+
+
 def test_effort_parser_rejects_invalid_cases_json_payload():
     session_id, case_group_id, step_id, context = _seed_effort_context(
         "PARSER-EFFORT-BAD-CASES"
@@ -876,6 +923,141 @@ def test_effort_parser_keeps_row_personnel_effort_model():
     assert parsed_effort[0]["time_required_current"]["b"] == 10
     assert parsed_effort[0]["time_required_proposed"]["c"] == 8
     assert parsed_effort[0]["hourly_rates_current"]["a"] is not None
+
+
+def test_effort_parser_preserves_zero_personnel_duration_rows():
+    payload = """
+    {
+      "normadressat": "administration",
+      "fallgruppen": [
+        {
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
+            {
+              "taetigkeiten_id": 100,
+              "personalaufwand_gueltig": [
+                {
+                  "qualifikation": "einfacher_und_mittlerer_dienst",
+                  "lohnquelle": "bund",
+                  "zeitaufwand_in_min": 0
+                }
+              ],
+              "personalaufwand_vorschlag": [
+                {
+                  "qualifikation": "gehobener_dienst",
+                  "lohnquelle": "bund",
+                  "time_required_in_min": "0,0"
+                }
+              ],
+              "sachaufwand_gueltig": 0,
+              "sachaufwand_vorschlag": "0.0"
+            }
+          ]
+        }
+      ]
+    }
+    """
+
+    parsed, fallback_kinds = effort_router._parse_effort_payload(
+        payload,
+        ADMINISTRATION,
+    )
+
+    assert fallback_kinds == set()
+    assert len(parsed) == 1
+    assert parsed[0]["time_required_current"]["a"] == 0.0
+    assert parsed[0]["time_required_proposed"]["b"] == 0.0
+    assert parsed[0]["expenses_current"] == 0.0
+    assert parsed[0]["expenses_proposed"] == 0.0
+    assert [
+        (row["period"], row["qualification"], row["time_required_in_min"])
+        for row in parsed[0]["personnel_effort_rows"]
+    ] == [
+        ("current", "einfacher_und_mittlerer_dienst", 0.0),
+        ("proposed", "gehobener_dienst", 0.0),
+    ]
+
+
+def test_effort_parser_preserves_zero_citizen_effort_values():
+    payload = """
+    {
+      "normadressat": "citizens",
+      "fallgruppen": [
+        {
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
+            {
+              "taetigkeiten_id": 100,
+              "zeitaufwand_in_min_gueltig": 0,
+              "zeitaufwand_in_min_vorschlag": "0,0",
+              "sachaufwand_gueltig": "0",
+              "sachaufwand_vorschlag": "0.0"
+            }
+          ]
+        }
+      ]
+    }
+    """
+
+    parsed, fallback_kinds = effort_router._parse_effort_payload(payload, CITIZENS)
+
+    assert fallback_kinds == set()
+    assert len(parsed) == 1
+    assert parsed[0]["step_id"] == 100
+    assert parsed[0]["hourly_rates_current"] == {
+        "a": None,
+        "b": None,
+        "c": None,
+        "d": None,
+    }
+    assert parsed[0]["hourly_rates_proposed"] == {
+        "a": None,
+        "b": None,
+        "c": None,
+        "d": None,
+    }
+    assert parsed[0]["time_required_current"] == {
+        "a": 0.0,
+        "b": None,
+        "c": None,
+        "d": None,
+    }
+    assert parsed[0]["time_required_proposed"] == {
+        "a": 0.0,
+        "b": None,
+        "c": None,
+        "d": None,
+    }
+    assert parsed[0]["expenses_current"] == 0.0
+    assert parsed[0]["expenses_proposed"] == 0.0
+    assert parsed[0]["execution_per_case"] is None
+
+
+def test_effort_parser_keeps_blank_citizen_effort_values_missing():
+    payload = """
+    {
+      "normadressat": "citizens",
+      "fallgruppen": [
+        {
+          "fallgruppen_id": 10,
+          "taetigkeiten": [
+            {
+              "taetigkeiten_id": 100,
+              "zeitaufwand_in_min_gueltig": "",
+              "zeitaufwand_in_min_vorschlag": " ",
+              "sachaufwand_gueltig": "",
+              "sachaufwand_vorschlag": ""
+            }
+          ]
+        }
+      ]
+    }
+    """
+
+    parsed, fallback_kinds = effort_router._parse_effort_payload(payload, CITIZENS)
+
+    assert fallback_kinds == set()
+    assert parsed == []
 
 
 def test_process_step_parser_rejects_duplicate_case_group_id():

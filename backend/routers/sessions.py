@@ -128,6 +128,7 @@ class SessionSummary(BaseModel):
 
 class SessionListResponse(BaseModel):
     sessions: list[SessionSummary]
+    has_more: bool = False
 
 
 class SessionStatusResponse(BaseModel):
@@ -2262,10 +2263,15 @@ async def upsert_session(
 @router.get("", response_model=SessionListResponse)
 async def list_sessions(
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     user: AuthUser = Depends(get_current_user),
 ) -> SessionListResponse:
-    sessions = db.list_sessions(limit=limit, owner_user_id=user.user_id)
-    return SessionListResponse(sessions=sessions)
+    rows = db.list_sessions(
+        limit=limit + 1,
+        owner_user_id=user.user_id,
+        offset=offset,
+    )
+    return SessionListResponse(sessions=rows[:limit], has_more=len(rows) > limit)
 
 
 @router.get(
