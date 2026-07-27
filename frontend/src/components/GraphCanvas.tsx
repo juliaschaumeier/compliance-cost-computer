@@ -38,6 +38,22 @@ const TILE_HEIGHT = 160;
 const LANE_HEIGHT = 2000;
 const LANE_TOP_OFFSET = 56;
 
+type TileRequestContext = {
+  appSessionId: string;
+  selectedNormAddressee: NormAddressee;
+  summaryReady: boolean;
+};
+
+function sameTileRequestContext(
+  left: TileRequestContext,
+  right: TileRequestContext,
+) {
+  return (
+    left.appSessionId === right.appSessionId &&
+    left.selectedNormAddressee === right.selectedNormAddressee &&
+    left.summaryReady === right.summaryReady
+  );
+}
 
 async function _persistChangedTiles(
   changed: Tile[],
@@ -51,8 +67,6 @@ async function _persistChangedTiles(
     changed.map((tile) => apiClient.upsertTile(tile, appSessionId, normAddressee))
   );
 }
-
-
 
 export default function GraphCanvas() {
   return (
@@ -91,7 +105,18 @@ function GraphCanvasInner() {
   const nodeRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const nodeObservers = useRef<Map<string, ResizeObserver>>(new Map());
   const hasLoadedTilesRef = useRef(false);
+  const tileRequestVersionRef = useRef(0);
+  const latestTileContextRef = useRef<TileRequestContext>({
+    appSessionId: state.appSessionId,
+    selectedNormAddressee: state.selectedNormAddressee,
+    summaryReady: state.summaryReady,
+  });
   const reactFlowRef = useRef<ReactFlowInstance | null>(null);
+  latestTileContextRef.current = {
+    appSessionId: state.appSessionId,
+    selectedNormAddressee: state.selectedNormAddressee,
+    summaryReady: state.summaryReady,
+  };
 
   const registerBodyRef = useCallback(
     (id: string, element: HTMLParagraphElement | null) => {
@@ -262,6 +287,15 @@ function GraphCanvasInner() {
   }, [tiles, expandedNodeIds, tileHeights, updateNodeInternals]);
 
   const refreshTiles = useCallback(async () => {
+    const requestContext: TileRequestContext = {
+      appSessionId: state.appSessionId,
+      selectedNormAddressee: state.selectedNormAddressee,
+      summaryReady: state.summaryReady,
+    };
+    const requestVersion = ++tileRequestVersionRef.current;
+    const isCurrentRequest = () =>
+      tileRequestVersionRef.current === requestVersion &&
+      sameTileRequestContext(latestTileContextRef.current, requestContext);
     if (!state.summaryReady) {
       setTiles([]);
       setLoading(false);
@@ -277,6 +311,9 @@ function GraphCanvasInner() {
         state.appSessionId,
         state.selectedNormAddressee
       );
+      if (!isCurrentRequest()) {
+        return;
+      }
       const lawTile = response.tiles.find((tile) => tile.id === "law_tile");
       const alignedTiles = lawTile
         ? response.tiles.map((tile) => {
@@ -288,6 +325,9 @@ function GraphCanvasInner() {
         : response.tiles;
       const normalized = normalizeAndAlignTiles(alignedTiles);
       setTiles(normalized.updated);
+      if (!isCurrentRequest()) {
+        return;
+      }
       await _persistChangedTiles(
         [
           ...collectChangedTiles(response.tiles, alignedTiles),
@@ -298,17 +338,23 @@ function GraphCanvasInner() {
       );
       setError(null);
     } catch (err) {
+      if (!isCurrentRequest()) {
+        return;
+      }
       logClientError("GraphCanvas.refreshTiles", err, {
         appSessionId: state.appSessionId,
       });
       setError("Tiles konnten nicht geladen werden.");
     } finally {
-      hasLoadedTilesRef.current = true;
-      setLoading(false);
+      if (isCurrentRequest()) {
+        hasLoadedTilesRef.current = true;
+        setLoading(false);
+      }
     }
   }, [state.summaryReady, state.appSessionId, state.selectedNormAddressee]);
 
   useEffect(() => {
+    tileRequestVersionRef.current += 1;
     hasLoadedTilesRef.current = false;
   }, [state.appSessionId]);
 

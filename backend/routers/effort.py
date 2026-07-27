@@ -33,6 +33,8 @@ router = APIRouter(prefix="/effort", tags=["effort"])
 def _has_meaningful_value(value: object) -> bool:
     if value is None:
         return False
+    if isinstance(value, bool):
+        return False
     if isinstance(value, str) and not value.strip():
         return False
     return True

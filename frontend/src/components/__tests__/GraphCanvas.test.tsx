@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 
 import GraphCanvas from "@/components/GraphCanvas";
 import { useApp } from "@/contexts/AppContext";
@@ -54,12 +54,23 @@ const mockUseApp = useApp as jest.Mock;
 const mockFetchTiles = apiClient.fetchTiles as jest.Mock;
 const mockUpsertTile = apiClient.upsertTile as jest.Mock;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("GraphCanvas", () => {
   beforeEach(() => {
     mockUseApp.mockReturnValue({
       state: {
         summaryReady: true,
         appSessionId: "ABC123",
+        selectedNormAddressee: "administration",
       },
     });
     mockFetchTiles.mockReset();
@@ -115,5 +126,67 @@ describe("GraphCanvas", () => {
 
     const matches = await screen.findAllByText(/1 Vorgaben/i);
     expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it("does not render stale tiles after switching back to an empty session", async () => {
+    const oldTiles = deferred<{
+      tiles: Array<{
+        id: string;
+        title: string;
+        text: string;
+        meta_information: Record<string, never>;
+        column: number;
+        row: number;
+        deletable: boolean;
+        link_from_tile: string[];
+      }>;
+    }>();
+    mockFetchTiles.mockReturnValueOnce(oldTiles.promise);
+
+    const { rerender } = render(<GraphCanvas />);
+
+    await waitFor(() =>
+      expect(mockFetchTiles).toHaveBeenCalledWith("ABC123", "administration")
+    );
+
+    mockUseApp.mockReturnValue({
+      state: {
+        summaryReady: false,
+        appSessionId: "EMPTY1",
+        selectedNormAddressee: "administration",
+      },
+    });
+    rerender(<GraphCanvas />);
+
+    await act(async () => {
+      oldTiles.resolve({
+        tiles: [
+          {
+            id: "law_tile",
+            title: "Old Law",
+            text: "Old current vs proposed law",
+            meta_information: {},
+            column: 0,
+            row: 0,
+            deletable: false,
+            link_from_tile: [],
+          },
+          {
+            id: "regulation_1",
+            title: "Old Regulation",
+            text: "A stale derived regulation",
+            meta_information: {},
+            column: 1,
+            row: 0,
+            deletable: false,
+            link_from_tile: ["law_tile"],
+          },
+        ],
+      });
+      await oldTiles.promise;
+    });
+
+    expect(screen.queryByText("Old Regulation")).not.toBeInTheDocument();
+    expect(mockUpsertTile).not.toHaveBeenCalled();
   });
 });

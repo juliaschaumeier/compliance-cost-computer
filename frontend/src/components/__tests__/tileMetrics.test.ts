@@ -155,6 +155,72 @@ describe("tileMetrics", () => {
     });
   });
 
+  it("shows structural zeroes for introduced case group metric rows", () => {
+    const tile = buildTile({
+      id: "case_group_11",
+      meta_information: {
+        change_status: "eingefuehrt",
+        addressees_current: null,
+        addressees_proposed: 20,
+        annual_frequency_current: null,
+        annual_frequency_proposed: 2,
+        cases_current: null,
+        cases_proposed: 40,
+      },
+    });
+
+    expect(buildTileMetricTable(tile)).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Betroffene", current: "0", proposed: "20" },
+        { label: "Häufigkeit/Jahr", current: "0", proposed: "2" },
+        { label: "Fälle/Jahr", current: "0", proposed: "40" },
+      ],
+    });
+  });
+
+  it("shows structural zeroes for removed case group metric rows", () => {
+    const tile = buildTile({
+      id: "case_group_12",
+      meta_information: {
+        change_status: "abgeschafft",
+        addressees_current: 20,
+        addressees_proposed: null,
+        annual_frequency_current: 2,
+        annual_frequency_proposed: null,
+        cases_current: 40,
+        cases_proposed: null,
+      },
+    });
+
+    expect(buildTileMetricTable(tile)).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Betroffene", current: "20", proposed: "0" },
+        { label: "Häufigkeit/Jahr", current: "2", proposed: "0" },
+        { label: "Fälle/Jahr", current: "40", proposed: "0" },
+      ],
+    });
+  });
+
+  it("keeps missing changed case group values as unknown", () => {
+    const tile = buildTile({
+      id: "case_group_13",
+      meta_information: {
+        change_status: "geaendert",
+        addressees_current: null,
+        addressees_proposed: 20,
+      },
+    });
+
+    expect(buildTileMetricTable(tile)).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Betroffene", current: "-", proposed: "20" },
+      ],
+    });
+  });
+
   it("adds 'Kosten/Jahr' for step metrics when costs exist", () => {
     const tile = buildTile({
       id: "step_22",
@@ -175,6 +241,75 @@ describe("tileMetrics", () => {
         { label: "eD/mD" },
         { label: "Sachaufwand" },
         { label: "Kosten/Jahr" },
+      ],
+    });
+  });
+
+  it("shows structural zeroes for introduced step metric rows", () => {
+    const tile = buildTile({
+      id: "step_22",
+      meta_information: {
+        change_status: "eingefuehrt",
+        personnel_rows: [
+          { label: "Gesamt - Mittel", current_min: null, proposed_min: 5 },
+        ],
+        expenses_current: null,
+        expenses_proposed: 0,
+        cost_current: null,
+        cost_proposed: 3.09,
+      },
+    });
+
+    expect(buildTileMetricTable(tile, "business")).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Gesamt - Mittel", current: "0 min", proposed: "5 min" },
+        { label: "Sachaufwand", current: "0 €", proposed: "0 €" },
+        { label: "Kosten/Jahr", current: "0 €", proposed: "3,09 €" },
+      ],
+    });
+  });
+
+  it("shows structural zeroes for removed step metric rows", () => {
+    const tile = buildTile({
+      id: "step_23",
+      meta_information: {
+        change_status: "abgeschafft",
+        personnel_rows: [
+          { label: "Gesamt - Mittel", current_min: 5, proposed_min: null },
+        ],
+        expenses_current: 0,
+        expenses_proposed: null,
+        cost_current: 3.09,
+        cost_proposed: null,
+      },
+    });
+
+    expect(buildTileMetricTable(tile, "business")).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Gesamt - Mittel", current: "5 min", proposed: "0 min" },
+        { label: "Sachaufwand", current: "0 €", proposed: "0 €" },
+        { label: "Kosten/Jahr", current: "3,09 €", proposed: "0 €" },
+      ],
+    });
+  });
+
+  it("keeps missing unchanged step values as unknown", () => {
+    const tile = buildTile({
+      id: "step_25",
+      meta_information: {
+        change_status: "unveraendert",
+        personnel_rows: [
+          { label: "Gesamt - Mittel", current_min: null, proposed_min: 5 },
+        ],
+      },
+    });
+
+    expect(buildTileMetricTable(tile, "business")).toMatchObject({
+      variant: "table",
+      rows: [
+        { label: "Gesamt - Mittel", current: "-", proposed: "5 min" },
       ],
     });
   });

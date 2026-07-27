@@ -18,6 +18,17 @@ def test_parse_optional_number_rejects_booleans_but_keeps_numeric_one():
     assert parse_optional_number("1") == 1.0
 
 
+def test_boolean_primary_effort_alias_does_not_block_numeric_fallback():
+    value, alias = effort_router._value_from_keys(
+        {"zeitaufwand_in_min": False, "zeitaufwand": 5},
+        "zeitaufwand_in_min",
+        ("zeitaufwand", "time_required_in_min"),
+    )
+
+    assert value == 5
+    assert alias == "zeitaufwand"
+
+
 def _seed_process_context(app_session_id: str = "PARSER-PROCESSES") -> tuple[int, int, dict]:
     session_id, _ = db.upsert_session(app_session_id, "test-model")
     regulation_id = db.insert_regulation(
