@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { apiClient, ApiKeys } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import {
+  AUTH_EXPIRED_MESSAGE,
+  formatAuthAwareFallbackMessage,
+  isUnauthorizedApiError,
+  logClientError,
+} from "@/lib/errorFeedback";
 import {
   emitRunAllStepCleared,
   emitRunAllStepStarted,
@@ -116,7 +121,11 @@ export function useCancellableStepRun({
       setIsRunning(false);
       setIsCancelling(false);
       emitRunAllStepCleared();
-      setStatusText("Status konnte nicht aktualisiert werden.");
+      setStatusText(
+        isUnauthorizedApiError(error)
+          ? AUTH_EXPIRED_MESSAGE
+          : "Status konnte nicht aktualisiert werden."
+      );
     }
   };
 
@@ -171,7 +180,12 @@ export function useCancellableStepRun({
     } catch (error) {
       logClientError(`${logScope}.cancel`, error, { appSessionId, runId });
       setIsCancelling(false);
-      setStatusText("Abbruch konnte nicht angefordert werden.");
+      setStatusText(
+        formatAuthAwareFallbackMessage(
+          "Abbruch konnte nicht angefordert werden.",
+          error
+        )
+      );
     }
   };
 

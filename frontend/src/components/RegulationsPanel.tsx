@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { buildLlmRequestOptions } from "@/lib/api";
+import { formatAuthAwareFallbackMessage } from "@/lib/errorFeedback";
 import { getVisibleFailedStepStatus } from "@/lib/sessionStatus";
 import { useCancellableStepRun } from "@/lib/useCancellableStepRun";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
@@ -74,8 +75,13 @@ export default function RegulationsPanel() {
     setStatus(null);
     try {
       await stepRun.start();
-    } catch {
-      setStatus("Vorgaben konnten nicht gestartet werden.");
+    } catch (error) {
+      setStatus(
+        formatAuthAwareFallbackMessage(
+          "Vorgaben konnten nicht gestartet werden.",
+          error
+        )
+      );
     }
   };
   const handleButtonClick = async () => {

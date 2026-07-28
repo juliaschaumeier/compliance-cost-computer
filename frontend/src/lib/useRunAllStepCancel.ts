@@ -3,7 +3,7 @@
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 
 import { apiClient } from "@/lib/api";
-import { logClientError } from "@/lib/errorFeedback";
+import { formatAuthAwareFallbackMessage, logClientError } from "@/lib/errorFeedback";
 import { useActiveWorkflowRun } from "@/lib/runAllStepEvents";
 
 type UseRunAllStepCancelOptions = {
@@ -55,7 +55,12 @@ export function useRunAllStepCancel({
       });
       isCancellingRunAllRef.current = false;
       setIsCancellingRunAll(false);
-      setStatus("Abbruch konnte nicht angefordert werden.");
+      setStatus(
+        formatAuthAwareFallbackMessage(
+          "Abbruch konnte nicht angefordert werden.",
+          error
+        )
+      );
     }
   };
 

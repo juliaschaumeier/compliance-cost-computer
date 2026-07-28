@@ -13,6 +13,10 @@ export interface AdminUser {
   is_admin: boolean;
   is_active: boolean;
   created_at: string;
+  llm_estimated_cost_usd?: number;
+  deep_research_estimated_cost_usd?: number;
+  total_estimated_cost_usd?: number;
+  missing_estimated_cost_count?: number;
 }
 
 export const AUTOMATED_NORM_ADDRESSEES: NormAddressee[] = [

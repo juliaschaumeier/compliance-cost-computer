@@ -37,6 +37,23 @@ export function logClientError(
   console.debug(`[${scope}]`, details);
 }
 
+export const AUTH_EXPIRED_MESSAGE =
+  "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an.";
+
+export function isUnauthorizedApiError(error: unknown): boolean {
+  return (error as { status?: unknown })?.status === 401;
+}
+
+export function formatAuthAwareFallbackMessage(
+  fallbackMessage: string,
+  error: unknown
+): string {
+  if (isUnauthorizedApiError(error)) {
+    return AUTH_EXPIRED_MESSAGE;
+  }
+  return fallbackMessage.endsWith(".") ? fallbackMessage : `${fallbackMessage}.`;
+}
+
 export function formatActionErrorMessage(
   actionMessage: string,
   error: unknown
@@ -52,6 +69,10 @@ export function formatActionErrorMessage(
     typeof maybe?.message === "string" ? maybe.message.trim() : "";
   const status = typeof maybe?.status === "number" ? maybe.status : undefined;
   const lower = message.toLowerCase();
+
+  if (isUnauthorizedApiError(error)) {
+    return AUTH_EXPIRED_MESSAGE;
+  }
 
   if (lower.includes("failed to fetch")) {
     return "Backend ist nicht erreichbar. Bitte Backend prüfen und erneut versuchen.";

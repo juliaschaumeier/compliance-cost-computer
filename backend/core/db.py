@@ -2564,6 +2564,59 @@ def list_users() -> List[dict]:
     return [row for row in rows if row is not None]
 
 
+def list_user_estimated_cost_summaries() -> dict[int, dict[str, float | int]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            u.user_id,
+            COALESCE(llm.llm_estimated_cost_usd, 0) AS llm_estimated_cost_usd,
+            COALESCE(dr.deep_research_estimated_cost_usd, 0) AS deep_research_estimated_cost_usd,
+            COALESCE(llm.llm_missing_estimated_cost_count, 0)
+                + COALESCE(dr.deep_research_missing_estimated_cost_count, 0)
+                AS missing_estimated_cost_count
+        FROM users u
+        LEFT JOIN (
+            SELECT
+                s.owner_user_id AS user_id,
+                SUM(COALESCE(a.estimated_cost_usd, 0)) AS llm_estimated_cost_usd,
+                SUM(CASE WHEN a.estimated_cost_usd IS NULL THEN 1 ELSE 0 END)
+                    AS llm_missing_estimated_cost_count
+            FROM sessions s
+            JOIN llm_answers a ON a.session_id = s.session_id
+            WHERE s.owner_user_id IS NOT NULL
+            GROUP BY s.owner_user_id
+        ) llm ON llm.user_id = u.user_id
+        LEFT JOIN (
+            SELECT
+                s.owner_user_id AS user_id,
+                SUM(COALESCE(r.estimated_cost_usd, 0)) AS deep_research_estimated_cost_usd,
+                SUM(CASE WHEN r.estimated_cost_usd IS NULL THEN 1 ELSE 0 END)
+                    AS deep_research_missing_estimated_cost_count
+            FROM sessions s
+            JOIN deep_research_runs r ON r.session_id = s.session_id
+            WHERE s.owner_user_id IS NOT NULL
+            GROUP BY s.owner_user_id
+        ) dr ON dr.user_id = u.user_id
+        ORDER BY u.user_id ASC
+        """
+    )
+    rows = {}
+    for row in cur.fetchall():
+        user_id = int(row["user_id"])
+        llm_cost = float(row["llm_estimated_cost_usd"] or 0)
+        deep_research_cost = float(row["deep_research_estimated_cost_usd"] or 0)
+        rows[user_id] = {
+            "llm_estimated_cost_usd": llm_cost,
+            "deep_research_estimated_cost_usd": deep_research_cost,
+            "total_estimated_cost_usd": llm_cost + deep_research_cost,
+            "missing_estimated_cost_count": int(row["missing_estimated_cost_count"] or 0),
+        }
+    _maybe_close(conn)
+    return rows
+
+
 def count_admins() -> int:
     conn = get_conn()
     cur = conn.cursor()

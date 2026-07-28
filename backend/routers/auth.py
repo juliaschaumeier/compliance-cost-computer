@@ -30,6 +30,10 @@ class UserOut(BaseModel):
     is_admin: bool
     is_active: bool
     created_at: str | None = None
+    llm_estimated_cost_usd: float = 0.0
+    deep_research_estimated_cost_usd: float = 0.0
+    total_estimated_cost_usd: float = 0.0
+    missing_estimated_cost_count: int = 0
 
 
 class CreateUserRequest(BaseModel):
@@ -44,14 +48,27 @@ class UpdateUserRequest(BaseModel):
     password: str | None = None
 
 
-def _user_out(user: dict) -> UserOut:
+def _user_out(user: dict, cost_summary: dict | None = None) -> UserOut:
+    cost_summary = cost_summary or {}
     return UserOut(
         user_id=int(user["user_id"]),
         email=str(user["email"]),
         is_admin=bool(user.get("is_admin")),
         is_active=bool(user.get("is_active")),
         created_at=user.get("created_at"),
+        llm_estimated_cost_usd=float(cost_summary.get("llm_estimated_cost_usd") or 0),
+        deep_research_estimated_cost_usd=float(
+            cost_summary.get("deep_research_estimated_cost_usd") or 0
+        ),
+        total_estimated_cost_usd=float(cost_summary.get("total_estimated_cost_usd") or 0),
+        missing_estimated_cost_count=int(
+            cost_summary.get("missing_estimated_cost_count") or 0
+        ),
     )
+
+
+def _user_cost_summary(user_id: int) -> dict | None:
+    return db.list_user_estimated_cost_summaries().get(int(user_id))
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -103,7 +120,11 @@ async def me(user: auth_core.AuthUser = Depends(auth_core.get_current_user)) -> 
 async def list_users(
     _admin: auth_core.AuthUser = Depends(auth_core.require_admin),
 ) -> list[UserOut]:
-    return [_user_out(user) for user in db.list_users()]
+    cost_summaries = db.list_user_estimated_cost_summaries()
+    return [
+        _user_out(user, cost_summaries.get(int(user["user_id"])))
+        for user in db.list_users()
+    ]
 
 
 @router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -129,7 +150,7 @@ async def create_user(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _user_out(user)
+    return _user_out(user, _user_cost_summary(int(user["user_id"])))
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
@@ -163,4 +184,4 @@ async def update_user(
         is_admin=payload.is_admin,
     )
     assert user is not None
-    return _user_out(user)
+    return _user_out(user, _user_cost_summary(int(user["user_id"])))

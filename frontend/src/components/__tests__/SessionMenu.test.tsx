@@ -694,6 +694,76 @@ describe("SessionMenu", () => {
     expect(apiClient.cancelRunAll).toHaveBeenCalledWith("run-123");
   });
 
+  it("shows a login-expired message when run-all cancellation returns 401", async () => {
+    (apiClient.cancelRunAll as jest.Mock).mockRejectedValue(
+      Object.assign(new Error("Not authenticated"), { status: 401 })
+    );
+    const user = await openMenu();
+
+    await user.click(
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
+    );
+    const cancelButton = await screen.findByRole("button", {
+      name: /"schritte" abbrechen/i,
+    });
+    await user.click(cancelButton);
+
+    expect(
+      await screen.findByText(
+        "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Abbruch konnte nicht angefordert werden.")
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a login-expired message when run-all status polling returns 401", async () => {
+    let eventSource:
+      | {
+          addEventListener: jest.Mock;
+          close: jest.Mock;
+          onerror?: (() => void) | null;
+        }
+      | undefined;
+    (global as typeof globalThis & { EventSource: jest.Mock }).EventSource = jest
+      .fn()
+      .mockImplementation(() => {
+        eventSource = {
+          addEventListener: jest.fn(),
+          close: jest.fn(),
+          onerror: null,
+        };
+        return eventSource;
+      });
+    (apiClient.getRunAllStatus as jest.Mock).mockRejectedValue(
+      Object.assign(new Error("Not authenticated"), { status: 401 })
+    );
+    const user = await openMenu();
+
+    await user.click(
+      screen.getByRole("button", { name: /verbleibende schritte ausführen/i })
+    );
+    await waitFor(() => expect(eventSource).toBeDefined());
+
+    act(() => {
+      eventSource?.onerror?.();
+    });
+
+    await waitFor(
+      () => expect(apiClient.getRunAllStatus).toHaveBeenCalledWith("run-123"),
+      { timeout: 2500 }
+    );
+    expect(
+      await screen.findByText(
+        "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Status der Schritte konnte nicht aktualisiert werden/)
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the current run-all step name in the cancel button", async () => {
     const listeners: Record<string, EventListener> = {};
     (global as typeof globalThis & { EventSource: jest.Mock }).EventSource = jest

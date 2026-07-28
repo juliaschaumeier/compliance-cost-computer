@@ -75,6 +75,43 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return typeof message === "string" && message.trim() ? message : fallback;
 }
 
+function formatEstimatedUsd(value: number | null | undefined): string {
+  const amount = Number.isFinite(value) ? Number(value) : 0;
+  const absAmount = Math.abs(amount);
+  const fractionDigits = absAmount > 0 && absAmount < 0.01 ? 4 : 2;
+  return `${new Intl.NumberFormat("de-DE", {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(amount)} $`;
+}
+
+function CostEstimatePill({ user }: { user: AdminUser }) {
+  const missingCount = Math.max(0, Number(user.missing_estimated_cost_count ?? 0));
+  const amount = formatEstimatedUsd(user.total_estimated_cost_usd);
+  const isIncomplete = missingCount > 0;
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 ${
+        isIncomplete
+          ? "border-slate-200 bg-slate-100 text-slate-600"
+          : "ccc-status-success"
+      }`}
+      title={
+        isIncomplete
+          ? `${missingCount} Kostenschätzung(en) fehlen.`
+          : "Alle Kostenschätzungen vorhanden."
+      }
+      aria-label={
+        isIncomplete
+          ? `Geschätzte Nutzungskosten ${amount}, unvollständig`
+          : `Geschätzte Nutzungskosten ${amount}, vollständig`
+      }
+    >
+      {amount}
+    </span>
+  );
+}
+
 export default function AdminUsersPanel({ open, onClose }: AdminUsersPanelProps) {
   const isMounted = useMounted();
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -324,6 +361,7 @@ export default function AdminUsersPanel({ open, onClose }: AdminUsersPanelProps)
                             >
                               {user.is_active ? "Aktiv" : "Inaktiv"}
                             </span>
+                            <CostEstimatePill user={user} />
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">

@@ -1,4 +1,5 @@
 import {
+  formatSessionStartError,
   prepareSessionDocuments,
   prepareSessionDocumentsAndStartSummary,
 } from "@/lib/sessionStart";
@@ -18,7 +19,12 @@ jest.mock("@/lib/api", () => ({
 }));
 
 jest.mock("@/lib/errorFeedback", () => ({
+  AUTH_EXPIRED_MESSAGE:
+    "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an.",
   formatActionErrorMessage: jest.fn(() => "formatted"),
+  isUnauthorizedApiError: jest.fn((error: unknown) => {
+    return (error as { status?: unknown })?.status === 401;
+  }),
   logClientError: jest.fn(),
 }));
 
@@ -140,6 +146,16 @@ describe("sessionStart", () => {
       "Bitte Namenskonflikt fuer den Gesetzesvorschlag zuerst im Upload-Bereich aufloesen."
     );
     expect(mockUploadRegulation).not.toHaveBeenCalled();
+  });
+
+  it("formats expired login errors clearly", () => {
+    const message = formatSessionStartError(
+      Object.assign(new Error("Not authenticated"), { status: 401 })
+    );
+
+    expect(message).toBe(
+      "Ihre Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an."
+    );
   });
 
   it("starts summary after preparing session documents", async () => {

@@ -74,6 +74,89 @@ def test_admin_can_provision_user_who_can_then_login(client):
     assert _login(client, "member@example.com", "memberpass").status_code == 200
 
 
+def test_admin_user_list_includes_estimated_cost_totals(client):
+    _login(client, TEST_USER_EMAIL, TEST_USER_PASSWORD)
+    member_response = client.post(
+        "/auth/users",
+        json={"email": "member@example.com", "password": "memberpass"},
+    )
+    assert member_response.status_code == 201
+
+    admin = db.get_user_by_email(TEST_USER_EMAIL)
+    member = db.get_user_by_email("member@example.com")
+    assert admin is not None
+    assert member is not None
+    _admin_app_id, admin_session_id = db.create_owned_session(
+        int(admin["user_id"]), "test-model"
+    )
+    _member_app_id, member_session_id = db.create_owned_session(
+        int(member["user_id"]), "test-model"
+    )
+
+    db.insert_llm_answer(
+        admin_session_id,
+        "summary",
+        "test-model",
+        "{}",
+        estimated_cost_usd=0.25,
+    )
+    db.insert_llm_answer(
+        admin_session_id,
+        "regulations_identification",
+        "test-model",
+        "{}",
+        estimated_cost_usd=None,
+    )
+    admin_research_run_id = db.create_deep_research_run(
+        session_id=admin_session_id,
+        purpose="case_group_metrics",
+        agent="gemini-test",
+        status="running",
+    )
+    db.update_deep_research_run(
+        admin_research_run_id,
+        status="parsed",
+        estimated_cost_usd=0.75,
+    )
+    missing_research_run_id = db.create_deep_research_run(
+        session_id=admin_session_id,
+        purpose="case_group_metrics",
+        agent="gemini-test",
+        status="failed",
+    )
+    db.update_deep_research_run(missing_research_run_id, status="failed")
+    db.insert_llm_answer(
+        member_session_id,
+        "summary",
+        "test-model",
+        "{}",
+        estimated_cost_usd=2.0,
+    )
+
+    users = client.get("/auth/users")
+    assert users.status_code == 200
+    by_email = {user["email"]: user for user in users.json()}
+
+    assert by_email[TEST_USER_EMAIL]["llm_estimated_cost_usd"] == pytest.approx(0.25)
+    assert by_email[TEST_USER_EMAIL]["deep_research_estimated_cost_usd"] == pytest.approx(
+        0.75
+    )
+    assert by_email[TEST_USER_EMAIL]["total_estimated_cost_usd"] == pytest.approx(1.0)
+    assert by_email[TEST_USER_EMAIL]["missing_estimated_cost_count"] == 2
+    assert by_email["member@example.com"]["total_estimated_cost_usd"] == pytest.approx(
+        2.0
+    )
+    assert by_email["member@example.com"]["missing_estimated_cost_count"] == 0
+
+    update = client.patch(
+        f"/auth/users/{member['user_id']}",
+        json={"is_active": False},
+    )
+    assert update.status_code == 200
+    assert update.json()["total_estimated_cost_usd"] == pytest.approx(2.0)
+    assert update.json()["missing_estimated_cost_count"] == 0
+
+
 def test_duplicate_email_is_rejected(client):
     _login(client, TEST_USER_EMAIL, TEST_USER_PASSWORD)
     assert client.post(
