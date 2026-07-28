@@ -4,7 +4,6 @@ import { useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { buildLlmRequestOptions } from "@/lib/api";
-import { formatAuthAwareFallbackMessage } from "@/lib/errorFeedback";
 import { getVisibleFailedStepStatus } from "@/lib/sessionStatus";
 import { useCancellableStepRun } from "@/lib/useCancellableStepRun";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
@@ -73,13 +72,8 @@ export default function CaseGroupsPanel() {
     setStatus(null);
     try {
       await stepRun.start();
-    } catch (error) {
-      setStatus(
-        formatAuthAwareFallbackMessage(
-          "Fallgruppen konnten nicht gestartet werden.",
-          error
-        )
-      );
+    } catch {
+      setStatus("Fallgruppen konnten nicht gestartet werden.");
     }
   };
   const handleButtonClick = async () => {

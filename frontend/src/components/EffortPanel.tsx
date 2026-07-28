@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 
 import { useApp } from "@/contexts/AppContext";
 import { buildLlmRequestOptions } from "@/lib/api";
-import { formatAuthAwareFallbackMessage } from "@/lib/errorFeedback";
 import { getVisibleFailedStepStatus } from "@/lib/sessionStatus";
 import { useCancellableStepRun } from "@/lib/useCancellableStepRun";
 import { useRunAllStepCancel } from "@/lib/useRunAllStepCancel";
@@ -84,13 +83,8 @@ export default function EffortPanel() {
     setStatus(null);
     try {
       await stepRun.start();
-    } catch (error) {
-      setStatus(
-        formatAuthAwareFallbackMessage(
-          "Aufwand konnte nicht gestartet werden.",
-          error
-        )
-      );
+    } catch {
+      setStatus("Aufwand konnte nicht gestartet werden.");
     }
   };
 

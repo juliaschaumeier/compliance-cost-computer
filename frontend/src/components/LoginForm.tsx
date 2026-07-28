@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { type ApiClientError } from "@/lib/api";
 
 export default function LoginForm() {
-  const { login } = useAuth();
+  const { authNotice, clearAuthNotice, login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +17,7 @@ export default function LoginForm() {
     if (isSubmitting) {
       return;
     }
+    clearAuthNotice();
     setError(null);
     setIsSubmitting(true);
     try {
@@ -78,6 +79,11 @@ export default function LoginForm() {
             />
           </label>
         </div>
+        {authNotice && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            {authNotice}
+          </div>
+        )}
         {error && (
           <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
             {error}

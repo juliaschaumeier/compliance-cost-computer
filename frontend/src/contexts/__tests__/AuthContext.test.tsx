@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { apiClient } from "@/lib/api";
+import { AUTH_EXPIRED_MESSAGE, notifyAuthExpired } from "@/lib/authExpired";
 
 jest.mock("@/lib/api", () => ({
   apiClient: {
@@ -13,11 +14,12 @@ jest.mock("@/lib/api", () => ({
 }));
 
 function AuthProbe() {
-  const { user, loading, login, logout } = useAuth();
+  const { authNotice, user, loading, login, logout } = useAuth();
   return (
     <div>
       <div data-testid="loading">{loading ? "loading" : "ready"}</div>
       <div data-testid="user">{user ? user.email : "anon"}</div>
+      <div data-testid="auth-notice">{authNotice || "none"}</div>
       <button onClick={() => login("ada@example.com", "secret123")}>login</button>
       <button onClick={() => logout()}>logout</button>
     </div>
@@ -64,6 +66,35 @@ describe("AuthContext", () => {
       expect(screen.getByTestId("loading").textContent).toBe("ready");
     });
     expect(screen.getByTestId("user").textContent).toBe("anon");
+    expect(screen.getByTestId("auth-notice").textContent).toBe("none");
+  });
+
+  it("clears the user and records a notice when auth expires after bootstrap", async () => {
+    (apiClient.getMe as jest.Mock).mockResolvedValue({
+      user_id: 1,
+      email: "ada@example.com",
+      is_admin: false,
+    });
+
+    render(
+      <AuthProvider>
+        <AuthProbe />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("user").textContent).toBe("ada@example.com");
+    });
+
+    act(() => {
+      notifyAuthExpired();
+    });
+
+    expect(screen.getByTestId("loading").textContent).toBe("ready");
+    expect(screen.getByTestId("user").textContent).toBe("anon");
+    expect(screen.getByTestId("auth-notice").textContent).toBe(
+      AUTH_EXPIRED_MESSAGE
+    );
   });
 
   it("logs in and refreshes the user", async () => {

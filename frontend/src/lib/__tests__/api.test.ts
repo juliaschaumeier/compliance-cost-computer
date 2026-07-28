@@ -1,4 +1,5 @@
 import { apiClient } from "@/lib/api";
+import { subscribeAuthExpired } from "@/lib/authExpired";
 
 describe("apiClient.rebuildTiles", () => {
   const fetchMock = jest.fn();
@@ -187,5 +188,68 @@ describe("apiClient session key forwarding", () => {
         }),
       })
     );
+  });
+});
+
+describe("apiClient auth expiry notification", () => {
+  const fetchMock = jest.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  it("notifies auth expiry for non-bootstrap 401 responses", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeAuthExpired(listener);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => JSON.stringify({ detail: "Not authenticated" }),
+    });
+
+    await expect(apiClient.createSession("gpt-5.4")).rejects.toMatchObject({
+      status: 401,
+    });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it("does not notify auth expiry for failed login attempts", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeAuthExpired(listener);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => JSON.stringify({ detail: "Invalid credentials" }),
+    });
+
+    await expect(
+      apiClient.login("ada@example.com", "wrong")
+    ).rejects.toMatchObject({
+      status: 401,
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it("does not notify auth expiry for initial getMe 401 responses", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeAuthExpired(listener);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => JSON.stringify({ detail: "Not authenticated" }),
+    });
+
+    await expect(apiClient.getMe()).rejects.toMatchObject({ status: 401 });
+
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
   });
 });

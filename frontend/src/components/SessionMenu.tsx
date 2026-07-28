@@ -11,12 +11,7 @@ import {
   type ComplianceTextUserEditPolicy,
 } from "@/lib/api";
 import { hasPlausibleApiKey } from "@/lib/apiKeys";
-import {
-  AUTH_EXPIRED_MESSAGE,
-  formatAuthAwareFallbackMessage,
-  isUnauthorizedApiError,
-  logClientError,
-} from "@/lib/errorFeedback";
+import { logClientError } from "@/lib/errorFeedback";
 import { createAuthenticatedEventSource } from "@/lib/eventSource";
 import { useAnchoredPopoverPosition } from "@/lib/useAnchoredPopoverPosition";
 import {
@@ -368,9 +363,6 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
 
     if (lower.includes("failed to fetch")) {
       return "Backend ist nicht erreichbar. Bitte Backend prüfen und erneut versuchen.";
-    }
-    if (isUnauthorizedApiError(error)) {
-      return AUTH_EXPIRED_MESSAGE;
     }
     if (status) {
       return `Status der Schritte konnte nicht aktualisiert werden (HTTP ${status}).`;
@@ -1025,12 +1017,7 @@ export default function SessionMenu({ variant = "default" }: SessionMenuProps) {
         const err = error as Error;
         isCancellingRunRef.current = false;
         setIsCancellingRun(false);
-        setStatus(
-          formatAuthAwareFallbackMessage(
-            err?.message || "Abbruch konnte nicht angefordert werden.",
-            error
-          )
-        );
+        setStatus(err?.message || "Abbruch konnte nicht angefordert werden.");
       }
       return;
     }

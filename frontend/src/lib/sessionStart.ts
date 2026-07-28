@@ -1,10 +1,5 @@
 import { ApiClientError, apiClient, buildLlmRequestOptions } from "@/lib/api";
-import {
-  AUTH_EXPIRED_MESSAGE,
-  formatActionErrorMessage,
-  isUnauthorizedApiError,
-  logClientError,
-} from "@/lib/errorFeedback";
+import { formatActionErrorMessage, logClientError } from "@/lib/errorFeedback";
 import type { Model } from "@/types";
 
 type UploadTarget = "current" | "proposed";
@@ -179,9 +174,6 @@ export async function prepareSessionDocumentsAndStartSummary(
 }
 
 export function formatSessionStartError(error: unknown): string {
-  if (isUnauthorizedApiError(error)) {
-    return AUTH_EXPIRED_MESSAGE;
-  }
   if (error instanceof Error && error.message) {
     return error.message;
   }
