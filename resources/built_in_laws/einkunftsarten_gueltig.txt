@@ -1,0 +1,100 @@
+§ 2 EStG Abs. 1
+Ursprüngliche Fassung
+
+1Der Einkommensteuer unterliegen
+1. Einkünfte aus Land- und Forstwirtschaft,
+2. Einkünfte aus Gewerbebetrieb,
+3. Einkünfte aus selbständiger Arbeit,
+4. Einkünfte aus nichtselbständiger Arbeit,
+5. Einkünfte aus Kapitalvermögen,
+6. Einkünfte aus Vermietung und Verpachtung,
+7. sonstige Einkünfte im Sinne des § 22,
+die der Steuerpflichtige während seiner unbeschränkten Einkommensteuerpflicht oder als inländische Einkünfte während seiner beschränkten Einkommensteuerpflicht erzielt. 2Zu welcher Einkunftsart die Einkünfte im einzelnen Fall gehören, bestimmt sich nach den §§ 13 bis 24.
+
+§ 2 EStG Abs. 2
+Ursprüngliche Fassung
+
+1Einkünfte sind
+1. bei Land- und Forstwirtschaft, Gewerbebetrieb und selbständiger Arbeit der Gewinn (§§ 4 bis 7k und 13a),
+2. bei den anderen Einkunftsarten der Überschuss der Einnahmen über die Werbungskosten (§§ 8 bis 9a).
+2Bei Einkünften aus Kapitalvermögen tritt § 20 Absatz 9 vorbehaltlich der Regelung in § 32d Absatz 2 an die Stelle der §§ 9 und 9a.
+
+§ 15 EStG Überschrift
+Ursprüngliche Fassung
+
+§ 15 Einkünfte aus Gewerbebetrieb
+
+§ 15 EStG Abs. 1
+Ursprüngliche Fassung
+
+1Einkünfte aus Gewerbebetrieb sind
+1. Einkünfte aus gewerblichen Unternehmen. 2Dazu gehören auch Einkünfte aus gewerblicher Bodenbewirtschaftung, z. B. aus Bergbauunternehmen und aus Betrieben zur Gewinnung von Torf, Steinen und Erden, soweit sie nicht land- oder forstwirtschaftliche Nebenbetriebe sind;
+2. die Gewinnanteile der Gesellschafter einer Offenen Handelsgesellschaft, einer Kommanditgesellschaft und einer anderen Gesellschaft, bei der der Gesellschafter als Unternehmer (Mitunternehmer) des Betriebs anzusehen ist, und die Vergütungen, die der Gesellschafter von der Gesellschaft für seine Tätigkeit im Dienst der Gesellschaft oder für die Hingabe von Darlehen oder für die Überlassung von Wirtschaftsgütern bezogen hat. 2Der mittelbar über eine oder mehrere Personengesellschaften beteiligte Gesellschafter steht dem unmittelbar beteiligten Gesellschafter gleich; er ist als Mitunternehmer des Betriebs der Gesellschaft anzusehen, an der er mittelbar beteiligt ist, wenn er und die Personengesellschaften, die seine Beteiligung vermitteln, jeweils als Mitunternehmer der Betriebe der Personengesellschaften anzusehen sind, an denen sie unmittelbar beteiligt sind;
+3. die Gewinnanteile der persönlich haftenden Gesellschafter einer Kommanditgesellschaft auf Aktien, soweit sie nicht auf Anteile am Grundkapital entfallen, und die Vergütungen, die der persönlich haftende Gesellschafter von der Gesellschaft für seine Tätigkeit im Dienst der Gesellschaft oder für die Hingabe von Darlehen oder für die Überlassung von Wirtschaftsgütern bezogen hat.
+2Satz 1 Nummer 2 und 3 gilt auch für Vergütungen, die als nachträgliche Einkünfte (§ 24 Nummer 2) bezogen werden. 3§ 13 Absatz 5 gilt entsprechend, sofern das Grundstück im Veranlagungszeitraum 1986 zu einem gewerblichen Betriebsvermögen gehört hat.
+
+§ 15 EStG Abs. 2
+Ursprüngliche Fassung
+
+1Eine selbständige nachhaltige Betätigung, die mit der Absicht, Gewinn zu erzielen, unternommen wird und sich als Beteiligung am allgemeinen wirtschaftlichen Verkehr darstellt, ist Gewerbebetrieb, wenn die Betätigung weder als Ausübung von Land- und Forstwirtschaft noch als Ausübung eines freien Berufs noch als eine andere selbständige Arbeit anzusehen ist. 2Eine durch die Betätigung verursachte Minderung der Steuern vom Einkommen ist kein Gewinn im Sinne des Satzes 1. 3Ein Gewerbebetrieb liegt, wenn seine Voraussetzungen im Übrigen gegeben sind, auch dann vor, wenn die Gewinnerzielungsabsicht nur ein Nebenzweck ist.
+
+§ 13 EStG Abs. 1
+Ursprüngliche Fassung
+
+(1) Einkünfte aus Land- und Forstwirtschaft sind 1. Einkünfte aus dem Betrieb von Landwirtschaft, Forstwirtschaft, Weinbau, Gartenbau und aus allen Betrieben, die Pflanzen und Pflanzenteile mit Hilfe der Naturkräfte gewinnen. [...]
+
+§ 13a EStG Abs. 1
+Ursprüngliche Fassung
+
+(1) 1Der Gewinn eines Betriebs der Land- und Forstwirtschaft ist nach den Absätzen 3 bis 7 zu ermitteln, wenn [...]
+
+§ 14 EStG Abs. 1
+Ursprüngliche Fassung
+
+(1) 1Zu den Einkünften aus Land- und Forstwirtschaft gehören auch Gewinne, die bei der Veräußerung eines land- oder forstwirtschaftlichen Betriebs oder Teilbetriebs oder eines Anteils an einem land- und forstwirtschaftlichen Betriebsvermögen erzielt werden. 2§ 16 gilt entsprechend mit der Maßgabe, dass der Freibetrag nach § 16 Absatz 4 nicht zu gewähren ist, wenn der Freibetrag nach § 14a Absatz 1 gewährt wird.
+
+§ 14a EStG Abs. 1
+Ursprüngliche Fassung
+
+(1) 1Veräußert ein Steuerpflichtiger nach dem 30. Juni 1970 und vor dem 1. Januar 2001 seinen land- und forstwirtschaftlichen Betrieb im Ganzen, so wird auf Antrag der Veräußerungsgewinn (§ 16 Absatz 2) nur insoweit zur Einkommensteuer herangezogen, als er den Betrag von 150 000 Deutsche Mark übersteigt, wenn [...]
+
+§ 18 EStG Abs. 1
+Ursprüngliche Fassung
+
+(1) Einkünfte aus selbständiger Arbeit sind 1. Einkünfte aus freiberuflicher Tätigkeit. [...]
+
+§ 16 EStG Abs. 1
+Ursprüngliche Fassung
+
+(1) 1Zu den Einkünften aus Gewerbebetrieb gehören auch Gewinne, die erzielt werden bei der Veräußerung
+1. des ganzen Gewerbebetriebs oder eines Teilbetriebs. 2Als Teilbetrieb gilt auch die das gesamte Nennkapital umfassende Beteiligung an einer Kapitalgesellschaft; im Fall der Auflösung der Kapitalgesellschaft ist § 17 Absatz 4 Satz 3 sinngemäß anzuwenden;
+2. des gesamten Anteils eines Gesellschafters, der als Unternehmer (Mitunternehmer) des Betriebs anzusehen ist (§ 15 Absatz 1 Satz 1 Nummer 2);
+3. des gesamten Anteils eines persönlich haftenden Gesellschafters einer Kommanditgesellschaft auf Aktien (§ 15 Absatz 1 Satz 1 Nummer 3).
+2Gewinne, die bei der Veräußerung eines Teils eines Anteils im Sinne von Satz 1 Nummer 2 oder 3 erzielt werden, sind laufende Gewinne.
+
+§ 4 EStG Abs. 3
+Ursprüngliche Fassung
+
+1Steuerpflichtige, die nicht auf Grund gesetzlicher Vorschriften verpflichtet sind, Bücher zu führen und regelmäßig Abschlüsse zu machen, und die auch keine Bücher führen und keine Abschlüsse machen, können als Gewinn den Überschuss der Betriebseinnahmen über die Betriebsausgaben ansetzen. (...)
+
+§ 4a EStG Abs. 1
+Ursprüngliche Fassung
+
+(1) 1Bei Land- und Forstwirten und bei Gewerbetreibenden ist der Gewinn nach dem Wirtschaftsjahr zu ermitteln. 2Wirtschaftsjahr ist
+1. bei Land- und Forstwirten der Zeitraum vom 1. Juli bis zum 30. Juni. 2Durch Rechtsverordnung kann für einzelne Gruppen von Land- und Forstwirten ein anderer Zeitraum bestimmt werden, wenn das aus wirtschaftlichen Gründen erforderlich ist;
+2. bei Gewerbetreibenden, deren Firma im Handelsregister eingetragen ist, der Zeitraum, für den sie regelmäßig Abschlüsse machen. 2Die Umstellung des Wirtschaftsjahres auf einen vom Kalenderjahr abweichenden Zeitraum ist steuerlich nur wirksam, wenn sie im Einvernehmen mit dem Finanzamt vorgenommen wird;
+3. bei anderen Gewerbetreibenden das Kalenderjahr. 2Sind sie gleichzeitig buchführende Land- und Forstwirte, so können sie mit Zustimmung des Finanzamts den nach Nummer 1 maßgebenden Zeitraum als Wirtschaftsjahr für den Gewerbebetrieb bestimmen, wenn sie für den Gewerbebetrieb Bücher führen und für diesen Zeitraum regelmäßig Abschlüsse machen.
+
+§ 34 EStG Abs. 2
+Ursprüngliche Fassung
+
+Als außerordentliche Einkünfte kommen nur in Betracht:
+1. Veräußerungsgewinne im Sinne der §§ 14, 14a Absatz 1, der §§ 16 und 18 Absatz 3 mit Ausnahme des steuerpflichtigen Teils der Veräußerungsgewinne, die nach § 3 Nummer 40 Buchstabe b in Verbindung mit § 3c Absatz 2 teilweise steuerbefreit sind;
+2. Entschädigungen im Sinne des § 24 Nummer 1;
+3. Nutzungsvergütungen und Zinsen im Sinne des § 24 Nummer 3, soweit sie für einen Zeitraum von mehr als drei Jahren nachgezahlt werden;
+4. Vergütungen für mehrjährige Tätigkeiten; mehrjährig ist eine Tätigkeit, soweit sie sich über mindestens zwei Veranlagungszeiträume erstreckt und einen Zeitraum von mehr als zwölf Monaten umfasst.
+
+§ 6b EStG Abs. 4
+Ursprüngliche Fassung
+
+(...) 2Der Abzug nach den Absätzen 1 und 3 ist bei Wirtschaftsgütern, die zu einem land- und forstwirtschaftlichen Betrieb gehören oder der selbständigen Arbeit dienen, nicht zulässig, wenn der Gewinn bei der Veräußerung von Wirtschaftsgütern eines Gewerbebetriebs entstanden ist.
