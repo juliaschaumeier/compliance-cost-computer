@@ -104,6 +104,10 @@ describe("HeaderHelpPopover", () => {
 
     const content = screen.getByTestId("header-help-content");
     expect(content).toHaveClass("overflow-y-auto");
-    expect(screen.getByRole("button", { name: "Demo-Session laden" })).toBeInTheDocument();
+    const demoVideoLink = screen.getByRole("link", {
+      name: "Demo-Video ansehen",
+    });
+    expect(demoVideoLink).toHaveAttribute("href", "/demo/index.html");
+    expect(demoVideoLink).toHaveAttribute("target", "_blank");
   });
 });
