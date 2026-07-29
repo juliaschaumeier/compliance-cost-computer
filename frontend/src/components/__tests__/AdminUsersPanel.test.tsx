@@ -28,6 +28,8 @@ describe("AdminUsersPanel", () => {
         is_admin: true,
         is_active: true,
         created_at: "2026-07-17",
+        total_estimated_cost_usd: 1.23,
+        missing_estimated_cost_count: 0,
       },
       {
         user_id: 2,
@@ -35,6 +37,8 @@ describe("AdminUsersPanel", () => {
         is_admin: false,
         is_active: true,
         created_at: "2026-07-17",
+        total_estimated_cost_usd: 0.0042,
+        missing_estimated_cost_count: 1,
       },
     ]);
     mockCreateUser.mockResolvedValue({
@@ -92,5 +96,30 @@ describe("AdminUsersPanel", () => {
       })
     );
     expect(await screen.findByText("Passwort zurückgesetzt.")).toBeInTheDocument();
+  });
+
+  it("shows compact user cost pills and marks incomplete estimates", async () => {
+    render(<AdminUsersPanel open onClose={jest.fn()} />);
+
+    const admin = await screen.findByText("admin@example.com");
+    const adminRow = admin.closest("li");
+    expect(adminRow).not.toBeNull();
+    const adminCost = within(adminRow as HTMLElement).getByText("1,23 $");
+    expect(adminCost).toHaveClass("ccc-status-success");
+    expect(adminCost).toHaveAttribute(
+      "aria-label",
+      "Geschätzte Nutzungskosten 1,23 $, vollständig"
+    );
+
+    const member = await screen.findByText("member@example.com");
+    const memberRow = member.closest("li");
+    expect(memberRow).not.toBeNull();
+    const memberCost = within(memberRow as HTMLElement).getByText("0,0042 $");
+    expect(memberCost).toHaveClass("bg-slate-100");
+    expect(memberCost).toHaveClass("text-slate-600");
+    expect(memberCost).toHaveAttribute(
+      "aria-label",
+      "Geschätzte Nutzungskosten 0,0042 $, unvollständig"
+    );
   });
 });

@@ -25,6 +25,7 @@ import {
   AdminUser,
 } from "@/types";
 import { hasPlausibleApiKey } from "@/lib/apiKeys";
+import { notifyAuthExpired } from "@/lib/authExpired";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
@@ -165,6 +166,7 @@ type ApiErrorOptions = {
   includeStatusLabel?: boolean;
   prefixWithFallback?: boolean;
   preferDetailErrorField?: boolean;
+  suppressAuthExpiredEvent?: boolean;
 };
 
 async function throwApiClientErrorFromResponse(
@@ -187,6 +189,10 @@ async function throwApiClientErrorFromResponse(
       : baseMessage
     : detailMessage || baseMessage;
 
+  if (response.status === 401 && !options.suppressAuthExpiredEvent) {
+    notifyAuthExpired();
+  }
+
   throw createApiClientError(message, {
     status: response.status,
     details: detail ?? errorBody ?? rawText,
@@ -205,7 +211,9 @@ export const apiClient = {
       body: JSON.stringify({ email, password }),
     });
     if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Anmeldung fehlgeschlagen");
+      await throwApiClientErrorFromResponse(response, "Anmeldung fehlgeschlagen", {
+        suppressAuthExpiredEvent: true,
+      });
     }
     return response.json();
   },
@@ -223,7 +231,9 @@ export const apiClient = {
       credentials: "include",
     });
     if (!response.ok) {
-      await throwApiClientErrorFromResponse(response, "Failed to load current user");
+      await throwApiClientErrorFromResponse(response, "Failed to load current user", {
+        suppressAuthExpiredEvent: true,
+      });
     }
     return response.json();
   },

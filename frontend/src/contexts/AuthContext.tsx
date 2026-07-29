@@ -9,6 +9,7 @@ import React, {
 } from "react";
 
 import { apiClient, type ApiClientError } from "@/lib/api";
+import { AUTH_EXPIRED_MESSAGE, subscribeAuthExpired } from "@/lib/authExpired";
 import type { AuthUser } from "@/types";
 
 interface AuthContextValue {
@@ -17,6 +18,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  authNotice: string | null;
+  clearAuthNotice: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -28,6 +31,7 @@ function isUnauthorized(error: unknown): boolean {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -39,6 +43,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setUser(null);
     }
+  }, []);
+
+  useEffect(() => {
+    return subscribeAuthExpired(() => {
+      setUser(null);
+      setLoading(false);
+      setAuthNotice(AUTH_EXPIRED_MESSAGE);
+    });
   }, []);
 
   useEffect(() => {
@@ -58,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       await apiClient.login(email, password);
+      setAuthNotice(null);
       await refresh();
     },
     [refresh]
@@ -78,8 +91,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const clearAuthNotice = useCallback(() => {
+    setAuthNotice(null);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        logout,
+        refresh,
+        authNotice,
+        clearAuthNotice,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
