@@ -2602,6 +2602,89 @@ def _compliance_export_filename(app_session_id: str, user_edit_policy: str) -> s
     return f"ccc_vorblatt_begruendung_{app_session_id}{suffix}.pdf"
 
 
+def _compliance_deep_research_prompt_fragments(context) -> dict[str, str]:
+    report_text = str(context.optional_deep_research_report_text or "").strip()
+    if not context.deep_research_report_text_included or not report_text:
+        return {
+            "deep_research_source_row": "",
+            "deep_research_hierarchy_rules": "",
+            "deep_research_footnote_guidance": "",
+            "deep_research_consistency_check": "",
+            "deep_research_input_block": "",
+            "deep_research_forbidden_term": "",
+        }
+
+    fallback_note = ""
+    if str(context.deep_research_excerpt_status or "").startswith(
+        "full_report_fallback"
+    ):
+        fallback_note = (
+            "\n\nDer uebergebene Berichtstext kann ein Fallback-Auszug sein, "
+            "weil die Standardgliederung nicht zuverlaessig erkannt wurde. "
+            "Nutze ihn trotzdem aktiv fuer Kontext, Herleitung, Plausibilisierung "
+            "und Quellenbeschreibung; uebernimm daraus aber keine abweichenden "
+            "Zahlen."
+        )
+    hierarchy_rules = (
+        "\n\nDer Deep-Research-Bericht ist zur Erlaeuterung, Herleitung und "
+        "Plausibilisierung der in der JSON-Struktur enthaltenen Fallzahlen und "
+        "Annahmen zu verwenden. Er darf ausserdem fuer Kontext, Unsicherheiten "
+        "und Quellenbeschreibung genutzt werden.\n\n"
+        "Nutze den Deep-Research-Bericht aktiv fuer Herleitungstexte und "
+        "Fussnoten: Wenn zu einer Fallzahl, Haeufigkeit, Annahme oder Quelle im "
+        "Deep-Research-Bericht eine Begruendung vorhanden ist, soll diese in die "
+        "jeweilige Fussnote oder Erlaeuterung einfliessen. Uebernimm dabei keine "
+        "abweichenden Zahlen, sondern verwende die DR-Information zur Begruendung "
+        "der in der JSON-Struktur enthaltenen Werte.\n\n"
+        "Zahlen oder Annahmen aus dem Deep-Research-Bericht duerfen fuer die "
+        "Berechnung nur verwendet werden, wenn sie in der JSON-Struktur enthalten "
+        "sind oder dort ausdruecklich referenziert werden.\n\n"
+        "Weichen JSON-Struktur und Deep-Research-Bericht voneinander ab, ist fuer "
+        "die Berechnung die JSON-Struktur massgeblich. Die Abweichung ist mit "
+        "`[Pruefbedarf: ...]` zu kennzeichnen."
+        f"{fallback_note}"
+    )
+    footnote_guidance = (
+        "Fuer Fallzahlen und Haeufigkeiten soll die Fussnote, soweit vorhanden, "
+        "Begruendungen, Quellen und Unsicherheiten aus dem "
+        "Deep-Research-Bericht aufgreifen. Bleibe knapp, aber vermeide rein "
+        "generische Formulierungen, wenn der Deep-Research-Bericht konkrete "
+        "Herleitungen enthaelt."
+    )
+    return {
+        "deep_research_source_row": (
+            "\n| Deep-Research-Bericht | Herleitung, Plausibilisierung, "
+            "Kontext, Unsicherheiten und Quellenbeschreibung |"
+        ),
+        "deep_research_hierarchy_rules": hierarchy_rules,
+        "deep_research_footnote_guidance": footnote_guidance,
+        "deep_research_consistency_check": (
+            "\n1. Wurden vorhandene Deep-Research-Begruendungen und Quellen fuer "
+            "Fallzahlen und Annahmen in den Erlaeuterungen aufgegriffen, ohne "
+            "den Bericht als abweichende Berechnungsgrundlage zu verwenden?"
+        ),
+        "deep_research_input_block": (
+            "<deep_research_report>\n"
+            f"{report_text}\n"
+            "</deep_research_report>"
+        ),
+        "deep_research_forbidden_term": "`Deep Research Report`, ",
+    }
+
+
+def _deep_research_report_text_included_from_status(status: object) -> bool:
+    return str(status or "") in {
+        "rich_report_extracted",
+        "inferred_rich_report_from_start",
+        "extracted",
+        "inferred_part_1_from_start",
+        "full_report_fallback_before_json",
+        "full_report_fallback_before_json_truncated",
+        "full_report_fallback",
+        "full_report_fallback_truncated",
+    }
+
+
 async def _render_research_report_pdf_async(*args, **kwargs) -> bytes:
     return await asyncio.to_thread(_render_research_report_pdf, *args, **kwargs)
 
@@ -2614,6 +2697,7 @@ def _compliance_metadata_for_pdf(
     source_snapshot_sha256: str,
     used_deep_research: bool,
     deep_research_excerpt_status: str | None,
+    deep_research_report_text_included: bool,
     has_user_edits: bool,
     used_user_edits: bool,
     reused: bool,
@@ -2629,14 +2713,30 @@ def _compliance_metadata_for_pdf(
         user_edit_status = "Beteiligte EA-Werte wurden mit Anwenderbearbeitungen exportiert."
     else:
         user_edit_status = "Anwenderbearbeitungen waren vorhanden."
-    if used_deep_research:
+    if not used_deep_research:
+        dr_status = "Nicht verwendet"
+    elif not deep_research_report_text_included:
         dr_status = (
-            "Verwendet"
-            if deep_research_excerpt_status == "extracted"
-            else "Verwendet; Berichtsteile 1/2 konnten nicht extrahiert werden"
+            "DR-Fallzahlen aus Sessiondaten verwendet; "
+            "kein DR-Berichtstext eingebunden"
         )
     else:
-        dr_status = "Nicht verwendet"
+        dr_status_by_excerpt = {
+            "rich_report_extracted": "DR-Berichtstext verwendet",
+            "inferred_rich_report_from_start": "DR-Berichtstext verwendet",
+            "extracted": "DR-Berichtstext verwendet",
+            "inferred_part_1_from_start": "DR-Berichtstext verwendet",
+            "full_report_fallback_before_json": "Vollständiger DR-Bericht verwendet",
+            "full_report_fallback_before_json_truncated": (
+                "Gekürzter vollständiger DR-Bericht verwendet"
+            ),
+            "full_report_fallback": "Vollständiger DR-Bericht verwendet",
+            "full_report_fallback_truncated": "Gekürzter vollständiger DR-Bericht verwendet",
+        }
+        dr_status = dr_status_by_excerpt.get(
+            str(deep_research_excerpt_status or ""),
+            "DR-Bericht verwendet",
+        )
     return {
         "app_session_id": app_session_id,
         "generated_at": created_at or datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -2701,15 +2801,18 @@ async def export_compliance_text(
             stored_metadata = {}
         if not isinstance(stored_metadata, dict):
             stored_metadata = {}
+        cached_report_status = stored_metadata.get("deep_research_report_excerpt_status")
+        cached_report_text_included = bool(
+            stored_metadata.get("deep_research_report_text_included")
+        ) or _deep_research_report_text_included_from_status(cached_report_status)
         pdf_metadata = _compliance_metadata_for_pdf(
             app_session_id=payload.app_session_id,
             model=cached.get("model"),
             provider=cached.get("provider"),
             source_snapshot_sha256=str(cached["source_snapshot_sha256"]),
             used_deep_research=bool(cached.get("used_deep_research")),
-            deep_research_excerpt_status=stored_metadata.get(
-                "deep_research_report_excerpt_status"
-            ),
+            deep_research_excerpt_status=cached_report_status,
+            deep_research_report_text_included=cached_report_text_included,
             has_user_edits=bool(stored_metadata.get("has_user_edits")),
             used_user_edits=bool(cached.get("used_user_edits")),
             reused=True,
@@ -2737,6 +2840,7 @@ async def export_compliance_text(
     }
     for index in range(len(context.examples) + 1, 4):
         example_values[f"beispiel_{index}"] = ""
+    deep_research_prompt_values = _compliance_deep_research_prompt_fragments(context)
     prompt = render_prompt(
         PromptId.COMPLIANCE_TEXT_EXTRACTION,
         session_id=session_id,
@@ -2745,7 +2849,7 @@ async def export_compliance_text(
             ensure_ascii=False,
             indent=2,
         ),
-        optional_deep_research_part_1_2=context.optional_deep_research_part_1_2,
+        **deep_research_prompt_values,
         **example_values,
     )
     answer_id, llm_result = await query_and_stage_or_http(
@@ -2799,6 +2903,7 @@ async def export_compliance_text(
         source_snapshot_sha256=context.snapshot_sha256,
         used_deep_research=context.used_deep_research,
         deep_research_excerpt_status=context.deep_research_excerpt_status,
+        deep_research_report_text_included=context.deep_research_report_text_included,
         has_user_edits=context.has_user_edits,
         used_user_edits=context.used_user_edits,
         reused=False,

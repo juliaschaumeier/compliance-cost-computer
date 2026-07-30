@@ -1,10 +1,14 @@
 from backend.core import compliance_text_export, db
 from backend.core.compliance_text_export import (
+    DEEP_RESEARCH_FULL_REPORT_FALLBACK_MAX_CHARS,
+    DEEP_RESEARCH_REPORT_BEFORE_JSON_FALLBACK_MAX_CHARS,
     USER_EDIT_REJECT,
     USER_EDIT_USE,
     build_compliance_export_context,
     extract_deep_research_part_1_2,
+    extract_deep_research_report_text_for_export,
 )
+from backend.core.prompts import PromptId, render_prompt
 from backend.core.deep_research_cases import CASE_GROUP_RESEARCH_PURPOSE
 from backend.core.llm_service import LlmResult
 from backend.core.models import Tile
@@ -304,6 +308,42 @@ def test_extract_deep_research_part_1_2_returns_fallback_on_missing_parts():
     assert status == "fallback"
 
 
+def test_extract_deep_research_report_text_infers_rich_report_from_start():
+    excerpt, status = extract_deep_research_report_text_for_export(
+        "Bericht startet ohne Teil-1-Ueberschrift.\n\n"
+        "## Teil 2: Begruendungszeilen\n\n"
+        "Zeilen\n\n"
+        "## Teil 3: Tabelle\n\n"
+        "Nicht mehr Teil des Exzerpts"
+    )
+
+    assert status == "inferred_rich_report_from_start"
+    assert excerpt.startswith("Bericht startet ohne Teil-1-Ueberschrift.")
+    assert "## Teil 2: Begruendungszeilen" not in excerpt
+    assert "## Teil 3" not in excerpt
+
+
+def test_extract_deep_research_report_text_accepts_english_part_headings():
+    excerpt, status = extract_deep_research_report_text_for_export(
+        "# Part 1: Report\n\nText\n\n## Part 2: Lines\n\nDetails\n\n## Part 3: JSON\n\n{}"
+    )
+
+    assert status == "rich_report_extracted"
+    assert "Part 1" in excerpt
+    assert "Part 2" not in excerpt
+    assert "Part 3" not in excerpt
+
+
+def test_extract_deep_research_part_1_2_rejects_generic_numbered_sections():
+    excerpt, status = extract_deep_research_part_1_2(
+        "# 1. Vollstaendiger Forschungsbericht\n\nText\n\n"
+        "## 2. Kurze Begruendungszeilen\n\nZeilen"
+    )
+
+    assert excerpt == ""
+    assert status == "fallback"
+
+
 def test_build_compliance_context_marks_user_edited_case_values(test_client):
     seeded = _seed_completed_session("COMP-EDIT")
     updated, missing = db.bulk_update_case_group_edits(
@@ -472,6 +512,55 @@ def test_compliance_text_export_returns_pdf_and_reuses_cached_artifact(
     assert row_count == 1
 
 
+def test_compliance_text_export_prompt_uses_deep_research_report_text_conditionally(
+    test_client,
+    monkeypatch,
+):
+    seeded = _seed_completed_session("COMP-PDF-DR")
+    run_id = db.create_deep_research_run(
+        session_id=seeded["session_id"],
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent="test-agent",
+        status="completed",
+    )
+    db.update_deep_research_run(
+        run_id,
+        report_md=(
+            "## Teil 1: Vollstaendiger Forschungsbericht\n\n"
+            "Konkrete Herleitung aus dem Bericht.\n\n"
+            "## Teil 2: Kurze Begruendungszeilen\n\n"
+            "Soll nicht in den Exportprompt.\n\n"
+            "```json\n{}"
+        ),
+        result_json={"fallgruppen": []},
+    )
+    prompts = []
+
+    async def fake_query_llm(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        return LlmResult(text="# E. Erfüllungsaufwand\n\nExporttext")
+
+    monkeypatch.setattr(sessions_router, "query_llm", fake_query_llm)
+
+    response = test_client.post(
+        "/sessions/compliance-text-export",
+        json={
+            "app_session_id": "COMP-PDF-DR",
+            "model": "test-model",
+            "provider": "openai",
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(prompts) == 1
+    prompt = prompts[0]
+    assert "| Deep-Research-Bericht |" in prompt
+    assert "Nutze den Deep-Research-Bericht aktiv" in prompt
+    assert "Konkrete Herleitung aus dem Bericht." in prompt
+    assert "Soll nicht in den Exportprompt." not in prompt
+    assert "<deep_research_report>" in prompt
+
+
 def test_compliance_text_export_reuses_visible_state_policy_cache(
     test_client,
     monkeypatch,
@@ -594,11 +683,262 @@ def test_compliance_context_includes_deep_research_json_and_excerpt_status(test_
 
     assert context.deep_research_run_id == run_id
     assert context.used_deep_research is True
-    assert context.deep_research_excerpt_status == "extracted"
-    assert "Teil 1" in context.optional_deep_research_part_1_2
+    assert context.deep_research_excerpt_status == "rich_report_extracted"
+    assert context.deep_research_report_text_included is True
+    assert "Teil 1" in context.optional_deep_research_report_text
+    assert "Teil 2" not in context.optional_deep_research_report_text
     assert context.snapshot["deep_research"]["result_json"] == {
         "prozesse": [{"prozess_id": 1}]
     }
+    assert context.snapshot["deep_research"]["report_text_included"] is True
+
+
+def test_compliance_context_uses_full_deep_research_report_fallback(test_client):
+    seeded = _seed_completed_session("COMP-DR-FALLBACK")
+    run_id = db.create_deep_research_run(
+        session_id=seeded["session_id"],
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent="test-agent",
+        status="completed",
+    )
+    db.update_deep_research_run(
+        run_id,
+        report_md="# Forschungsbericht\n\nKeine Teil-Ueberschriften, aber nutzbarer Kontext.",
+        result_json={"fallgruppen": []},
+    )
+
+    context = build_compliance_export_context(
+        app_session_id="COMP-DR-FALLBACK",
+        session_id=seeded["session_id"],
+    )
+
+    assert context.deep_research_excerpt_status == "full_report_fallback"
+    assert context.deep_research_report_text_included is True
+    assert "vollstaendige Bericht darf nur fuer Kontext" in (
+        context.optional_deep_research_report_text
+    )
+    assert "Keine Teil-Ueberschriften" in context.optional_deep_research_report_text
+    assert context.snapshot["deep_research"]["report_excerpt_status"] == (
+        "full_report_fallback"
+    )
+
+
+def test_compliance_context_fallback_uses_prose_before_json_without_cap(
+    test_client,
+    monkeypatch,
+):
+    assert DEEP_RESEARCH_REPORT_BEFORE_JSON_FALLBACK_MAX_CHARS == 75_000
+    seeded = _seed_completed_session("COMP-DR-FALLBACK-JSON")
+    run_id = db.create_deep_research_run(
+        session_id=seeded["session_id"],
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent="test-agent",
+        status="completed",
+    )
+    monkeypatch.setattr(
+        compliance_text_export,
+        "DEEP_RESEARCH_FULL_REPORT_FALLBACK_MAX_CHARS",
+        20,
+    )
+    monkeypatch.setattr(
+        compliance_text_export,
+        "DEEP_RESEARCH_REPORT_BEFORE_JSON_FALLBACK_MAX_CHARS",
+        200,
+    )
+    db.update_deep_research_run(
+        run_id,
+        report_md=(
+            "# Forschungsbericht\n\n"
+            "Dieser Berichtsteil ist deutlich laenger als die Test-Kappung.\n\n"
+            "```json\n"
+            '{"fallgruppen": []}\n'
+            "```"
+        ),
+        result_json={"fallgruppen": []},
+    )
+
+    context = build_compliance_export_context(
+        app_session_id="COMP-DR-FALLBACK-JSON",
+        session_id=seeded["session_id"],
+    )
+
+    assert context.deep_research_excerpt_status == "full_report_fallback_before_json"
+    assert context.deep_research_report_text_included is True
+    assert "deutlich laenger als die Test-Kappung" in (
+        context.optional_deep_research_report_text
+    )
+    assert "```json" not in context.optional_deep_research_report_text
+
+
+def test_compliance_context_truncates_prose_before_json_fallback(
+    test_client,
+    monkeypatch,
+):
+    seeded = _seed_completed_session("COMP-DR-FALLBACK-JSON-LONG")
+    run_id = db.create_deep_research_run(
+        session_id=seeded["session_id"],
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent="test-agent",
+        status="completed",
+    )
+    monkeypatch.setattr(
+        compliance_text_export,
+        "DEEP_RESEARCH_REPORT_BEFORE_JSON_FALLBACK_MAX_CHARS",
+        20,
+    )
+    db.update_deep_research_run(
+        run_id,
+        report_md=("B" * 30) + "\n\n```json\n{}\n```",
+        result_json={},
+    )
+
+    context = build_compliance_export_context(
+        app_session_id="COMP-DR-FALLBACK-JSON-LONG",
+        session_id=seeded["session_id"],
+    )
+
+    assert context.deep_research_excerpt_status == (
+        "full_report_fallback_before_json_truncated"
+    )
+    assert context.optional_deep_research_report_text.endswith("B" * 20)
+    assert "```json" not in context.optional_deep_research_report_text
+
+
+def test_compliance_context_truncates_full_deep_research_report_fallback(
+    test_client,
+    monkeypatch,
+):
+    assert DEEP_RESEARCH_FULL_REPORT_FALLBACK_MAX_CHARS == 50_000
+    seeded = _seed_completed_session("COMP-DR-FALLBACK-LONG")
+    run_id = db.create_deep_research_run(
+        session_id=seeded["session_id"],
+        purpose=CASE_GROUP_RESEARCH_PURPOSE,
+        agent="test-agent",
+        status="completed",
+    )
+    monkeypatch.setattr(
+        compliance_text_export,
+        "DEEP_RESEARCH_FULL_REPORT_FALLBACK_MAX_CHARS",
+        20,
+    )
+    db.update_deep_research_run(
+        run_id,
+        report_md="A" * 30,
+        result_json={},
+    )
+
+    context = build_compliance_export_context(
+        app_session_id="COMP-DR-FALLBACK-LONG",
+        session_id=seeded["session_id"],
+    )
+
+    assert context.deep_research_excerpt_status == "full_report_fallback_truncated"
+    assert context.optional_deep_research_report_text.endswith("A" * 20)
+
+
+def test_compliance_pdf_metadata_describes_deep_research_fallback_statuses():
+    base_kwargs = {
+        "app_session_id": "COMP-META",
+        "model": "test-model",
+        "provider": "test-provider",
+        "source_snapshot_sha256": "abcdef123456",
+        "used_deep_research": True,
+        "has_user_edits": False,
+        "used_user_edits": False,
+        "reused": False,
+    }
+
+    extracted = sessions_router._compliance_metadata_for_pdf(
+        **base_kwargs,
+        deep_research_excerpt_status="inferred_rich_report_from_start",
+        deep_research_report_text_included=True,
+    )
+    fallback = sessions_router._compliance_metadata_for_pdf(
+        **base_kwargs,
+        deep_research_excerpt_status="full_report_fallback",
+        deep_research_report_text_included=True,
+    )
+    truncated = sessions_router._compliance_metadata_for_pdf(
+        **base_kwargs,
+        deep_research_excerpt_status="full_report_fallback_truncated",
+        deep_research_report_text_included=True,
+    )
+    before_json_truncated = sessions_router._compliance_metadata_for_pdf(
+        **base_kwargs,
+        deep_research_excerpt_status="full_report_fallback_before_json_truncated",
+        deep_research_report_text_included=True,
+    )
+    no_report_text = sessions_router._compliance_metadata_for_pdf(
+        **base_kwargs,
+        deep_research_excerpt_status="not_available",
+        deep_research_report_text_included=False,
+    )
+
+    assert extracted["deep_research_status"] == "DR-Berichtstext verwendet"
+    assert fallback["deep_research_status"] == "Vollständiger DR-Bericht verwendet"
+    assert truncated["deep_research_status"] == (
+        "Gekürzter vollständiger DR-Bericht verwendet"
+    )
+    assert before_json_truncated["deep_research_status"] == (
+        "Gekürzter vollständiger DR-Bericht verwendet"
+    )
+    assert no_report_text["deep_research_status"] == (
+        "DR-Fallzahlen aus Sessiondaten verwendet; kein DR-Berichtstext eingebunden"
+    )
+
+
+def test_compliance_text_prompt_omits_deep_research_fragments_without_report_text():
+    prompt = render_prompt(
+        PromptId.COMPLIANCE_TEXT_EXTRACTION,
+        law_summary="Kurzfassung",
+        consolidated_session_json="{}",
+        beispiel_1="",
+        beispiel_2="",
+        beispiel_3="",
+    )
+
+    assert "Deep Research" not in prompt
+    assert "Deep-Research" not in prompt
+    assert "<deep_research_report>" not in prompt
+    assert (
+        "| JSON-Struktur | Verbindliche Quelle für Berechnung, Vorgabenstruktur "
+        "und finale Werte |\n"
+        "| Gesetzeszusammenfassung | Kontext zum Regelungsvorhaben; "
+        "keine Berechnungsquelle |"
+    ) in prompt
+
+
+def test_compliance_text_prompt_includes_deep_research_guidance_when_report_text_exists():
+    prompt = render_prompt(
+        PromptId.COMPLIANCE_TEXT_EXTRACTION,
+        law_summary="Kurzfassung",
+        consolidated_session_json="{}",
+        deep_research_source_row=(
+            "| Deep-Research-Bericht | Herleitung, Plausibilisierung und Quellen |"
+        ),
+        deep_research_hierarchy_rules=(
+            "Nutze den Deep-Research-Bericht aktiv fuer Herleitungstexte."
+        ),
+        deep_research_footnote_guidance=(
+            "Fussnoten sollen Deep-Research-Begruendungen aufgreifen."
+        ),
+        deep_research_consistency_check=(
+            "1. Wurden vorhandene Deep-Research-Begruendungen aufgegriffen?"
+        ),
+        deep_research_input_block=(
+            "<deep_research_report>\n## Teil 1: Bericht\nText\n</deep_research_report>"
+        ),
+        deep_research_forbidden_term="`Deep Research Report`, ",
+        beispiel_1="",
+        beispiel_2="",
+        beispiel_3="",
+    )
+
+    assert "| Deep-Research-Bericht |" in prompt
+    assert "Nutze den Deep-Research-Bericht aktiv" in prompt
+    assert "Fussnoten sollen Deep-Research-Begruendungen" in prompt
+    assert "<deep_research_report>" in prompt
+    assert "`Deep Research Report`, `Prompt`" in prompt
 
 
 def test_export_attaches_vorgaben_per_process():

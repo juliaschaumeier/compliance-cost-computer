@@ -135,3 +135,54 @@ def test_build_deep_research_cases_prompt_combines_addressees(monkeypatch):
 
     assert '"gesetz_gueltig": "Geltendes Recht"' in prompt_with_laws
     assert '"gesetz_vorschlag": "Vorgeschlagenes Recht"' in prompt_with_laws
+
+
+def test_deep_research_cases_prompt_requires_exact_part_headings(monkeypatch):
+    session = {
+        "session_id": 123,
+        "app_session_id": "PROMPT-HEADINGS",
+        "law_diff_title": "Testtitel",
+        "law_diff_blurb": "Kurzhinweis",
+        "law_diff_summary": "Zusammenfassung",
+    }
+
+    monkeypatch.setattr(
+        prompt_builder.db,
+        "get_session_by_app_id",
+        lambda app_session_id: session if app_session_id == "PROMPT-HEADINGS" else None,
+    )
+    monkeypatch.setattr(
+        prompt_builder.db,
+        "get_session_law_texts",
+        lambda session_id: ("Geltendes Recht", "Vorgeschlagenes Recht"),
+    )
+    monkeypatch.setattr(
+        prompt_builder.db,
+        "list_regulations_for_session",
+        lambda session_id: [],
+    )
+    monkeypatch.setattr(
+        prompt_builder.db,
+        "list_regulations_for_session_and_addressee",
+        lambda session_id, norm_addressee: [],
+    )
+    monkeypatch.setattr(
+        prompt_builder.db,
+        "list_processes_for_session_and_addressee",
+        lambda session_id, norm_addressee: [],
+    )
+    monkeypatch.setattr(
+        prompt_builder.db,
+        "list_case_groups_for_session_and_addressee",
+        lambda session_id, norm_addressee: [],
+    )
+
+    prompt = prompt_builder.build_deep_research_cases_prompt(
+        app_session_id="PROMPT-HEADINGS"
+    )
+
+    assert "## Teil 1: Vollstaendiger Forschungsbericht" in prompt
+    assert "## Teil 2: Kurze Begruendungszeilen je Fallgruppe und Kennzahl" in prompt
+    assert "## Teil 3: Tabellarische Kurzfassung und JSON-Block" in prompt
+    assert "Benennen Sie diese Ueberschriften nicht um" in prompt
+    assert "nummerierte Alternativen wie `1.` oder `I.`" in prompt
