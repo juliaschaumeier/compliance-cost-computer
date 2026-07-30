@@ -279,7 +279,6 @@ def test_compliance_text_prompt_protects_user_edited_values_from_deep_research_e
         PromptId.COMPLIANCE_TEXT_EXTRACTION,
         law_summary="Kurzfassung",
         consolidated_session_json="{}",
-        optional_deep_research_part_1_2="Kein Deep-Research-Bericht vorhanden.",
         beispiel_1="",
         beispiel_2="",
         beispiel_3="",
@@ -287,8 +286,8 @@ def test_compliance_text_prompt_protects_user_edited_values_from_deep_research_e
 
     assert 'value_source: "user_edited"' in prompt
     assert 'value_source: "derived_from_user_edited"' in prompt
-    assert "nicht als Begründung oder Konfidenzquelle" in prompt
-    assert "Deep Research Report" in prompt
+    assert "abweichender Kontext mit Prüfbedarf" in prompt
+    assert "Deep Research Report" not in prompt
 
 
 def test_compliance_text_prompt_avoids_repeated_general_scope_warnings():
@@ -296,7 +295,6 @@ def test_compliance_text_prompt_avoids_repeated_general_scope_warnings():
         PromptId.COMPLIANCE_TEXT_EXTRACTION,
         law_summary="Kurzfassung",
         consolidated_session_json="{}",
-        optional_deep_research_part_1_2="Kein Deep-Research-Bericht vorhanden.",
         beispiel_1="",
         beispiel_2="",
         beispiel_3="",
@@ -317,7 +315,6 @@ def test_compliance_text_prompt_keeps_detailed_labels_out_of_headings():
         PromptId.COMPLIANCE_TEXT_EXTRACTION,
         law_summary="Kurzfassung",
         consolidated_session_json="{}",
-        optional_deep_research_part_1_2="Kein Deep-Research-Bericht vorhanden.",
         beispiel_1="",
         beispiel_2="",
         beispiel_3="",

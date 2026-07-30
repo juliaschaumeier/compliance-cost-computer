@@ -215,9 +215,11 @@ Was Sie nicht tun sollen
 
 Verbindliche Ausgabeanforderungen
 
-Die Antwort soll aus drei Teilen bestehen.
+Die Antwort soll aus drei Teilen mit exakt diesen Markdown-Ueberschriften bestehen.
+Benennen Sie diese Ueberschriften nicht um, lassen Sie sie nicht weg und ersetzen
+Sie sie nicht durch nummerierte Alternativen wie `1.` oder `I.`.
 
-Teil 1: Vollstaendiger Forschungsbericht
+## Teil 1: Vollstaendiger Forschungsbericht
 
 Erstellen Sie einen ausfuehrlichen Bericht mit:
 
@@ -230,7 +232,7 @@ Erstellen Sie einen ausfuehrlichen Bericht mit:
 7. Unsicherheiten, Alternativannahmen und plausible Spannbreiten,
 8. Quellenliste mit URLs.
 
-Teil 2: Kurze Begruendungszeilen je Fallgruppe und Kennzahl
+## Teil 2: Kurze Begruendungszeilen je Fallgruppe und Kennzahl
 
 Fuegen Sie danach fuer jede Fallgruppe genau eine kurze Zeile je Kennzahl ein. Jede Zeile muss einen echten numerischen Wert und einen kurzen Begruendungssatz enthalten.
 Der Begruendungssatz soll in sich verstaendlich sein und, soweit die Quelle fuer die Einordnung wichtig ist, die relevante Quelle oder URL direkt in der Zeile nennen.
@@ -242,7 +244,7 @@ Format:
 - `normadressat=<normadressat>; fallgruppen_id=<id>; anzahl_betroffene_vorschlag = <zahl>, weil <kurze Begruendung>`
 - `normadressat=<normadressat>; fallgruppen_id=<id>; haeufigkeit_pro_jahr_vorschlag = <zahl>, weil <kurze Begruendung>`
 
-Teil 3: Tabellarische Kurzfassung und JSON-Block
+## Teil 3: Tabellarische Kurzfassung und JSON-Block
 
 Fuegen Sie eine kurze Tabelle mit folgenden Spalten hinzu:
 

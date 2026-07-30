@@ -51,6 +51,10 @@ _STEP_TIME_KEYS = tuple(
     key for key in _STEP_EDITABLE_KEYS if not key.startswith("expenses")
 )
 _PAY_RATE_KEYS = ("a", "b", "c", "d")
+# Last-resort guard when neither Teil/Part headings nor a JSON boundary are usable.
+DEEP_RESEARCH_FULL_REPORT_FALLBACK_MAX_CHARS = 50_000
+# Guard for reports with a recognizable JSON boundary; normal reports should fit below this.
+DEEP_RESEARCH_REPORT_BEFORE_JSON_FALLBACK_MAX_CHARS = 75_000
 
 
 @dataclass(frozen=True)
@@ -58,9 +62,10 @@ class ComplianceExportContext:
     snapshot: dict[str, Any]
     snapshot_json: str
     snapshot_sha256: str
-    optional_deep_research_part_1_2: str
+    optional_deep_research_report_text: str
     deep_research_run_id: int | None
     deep_research_excerpt_status: str
+    deep_research_report_text_included: bool
     used_deep_research: bool
     has_user_edits: bool
     used_user_edits: bool
@@ -119,15 +124,17 @@ def build_compliance_export_context(
         "used_deep_research": research["used_deep_research"],
         "deep_research_run_id": research["deep_research_run_id"],
         "deep_research_report_excerpt_status": research["excerpt_status"],
+        "deep_research_report_text_included": research["report_text_included"],
         "example_slugs": [example.get("slug") for example in examples],
     }
     return ComplianceExportContext(
         snapshot=snapshot,
         snapshot_json=snapshot_json,
         snapshot_sha256=snapshot_sha256,
-        optional_deep_research_part_1_2=research["excerpt"],
+        optional_deep_research_report_text=research["excerpt"],
         deep_research_run_id=research["deep_research_run_id"],
         deep_research_excerpt_status=research["excerpt_status"],
+        deep_research_report_text_included=research["report_text_included"],
         used_deep_research=research["used_deep_research"],
         has_user_edits=has_user_edits,
         used_user_edits=used_user_edits and has_user_edits,
@@ -589,53 +596,130 @@ def _build_deep_research_context(session_id: int) -> dict[str, Any]:
             "deep_research_run_id": None,
             "excerpt_status": "not_available",
             "excerpt": "Kein Deep-Research-Bericht vorhanden.",
+            "report_text_included": False,
             "snapshot": {"available": False},
         }
     result_json = _parse_json_object(run.get("result_json"))
     report_md = str(run.get("report_md") or "")
-    excerpt, excerpt_status = extract_deep_research_part_1_2(report_md)
-    if excerpt_status != "extracted":
-        excerpt = (
-            "[Deep-Research-Bericht vorhanden, aber Teil 1 und Teil 2 konnten "
-            "nicht zuverlässig extrahiert werden. Verwenden Sie ausschließlich "
-            "deep_research_runs.result_json und die konsolidierte Session-JSON.]"
-        )
+    excerpt, excerpt_status = extract_deep_research_report_text_for_export(report_md)
+    if excerpt_status == "fallback":
+        excerpt, excerpt_status = _build_full_report_fallback(report_md)
+    report_text_included = excerpt_status not in {"fallback", "not_available"}
     research_run_id = int(run["research_run_id"])
     return {
         "used_deep_research": True,
         "deep_research_run_id": research_run_id,
         "excerpt_status": excerpt_status,
         "excerpt": excerpt,
+        "report_text_included": report_text_included,
         "snapshot": {
             "available": True,
             "research_run_id": research_run_id,
             "status": run.get("status"),
             "result_json": result_json,
             "report_excerpt_status": excerpt_status,
+            "report_text_included": report_text_included,
         },
     }
 
 
-def extract_deep_research_part_1_2(report_md: str) -> tuple[str, str]:
+def extract_deep_research_report_text_for_export(report_md: str) -> tuple[str, str]:
     text = report_md.strip()
     if not text:
         return "", "fallback"
-    part1 = re.search(r"(?im)^#{0,6}\s*Teil\s+1\b.*$", text)
-    part2 = re.search(r"(?im)^#{0,6}\s*Teil\s+2\b.*$", text)
-    if not part1 or not part2:
-        return "", "fallback"
-    stop_candidates = [
-        match.start()
-        for pattern in (
-            r"(?im)^#{0,6}\s*Teil\s+3\b.*$",
-            r"(?im)^```json\s*$",
+    part1 = _find_deep_research_part_heading(text, 1)
+    part2 = _find_deep_research_part_heading(text, 2)
+    if part1:
+        start = part1.start()
+        end = _first_report_boundary_after(
+            text,
+            start,
+            part_numbers=(2, 3),
         )
-        if (match := re.search(pattern, text[part2.start() :]))
+        excerpt = text[start:end].strip()
+        return (excerpt, "rich_report_extracted") if excerpt else ("", "fallback")
+    if part2:
+        start = 0
+        end = part2.start()
+        excerpt = text[start:end].strip()
+        return (
+            (excerpt, "inferred_rich_report_from_start")
+            if excerpt
+            else ("", "fallback")
+        )
+    return "", "fallback"
+
+
+def extract_deep_research_part_1_2(report_md: str) -> tuple[str, str]:
+    return extract_deep_research_report_text_for_export(report_md)
+
+
+def _first_report_boundary_after(
+    report_md: str,
+    start: int,
+    *,
+    part_numbers: tuple[int, ...],
+) -> int:
+    patterns = [
+        rf"(?im)^#{{0,6}}\s*(?:Teil|Part)\s+{part_number}\b.*$"
+        for part_number in part_numbers
     ]
-    end = len(text)
-    if stop_candidates:
-        end = part2.start() + min(stop_candidates)
-    return text[part1.start() : end].strip(), "extracted"
+    patterns.append(r"(?im)^```json\s*$")
+    candidates = [
+        start + match.start()
+        for pattern in patterns
+        if (match := re.search(pattern, report_md[start:]))
+    ]
+    return min(candidates) if candidates else len(report_md)
+
+
+def _find_deep_research_part_heading(
+    report_md: str,
+    part_number: int,
+) -> re.Match[str] | None:
+    return re.search(
+        rf"(?im)^#{{0,6}}\s*(?:Teil|Part)\s+{part_number}\b.*$",
+        report_md,
+    )
+
+
+def _build_full_report_fallback(report_md: str) -> tuple[str, str]:
+    text = report_md.strip()
+    if not text:
+        return "Kein Deep-Research-Bericht vorhanden.", "fallback"
+    json_block = re.search(r"(?im)^```json\s*$", text)
+    if json_block:
+        prose = text[: json_block.start()].strip()
+        if prose:
+            status = "full_report_fallback_before_json"
+            if len(prose) > DEEP_RESEARCH_REPORT_BEFORE_JSON_FALLBACK_MAX_CHARS:
+                prose = prose[
+                    :DEEP_RESEARCH_REPORT_BEFORE_JSON_FALLBACK_MAX_CHARS
+                ].rstrip()
+                status = "full_report_fallback_before_json_truncated"
+            note = (
+                "[Hinweis: Der gegliederte Berichtsteil konnte aus dem "
+                "Deep-Research-Bericht nicht zuverlaessig extrahiert werden. "
+                "Der folgende Berichtsteil vor dem JSON-Block darf nur fuer Kontext, "
+                "Herleitung, Plausibilisierung und Quellenbeschreibung verwendet "
+                "werden. "
+                "Fuer Zahlen und Berechnungen ist die konsolidierte "
+                "Session-JSON massgeblich.]\n\n"
+            )
+            return note + prose, status
+    status = "full_report_fallback"
+    if len(text) > DEEP_RESEARCH_FULL_REPORT_FALLBACK_MAX_CHARS:
+        text = text[:DEEP_RESEARCH_FULL_REPORT_FALLBACK_MAX_CHARS].rstrip()
+        status = "full_report_fallback_truncated"
+    note = (
+        "[Hinweis: Der gegliederte Berichtsteil konnte aus dem "
+        "Deep-Research-Bericht nicht zuverlaessig extrahiert werden. "
+        "Der folgende vollstaendige Bericht "
+        "darf nur fuer Kontext, Herleitung, Plausibilisierung und "
+        "Quellenbeschreibung verwendet werden. Fuer Zahlen und Berechnungen "
+        "ist die konsolidierte Session-JSON massgeblich.]\n\n"
+    )
+    return note + text, status
 
 
 def _parse_json_object(value: Any) -> dict[str, Any]:

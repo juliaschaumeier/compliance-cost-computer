@@ -945,15 +945,14 @@ Die Darstellung ist gegenüber dem vollständigen Leitfaden bewusst eingegrenzt:
 
 | Quelle | Rolle |
 |---|---|
-| JSON-Struktur | Verbindliche Quelle für Berechnung, Vorgabenstruktur und finale Werte |
-| Deep Research Report | Herleitung, Plausibilisierung, Kontext und Quellenbeschreibung |
+| JSON-Struktur | Verbindliche Quelle für Berechnung, Vorgabenstruktur und finale Werte |{deep_research_source_row}
 | Gesetzeszusammenfassung | Kontext zum Regelungsvorhaben; keine Berechnungsquelle |
 | Beispiele | Stil, Tonalität, Tabellenlogik und Gliederung |
 | Diese Arbeitsanweisung | Methodische Vorgaben zu Struktur, Detaillierungsgrad und Darstellung |
 
 Es gilt folgende Quellenhierarchie:
 
-1. Die JSON-Struktur ist verbindlich für:
+Die JSON-Struktur ist verbindlich für:
   - Vorgaben,
   - Normen und Fundstellen,
   - Normadressaten,
@@ -963,19 +962,13 @@ Es gilt folgende Quellenhierarchie:
   - Sachkosten,
   - Informationspflichten,
   - EU-Bezug,
-  - Summen und Salden.
+  - Summen und Salden.{deep_research_hierarchy_rules}
 
-2. Der Deep Research Report ist, soweit vorhanden, zur Erläuterung, Herleitung und Plausibilisierung der in der JSON-Struktur enthaltenen Fallzahlen und Annahmen zu verwenden. Er darf außerdem für Kontext und Quellenbeschreibung genutzt werden.
+Bei Kennzahlen mit `value_source: "user_edited"` oder `value_source: "derived_from_user_edited"` dürfen frühere Herleitungen, Quellen oder Konfidenzangaben zu überschriebenen Werten höchstens als abweichender Kontext mit Prüfbedarf erwähnt werden. In diesem Fall ist die Zahl als anwenderseitig festgelegt darzustellen.
 
-3. Zahlen oder Annahmen aus dem Deep Research Report dürfen für die Berechnung nur verwendet werden, wenn sie in der JSON-Struktur enthalten sind oder dort ausdrücklich referenziert werden.
+Die Gesetzeszusammenfassung dient dem Verständnis des Regelungsvorhabens und darf für die allgemeine Beschreibung des Vorhabens genutzt werden. Sie ist keine Quelle für Berechnungswerte, Fallzahlen, Zeitaufwände, Lohnsätze, Sachkosten oder Summen.
 
-4. Bei Kennzahlen mit `value_source: "user_edited"` oder `value_source: "derived_from_user_edited"` darf der Deep Research Report nicht als Begründung oder Konfidenzquelle für die konkrete Zahl verwendet werden. In diesem Fall ist die Zahl als anwenderseitig festgelegt darzustellen; frühere Herleitungen, Quellen oder Konfidenzangaben zu überschriebenen Werten dürfen höchstens als abweichender Kontext mit Prüfbedarf erwähnt werden.
-
-5. Weichen JSON-Struktur und Deep Research Report voneinander ab, ist für die Berechnung die JSON-Struktur maßgeblich. Die Abweichung ist mit `[Prüfbedarf: ...]` zu kennzeichnen.
-
-6. Die Gesetzeszusammenfassung dient dem Verständnis des Regelungsvorhabens und darf für die allgemeine Beschreibung des Vorhabens genutzt werden. Sie ist keine Quelle für Berechnungswerte, Fallzahlen, Zeitaufwände, Lohnsätze, Sachkosten oder Summen.
-
-7. Die Beispiele dienen ausschließlich als Stil- und Strukturvorbilder. Fallbezogene Zahlen, Annahmen, Normen, Fallgruppen oder Sachverhalte aus den Beispielen dürfen nicht übernommen werden. Übliche gesetzesbegründungstypische Standardformulierungen dürfen verwendet werden.
+Die Beispiele dienen ausschließlich als Stil- und Strukturvorbilder. Fallbezogene Zahlen, Annahmen, Normen, Fallgruppen oder Sachverhalte aus den Beispielen dürfen nicht übernommen werden. Übliche gesetzesbegründungstypische Standardformulierungen dürfen verwendet werden.
 
 ---
 
@@ -999,7 +992,7 @@ Es gilt folgende Quellenhierarchie:
 - Die Summen im Vorblatt müssen mit den Summen in der Begründung übereinstimmen.
 - Wenn eigene Kontrollrechnungen von den JSON-Summen abweichen, ändere die JSON-Werte nicht, sondern setze einen Prüfbedarfshinweis.
 - Nimm keine rechtlichen Bewertungen vor, die nicht aus den Eingaben folgen.
-- Verwende im finalen Entwurf nicht die Begriffe `JSON`, `Deep Research Report`, `Prompt`, `Arbeitsauftrag` oder `Beispiel`. Formuliere stattdessen wie in einer Gesetzesbegründung.
+- Verwende im finalen Entwurf nicht die Begriffe `JSON`, {deep_research_forbidden_term}`Prompt`, `Arbeitsauftrag` oder `Beispiel`. Formuliere stattdessen wie in einer Gesetzesbegründung.
 
 ---
 
@@ -1156,6 +1149,8 @@ Vorgaben mit einer jährlichen Be- oder Entlastung von betragsmäßig höchstens
 
 Unter jeder Tabelle folgen knappe Fußnoten je Zeile im Format `**Zu lfd. Nr. X:** [Bezeichnung]; [Norm]` mit der Herleitung von Fallzahl, Zeitaufwand, Lohnsatz und Sachkosten. Überfrachte die Tabellenzellen nicht; die Herleitung gehört in die Fußnote. Gib je Vorgabe an, dass es sich um jährlichen Erfüllungsaufwand handelt, sowie den EU-Bezug, sofern die JSON-Struktur hierzu Angaben enthält.
 
+{deep_research_footnote_guidance}
+
 Fallgruppen dürfen nicht als eigene Markdown-Überschriften und nicht als fett gesetzte Abschnittstitel ausgegeben werden.
 
 ---
@@ -1194,19 +1189,18 @@ Wenn die JSON-Struktur eine zusätzliche sinnvolle Differenzierung enthält, etw
 Prüfe vor der finalen Ausgabe intern:
 
 1. Stimmen alle Summen im Vorblatt mit den Tabellen und Erläuterungen in der Begründung überein?
-2. Wird ausschließlich jährlicher Erfüllungsaufwand dargestellt?
-3. Wurde kein einmaliger Erfüllungsaufwand berechnet oder ausgewiesen?
-4. Sind Bürgerinnen und Bürger, Wirtschaft und Verwaltung getrennt dargestellt?
-5. Ist bei der Verwaltung die Aufteilung auf Bundesebene und Landesebene (einschließlich Kommunen) ausgewiesen, soweit die Werte vorliegen?
-6. Wurde die One-in-one-out-Regel nicht erwähnt?
-7. Sind Informationspflichten der Wirtschaft gesondert ausgewiesen, soweit sie in der JSON-Struktur enthalten sind?
-8. Wurden keine Angaben erfunden?
-9. Sind Entlastungen sprachlich als Entlastungen formuliert?
-10. Sind Einheiten, Vorzeichen und Rundungen konsistent?
-11. Wurden fehlende Angaben nicht als Null behandelt?
-12. Wurde der Deep Research Report nur zur Herleitung, Plausibilisierung, zum Kontext und zur Quellenbeschreibung verwendet, nicht aber als abweichende Berechnungsgrundlage?
-13. Beginnt der finale Entwurf unmittelbar mit `# E. Erfüllungsaufwand`?
-14. Enthält der finale Entwurf keine Begriffe wie `JSON`, `Deep Research Report`, `Prompt`, `Arbeitsauftrag` oder `Beispiel`?
+1. Wird ausschließlich jährlicher Erfüllungsaufwand dargestellt?
+1. Wurde kein einmaliger Erfüllungsaufwand berechnet oder ausgewiesen?
+1. Sind Bürgerinnen und Bürger, Wirtschaft und Verwaltung getrennt dargestellt?
+1. Ist bei der Verwaltung die Aufteilung auf Bundesebene und Landesebene (einschließlich Kommunen) ausgewiesen, soweit die Werte vorliegen?
+1. Wurde die One-in-one-out-Regel nicht erwähnt?
+1. Sind Informationspflichten der Wirtschaft gesondert ausgewiesen, soweit sie in der JSON-Struktur enthalten sind?
+1. Wurden keine Angaben erfunden?
+1. Sind Entlastungen sprachlich als Entlastungen formuliert?
+1. Sind Einheiten, Vorzeichen und Rundungen konsistent?
+1. Wurden fehlende Angaben nicht als Null behandelt?{deep_research_consistency_check}
+1. Beginnt der finale Entwurf unmittelbar mit `# E. Erfüllungsaufwand`?
+1. Enthält der finale Entwurf keine Begriffe wie `JSON`, {deep_research_forbidden_term}`Prompt`, `Arbeitsauftrag` oder `Beispiel`?
 
 Gib anschließend ausschließlich den finalen Markdown-Entwurf aus.
 
@@ -1222,9 +1216,7 @@ Gib anschließend ausschließlich den finalen Markdown-Entwurf aus.
 {consolidated_session_json}
 </erfuellungsaufwand_json>
 
-<deep_research_report>
-{optional_deep_research_part_1_2}
-</deep_research_report>
+{deep_research_input_block}
 
 <beispiele_stilreferenz>
 
@@ -1253,7 +1245,7 @@ Erstelle jetzt ausschließlich den finalen Markdown-Entwurf der Abschnitte
 
 Der Entwurf muss unmittelbar mit `# E. Erfüllungsaufwand` beginnen.
 
-Verwende im finalen Entwurf nicht die Begriffe `JSON`, `Deep Research Report`, `Prompt`, `Arbeitsauftrag` oder `Beispiel`. Formuliere stattdessen wie in einer Gesetzesbegründung.
+Verwende im finalen Entwurf nicht die Begriffe `JSON`, {deep_research_forbidden_term}`Prompt`, `Arbeitsauftrag` oder `Beispiel`. Formuliere stattdessen wie in einer Gesetzesbegründung.
 
 Übernimm keine fallbezogenen Zahlen, Annahmen, Normen, Fallgruppen oder Sachverhalte aus den Beispielen. Die Beispiele dienen nur als Stil- und Strukturreferenz. Übliche gesetzesbegründungstypische Standardformulierungen dürfen verwendet werden.
 
@@ -1288,6 +1280,12 @@ def render_prompt(prompt_id: str, **kwargs: Any) -> str:
     }
     render_values = dict(kwargs)
     render_values.setdefault("law_mode_context", "")
+    render_values.setdefault("deep_research_source_row", "")
+    render_values.setdefault("deep_research_hierarchy_rules", "")
+    render_values.setdefault("deep_research_footnote_guidance", "")
+    render_values.setdefault("deep_research_consistency_check", "")
+    render_values.setdefault("deep_research_input_block", "")
+    render_values.setdefault("deep_research_forbidden_term", "")
     raw_norm_addressee = render_values.get("norm_addressee")
     if prompt_id in PROMPTS_REQUIRING_NORM_ADDRESSEE and raw_norm_addressee in (None, ""):
         raise KeyError("render_prompt requires explicit norm_addressee")
