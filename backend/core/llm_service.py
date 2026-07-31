@@ -1666,12 +1666,16 @@ def _estimate_cost_usd(
         return None
 
     # Standard API pricing, USD per 1M tokens.
-    # Sources (checked on 2026-07-02):
-    # - https://openai.com/api/pricing
-    # - https://ai.google.dev/gemini-api/docs/pricing
-    # - https://deepinfra.com/pricing
+    # Sources:
+    # - https://openai.com/api/pricing (GPT-5.6 additions checked on 2026-07-31)
+    # - https://ai.google.dev/gemini-api/docs/pricing (Gemini additions checked on 2026-07-31)
+    # - https://deepinfra.com/pricing (selected entries checked on 2026-07-31)
     pricing_per_million: dict[str, dict[str, tuple[float, float]]] = {
         "openai": {
+            "gpt-5.6-terra": (2.00, 12.00),
+            "gpt-5.6-luna": (0.20, 1.20),
+            "gpt-5.6-sol": (5.00, 30.00),
+            "gpt-5.6": (5.00, 30.00),
             "gpt-5.5": (5.00, 30.00),
             "gpt-5.4-mini": (0.75, 4.50),
             "gpt-5.4-nano": (0.20, 1.25),
@@ -1693,7 +1697,9 @@ def _estimate_cost_usd(
             "deep-research-max-preview": (2.00, 12.00),
             "deep-research-pro-preview": (2.00, 12.00),
             "deep-research-preview": (2.00, 12.00),
+            "gemini-3.6-flash": (1.50, 7.50),
             "gemini-3.5-flash": (1.50, 9.00),
+            "gemini-3.5-flash-lite": (0.30, 2.50),
             "gemini-3.1-pro-preview": (2.00, 12.00),
             "gemini-3.1-flash-lite": (0.25, 1.50),
             "gemini-3-pro-preview": (2.00, 12.00),
@@ -1710,10 +1716,10 @@ def _estimate_cost_usd(
             "deepseek-ai/deepseek-v4-pro": (1.30, 2.60),
             "deepseek-ai/deepseek-v3.2": (0.26, 0.38),
             "qwen/qwen3.5-397b-a17b": (0.45, 3.00),
-            "qwen/qwen3.6-35b-a3b": (0.15, 0.95),
+            "qwen/qwen3.6-35b-a3b": (0.10, 0.95),
             "qwen/qwen3-max": (1.20, 6.00),
             "google/gemma-4-26b-a4b-it": (0.07, 0.34),
-            "meta-llama/llama-4-maverick-17b-128e-instruct-fp8": (0.19, 0.60),
+            "meta-llama/llama-4-maverick-17b-128e-instruct-fp8": (0.20, 0.80),
         },
     }
     provider_pricing = pricing_per_million.get(provider.lower(), {})

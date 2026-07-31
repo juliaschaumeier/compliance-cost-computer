@@ -70,6 +70,24 @@ def test_estimate_cost_supports_current_recommended_openai_models():
     assert (
         llm_service._resolve_estimated_cost_usd(
             provider="openai",
+            model="gpt-5.6-luna",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 1.4
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="openai",
+            model="gpt-5.6-terra",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 14.0
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="openai",
             model="gpt-5.5",
             input_tokens=1_000_000,
             output_tokens=1_000_000,
@@ -319,6 +337,15 @@ def test_estimate_cost_supports_current_recommended_gemini_models():
     assert (
         llm_service._resolve_estimated_cost_usd(
             provider="gemini",
+            model="gemini-3.6-flash",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 9.0
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="gemini",
             model="gemini-3.5-flash",
             input_tokens=1_000_000,
             output_tokens=1_000_000,
@@ -333,6 +360,18 @@ def test_estimate_cost_supports_current_recommended_gemini_models():
             output_tokens=1_000_000,
         )
         == 3.5
+    )
+
+
+def test_estimate_cost_supports_additional_gemini_frontend_models():
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="gemini",
+            model="gemini-3.5-flash-lite",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 2.8
     )
 
 
@@ -363,6 +402,24 @@ def test_estimate_cost_supports_deepinfra_models_without_provider_reported_cost(
             output_tokens=1_000_000,
         )
         == 3.45
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="deepinfra",
+            model="Qwen/Qwen3.6-35B-A3B",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 1.05
+    )
+    assert (
+        llm_service._resolve_estimated_cost_usd(
+            provider="deepinfra",
+            model="meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+        )
+        == 1.0
     )
 
 
