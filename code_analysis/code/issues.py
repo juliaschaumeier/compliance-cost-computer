@@ -15,6 +15,8 @@ NOT_APPLICABLE_PHRASES = (
     "keine taetigkeiten", "no applicable", "not applicable",
 )
 STRUCTURAL_NORM_PROMPTS = {"process_compilation", "case_group_development", "process_step_analysis"}
+CHANGE_STATUS_KEYS = ("aenderungsstatus", "änderungsstatus", "change_status", "status_change", "status")
+VALID_RAW_CHANGE_STATUSES = {"eingefuehrt", "neu", "abgeschafft", "wegfall", "geaendert", "unveraendert"}
 
 def session_maps(data: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     sessions = {int(row["session_id"]): row for row in data["sessions"] if row.get("session_id") is not None}
@@ -541,7 +543,7 @@ def classify_zero_applies_prompt_outcome(
     })
     reasons = sorted({str(a.get("state_reason") or "unknown") for a in prompt_calls})
     parse_classes = sorted({
-        str(classify_json_answer(a.get("answer_text"), str(a.get("prompt_id") or "")).get("parse_class"))
+        str(classify_answer_by_prompt_contract(a)[0].get("parse_class"))
         for a in prompt_calls
     })
     if tile_hits:
@@ -774,7 +776,7 @@ def retry_row_base(
         "prompt_ids": sorted({str(ans.get("prompt_id") or "") for ans in episode}),
         "answer_ids": [ans.get("answer_id") for ans in episode],
         "answer_states": sorted({f"{ans.get('answer_state') or 'unknown'}:{ans.get('state_reason') or 'unknown'}" for ans in episode}),
-        "parse_classes": sorted({str(classify_json_answer(ans.get("answer_text"), str(ans.get("prompt_id") or "")).get("parse_class")) for ans in episode}),
+        "parse_classes": sorted({str(classify_answer_by_prompt_contract(ans)[0].get("parse_class")) for ans in episode}),
         "primary_retry_cause": cause["primary_retry_cause"],
         "retry_cause_groups": cause["retry_cause_groups"],
         "retry_cause_evidence": cause["retry_cause_evidence"],
@@ -800,7 +802,7 @@ def classify_retry_cause(step_key: str, failed_attempts: list[dict[str, Any]]) -
     db_groups: list[str] = []
     for ans in failed_attempts:
         state_reason = str(ans.get("state_reason") or "")
-        parse = classify_json_answer(ans.get("answer_text"), str(ans.get("prompt_id") or ""))
+        parse, _contract = classify_answer_by_prompt_contract(ans)
         parse_class = str(parse.get("parse_class") or "unknown")
         if state_reason:
             db_groups.append(db_reason_group(state_reason))
@@ -840,9 +842,7 @@ def infer_answer_retry_causes(
         out.append(("empty_required_payload", f"answer {answer_id}: required payload empty or unusable"))
     if step_key == "step_5_process_steps":
         shape = process_step_shape_class(parse.get("data"), parse_class)
-        if shape == "flat_fallgruppen_rejected_by_current_contract":
-            out.append(("process_step_flat_fallgruppen_shape", f"answer {answer_id}: flat fallgruppen shape rejected before fallback"))
-        elif shape in {"prozesse_present_but_no_steps", "flat_fallgruppen_without_steps"}:
+        if shape in {"prozesse_present_but_no_steps", "flat_fallgruppen_without_steps"}:
             out.append(("process_step_no_steps_returned", f"answer {answer_id}: process-step payload contains no usable steps"))
         if "no process steps parsed" in reason_norm or "missing process steps" in reason_norm:
             out.append(("process_step_missing_expected_steps", f"answer {answer_id}: DB validator reported missing process steps"))
@@ -896,12 +896,12 @@ def process_step_shape_class(data: Any, parse_class: str) -> str:
                 taetigkeiten = fallgruppe.get("taetigkeiten") or fallgruppe.get("tätigkeiten")
                 if isinstance(taetigkeiten, list):
                     top_level_flat_step_count += len([item for item in taetigkeiten if isinstance(item, dict)])
+        if top_level_flat_step_count and not has_prozesse_key:
+            return "expected_flat_fallgruppen"
         if nested_step_count:
             return "expected_nested_prozesse"
         if has_prozesse_key and top_level_flat_step_count:
             return "fallback_reachable_flat_fallgruppen"
-        if not has_prozesse_key and top_level_flat_step_count:
-            return "flat_fallgruppen_rejected_by_current_contract"
         if has_prozesse_key:
             return "prozesse_present_but_no_steps"
         if has_top_level_fallgruppen_key:
@@ -934,7 +934,6 @@ def primary_cause(groups: list[str]) -> str:
     if not groups:
         return "no_failed_attempt_before_success"
     priority = [
-        "process_step_flat_fallgruppen_shape",
         "unknown_qualification_value",
         "case_group_metrics_missing",
         "case_group_id_integrity_mismatch",
@@ -1006,12 +1005,14 @@ def analyze_issue_03(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
     findings: list[dict[str, Any]] = []
     quality_rows: list[dict[str, Any]] = []
     process_step_shape_rows: list[dict[str, Any]] = []
+    step_6_shape_rows: list[dict[str, Any]] = []
+    raw_change_status_rows: list[dict[str, Any]] = []
     for ans in data["llm_answers"]:
+        if ans.get("prompt_id") not in REQUIRED_TOP_LEVEL:
+            continue
         sid = int_or_none(ans.get("session_id"))
         session = maps["sessions"].get(sid or -1, {"session_id": sid})
-        cls = classify_json_answer(ans.get("answer_text"), str(ans.get("prompt_id") or ""))
-        expected_count, returned_count = expected_returned_counts(ans, cls.get("data"))
-        contract = prompt_contract_info(ans)
+        cls, contract = classify_answer_by_prompt_contract(ans)
         quality_row = {
             "answer_id": ans.get("answer_id"),
             "session_id": sid,
@@ -1032,13 +1033,15 @@ def analyze_issue_03(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
             "provider_response_format_requested": contract["provider_response_format_requested"],
             "provider_response_format_used": contract["provider_response_format_used"],
             "provider_response_format_downgraded": contract["provider_response_format_downgraded"],
+            "provider_response_schema_name": contract["provider_response_schema_name"],
+            "provider_response_schema_root_key": contract["provider_response_schema_root_key"],
+            "provider_response_schema_sha256": contract["provider_response_schema_sha256"],
             "parse_class": cls["parse_class"],
             "syntax_class": cls.get("syntax_class"),
             "schema_class": cls.get("schema_class"),
             "extraction_method": cls.get("extraction_method"),
             "required_key": cls.get("required_key"),
-            "expected_entity_count": expected_count,
-            "returned_entity_count": returned_count,
+            "backend_rejection_group": backend_rejection_group(ans.get("state_reason")),
             "repair_suffix": cls.get("repair_suffix"),
             "tail": cls.get("tail"),
         }
@@ -1046,7 +1049,11 @@ def analyze_issue_03(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
         if ans.get("prompt_id") == "process_step_analysis":
             shape_row = process_step_shape_row(ans, session, cls)
             process_step_shape_rows.append(shape_row)
-        if ans.get("prompt_id") in REQUIRED_TOP_LEVEL and cls["parse_class"] not in {"valid_json"}:
+        if ans.get("prompt_id") in STRUCTURAL_NORM_PROMPTS:
+            raw_change_status_rows.extend(raw_change_status_quality_rows(ans, session, cls))
+        if ans.get("prompt_id") in {"cases_calculation", "effort_calculation"}:
+            step_6_shape_rows.append(step_6_shape_row(ans, session, cls))
+        if cls["parse_class"] not in {"valid_json"}:
             severity = "high" if cls["parse_class"] in {"wrong_top_level_key", "empty_or_invalid_top_level", "hard_mid_content_truncation", "invalid_json"} else "medium"
             classification = "bad"
             if (
@@ -1064,7 +1071,98 @@ def analyze_issue_03(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
             ))
     write_csv(out_dir / "findings" / "issue_03_answer_quality.csv", quality_rows)
     write_csv(out_dir / "findings" / "issue_03_process_step_shape.csv", process_step_shape_rows)
+    write_csv(out_dir / "findings" / "issue_03_step_6_shape.csv", step_6_shape_rows)
+    write_csv(out_dir / "findings" / "issue_04_raw_change_status_quality.csv", raw_change_status_rows)
     return findings
+
+def raw_change_status_quality_rows(
+    ans: dict[str, Any],
+    session: dict[str, Any],
+    cls: dict[str, Any],
+) -> list[dict[str, Any]]:
+    data = cls.get("data")
+    if not isinstance(data, dict):
+        return []
+    rows = []
+    for entity in raw_change_status_entities(str(ans.get("prompt_id") or ""), data):
+        key, raw_value = raw_change_status_value(entity["raw"])
+        bucket = raw_change_status_bucket(raw_value)
+        rows.append({
+            "answer_id": ans.get("answer_id"),
+            "session_id": ans.get("session_id"),
+            "app_session_id": session.get("app_session_id"),
+            "answer_week": iso_week(ans.get("created_at")),
+            "created_at": ans.get("created_at"),
+            "prompt_id": ans.get("prompt_id"),
+            "model": ans.get("model"),
+            "norm_addressee": entity.get("norm_addressee") or answer_addressee(ans),
+            "answer_state": ans.get("answer_state"),
+            "state_reason": ans.get("state_reason"),
+            "entity_type": entity.get("entity_type"),
+            "entity_name": entity.get("entity_name"),
+            "raw_status_key": key,
+            "raw_status_value": raw_value,
+            "normalized_raw_status": norm_text(raw_value),
+            "status_bucket": bucket,
+        })
+    return rows
+
+def raw_change_status_entities(prompt_id: str, data: dict[str, Any]) -> list[dict[str, Any]]:
+    if prompt_id == "process_compilation":
+        rows = []
+        for process in collect_processes(data):
+            rows.append({
+                "entity_type": "process",
+                "entity_name": process.get("process"),
+                "norm_addressee": process.get("norm_addressee"),
+                "raw": process["raw"],
+            })
+        return rows
+    if prompt_id == "case_group_development":
+        return [
+            {
+                "entity_type": "case_group",
+                "entity_name": group.get("case_group"),
+                "norm_addressee": group.get("norm_addressee"),
+                "raw": group["raw"],
+            }
+            for group in collect_case_groups(data)
+        ]
+    if prompt_id == "process_step_analysis":
+        return [
+            {
+                "entity_type": "process_step",
+                "entity_name": step.get("step"),
+                "norm_addressee": step.get("norm_addressee"),
+                "raw": step["raw"],
+            }
+            for step in collect_steps(data)
+        ]
+    return []
+
+def raw_change_status_value(raw: dict[str, Any]) -> tuple[str, Any]:
+    for key in CHANGE_STATUS_KEYS:
+        if key in raw:
+            return key, raw.get(key)
+    return "", None
+
+def raw_change_status_bucket(raw_value: Any) -> str:
+    if raw_value in (None, ""):
+        return "missing"
+    normalized = norm_text(raw_value)
+    if normalized in VALID_RAW_CHANGE_STATUSES:
+        return "present_valid"
+    return "present_unrecognized"
+
+def classify_answer_by_prompt_contract(ans: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    contract = prompt_contract_info(ans)
+    required_key = contract["prompt_required_root_key"]
+    cls = classify_json_answer(
+        ans.get("answer_text"),
+        str(ans.get("prompt_id") or ""),
+        required_key=str(required_key) if required_key else None,
+    )
+    return cls, contract
 
 def answer_db_outcome(ans: dict[str, Any]) -> str:
     state = str(ans.get("answer_state") or "")
@@ -1085,6 +1183,46 @@ def answer_db_outcome(ans: dict[str, Any]) -> str:
         return "invalid_other"
     return "unknown"
 
+def backend_rejection_group(state_reason: Any) -> str:
+    raw = str(state_reason or "").lower()
+    text = norm_text(state_reason)
+    if not text:
+        return ""
+    if (
+        "session_update_failed" not in raw
+        and "session update failed" not in text
+        and "apply_failed" not in raw
+        and "apply failed" not in text
+        and "query_failed" not in raw
+        and "query failed" not in text
+    ):
+        return ""
+    if "duplicate" in text and ("fallgruppen_id" in raw or "fallgruppen id" in text or "case_group" in raw or "case group" in text):
+        return "duplicate_case_group_ids"
+    if "duplicate" in text and ("taetigkeiten_id" in raw or "taetigkeiten id" in text or "step" in text):
+        return "duplicate_step_ids"
+    if "unknown" in text and ("fallgruppen_id" in raw or "fallgruppen id" in text or "case_group" in raw or "case group" in text):
+        return "unknown_case_group_ids"
+    if "unknown" in text and ("taetigkeiten_id" in raw or "taetigkeiten id" in text or "step" in text):
+        return "unknown_step_ids"
+    if "missing" in text and ("fallgruppen_id" in raw or "fallgruppen id" in text or "case_group" in raw or "case group" in text):
+        return "missing_case_group_ids"
+    if "missing" in text and ("taetigkeiten_id" in raw or "taetigkeiten id" in text or "process step" in text or "step" in text):
+        return "missing_step_ids"
+    if "no case group metrics parsed" in text:
+        return "no_case_group_metrics"
+    if "no effort metrics parsed" in text:
+        return "no_effort_metrics"
+    if "no process steps parsed" in text:
+        return "no_process_steps"
+    if "no processes parsed" in text:
+        return "no_processes"
+    if "expected top level key" in text or "top_level" in text:
+        return "root_contract_mismatch"
+    if "provider" in text or "quota" in text or "api key" in text:
+        return "provider_or_credentials"
+    return "other_session_update_rejection"
+
 def prompt_contract_info(ans: dict[str, Any]) -> dict[str, Any]:
     prompt_id = str(ans.get("prompt_id") or "")
     prompt_text = str(ans.get("prompt_text") or "")
@@ -1104,7 +1242,13 @@ def prompt_contract_info(ans: dict[str, Any]) -> dict[str, Any]:
         prompt_text,
         flags=re.IGNORECASE,
     ))
-    required_root = infer_prompt_required_root_key(prompt_text) or REQUIRED_TOP_LEVEL.get(prompt_id)
+    required_root = (
+        response_format_root_key(used)
+        or response_format_root_key(requested)
+        or str(metadata.get("response_schema_root_key") or "").strip()
+        or infer_prompt_required_root_key(prompt_text)
+        or REQUIRED_TOP_LEVEL.get(prompt_id)
+    )
     if response_format_type(used) == "json_schema" or response_format_type(requested) == "json_schema":
         kind = "provider_json_schema"
     elif response_format_type(used) == "json_object" or response_format_type(requested) == "json_object":
@@ -1123,6 +1267,9 @@ def prompt_contract_info(ans: dict[str, Any]) -> dict[str, Any]:
         "provider_response_format_requested": compact_json_value(requested),
         "provider_response_format_used": compact_json_value(used),
         "provider_response_format_downgraded": compact_json_value(downgraded),
+        "provider_response_schema_name": str(metadata.get("response_schema_name") or ""),
+        "provider_response_schema_root_key": str(metadata.get("response_schema_root_key") or ""),
+        "provider_response_schema_sha256": str(metadata.get("response_schema_sha256") or ""),
     }
 
 def response_format_type(value: Any) -> str | None:
@@ -1141,6 +1288,29 @@ def response_format_type(value: Any) -> str | None:
             return str(nested.get("type"))
     return None
 
+def response_format_root_key(value: Any) -> str | None:
+    if isinstance(value, str):
+        parsed = parse_json_maybe(value)
+        if isinstance(parsed, dict):
+            value = parsed
+        else:
+            return None
+    if not isinstance(value, dict):
+        return None
+    schema = value.get("schema")
+    nested = value.get("json_schema")
+    if not isinstance(schema, dict) and isinstance(nested, dict):
+        schema = nested.get("schema")
+    if not isinstance(schema, dict):
+        return None
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return None
+    for key in ("vorgaben", "prozesse", "fallgruppen", "taetigkeiten"):
+        if key in properties:
+            return key
+    return None
+
 def compact_json_value(value: Any) -> str:
     if value in (None, ""):
         return ""
@@ -1152,7 +1322,7 @@ def infer_prompt_required_root_key(prompt_text: str) -> str | None:
     if not prompt_text:
         return None
     marker_matches = list(re.finditer(
-        r"Geben Sie nur und ausschliesslich JSON(?:\s+im folgenden Format)?\s+zurueck:?|Geben Sie nur und ausschließlich JSON(?:\s+im folgenden Format)?\s+zurück:?",
+        r"Geben Sie nur und ausschliesslich JSON(?:\s+(?:im folgenden Format|in genau dieser Struktur))?\s+zurueck:?|Geben Sie nur und ausschließlich JSON(?:\s+(?:im folgenden Format|in genau dieser Struktur))?\s+zurück:?",
         prompt_text,
         flags=re.IGNORECASE,
     ))
@@ -1226,12 +1396,12 @@ def process_step_shape_row(
                 if isinstance(taetigkeiten, list):
                     top_level_flat_step_count += len([item for item in taetigkeiten if isinstance(item, dict)])
 
-        if nested_step_count:
+        if top_level_flat_step_count and not has_prozesse_key:
+            shape_class = "expected_flat_fallgruppen"
+        elif nested_step_count:
             shape_class = "expected_nested_prozesse"
         elif has_prozesse_key and top_level_flat_step_count:
             shape_class = "fallback_reachable_flat_fallgruppen"
-        elif not has_prozesse_key and top_level_flat_step_count:
-            shape_class = "flat_fallgruppen_rejected_by_current_contract"
         elif has_prozesse_key:
             shape_class = "prozesse_present_but_no_steps"
         elif has_top_level_fallgruppen_key:
@@ -1242,7 +1412,7 @@ def process_step_shape_row(
         shape_class = "top_level_list"
 
     current_code_acceptance = "reject"
-    if shape_class in {"expected_nested_prozesse", "fallback_reachable_flat_fallgruppen"}:
+    if shape_class in {"expected_flat_fallgruppen", "expected_nested_prozesse", "fallback_reachable_flat_fallgruppen"}:
         current_code_acceptance = "accept"
     elif shape_class == "unparseable" and cls.get("parse_class") == "near_complete_missing_closer":
         current_code_acceptance = "accept_after_json_repair"
@@ -1274,25 +1444,137 @@ def process_step_shape_row(
         "tail": cls.get("tail"),
     }
 
-def expected_returned_counts(ans: dict[str, Any], data: Any) -> tuple[int | None, int | None]:
-    prompt = str(ans.get("prompt_id") or "")
-    prompt_text = ans.get("prompt_text") or ""
-    expected = None
-    if prompt in {"process_compilation", "case_group_development", "process_step_analysis", "cases_calculation", "effort_calculation"}:
-        expected = len(re.findall(r'"(?:vorgaben_id|prozess_id|fallgruppen_id|step_id|schritt_id)"\s*:', str(prompt_text)))
-    if not data:
-        return expected, None
-    if prompt == "process_compilation":
-        returned = len(collect_processes(data))
-    elif prompt == "case_group_development":
-        returned = len(collect_case_groups(data))
-    elif prompt == "process_step_analysis":
-        returned = len(collect_steps(data))
-    elif prompt in {"cases_calculation", "effort_calculation"}:
-        returned = len(collect_change_metric_entities(data))
+def step_6_shape_row(
+    ans: dict[str, Any],
+    session: dict[str, Any],
+    cls: dict[str, Any],
+) -> dict[str, Any]:
+    data = cls.get("data")
+    prompt_id = str(ans.get("prompt_id") or "")
+    has_prozesse_key = False
+    has_top_level_fallgruppen_key = False
+    flat_group_count = 0
+    legacy_nested_group_count = 0
+    metric_entity_count = 0
+    shape_class = "unparseable"
+    if isinstance(data, dict):
+        has_prozesse_key = "prozesse" in data
+        top_level_fallgruppen = data.get("fallgruppen")
+        has_top_level_fallgruppen_key = isinstance(top_level_fallgruppen, list)
+        if isinstance(top_level_fallgruppen, list):
+            flat_group_count = len([item for item in top_level_fallgruppen if isinstance(item, dict)])
+        processes = data.get("prozesse")
+        if isinstance(processes, list):
+            for process in processes:
+                if not isinstance(process, dict):
+                    continue
+                groups = process.get("fallgruppen")
+                if isinstance(groups, list):
+                    legacy_nested_group_count += len([item for item in groups if isinstance(item, dict)])
+        metric_entity_count = len(collect_change_metric_entities(data))
+        if has_top_level_fallgruppen_key and metric_entity_count:
+            shape_class = "expected_flat_fallgruppen"
+        elif has_top_level_fallgruppen_key:
+            shape_class = "flat_fallgruppen_without_metrics"
+        elif has_prozesse_key and metric_entity_count:
+            shape_class = "legacy_nested_prozesse"
+        elif has_prozesse_key:
+            shape_class = "prozesse_present_without_metrics"
+        else:
+            shape_class = "other_json_no_fallgruppen"
+    elif isinstance(data, list):
+        shape_class = "top_level_list"
+
+    current_code_acceptance = "accept" if shape_class in {"expected_flat_fallgruppen", "legacy_nested_prozesse"} else "reject"
+    if shape_class == "unparseable" and cls.get("parse_class") == "near_complete_missing_closer":
+        current_code_acceptance = "accept_after_json_repair"
+    persisted_outcome = "not_applied"
+    if ans.get("answer_state") == "active" and ans.get("state_reason") == "session_updated":
+        persisted_outcome = "applied"
+    elif ans.get("answer_state") == "invalid":
+        persisted_outcome = "invalid_or_reverted"
+
+    return {
+        "answer_id": ans.get("answer_id"),
+        "session_id": ans.get("session_id"),
+        "app_session_id": session.get("app_session_id"),
+        "answer_week": iso_week(ans.get("created_at")),
+        "created_at": ans.get("created_at"),
+        "prompt_id": prompt_id,
+        "model": ans.get("model"),
+        "norm_addressee": answer_addressee(ans),
+        "answer_state": ans.get("answer_state"),
+        "state_reason": ans.get("state_reason"),
+        "parse_class": cls.get("parse_class"),
+        "shape_class": shape_class,
+        "current_code_acceptance": current_code_acceptance,
+        "persisted_outcome": persisted_outcome,
+        "has_prozesse_key": has_prozesse_key,
+        "has_top_level_fallgruppen_key": has_top_level_fallgruppen_key,
+        "flat_group_count": flat_group_count,
+        "legacy_nested_group_count": legacy_nested_group_count,
+        "metric_entity_count": metric_entity_count,
+        "tail": cls.get("tail"),
+    }
+
+def analyze_issue_09(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> list[dict[str, Any]]:
+    maps = session_maps(data)
+    findings: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
+    for ans in data["llm_answers"]:
+        if ans.get("prompt_id") != "compliance_text_extraction":
+            continue
+        sid = int_or_none(ans.get("session_id"))
+        session = maps["sessions"].get(sid or -1, {"session_id": sid})
+        row = compliance_export_quality_row(ans, session)
+        rows.append(row)
+        if row["quality_class"] in {"empty_export", "leaked_prompt_or_json_artifact"}:
+            findings.append(finding(
+                "issue_09_compliance_export_quality",
+                session,
+                "bad",
+                "medium" if row["quality_class"] == "leaked_prompt_or_json_artifact" else "high",
+                f"Compliance export Markdown quality issue: {row['quality_class']}.",
+                row,
+                ans,
+            ))
+    write_csv(out_dir / "findings" / "issue_09_compliance_export_quality.csv", rows)
+    return findings
+
+def compliance_export_quality_row(ans: dict[str, Any], session: dict[str, Any]) -> dict[str, Any]:
+    text = str(ans.get("answer_text") or "")
+    stripped = text.strip()
+    lower = stripped.lower()
+    has_expected_heading = bool(re.search(r"^\s*#\s*e\.\s*erf(?:ü|u|ue)llungsaufwand", stripped, flags=re.IGNORECASE))
+    has_section_four = bool(re.search(r"(^|\n)\s*#{1,6}\s*4\.", stripped))
+    has_markdown_table = "|" in stripped and "lfd" in norm_text(stripped)
+    leaked_json = bool(re.search(r"```json|\"session_json\"|\"prompt\"|\"arbeitsauftrag\"", lower))
+    leaked_template = bool(re.search(r"\{[a-z_]+\}", stripped))
+    if not stripped:
+        quality_class = "empty_export"
+    elif leaked_json or leaked_template:
+        quality_class = "leaked_prompt_or_json_artifact"
+    elif has_expected_heading:
+        quality_class = "expected_markdown"
     else:
-        returned = None
-    return expected, returned
+        quality_class = "markdown_needs_review"
+    return {
+        "answer_id": ans.get("answer_id"),
+        "session_id": ans.get("session_id"),
+        "app_session_id": session.get("app_session_id"),
+        "answer_week": iso_week(ans.get("created_at")),
+        "created_at": ans.get("created_at"),
+        "model": ans.get("model"),
+        "answer_state": ans.get("answer_state"),
+        "state_reason": ans.get("state_reason"),
+        "quality_class": quality_class,
+        "has_expected_heading": has_expected_heading,
+        "has_section_four_heading": has_section_four,
+        "has_markdown_table": has_markdown_table,
+        "leaked_json_or_prompt_marker": leaked_json,
+        "leaked_template_marker": leaked_template,
+        "text_length": len(stripped),
+    }
 
 def analyze_issue_04(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> list[dict[str, Any]]:
     maps = session_maps(data)
@@ -1535,15 +1817,19 @@ def change_status_quality_row(
 
 def analyze_issue_05(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> list[dict[str, Any]]:
     maps = session_maps(data)
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for session in data["sessions"]:
-        key = (law_pair_key(session), str(session.get("llm_model") or "unknown"))
+        key = (
+            law_pair_key(session),
+            str(session.get("llm_model") or "unknown"),
+            session_deep_research_mode(data, session),
+        )
         if "none" in key[0]:
             continue
         groups.setdefault(key, []).append(session)
     pair_rows: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
-    for (law_pair, model), sessions in groups.items():
+    for (law_pair, model, deep_research_mode), sessions in groups.items():
         if len(sessions) < 2:
             continue
         sessions = sorted(sessions, key=lambda s: str(s.get("created_at") or ""))
@@ -1560,6 +1846,7 @@ def analyze_issue_05(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
                 row = {
                     "law_pair": law_pair,
                     "model": model,
+                    "deep_research_mode": deep_research_mode,
                     "left_session_id": lsid,
                     "right_session_id": rsid,
                     "left_created_at": left.get("created_at"),
@@ -1625,7 +1912,7 @@ def analyze_issue_06(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
     groups = repeated_session_groups(data)
     rows: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
-    for (law_pair, model), sessions in groups.items():
+    for (law_pair, model, deep_research_mode), sessions in groups.items():
         cost_sessions = [s for s in sessions if session_total_cost(data, int(s["session_id"])) is not None]
         if len(cost_sessions) < 2:
             continue
@@ -1643,6 +1930,7 @@ def analyze_issue_06(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
         row = {
             "law_pair": law_pair,
             "model": model,
+            "deep_research_mode": deep_research_mode,
             "latest_session_id": latest.get("session_id"),
             "latest_week": iso_week(latest.get("created_at")),
             "session_count": len(cost_sessions),
@@ -1665,10 +1953,14 @@ def analyze_issue_06(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
     write_csv(out_dir / "findings" / "issue_06_cost_variance_groups.csv", rows)
     return findings
 
-def repeated_session_groups(data: dict[str, list[dict[str, Any]]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+def repeated_session_groups(data: dict[str, list[dict[str, Any]]]) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for session in data["sessions"]:
-        key = (law_pair_key(session), str(session.get("llm_model") or "unknown"))
+        key = (
+            law_pair_key(session),
+            str(session.get("llm_model") or "unknown"),
+            session_deep_research_mode(data, session),
+        )
         if "none" in key[0]:
             continue
         groups.setdefault(key, []).append(session)
@@ -1744,7 +2036,7 @@ def analyze_issue_07(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
     groups = repeated_session_groups(data)
     rows: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
-    for (law_pair, model), sessions in groups.items():
+    for (law_pair, model, deep_research_mode), sessions in groups.items():
         cost_sessions = [(s, session_total_cost(data, int(s["session_id"]))) for s in sessions]
         cost_sessions = [(s, c) for s, c in cost_sessions if c is not None]
         if len(cost_sessions) < 2:
@@ -1765,6 +2057,7 @@ def analyze_issue_07(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
         row = {
             "law_pair": law_pair,
             "model": model,
+            "deep_research_mode": deep_research_mode,
             "low_session_id": low.get("session_id"),
             "high_session_id": high.get("session_id"),
             "high_week": iso_week(high.get("created_at")),

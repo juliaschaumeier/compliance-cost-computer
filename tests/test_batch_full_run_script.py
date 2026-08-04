@@ -711,10 +711,15 @@ def test_summary_dataframe_aggregates_costs_duration_and_status(tmp_path: Path):
     assert rows["gesamt"]["failed"] == 1
     assert rows["gesamt"]["total_cost_usd"] == 1.6
     assert rows["gesamt"]["avg_duration_min"] == 4.0
+    assert rows["gesamt"]["std_duration_min"] == 1.63
+    assert rows["gesamt"]["std_cost_usd"] == 0.3682
     assert rows["gesamt"]["missing_cost_estimates"] == 3
     assert rows["model=gemini-3.5-flash"]["avg_cost_usd"] == 0.3
+    assert rows["model=gemini-3.5-flash"]["std_cost_usd"] == 0.2
     assert rows["deep_research=True"]["avg_dr_cost_usd"] == 0.45
+    assert rows["deep_research=True"]["std_dr_cost_usd"] == 0.15
     assert rows["model=gemini-3.5-flash | deep_research=False"]["runs"] == 1
+    assert rows["model=gemini-3.5-flash | deep_research=False"]["std_cost_usd"] == 0.0
 
 
 def test_load_batch_result_reconstructs_results_from_jsonl(tmp_path: Path):

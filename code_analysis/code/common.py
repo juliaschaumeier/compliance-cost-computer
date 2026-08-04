@@ -19,12 +19,16 @@ NORM_PROMPTS = {
     "effort_calculation",
 }
 REQUIRED_TOP_LEVEL = {
+    "law_summary": "summary",
     "regulations_identification": "vorgaben",
     "process_compilation": "prozesse",
     "case_group_development": "prozesse",
-    "process_step_analysis": "prozesse",
-    "cases_calculation": "prozesse",
-    "effort_calculation": "prozesse",
+    "process_step_analysis": "fallgruppen",
+    "cases_calculation": "fallgruppen",
+    "effort_calculation": "fallgruppen",
+}
+REQUIRED_OBJECT_FIELDS = {
+    "law_summary": ("title", "blurb", "summary"),
 }
 ISSUES = {
     "issue_01_duplicate_fallgruppen": "Duplicate Fallgruppen",
@@ -35,6 +39,7 @@ ISSUES = {
     "issue_06_cost_variance": "Final-cost variance",
     "issue_07_case_count_driven_variance": "Case-count-driven cost variance",
     "issue_08_bureaucracy_cost": "Business bureaucracy-cost separation",
+    "issue_09_compliance_export_quality": "Compliance export Markdown quality",
 }
 OUTPUT_SUBDIRS = (
     "db_snapshot",
@@ -139,6 +144,34 @@ def law_pair_labels() -> dict[str, str]:
 
 def law_pair_label(law_pair: str) -> str:
     return _ACTIVE_LAW_PAIR_LABELS.get(law_pair, law_pair)
+
+def sessions_with_deep_research_case_metrics(data: dict[str, list[dict[str, Any]]]) -> set[int]:
+    sessions: set[int] = set()
+    terminal_statuses = {"parsed", "completed", "succeeded", "success"}
+    for row in data.get("deep_research_runs", []):
+        sid = int_or_none(row.get("session_id"))
+        if sid is None:
+            continue
+        if str(row.get("purpose") or "") != "case_group_metrics":
+            continue
+        if str(row.get("status") or "").lower() in terminal_statuses:
+            sessions.add(sid)
+    for ans in data.get("llm_answers", []):
+        if ans.get("prompt_id") != "deep_research_case_metrics":
+            continue
+        sid = int_or_none(ans.get("session_id"))
+        if sid is not None:
+            sessions.add(sid)
+    return sessions
+
+def session_deep_research_enabled(data: dict[str, list[dict[str, Any]]], session: dict[str, Any]) -> bool:
+    sid = int_or_none(session.get("session_id"))
+    if sid is not None and sid in sessions_with_deep_research_case_metrics(data):
+        return True
+    return truthy(session.get("case_group_research_enabled"))
+
+def session_deep_research_mode(data: dict[str, list[dict[str, Any]]], session: dict[str, Any]) -> str:
+    return "dr" if session_deep_research_enabled(data, session) else "no_dr"
 
 def write_run_config(out_dir: Path, config: dict[str, Any]) -> None:
     write_json(out_dir / "analysis_config.json", normalize_analysis_config(config))
@@ -415,6 +448,7 @@ def extract(snapshot_path: Path, out_dir: Path, config: dict[str, Any] | None = 
                 "case_groups", "process_steps", "session_total_costs_by_addressee",
                 "tiles", "process_step_regulation_links",
                 "regulation_process_links_by_addressee", "edit_audit_log",
+                "deep_research_runs",
             )
         }
         tables = {
@@ -483,6 +517,10 @@ def extract(snapshot_path: Path, out_dir: Path, config: dict[str, Any] | None = 
             "edit_audit_log": db.select("edit_audit_log", [
                 "audit_id", "session_id", "entity_type", "entity_id",
                 "field_name", "old_value", "new_value", "edited_at",
+            ]),
+            "deep_research_runs": db.select("deep_research_runs", [
+                "research_run_id", "session_id", "purpose", "status",
+                "created_at", "finished_at", "estimated_cost_usd",
             ]),
         }
     finally:
@@ -557,6 +595,7 @@ def load_extracted(out_dir: Path, config: dict[str, Any] | None = None) -> dict[
         "sessions", "laws", "llm_answers", "regulations", "processes",
         "case_groups", "process_steps", "costs", "tiles",
         "step_regulation_links", "regulation_process_links", "edit_audit_log",
+        "deep_research_runs",
     ]
     data = {name: read_jsonl(extracted_dir / f"{name}.jsonl") for name in names}
     data = filter_analysis_scope(data, config)
