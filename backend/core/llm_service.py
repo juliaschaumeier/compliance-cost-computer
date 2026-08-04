@@ -118,6 +118,9 @@ class LlmResult:
     hidden_thinking_tokens: int | None = None
     estimated_cost_usd: float | None = None
     provider_response_json: dict[str, Any] | list[Any] | None = None
+    response_format_requested: dict[str, Any] | None = None
+    response_format_used: dict[str, Any] | None = None
+    response_format_downgraded: bool = False
 
 
 class LlmQueryError(RuntimeError):
@@ -211,6 +214,18 @@ def _response_format_fallback_chain(
     return [response_format, None]
 
 
+def _with_response_format_metadata(
+    result: LlmResult,
+    *,
+    requested: dict[str, Any] | None,
+    used: dict[str, Any] | None,
+) -> LlmResult:
+    result.response_format_requested = requested
+    result.response_format_used = used
+    result.response_format_downgraded = requested != used
+    return result
+
+
 async def query_llm(
     prompt: str,
     api_keys: ApiKeys,
@@ -267,11 +282,17 @@ async def query_llm(
         )
 
     if response_format is None:
-        return await _dispatch(None)
+        result = await _dispatch(None)
+        return _with_response_format_metadata(result, requested=None, used=None)
     chain = _response_format_fallback_chain(response_format)
     for index, candidate in enumerate(chain):
         try:
-            return await _dispatch(candidate)
+            result = await _dispatch(candidate)
+            return _with_response_format_metadata(
+                result,
+                requested=response_format,
+                used=candidate,
+            )
         except LlmQueryError as exc:
             if exc.status_code == 400 and index < len(chain) - 1:
                 continue

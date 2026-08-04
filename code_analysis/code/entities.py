@@ -6,7 +6,7 @@ import math
 import re
 from typing import Any, Iterable
 
-from common import ADDRESSEES, REQUIRED_TOP_LEVEL, parse_json_maybe, truthy
+from common import ADDRESSEES, REQUIRED_OBJECT_FIELDS, REQUIRED_TOP_LEVEL, parse_json_maybe, truthy
 
 def norm_text(value: Any) -> str:
     text = "" if value is None else str(value)
@@ -138,10 +138,15 @@ def brace_state(text: str) -> dict[str, Any]:
             square -= 1
     return {"curly": curly, "square": square, "in_string": in_string}
 
-def classify_json_answer(answer_text: Any, prompt_id: str | None = None) -> dict[str, Any]:
+def classify_json_answer(
+    answer_text: Any,
+    prompt_id: str | None = None,
+    required_key: str | None = None,
+) -> dict[str, Any]:
     text = "" if answer_text is None else str(answer_text)
     cleaned = strip_code_fence(text)
-    required = REQUIRED_TOP_LEVEL.get(str(prompt_id or ""))
+    required = required_key if required_key is not None else REQUIRED_TOP_LEVEL.get(str(prompt_id or ""))
+    required_fields = REQUIRED_OBJECT_FIELDS.get(str(prompt_id or ""))
     result = {
         "parse_class": "unknown",
         "syntax_class": "unknown",
@@ -161,7 +166,7 @@ def classify_json_answer(answer_text: Any, prompt_id: str | None = None) -> dict
     for candidate in candidates:
         try:
             data = json.loads(candidate)
-            schema_class = required_shape_class(data, required)
+            schema_class = required_shape_class(data, required, required_fields)
             result["data"] = data
             result["syntax_class"] = "valid_json"
             result["schema_class"] = schema_class or ("valid_required_shape" if required else None)
@@ -185,7 +190,7 @@ def classify_json_answer(answer_text: Any, prompt_id: str | None = None) -> dict
         if 0 < len(suffix) <= 4:
             try:
                 data = json.loads(obj + suffix)
-                schema_class = required_shape_class(data, required)
+                schema_class = required_shape_class(data, required, required_fields)
                 result["data"] = data
                 result["repair_suffix"] = suffix
                 result["syntax_class"] = "near_complete_missing_closer"
@@ -208,8 +213,21 @@ def classify_json_answer(answer_text: Any, prompt_id: str | None = None) -> dict
         result["syntax_class"] = "non_json_prose"
     return result
 
-def required_shape_class(data: Any, required: str | None) -> str | None:
+def required_shape_class(
+    data: Any,
+    required: str | None,
+    required_fields: Iterable[str] | None = None,
+) -> str | None:
     if not required:
+        return None
+    if required_fields:
+        if not isinstance(data, dict):
+            return "wrong_top_level_key"
+        for field in required_fields:
+            if field not in data:
+                return "wrong_top_level_key"
+            if data.get(field) in (None, "", [], {}):
+                return "empty_or_invalid_top_level"
         return None
     if not isinstance(data, dict) or required not in data:
         return "wrong_top_level_key"
@@ -264,13 +282,13 @@ def collect_case_groups(data: Any) -> list[dict[str, Any]]:
                 }
             has_group = any(key in node for key in (
                 "fallgruppen_id", "fallgruppe_id", "case_group_id", "fallgruppe",
-                "fallgruppen_bezeichnung", "case_group",
+                "fallgruppe_bezeichnung", "fallgruppen_bezeichnung", "case_group",
             ))
             if has_group:
                 rows.append({
                     "case_group_id": first_value(node, ("fallgruppen_id", "fallgruppe_id", "case_group_id")),
-                    "case_group": first_value(node, ("fallgruppe", "fallgruppen_bezeichnung", "case_group", "name")),
-                    "description": first_value(node, ("beschreibung", "description")),
+                    "case_group": first_value(node, ("fallgruppe", "fallgruppe_bezeichnung", "fallgruppen_bezeichnung", "case_group", "name")),
+                    "description": first_value(node, ("beschreibung", "fallgruppe_beschreibung", "fallgruppen_beschreibung", "description")),
                     "change_status": change_status_of(node),
                     "norm_addressee": current_norm,
                     "process_id": (next_process or {}).get("process_id"),

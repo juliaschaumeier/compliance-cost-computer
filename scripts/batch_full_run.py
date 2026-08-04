@@ -175,6 +175,12 @@ class BatchResult:
         for column in value_columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
 
+        def _std(series: pd.Series, digits: int) -> float:
+            value = series.std(ddof=0)
+            if pd.isna(value):
+                value = 0.0
+            return round(float(value), digits)
+
         def _aggregate(group: pd.DataFrame, label: str) -> dict[str, Any]:
             success = group["status"] == "success"
             return {
@@ -185,10 +191,15 @@ class BatchResult:
                 "success_rate": round(float(success.mean()) if len(group) else 0.0, 3),
                 "total_cost_usd": round(float(group["estimated_total_cost_usd"].sum()), 4),
                 "avg_cost_usd": round(float(group["estimated_total_cost_usd"].mean()), 4),
+                "std_cost_usd": _std(group["estimated_total_cost_usd"], 4),
                 "avg_llm_cost_usd": round(float(group["estimated_llm_cost_usd"].mean()), 4),
+                "std_llm_cost_usd": _std(group["estimated_llm_cost_usd"], 4),
                 "avg_dr_cost_usd": round(float(group["estimated_dr_cost_usd"].mean()), 4),
+                "std_dr_cost_usd": _std(group["estimated_dr_cost_usd"], 4),
                 "avg_duration_min": round(float(group["duration_min"].mean()), 2),
+                "std_duration_min": _std(group["duration_min"], 2),
                 "avg_attempts": round(float(group["run_attempts"].mean()), 2),
+                "std_attempts": _std(group["run_attempts"], 2),
                 "missing_cost_estimates": int(group["missing_cost_estimates"].sum()),
             }
 

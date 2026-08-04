@@ -62,6 +62,9 @@ def test_query_llm_retries_without_response_format_on_bad_request(monkeypatch):
     assert result.text == "{}"
     # Erst mit Erzwingung (400), dann genau ein Fallback-Retry ohne.
     assert calls == [JSON_MODE, None]
+    assert result.response_format_requested == JSON_MODE
+    assert result.response_format_used is None
+    assert result.response_format_downgraded is True
 
 
 def test_query_llm_does_not_retry_on_non_bad_request(monkeypatch):
@@ -301,6 +304,9 @@ def test_query_llm_staged_fallback_json_schema_to_json_object_to_none(monkeypatc
 
     assert result.text == "{}"
     assert calls == [schema, JSON_MODE, None]
+    assert result.response_format_requested == schema
+    assert result.response_format_used is None
+    assert result.response_format_downgraded is True
 
 
 def test_query_llm_json_schema_falls_back_to_json_object(monkeypatch):
@@ -329,6 +335,9 @@ def test_query_llm_json_schema_falls_back_to_json_object(monkeypatch):
 
     assert result.text == "{}"
     assert calls == [schema, JSON_MODE]
+    assert result.response_format_requested == schema
+    assert result.response_format_used == JSON_MODE
+    assert result.response_format_downgraded is True
 
 
 # --- Alle strukturierten Workflow-Prompts erzwingen json_schema ---
@@ -408,6 +417,95 @@ def test_query_and_stage_uses_json_schema_for_every_structured_prompt(
     assert response_format["name"] == prompt_id
     assert response_format["strict"] is True
     assert response_format["schema"]["properties"]["normadressat"]["enum"] == [BUSINESS]
+
+
+def test_query_and_stage_persists_response_schema_metadata(test_client):
+    session_id, _ = db.upsert_session("LLM-JSON-SCHEMA-META", "test-model")
+
+    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
+        return "{}"
+
+    answer_id, _result = asyncio.run(
+        query_and_stage_llm_answer(
+            session_id=session_id,
+            prompt_id="process_step_analysis",
+            prompt="Frage",
+            api_keys=ApiKeys(openai_api_key="sk-test"),
+            model="test-model",
+            provider="openai",
+            query_fn=fake_query_fn,
+            norm_addressee=BUSINESS,
+        )
+    )
+
+    metadata = db.get_llm_answer_by_id(answer_id)["metadata"]
+    assert metadata["response_format_requested"]["type"] == "json_schema"
+    assert metadata["response_format_used"]["type"] == "json_schema"
+    assert metadata["response_format_downgraded"] is False
+    assert metadata["response_schema_name"] == "process_step_analysis"
+    assert metadata["response_schema_root_key"] == "fallgruppen"
+    assert len(metadata["response_schema_sha256"]) == 64
+
+
+def test_query_and_stage_keeps_requested_schema_metadata_after_downgrade(test_client):
+    session_id, _ = db.upsert_session("LLM-JSON-SCHEMA-META-DOWNGRADE", "test-model")
+
+    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
+        return LlmResult(
+            text="{}",
+            response_format_requested=kwargs["response_format"],
+            response_format_used=JSON_MODE,
+            response_format_downgraded=True,
+        )
+
+    answer_id, _result = asyncio.run(
+        query_and_stage_llm_answer(
+            session_id=session_id,
+            prompt_id="process_step_analysis",
+            prompt="Frage",
+            api_keys=ApiKeys(openai_api_key="sk-test"),
+            model="test-model",
+            provider="openai",
+            query_fn=fake_query_fn,
+            norm_addressee=BUSINESS,
+        )
+    )
+
+    metadata = db.get_llm_answer_by_id(answer_id)["metadata"]
+    assert metadata["response_format_used"] == JSON_MODE
+    assert metadata["response_format_downgraded"] is True
+    assert metadata["response_schema_name"] == "process_step_analysis"
+    assert metadata["response_schema_root_key"] == "fallgruppen"
+    assert len(metadata["response_schema_sha256"]) == 64
+
+
+def test_query_failure_records_requested_schema_without_fake_downgrade(test_client):
+    session_id, _ = db.upsert_session("LLM-JSON-SCHEMA-META-FAIL", "test-model")
+
+    async def fake_query_fn(prompt, api_keys, model, provider, **kwargs):
+        raise RuntimeError("provider exploded")
+
+    with pytest.raises(RuntimeError, match="provider exploded"):
+        asyncio.run(
+            query_and_stage_llm_answer(
+                session_id=session_id,
+                prompt_id="process_step_analysis",
+                prompt="Frage",
+                api_keys=ApiKeys(openai_api_key="sk-test"),
+                model="test-model",
+                provider="openai",
+                query_fn=fake_query_fn,
+                norm_addressee=BUSINESS,
+            )
+        )
+
+    rows = db.list_recent_llm_answers_for_session(session_id, limit=5)
+    metadata = db.get_llm_answer_by_id(rows[-1]["answer_id"])["metadata"]
+    assert metadata["response_format_requested"]["type"] == "json_schema"
+    assert "response_format_used" not in metadata
+    assert "response_format_downgraded" not in metadata
+    assert metadata["response_schema_name"] == "process_step_analysis"
+    assert metadata["response_schema_root_key"] == "fallgruppen"
 
 
 def test_query_and_stage_cases_degrades_to_json_object_without_addressee(test_client):

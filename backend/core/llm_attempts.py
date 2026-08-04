@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 import hashlib
 import inspect
+import json
 import logging
 import time
 from typing import Any, Awaitable, Callable, Iterable
@@ -76,6 +77,77 @@ def _structured_response_format(
         "schema": build_schema(norm_addressee),
         "strict": True,
     }
+
+
+def _response_format_schema(response_format: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(response_format, dict):
+        return None
+    schema = response_format.get("schema")
+    if isinstance(schema, dict):
+        return schema
+    nested = response_format.get("json_schema")
+    if isinstance(nested, dict) and isinstance(nested.get("schema"), dict):
+        return nested.get("schema")
+    return None
+
+
+def _response_format_schema_name(response_format: dict[str, Any] | None) -> str | None:
+    if not isinstance(response_format, dict):
+        return None
+    name = response_format.get("name")
+    if isinstance(name, str) and name:
+        return name
+    nested = response_format.get("json_schema")
+    if isinstance(nested, dict) and isinstance(nested.get("name"), str):
+        return str(nested.get("name"))
+    return None
+
+
+def _response_format_schema_root_key(response_format: dict[str, Any] | None) -> str | None:
+    schema = _response_format_schema(response_format)
+    if not isinstance(schema, dict):
+        return None
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return None
+    for key in ("vorgaben", "prozesse", "fallgruppen", "taetigkeiten"):
+        if key in properties:
+            return key
+    return None
+
+
+def _response_format_schema_sha256(response_format: dict[str, Any] | None) -> str | None:
+    schema = _response_format_schema(response_format)
+    if not isinstance(schema, dict):
+        return None
+    payload = json.dumps(schema, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _response_format_metadata(
+    *,
+    requested: dict[str, Any] | None,
+    used: dict[str, Any] | None,
+    downgraded: bool | None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    if requested is not None:
+        metadata["response_format_requested"] = _jsonable(requested)
+    if used is not None:
+        metadata["response_format_used"] = _jsonable(used)
+    if downgraded is not None and (requested is not None or used is not None):
+        metadata["response_format_downgraded"] = bool(downgraded)
+    schema_source = used if _response_format_schema(used) is not None else requested
+    schema_name = _response_format_schema_name(schema_source)
+    schema_root_key = _response_format_schema_root_key(schema_source)
+    schema_sha = _response_format_schema_sha256(schema_source)
+    if schema_name:
+        metadata["response_schema_name"] = schema_name
+    if schema_root_key:
+        metadata["response_schema_root_key"] = schema_root_key
+    if schema_sha:
+        metadata["response_schema_sha256"] = schema_sha
+    return metadata
 
 
 def _provider_metadata(provider: str | None) -> dict[str, str | None]:
@@ -233,6 +305,7 @@ def mark_llm_query_failed(
     attempt_id: str | None = None,
     request_context: dict[str, str | None] | None = None,
     norm_addressee: str | None = None,
+    requested_response_format: dict[str, Any] | None = None,
 ) -> None:
     request_context = request_context or {}
     error_kind = getattr(exc, "reason", None)
@@ -249,6 +322,11 @@ def mark_llm_query_failed(
         "request_id": request_context.get("request_id"),
         "route_method": request_context.get("route_method"),
         "route_path": request_context.get("route_path"),
+        **_response_format_metadata(
+            requested=requested_response_format,
+            used=None,
+            downgraded=None,
+        ),
     }
     if elapsed_ms is not None:
         metadata_extra["elapsed_ms"] = elapsed_ms
@@ -291,6 +369,11 @@ def stage_llm_response(
     }
     if elapsed_ms is not None:
         metadata_extra["elapsed_ms"] = elapsed_ms
+    metadata_extra.update(_response_format_metadata(
+        requested=llm_result.response_format_requested,
+        used=llm_result.response_format_used,
+        downgraded=llm_result.response_format_downgraded,
+    ))
     return db.create_pending_llm_answer(
         session_id=session_id,
         prompt_id=prompt_id,
@@ -382,6 +465,7 @@ async def query_and_stage_llm_answer(
         )
 
     started = time.perf_counter()
+    requested_response_format: dict[str, Any] | None = None
     try:
         supports_stream = _supports_keyword_argument(query_impl, "stream")
         supports_on_event = _supports_keyword_argument(query_impl, "on_event")
@@ -415,16 +499,21 @@ async def query_and_stage_llm_answer(
         if prompt_id in STRUCTURED_JSON_PROMPT_IDS and _supports_keyword_argument(
             query_impl, "response_format"
         ):
-            query_kwargs["response_format"] = _structured_response_format(
+            requested_response_format = _structured_response_format(
                 prompt_id,
                 norm_addressee,
             )
+            query_kwargs["response_format"] = requested_response_format
         llm_result = coerce_llm_result(
             await query_impl(
                 prompt,
                 **query_kwargs,
             )
         )
+        if requested_response_format is not None and llm_result.response_format_requested is None:
+            llm_result.response_format_requested = requested_response_format
+            llm_result.response_format_used = requested_response_format
+            llm_result.response_format_downgraded = False
     except asyncio.CancelledError:
         failure_elapsed_ms = int((time.perf_counter() - started) * 1000)
         exc = LlmQueryError(
@@ -453,6 +542,7 @@ async def query_and_stage_llm_answer(
             attempt_id=attempt_id,
             request_context=request_ctx,
             norm_addressee=norm_addressee,
+            requested_response_format=requested_response_format,
         )
         await _publish_monitor_event(
             app_session_id=app_session_id,
@@ -496,6 +586,7 @@ async def query_and_stage_llm_answer(
             attempt_id=attempt_id,
             request_context=request_ctx,
             norm_addressee=norm_addressee,
+            requested_response_format=requested_response_format,
         )
         await _publish_monitor_event(
             app_session_id=app_session_id,

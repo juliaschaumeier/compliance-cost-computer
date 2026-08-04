@@ -114,6 +114,19 @@ class HistoricalQualityTests(unittest.TestCase):
         self.assertEqual(contract["prompt_required_root_key"], "fallgruppen")
         self.assertEqual(contract["prompt_contract_kind"], "provider_json_schema")
 
+    def test_prompt_contract_infers_current_flat_structure_wording(self):
+        prompt = """
+            Eingabe: {"vorgaben": [{"beschreibung": "x"}]}
+            Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:
+            {"normadressat": "business", "fallgruppen": [{"fallgruppen_id": 1, "kennzahlen": {}}]}
+        """
+        contract = issues.prompt_contract_info({
+            "prompt_id": "cases_calculation",
+            "prompt_text": prompt,
+            "metadata": None,
+        })
+        self.assertEqual(contract["prompt_required_root_key"], "fallgruppen")
+
     def test_addressee_detection_does_not_guess_from_generic_prompt(self):
         answer = {
             "prompt_id": "process_compilation",
@@ -154,6 +167,106 @@ class HistoricalQualityTests(unittest.TestCase):
             ],
         }
         self.assertEqual(hq.structure_fingerprint(data, 1), hq.structure_fingerprint(data, 2))
+
+    def test_repeated_run_structure_groups_split_deep_research_mode(self):
+        sessions = [
+            {"session_id": 1, "created_at": "2026-01-01", "current_law_id": 1, "proposed_law_id": 2, "llm_model": "m"},
+            {"session_id": 2, "created_at": "2026-01-02", "current_law_id": 1, "proposed_law_id": 2, "llm_model": "m"},
+            {"session_id": 3, "created_at": "2026-01-03", "current_law_id": 1, "proposed_law_id": 2, "llm_model": "m", "case_group_research_enabled": True},
+            {"session_id": 4, "created_at": "2026-01-04", "current_law_id": 1, "proposed_law_id": 2, "llm_model": "m", "case_group_research_enabled": True},
+        ]
+        data = {
+            "sessions": sessions,
+            "regulations": [{"session_id": session["session_id"], "legal_citation": f"§ {session['session_id']}", "description": "x"} for session in sessions],
+            "processes": [],
+            "case_groups": [],
+            "process_steps": [],
+            "costs": [],
+        }
+
+        groups = issues.repeated_session_groups(data)
+
+        self.assertEqual(sorted(groups), [("1->2", "m", "dr"), ("1->2", "m", "no_dr")])
+        self.assertEqual([row["session_id"] for row in groups[("1->2", "m", "no_dr")]], [1, 2])
+        self.assertEqual([row["session_id"] for row in groups[("1->2", "m", "dr")]], [3, 4])
+
+    def test_session_cost_case_points_marks_deep_research_sessions(self):
+        data = {
+            "sessions": [
+                {
+                    "session_id": 1,
+                    "app_session_id": "A",
+                    "created_at": "2026-07-30 10:00:00",
+                    "current_law_id": 1,
+                    "proposed_law_id": 2,
+                    "llm_model": "gemini-3.5-flash",
+                },
+                {
+                    "session_id": 2,
+                    "app_session_id": "B",
+                    "created_at": "2026-07-30 11:00:00",
+                    "current_law_id": 1,
+                    "proposed_law_id": 2,
+                    "llm_model": "gemini-3.5-flash",
+                },
+            ],
+            "costs": [
+                {"session_id": 1, "total_cost": 10},
+                {"session_id": 2, "total_cost": 20},
+            ],
+            "case_groups": [
+                {
+                    "session_id": 1,
+                    "cases_proposed": 100,
+                },
+                {
+                    "session_id": 2,
+                    "cases_proposed": 100,
+                },
+            ],
+            "deep_research_runs": [
+                {
+                    "session_id": 1,
+                    "purpose": "case_group_metrics",
+                    "status": "parsed",
+                }
+            ],
+        }
+
+        rows = reporting.session_cost_case_points(data)
+
+        self.assertEqual(
+            {row["app_session_id"]: row["deep_research_enabled"] for row in rows},
+            {"A": 1, "B": 0},
+        )
+
+    def test_scatter_svg_outlines_deep_research_points(self):
+        rows = [
+            {
+                "session_id": 1,
+                "created_at": "2026-07-30 10:00:00",
+                "week": "2026-W31",
+                "law_pair": "1->2",
+                "model": "gemini-3.5-flash",
+                "total_cost": 10,
+                "deep_research_enabled": 1,
+            },
+            {
+                "session_id": 2,
+                "created_at": "2026-07-30 11:00:00",
+                "week": "2026-W31",
+                "law_pair": "1->2",
+                "model": "gemini-3.5-flash",
+                "total_cost": 20,
+                "deep_research_enabled": 0,
+            },
+        ]
+
+        svg = reporting.scatter_svg("Cost", "desc", rows, "total_cost", "cost")
+
+        self.assertIn("Deep Research", svg)
+        self.assertIn("stroke='#000' stroke-width='2.1'", svg)
+        self.assertEqual(svg.count("stroke='#000' stroke-width='2.1'"), 1)
 
     def test_issue_02_old_schema_is_not_no_applies_failure(self):
         data = {
@@ -356,7 +469,7 @@ class HistoricalQualityTests(unittest.TestCase):
         row = {"issue_id": "issue_03_json_truncation", "evidence": {"parse_class": "invalid_json"}}
         self.assertEqual(reporting.finding_session_judgement(row), "hard_failure")
 
-    def test_process_step_flat_fallgruppen_shape_is_current_contract_reject(self):
+    def test_process_step_flat_fallgruppen_shape_is_current_contract(self):
         answer = {
             "answer_id": 1,
             "session_id": 1,
@@ -369,9 +482,258 @@ class HistoricalQualityTests(unittest.TestCase):
         session = {"session_id": 1, "app_session_id": "s1"}
         cls = hq.classify_json_answer(answer["answer_text"], "process_step_analysis")
         row = issues.process_step_shape_row(answer, session, cls)
-        self.assertEqual(row["shape_class"], "flat_fallgruppen_rejected_by_current_contract")
-        self.assertEqual(row["current_code_acceptance"], "reject")
+        self.assertEqual(cls["parse_class"], "valid_json")
+        self.assertEqual(cls["required_key"], "fallgruppen")
+        self.assertEqual(row["shape_class"], "expected_flat_fallgruppen")
+        self.assertEqual(row["current_code_acceptance"], "accept")
         self.assertEqual(row["top_level_flat_step_count"], 1)
+
+    def test_analyze_issue_03_accepts_current_flat_contract(self):
+        data = {
+            "sessions": [{"session_id": 1, "app_session_id": "s1", "created_at": "2026-01-01"}],
+            "llm_answers": [
+                {
+                    "answer_id": 1,
+                    "session_id": 1,
+                    "prompt_id": "cases_calculation",
+                    "created_at": "2026-01-01 10:00:00",
+                    "answer_state": "active",
+                    "state_reason": "session_updated",
+                    "model": "m",
+                    "norm_addressee": "business",
+                    "prompt_text": """
+                        Eingabe: {"prozesse": [{"fallgruppen": [{"fallgruppen_id": 1}]}]}
+                        Geben Sie nur und ausschliesslich JSON in genau dieser Struktur zurueck:
+                        {"normadressat": "business", "fallgruppen": [{"fallgruppen_id": 1, "kennzahlen": {}}]}
+                    """,
+                    "answer_text": '{"normadressat": "business", "fallgruppen": [{"fallgruppen_id": 1, "kennzahlen": {"cases_current": 0}}]}',
+                    "metadata": None,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = issues.analyze_issue_03(data, Path(tmp))
+            rows = common.read_csv_dicts(Path(tmp) / "findings" / "issue_03_answer_quality.csv")
+        self.assertEqual(findings, [])
+        self.assertNotIn("expected_entity_count", rows[0])
+        self.assertNotIn("returned_entity_count", rows[0])
+
+    def test_analyze_issue_03_includes_law_summary_contract(self):
+        data = {
+            "sessions": [{"session_id": 1, "app_session_id": "s1", "created_at": "2026-01-01"}],
+            "llm_answers": [
+                {
+                    "answer_id": 1,
+                    "session_id": 1,
+                    "prompt_id": "law_summary",
+                    "created_at": "2026-01-01 10:00:00",
+                    "answer_state": "active",
+                    "state_reason": "session_updated",
+                    "model": "m",
+                    "answer_text": json.dumps({
+                        "title": "Kurztitel",
+                        "blurb": "Ein Satz.",
+                        "summary": "Ausfuehrliche Zusammenfassung.",
+                    }),
+                    "metadata": None,
+                },
+                {
+                    "answer_id": 2,
+                    "session_id": 1,
+                    "prompt_id": "law_summary",
+                    "created_at": "2026-01-01 10:01:00",
+                    "answer_state": "invalid",
+                    "state_reason": "session_update_failed: expected summary fields",
+                    "model": "m",
+                    "answer_text": json.dumps({
+                        "title": "Kurztitel",
+                        "summary": "Ausfuehrliche Zusammenfassung.",
+                    }),
+                    "metadata": None,
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = issues.analyze_issue_03(data, Path(tmp))
+            rows = common.read_csv_dicts(Path(tmp) / "findings" / "issue_03_answer_quality.csv")
+
+        self.assertEqual([row["answer_id"] for row in rows], ["1", "2"])
+        self.assertEqual(rows[0]["parse_class"], "valid_json")
+        self.assertEqual(rows[0]["prompt_required_root_key"], "summary")
+        self.assertEqual(rows[1]["parse_class"], "wrong_top_level_key")
+        self.assertEqual(len(findings), 1)
+
+    def test_analyze_issue_03_writes_raw_change_status_diagnostic(self):
+        data = {
+            "sessions": [{"session_id": 1, "app_session_id": "s1", "created_at": "2026-01-01"}],
+            "llm_answers": [
+                {
+                    "answer_id": 1,
+                    "session_id": 1,
+                    "prompt_id": "process_step_analysis",
+                    "created_at": "2026-01-01 10:00:00",
+                    "answer_state": "active",
+                    "state_reason": "session_updated",
+                    "model": "m",
+                    "norm_addressee": "business",
+                    "answer_text": json.dumps({
+                        "normadressat": "business",
+                        "fallgruppen": [
+                            {
+                                "fallgruppen_id": 1,
+                                "taetigkeiten": [
+                                    {"taetigkeit": "A", "aenderungsstatus": "eingefuehrt"},
+                                    {"taetigkeit": "B", "aenderungsstatus": "geandert"},
+                                    {"taetigkeit": "C"},
+                                ],
+                            }
+                        ],
+                    }),
+                    "metadata": None,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            issues.analyze_issue_03(data, Path(tmp))
+            rows = common.read_csv_dicts(Path(tmp) / "findings" / "issue_04_raw_change_status_quality.csv")
+
+        self.assertEqual([row["entity_name"] for row in rows], ["A", "B", "C"])
+        self.assertEqual([row["status_bucket"] for row in rows], ["present_valid", "present_unrecognized", "missing"])
+        self.assertEqual(rows[1]["raw_status_value"], "geandert")
+        self.assertEqual(rows[2]["raw_status_key"], "")
+
+    def test_raw_change_status_diagnostic_reads_case_group_singular_name_key(self):
+        answer = {
+            "answer_id": 1,
+            "session_id": 1,
+            "prompt_id": "case_group_development",
+            "created_at": "2026-01-01 10:00:00",
+            "answer_state": "active",
+            "state_reason": "session_updated",
+            "model": "m",
+            "norm_addressee": "business",
+            "answer_text": json.dumps({
+                "normadressat": "business",
+                "prozesse": [
+                    {
+                        "prozess_id": 1,
+                        "fallgruppen": [
+                            {
+                                "fallgruppe_bezeichnung": "Standardfall",
+                                "fallgruppe_beschreibung": "x",
+                                "aenderungsstatus": "geaendert",
+                            }
+                        ],
+                    }
+                ],
+            }),
+            "metadata": None,
+        }
+        cls, _contract = issues.classify_answer_by_prompt_contract(answer)
+        rows = issues.raw_change_status_quality_rows(answer, {"app_session_id": "s1"}, cls)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["entity_type"], "case_group")
+        self.assertEqual(rows[0]["entity_name"], "Standardfall")
+        self.assertEqual(rows[0]["status_bucket"], "present_valid")
+
+    def test_analyze_issue_03_ignores_markdown_export_as_json_failure(self):
+        data = {
+            "sessions": [{"session_id": 1, "app_session_id": "s1", "created_at": "2026-01-01"}],
+            "llm_answers": [
+                {
+                    "answer_id": 1,
+                    "session_id": 1,
+                    "prompt_id": "compliance_text_extraction",
+                    "created_at": "2026-01-01 10:00:00",
+                    "answer_state": "active",
+                    "state_reason": "session_updated",
+                    "model": "m",
+                    "answer_text": "# E. Erfuellungsaufwand\n\nMarkdown text",
+                    "metadata": None,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = issues.analyze_issue_03(data, Path(tmp))
+        self.assertEqual(findings, [])
+
+    def test_backend_rejection_group_summarizes_state_reason(self):
+        answer = {
+            "answer_state": "invalid",
+            "state_reason": "session_update_failed: Missing process steps for fallgruppen_id values: 536, 537",
+        }
+        self.assertEqual(issues.answer_db_outcome(answer), "rejected_by_session_update")
+        self.assertEqual(issues.backend_rejection_group(answer["state_reason"]), "missing_case_group_ids")
+
+    def test_step_6_flat_fallgruppen_shape_is_current_contract(self):
+        answer = {
+            "answer_id": 1,
+            "session_id": 1,
+            "prompt_id": "effort_calculation",
+            "answer_text": '{"fallgruppen": [{"fallgruppen_id": 12, "taetigkeiten": [{"taetigkeiten_id": 3, "zeitaufwand_vorschlag": 5}]}]}',
+            "answer_state": "active",
+            "state_reason": "session_updated",
+            "norm_addressee": "business",
+        }
+        session = {"session_id": 1, "app_session_id": "s1"}
+        cls, _contract = issues.classify_answer_by_prompt_contract(answer)
+        row = issues.step_6_shape_row(answer, session, cls)
+        self.assertEqual(cls["parse_class"], "valid_json")
+        self.assertEqual(row["shape_class"], "expected_flat_fallgruppen")
+        self.assertEqual(row["current_code_acceptance"], "accept")
+        self.assertEqual(row["metric_entity_count"], 1)
+
+    def test_compliance_export_quality_is_markdown_specific(self):
+        answer = {
+            "answer_id": 7,
+            "session_id": 1,
+            "prompt_id": "compliance_text_extraction",
+            "answer_text": "# E. Erfuellungsaufwand\n\n| lfd. Nr. | Norm |\n| --- | --- |\n| 1 | § 1 |",
+            "answer_state": "active",
+            "state_reason": "session_updated",
+        }
+        row = issues.compliance_export_quality_row(answer, {"session_id": 1, "app_session_id": "s1"})
+        self.assertEqual(row["quality_class"], "expected_markdown")
+        self.assertTrue(row["has_markdown_table"])
+
+    def test_raw_change_status_summary_keeps_prompt_and_entity_context(self):
+        rows = [
+            {"prompt_id": "process_step_analysis", "entity_type": "process_step", "status_bucket": "missing", "answer_id": 1},
+            {"prompt_id": "process_step_analysis", "entity_type": "process_step", "status_bucket": "present_valid", "answer_id": 2, "raw_status_value": "geaendert"},
+        ]
+        summary = reporting.raw_change_status_summary(rows)
+        self.assertEqual(
+            [(row["prompt_id"], row["entity_type"], row["status_bucket"], row["count"]) for row in summary],
+            [
+                ("process_step_analysis", "process_step", "missing", 1),
+                ("process_step_analysis", "process_step", "present_valid", 1),
+            ],
+        )
+
+    def test_compliance_export_quality_flags_leaked_json(self):
+        answer = {
+            "answer_id": 8,
+            "session_id": 1,
+            "prompt_id": "compliance_text_extraction",
+            "answer_text": '```json\n{"session_json": {}}\n```',
+            "answer_state": "active",
+            "state_reason": "session_updated",
+        }
+        row = issues.compliance_export_quality_row(answer, {"session_id": 1})
+        self.assertEqual(row["quality_class"], "leaked_prompt_or_json_artifact")
+
+    def test_compliance_export_quality_allows_table_line_break_tags(self):
+        answer = {
+            "answer_id": 9,
+            "session_id": 1,
+            "prompt_id": "compliance_text_extraction",
+            "answer_text": "# E. Erfuellungsaufwand\n\n| lfd. Nr. | Norm |\n| --- | --- |\n| 1 | § 1<br>§ 2 |",
+            "answer_state": "active",
+            "state_reason": "session_updated",
+        }
+        row = issues.compliance_export_quality_row(answer, {"session_id": 1})
+        self.assertEqual(row["quality_class"], "expected_markdown")
 
     def test_retry_pressure_splits_user_rollbacks_and_counts_step_five_retries(self):
         data = {
@@ -507,7 +869,7 @@ class HistoricalQualityTests(unittest.TestCase):
             "tiles": [],
         }
         rows = issues.analyze_retry_pressure(data, out_dir=None)
-        self.assertEqual(rows[0]["primary_retry_cause"], "process_step_flat_fallgruppen_shape")
+        self.assertEqual(rows[0]["primary_retry_cause"], "process_step_missing_expected_steps")
         self.assertIn("process_step_missing_expected_steps", rows[0]["retry_cause_groups"])
 
     def test_retry_cause_classifies_unknown_qualification_value(self):

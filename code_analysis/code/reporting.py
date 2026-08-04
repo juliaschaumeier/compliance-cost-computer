@@ -5,7 +5,7 @@ import html
 import math
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Iterable
 
 from common import *
 from entities import *
@@ -203,6 +203,7 @@ ANALYZERS = (
     analyze_issue_06,
     analyze_issue_07,
     analyze_issue_08,
+    analyze_issue_09,
 )
 
 def analyze(out_dir: Path, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -276,11 +277,26 @@ def aggregate(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, 
     write_csv(out_dir / "reports" / "weekly_answer_quality_by_model.csv", weekly_answer_model)
     prompt_contract_summary_rows = prompt_contract_summary(answer_quality)
     write_csv(out_dir / "reports" / "prompt_contract_summary.csv", prompt_contract_summary_rows)
+    backend_rejection_summary_rows = backend_rejection_summary(answer_quality)
+    write_csv(out_dir / "reports" / "backend_rejection_summary.csv", backend_rejection_summary_rows)
     process_step_shape = read_csv_dicts(out_dir / "findings" / "issue_03_process_step_shape.csv")
     weekly_process_step_shape = weekly_process_step_shapes(process_step_shape)
     write_csv(out_dir / "reports" / "weekly_process_step_shape.csv", weekly_process_step_shape)
     weekly_process_step_shape_model = weekly_process_step_shapes_by_model(process_step_shape)
     write_csv(out_dir / "reports" / "weekly_process_step_shape_by_model.csv", weekly_process_step_shape_model)
+    step_6_shape = read_csv_dicts(out_dir / "findings" / "issue_03_step_6_shape.csv")
+    weekly_step_6_shape = weekly_step_6_shapes_by_prompt(step_6_shape)
+    write_csv(out_dir / "reports" / "weekly_step_6_shape.csv", weekly_step_6_shape)
+    weekly_step_6_shape_model = weekly_step_6_shapes_by_model(step_6_shape)
+    write_csv(out_dir / "reports" / "weekly_step_6_shape_by_model.csv", weekly_step_6_shape_model)
+    compliance_export_quality = read_csv_dicts(out_dir / "findings" / "issue_09_compliance_export_quality.csv")
+    compliance_export_summary_rows = compliance_export_summary(compliance_export_quality)
+    write_csv(out_dir / "reports" / "compliance_export_quality_summary.csv", compliance_export_summary_rows)
+    raw_change_status_quality = read_csv_dicts(out_dir / "findings" / "issue_04_raw_change_status_quality.csv")
+    weekly_raw_change_status_quality = weekly_raw_change_status_checks(raw_change_status_quality)
+    write_csv(out_dir / "reports" / "weekly_raw_change_status_quality.csv", weekly_raw_change_status_quality)
+    raw_change_status_summary_rows = raw_change_status_summary(raw_change_status_quality)
+    write_csv(out_dir / "reports" / "raw_change_status_quality_summary.csv", raw_change_status_summary_rows)
     change_status_quality = read_csv_dicts(out_dir / "findings" / "issue_04_change_status_quality.csv")
     weekly_change_status_quality = weekly_change_status_checks(change_status_quality)
     write_csv(out_dir / "reports" / "weekly_change_status_quality.csv", weekly_change_status_quality)
@@ -324,8 +340,14 @@ def aggregate(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, 
         "weekly_answer_syntax": weekly_answer_syntax,
         "weekly_answer_model": weekly_answer_model,
         "prompt_contract_summary": prompt_contract_summary_rows,
+        "backend_rejection_summary": backend_rejection_summary_rows,
         "weekly_process_step_shape": weekly_process_step_shape,
         "weekly_process_step_shape_model": weekly_process_step_shape_model,
+        "weekly_step_6_shape": weekly_step_6_shape,
+        "weekly_step_6_shape_model": weekly_step_6_shape_model,
+        "compliance_export_summary": compliance_export_summary_rows,
+        "weekly_raw_change_status_quality": weekly_raw_change_status_quality,
+        "raw_change_status_summary": raw_change_status_summary_rows,
         "weekly_change_status_quality": weekly_change_status_quality,
         "weekly_change_status_hierarchy": weekly_change_status_hierarchy,
         "weekly_bureaucracy_cost_quality": weekly_bureaucracy_cost_quality,
@@ -414,6 +436,10 @@ def finding_session_judgement(row: dict[str, Any]) -> str:
         if evidence.get("reason") in {"raw_ip_not_persisted", "ip_present_bureaucracy_missing_or_zero"}:
             return "hard_failure"
         return "review_signal"
+    if issue_id == "issue_09_compliance_export_quality":
+        if evidence.get("quality_class") in {"empty_export", "leaked_prompt_or_json_artifact"}:
+            return "hard_failure"
+        return "review_signal"
     if issue_id in {
         "issue_05_structure_consistency",
         "issue_06_cost_variance",
@@ -493,6 +519,8 @@ def review_question(row: dict[str, Any]) -> str | None:
             return "Did the raw answer correctly identify business information obligations that were lost in persistence, or are the raw flags false positives?"
         if reason == "ip_present_bureaucracy_missing_or_zero":
             return "Is zero/missing bureaucracy cost defensible despite business information obligations, or is this a cost-separation failure?"
+    if issue_id == "issue_09_compliance_export_quality":
+        return "Does this compliance export contain usable Markdown text, or did the model return an empty/leaky artefact?"
     if judgement in {"review_signal", "instability_signal"}:
         return "Does this diagnostic signal represent a true quality problem, or a defensible outcome for this legal change?"
     return None
@@ -750,6 +778,106 @@ def prompt_contract_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         })
     return out_rows
 
+def backend_rejection_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        group = str(row.get("backend_rejection_group") or "")
+        if not group:
+            continue
+        key = (
+            str(row.get("prompt_id") or "unknown"),
+            str(row.get("db_outcome") or "unknown"),
+            group,
+        )
+        buckets.setdefault(key, []).append(row)
+    return [
+        {
+            "prompt_id": prompt_id,
+            "db_outcome": db_outcome,
+            "backend_rejection_group": group,
+            "count": len(items),
+            "example_answer_ids": ", ".join(str(item.get("answer_id")) for item in items[:6]),
+            "example_state_reason": first_nonempty(items, "state_reason"),
+        }
+        for (prompt_id, db_outcome, group), items in sorted(buckets.items())
+    ]
+
+def compliance_export_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        key = (
+            str(row.get("model") or "unknown"),
+            str(row.get("quality_class") or "unknown"),
+        )
+        buckets.setdefault(key, []).append(row)
+    return [
+        {
+            "model": model,
+            "quality_class": quality_class,
+            "count": len(items),
+            "example_answer_ids": ", ".join(str(item.get("answer_id")) for item in items[:6]),
+            "median_text_length": median([safe_float(item.get("text_length")) for item in items]),
+            "with_section_4_heading": sum(1 for item in items if truthy(item.get("has_section_four_heading"))),
+            "with_markdown_table": sum(1 for item in items if truthy(item.get("has_markdown_table"))),
+        }
+        for (model, quality_class), items in sorted(buckets.items())
+    ]
+
+def weekly_raw_change_status_checks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_week: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_week.setdefault(str(row.get("answer_week") or "unknown"), []).append(row)
+    out_rows = []
+    classes = raw_change_status_classes()
+    for week, items in sorted(by_week.items()):
+        out = {"week": week, "total_status_entities": len(items)}
+        for cls in classes:
+            out[cls] = sum(1 for item in items if item.get("status_bucket") == cls)
+        out_rows.append(out)
+    return out_rows
+
+def raw_change_status_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        key = (
+            str(row.get("prompt_id") or "unknown"),
+            str(row.get("entity_type") or "unknown"),
+            str(row.get("status_bucket") or "unknown"),
+        )
+        buckets.setdefault(key, []).append(row)
+    return [
+        {
+            "prompt_id": prompt_id,
+            "entity_type": entity_type,
+            "status_bucket": bucket,
+            "count": len(items),
+            "example_answer_ids": ", ".join(unique_strings(item.get("answer_id") for item in items)[:6]),
+            "example_status_values": ", ".join(sorted({
+                str(item.get("raw_status_value"))
+                for item in items
+                if item.get("raw_status_value") not in (None, "")
+            }))[:180],
+        }
+        for (prompt_id, entity_type, bucket), items in sorted(buckets.items())
+    ]
+
+def unique_strings(values: Iterable[Any]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+def median(values: list[float | None]) -> float | None:
+    clean = [float(value) for value in values if value is not None]
+    if not clean:
+        return None
+    return statistics.median(clean)
+
 def json_quality_classes() -> list[str]:
     return [
         "valid_json", "wrong_top_level_key", "empty_or_invalid_top_level",
@@ -759,14 +887,32 @@ def json_quality_classes() -> list[str]:
 
 def process_step_shape_classes() -> list[str]:
     return [
+        "expected_flat_fallgruppen",
         "expected_nested_prozesse",
         "fallback_reachable_flat_fallgruppen",
-        "flat_fallgruppen_rejected_by_current_contract",
         "prozesse_present_but_no_steps",
         "flat_fallgruppen_without_steps",
         "other_json_no_prozesse",
         "top_level_list",
         "unparseable",
+    ]
+
+def step_6_shape_classes() -> list[str]:
+    return [
+        "expected_flat_fallgruppen",
+        "legacy_nested_prozesse",
+        "flat_fallgruppen_without_metrics",
+        "prozesse_present_without_metrics",
+        "other_json_no_fallgruppen",
+        "top_level_list",
+        "unparseable",
+    ]
+
+def raw_change_status_classes() -> list[str]:
+    return [
+        "present_valid",
+        "missing",
+        "present_unrecognized",
     ]
 
 def weekly_process_step_shapes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -782,6 +928,36 @@ def weekly_process_step_shapes_by_model(rows: list[dict[str, Any]]) -> list[dict
     out_rows = []
     for (model, week), items in sorted(by_group.items()):
         row = process_step_shape_count_row(items)
+        row["model"] = model
+        row["week"] = week
+        out_rows.append(row)
+    return out_rows
+
+def weekly_step_6_shapes_by_prompt(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        by_group.setdefault((str(row.get("prompt_id") or "unknown"), str(row.get("answer_week") or "unknown")), []).append(row)
+    out_rows = []
+    for (prompt_id, week), items in sorted(by_group.items()):
+        row = step_6_shape_count_row(items)
+        row["prompt_id"] = prompt_id
+        row["week"] = week
+        out_rows.append(row)
+    return out_rows
+
+def weekly_step_6_shapes_by_model(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_group: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        key = (
+            str(row.get("prompt_id") or "unknown"),
+            str(row.get("model") or "unknown"),
+            str(row.get("answer_week") or "unknown"),
+        )
+        by_group.setdefault(key, []).append(row)
+    out_rows = []
+    for (prompt_id, model, week), items in sorted(by_group.items()):
+        row = step_6_shape_count_row(items)
+        row["prompt_id"] = prompt_id
         row["model"] = model
         row["week"] = week
         out_rows.append(row)
@@ -1093,6 +1269,7 @@ def session_cost_case_points(data: dict[str, list[dict[str, Any]]]) -> list[dict
             "total_cost": total_cost,
             "proposed_case_total": proposed_cases,
             "current_case_total": current_cases,
+            "deep_research_enabled": int(session_deep_research_enabled(data, session)),
         })
     return rows
 
@@ -1119,6 +1296,15 @@ def process_step_shape_aggregate_rows(by_week: dict[str, list[dict[str, Any]]]) 
 def process_step_shape_count_row(items: list[dict[str, Any]]) -> dict[str, Any]:
     out: dict[str, Any] = {"total_process_step_answers": len(items)}
     for cls in process_step_shape_classes():
+        out[cls] = sum(1 for item in items if item.get("shape_class") == cls)
+    out["current_code_accept"] = sum(1 for item in items if item.get("current_code_acceptance") == "accept")
+    out["current_code_reject"] = sum(1 for item in items if item.get("current_code_acceptance") == "reject")
+    out["persisted_applied"] = sum(1 for item in items if item.get("persisted_outcome") == "applied")
+    return out
+
+def step_6_shape_count_row(items: list[dict[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {"total_step_6_answers": len(items)}
+    for cls in step_6_shape_classes():
         out[cls] = sum(1 for item in items if item.get("shape_class") == cls)
     out["current_code_accept"] = sum(1 for item in items if item.get("current_code_acceptance") == "accept")
     out["current_code_reject"] = sum(1 for item in items if item.get("current_code_acceptance") == "reject")
@@ -1199,6 +1385,8 @@ def finding_detail_keys(row: dict[str, Any]) -> list[str]:
         return ["similar_structure_with_case_count_delta"]
     if issue_id == "issue_08_bureaucracy_cost":
         return [safe_key(evidence.get("reason") or "unknown_bureaucracy_reason")]
+    if issue_id == "issue_09_compliance_export_quality":
+        return [safe_key(evidence.get("quality_class") or "unknown_export_quality")]
     return ["unknown"]
 
 def safe_key(value: Any) -> str:
@@ -1249,8 +1437,12 @@ def write_report_md(out_dir: Path, session_rows: list[dict[str, Any]], weekly: l
         "- `reports/weekly_answer_syntax_quality.csv`",
         "- `reports/weekly_answer_quality_by_model.csv`",
         "- `reports/prompt_contract_summary.csv`",
+        "- `reports/backend_rejection_summary.csv`",
         "- `reports/weekly_process_step_shape.csv`",
         "- `reports/weekly_process_step_shape_by_model.csv`",
+        "- `reports/weekly_step_6_shape.csv`",
+        "- `reports/weekly_step_6_shape_by_model.csv`",
+        "- `reports/compliance_export_quality_summary.csv`",
         "- `reports/weekly_change_status_quality.csv`",
         "- `reports/weekly_change_status_hierarchy.csv`",
         "- `reports/weekly_bureaucracy_cost_quality.csv`",
@@ -1267,6 +1459,8 @@ def write_report_md(out_dir: Path, session_rows: list[dict[str, Any]], weekly: l
         "- `findings/issue_02_not_applicable_wordings.csv`",
         "- `findings/retry_pressure.csv`",
         "- `findings/issue_03_process_step_shape.csv`",
+        "- `findings/issue_03_step_6_shape.csv`",
+        "- `findings/issue_09_compliance_export_quality.csv`",
         "- `findings/issue_04_change_status_quality.csv`",
         "- `findings/issue_08_bureaucracy_cost_quality.csv`",
         "- `findings/findings.csv` / `findings/findings.jsonl`",
@@ -1284,8 +1478,14 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
     weekly_answer_syntax = read_csv_dicts(out_dir / "reports" / "weekly_answer_syntax_quality.csv")
     weekly_answer_model = read_csv_dicts(out_dir / "reports" / "weekly_answer_quality_by_model.csv")
     prompt_contract_summary_rows = read_csv_dicts(out_dir / "reports" / "prompt_contract_summary.csv")
+    backend_rejection_summary_rows = read_csv_dicts(out_dir / "reports" / "backend_rejection_summary.csv")
     weekly_process_step_shape = read_csv_dicts(out_dir / "reports" / "weekly_process_step_shape.csv")
     weekly_process_step_shape_model = read_csv_dicts(out_dir / "reports" / "weekly_process_step_shape_by_model.csv")
+    weekly_step_6_shape = read_csv_dicts(out_dir / "reports" / "weekly_step_6_shape.csv")
+    weekly_step_6_shape_model = read_csv_dicts(out_dir / "reports" / "weekly_step_6_shape_by_model.csv")
+    compliance_export_summary_rows = read_csv_dicts(out_dir / "reports" / "compliance_export_quality_summary.csv")
+    weekly_raw_change_status_quality = read_csv_dicts(out_dir / "reports" / "weekly_raw_change_status_quality.csv")
+    raw_change_status_summary_rows = read_csv_dicts(out_dir / "reports" / "raw_change_status_quality_summary.csv")
     weekly_change_status_quality = read_csv_dicts(out_dir / "reports" / "weekly_change_status_quality.csv")
     weekly_change_status_hierarchy = read_csv_dicts(out_dir / "reports" / "weekly_change_status_hierarchy.csv")
     weekly_bureaucracy_cost_quality = read_csv_dicts(out_dir / "reports" / "weekly_bureaucracy_cost_quality.csv")
@@ -1308,8 +1508,14 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
         weekly_answer_syntax=weekly_answer_syntax,
         weekly_answer_model=weekly_answer_model,
         prompt_contract_summary_rows=prompt_contract_summary_rows,
+        backend_rejection_summary_rows=backend_rejection_summary_rows,
         weekly_process_step_shape=weekly_process_step_shape,
         weekly_process_step_shape_model=weekly_process_step_shape_model,
+        weekly_step_6_shape=weekly_step_6_shape,
+        weekly_step_6_shape_model=weekly_step_6_shape_model,
+        compliance_export_summary_rows=compliance_export_summary_rows,
+        weekly_raw_change_status_quality=weekly_raw_change_status_quality,
+        raw_change_status_summary_rows=raw_change_status_summary_rows,
         weekly_change_status_quality=weekly_change_status_quality,
         weekly_change_status_hierarchy=weekly_change_status_hierarchy,
         weekly_bureaucracy_cost_quality=weekly_bureaucracy_cost_quality,
@@ -1351,6 +1557,7 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
     .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 12px; font-size: 12px; }}
     .legend span {{ display: inline-flex; align-items: center; gap: 4px; }}
     .swatch {{ display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }}
+    .dr-outline-swatch {{ display: inline-block; width: 10px; height: 10px; border: 2px solid #000; background: #fff; margin-right: 5px; vertical-align: -2px; }}
     .shape-icon {{ width: 18px; height: 14px; vertical-align: -2px; }}
     .subplots {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px 22px; align-items: start; }}
     .subplot {{ border: 1px solid #d9dee7; padding: 10px 10px 6px; background: #fff; }}
@@ -1379,8 +1586,14 @@ def report_charts(
     weekly_answer_syntax: list[dict[str, Any]],
     weekly_answer_model: list[dict[str, Any]],
     prompt_contract_summary_rows: list[dict[str, Any]],
+    backend_rejection_summary_rows: list[dict[str, Any]],
     weekly_process_step_shape: list[dict[str, Any]],
     weekly_process_step_shape_model: list[dict[str, Any]],
+    weekly_step_6_shape: list[dict[str, Any]],
+    weekly_step_6_shape_model: list[dict[str, Any]],
+    compliance_export_summary_rows: list[dict[str, Any]],
+    weekly_raw_change_status_quality: list[dict[str, Any]],
+    raw_change_status_summary_rows: list[dict[str, Any]],
     weekly_change_status_quality: list[dict[str, Any]],
     weekly_change_status_hierarchy: list[dict[str, Any]],
     weekly_bureaucracy_cost_quality: list[dict[str, Any]],
@@ -1466,12 +1679,40 @@ def report_charts(
                     "Tätigkeiten Answer Shape",
                     (
                         "Only `process_step_analysis` answers are included. The expected shape is "
-                        "`prozesse -> fallgruppen -> taetigkeiten`. The key degradation signal is a move away from "
-                        "the expected nested shape into flat Fallgruppen, empty `prozesse`, or unparseable answers."
+                        "a flat top-level `fallgruppen` array whose objects contain `taetigkeiten`. Legacy nested "
+                        "`prozesse -> fallgruppen -> taetigkeiten` remains visible separately for older sessions. "
+                        "This checks the raw answer shape only; missing or duplicate IDs are still shown through "
+                        "the backend rejection summary because the backend owns completeness validation."
                     ),
                     weekly_process_step_shape,
                     "week",
                     process_step_shape_series(),
+                    y_label="answers",
+                ),
+                small_multiples_stacked_bar_svg(
+                    "Step 6 Answer Shape By Prompt",
+                    (
+                        "`cases_calculation` and `effort_calculation` should now use the same flat top-level "
+                        "`fallgruppen` envelope. This diagnostic shows whether any model still returns legacy "
+                        "nested `prozesse` or structurally empty metric answers. It does not decide whether the "
+                        "individual case numbers or effort values are legally plausible."
+                    ),
+                    weekly_step_6_shape,
+                    "prompt_id",
+                    "week",
+                    step_6_shape_series(),
+                    y_label="answers",
+                ),
+                small_multiples_stacked_bar_svg(
+                    "Step 6 Answer Shape By Model",
+                    (
+                        "The same Step 6 shape diagnostic split by model. This helps detect whether a specific "
+                        "model returns legacy nested or empty metric payloads while others follow the flat contract."
+                    ),
+                    weekly_step_6_shape_model,
+                    "model",
+                    "week",
+                    step_6_shape_series(),
                     y_label="answers",
                 ),
             ],
@@ -1497,7 +1738,8 @@ def report_charts(
                     (
                         "Zero is ideal. The stacked height is the mean number of extra execution rounds per session. "
                         "Colors are additive contributions from step 5, step 6, and earlier prompt-backed steps; they "
-                        "are not percentages. This chart answers how much repeated pressing the average session required."
+                        "are not percentages. This is retry pressure within a session: automatic retries or manual "
+                        "reruns needed before progress succeeded. It is separate from repeated-run stability below."
                     ),
                     weekly_session_retry,
                     "week",
@@ -1530,13 +1772,19 @@ def report_charts(
         ),
         report_section(
             "5. Repeated-Run Stability",
-            "These are diagnostic stability views. They show spread and drift, but do not decide which run is legally right.",
+            (
+                "These views compare separate completed sessions with the same law pair, model, and Deep Research "
+                "mode. They need at least two comparable sessions in that exact group; one-off matrix runs can "
+                "therefore legitimately show no data here. They show spread and drift, but do not decide which "
+                "run is legally right."
+            ),
             [
                 scatter_svg(
                     "Final Cost Scatter Over Time",
                     (
                         "Each point is one session with a final cost. Color identifies model and shape identifies law pair. "
-                        "Use this to spot unstable cost estimates, outliers, and model/law-pair clusters over time."
+                        "A black outline marks sessions where Deep Research case metrics were enabled. Use this to "
+                        "spot unstable cost estimates, outliers, and model/law-pair clusters over time."
                     ),
                     cost_case_points,
                     "total_cost",
@@ -1547,8 +1795,9 @@ def report_charts(
                     "Proposed Case Count Scatter Over Time",
                     (
                         "Each point is one session with persisted proposed case counts summed across case groups. "
-                        "Compare this with final cost: if both move together, variance is likely driven by case-count "
-                        "assumptions rather than only legal decomposition."
+                        "A black outline marks Deep Research sessions. Compare this with final cost: if both move "
+                        "together, variance is likely driven by case-count assumptions rather than only legal "
+                        "decomposition."
                     ),
                     cost_case_points,
                     "proposed_case_total",
@@ -1578,6 +1827,26 @@ def report_charts(
                     ),
                     json_quality_explanation_table(),
                     prompt_contract_summary_table(prompt_contract_summary_rows),
+                    backend_rejection_summary_table(backend_rejection_summary_rows),
+                    compliance_export_summary_table(compliance_export_summary_rows),
+                ]),
+                details_section("Raw Change-Status Output", "Whether structural prompts explicitly returned a usable lifecycle status before persistence and value checks.", [
+                    stacked_bar_svg(
+                        "Weekly Raw Change-Status Output",
+                        (
+                            "This scans raw `process_compilation`, `case_group_development`, and "
+                            "`process_step_analysis` answers for the actual status fields emitted by the model. "
+                            "Green means an expected value such as `eingefuehrt`, `abgeschafft`, `geaendert`, or "
+                            "`unveraendert` was present. Grey means the entity had no status field. Red means a "
+                            "status was present but outside the expected vocabulary. This helps distinguish missing "
+                            "model output from later persisted status/value inconsistencies."
+                        ),
+                        weekly_raw_change_status_quality,
+                        "week",
+                        raw_change_status_series(),
+                        y_label="raw entities",
+                    ),
+                    raw_change_status_summary_table(raw_change_status_summary_rows),
                 ]),
                 details_section("Addressee Wording Evidence", "Exact heuristic phrases behind the 'nothing to do' addressee review.", [
                     issue_02_wording_summary_table(issue_02_wording_summary_rows),
@@ -1810,6 +2079,7 @@ def color_for_issue(issue_id: str) -> str:
         "issue_06_cost_variance": "#636363",
         "issue_07_case_count_driven_variance": "#fd8d3c",
         "issue_08_bureaucracy_cost": "#6baed6",
+        "issue_09_compliance_export_quality": "#2ca25f",
     }
     return palette.get(issue_id, "#969696")
 
@@ -1823,6 +2093,7 @@ def readable_issue_label(issue_id: str) -> str:
         "issue_06_cost_variance": "Cost variance",
         "issue_07_case_count_driven_variance": "Case-count variance",
         "issue_08_bureaucracy_cost": "Bureaucracy cost split",
+        "issue_09_compliance_export_quality": "Compliance export quality",
     }
     return labels.get(issue_id, issue_id)
 
@@ -1841,10 +2112,11 @@ def dashboard_glossary() -> str:
     rows = [
         ("Green session", "A session with some usable evidence and no concrete finding in the completed/available parts. It need not have reached final costs."),
         ("Status/value mismatch", "`eingefuehrt`, `abgeschafft`, or `geaendert` contradicts current/proposed values, e.g. abolished but proposed value remains positive."),
-        ("Repeated-run structure drift", "Same law pair and same model were run more than once, and their persisted structure fingerprints differ. The suite builds normalized sets for regulations, processes, case groups, and generated Tätigkeiten, computes Jaccard similarity for each layer, then averages the four layer scores. A pair is flagged when mean similarity is below 0.65; layer-specific buckets show which layer also fell below 0.65. It does not mean one button was clicked twice."),
-        ("Cost variance", "Same law pair and same model produced materially different final total costs across runs; this is instability evidence, not automatic proof that one value is wrong."),
+        ("Retry pressure", "Extra execution rounds inside one session before a step/addressee succeeds. This can come from automatic retry or from pressing a step again after a failed attempt."),
+        ("Repeated-run structure drift", "Separate sessions with the same law pair, model, and Deep Research mode were run more than once, and their persisted structure fingerprints differ. The suite builds normalized sets for regulations, processes, case groups, and generated Tätigkeiten, computes Jaccard similarity for each layer, then averages the four layer scores. A pair is flagged when mean similarity is below 0.65; layer-specific buckets show which layer also fell below 0.65. It does not mean one button was clicked twice."),
+        ("Cost variance", "Separate sessions with the same law pair, model, and Deep Research mode produced materially different final total costs; this is instability evidence, not automatic proof that one value is wrong."),
         ("Invalid JSON", "JSON-looking output that cannot be parsed and is not classified as near-complete missing closure or hard mid-content truncation."),
-        ("Root contract mismatch", "The JSON parses, but the required payload key for the checker is absent, e.g. current checker expects `prozesse` while the answer has `fallgruppen`. This is separate from provider JSON object/schema mode."),
+        ("Root contract mismatch", "The JSON parses, but the required payload key inferred from the prompt/schema is absent. This is separate from provider JSON object/schema mode."),
         ("No JSON object found", "No extractable `{...}` JSON object was found in the raw answer, so the response is prose/error text rather than malformed JSON."),
     ]
     body = "".join(
@@ -1868,7 +2140,7 @@ def json_syntax_series() -> list[tuple[str, str, str]]:
 def json_quality_explanation_table() -> str:
     descriptions = {
         "valid_json": "The answer parsed as JSON and contained the required top-level payload for that prompt.",
-        "wrong_top_level_key": "The raw answer parsed as JSON, but the expected root payload key was absent. This is the suite's raw-answer contract check, not the DB `state_reason`; for example, a step answer may use `fallgruppen` at the root while the prompt contract expects `prozesse`.",
+        "wrong_top_level_key": "The raw answer parsed as JSON, but the expected root payload key inferred from the prompt/schema was absent. This is the suite's raw-answer contract check, not the DB `state_reason`.",
         "empty_or_invalid_top_level": "The expected top-level key exists, but its value is empty or not a usable list/object. This is why `{\"prozesse\": []}` is not counted as a successful process answer.",
         "near_complete_missing_closer": "Appending only final brackets/braces repairs the JSON shape. This catches the common one- or two-character truncation case.",
         "hard_mid_content_truncation": "The answer appears to stop inside a string or needs more than final closers; this is stronger evidence of true truncation.",
@@ -1916,6 +2188,84 @@ def prompt_contract_summary_table(rows: list[dict[str, Any]]) -> str:
         "<th>Provider metadata rows</th><th>Root mismatches</th><th>Answers matching prompt root</th>"
         "<th>Current checker mismatch</th><th>Accepted mismatches</th>"
         "<th>Rejected mismatches</th></tr>"
+        f"{body}</table></section>"
+    )
+
+def backend_rejection_summary_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "<section class='chart compact'><h3>Backend Rejection Summary</h3><p>No backend rejection rows.</p></section>"
+    limited = rows[:24]
+    body = "".join(
+        "<tr>"
+        f"<td>{html.escape(str(row.get('prompt_id') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('db_outcome') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('backend_rejection_group') or ''))}</td>"
+        f"<td>{format_tick(num(row.get('count')))}</td>"
+        f"<td>{html.escape(str(row.get('example_answer_ids') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('example_state_reason') or '')[:420])}</td>"
+        "</tr>"
+        for row in limited
+    )
+    return (
+        "<section class='chart compact'><h3>Backend Rejection Summary</h3>"
+        "<p class='chart-note'>This summarizes parser/session-update rejections recorded in `state_reason`. "
+        "It replaces brittle prompt-text entity counts with the backend's own completeness and ID validation "
+        "signals.</p>"
+        "<table><tr><th>Prompt</th><th>DB outcome</th><th>Rejection group</th><th>Count</th>"
+        "<th>Example answers</th><th>Example state_reason</th></tr>"
+        f"{body}</table></section>"
+    )
+
+def compliance_export_summary_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "<section class='chart compact'><h3>Compliance Export Quality</h3><p>No compliance export rows.</p></section>"
+    limited = rows[:24]
+    body = "".join(
+        "<tr>"
+        f"<td>{html.escape(str(row.get('model') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('quality_class') or ''))}</td>"
+        f"<td>{format_tick(num(row.get('count')))}</td>"
+        f"<td>{html.escape(str(row.get('example_answer_ids') or ''))}</td>"
+        f"<td>{format_tick(num(row.get('median_text_length')))}</td>"
+        f"<td>{format_tick(num(row.get('with_section_4_heading')))}</td>"
+        f"<td>{format_tick(num(row.get('with_markdown_table')))}</td>"
+        "</tr>"
+        for row in limited
+    )
+    return (
+        "<section class='chart compact'><h3>Compliance Export Quality</h3>"
+        "<p class='chart-note'>Compliance text extraction is Markdown/prose, not JSON. This lightweight check "
+        "keeps it out of raw JSON failure counts while still surfacing empty exports and obvious leaked prompt "
+        "or JSON artefacts. It is a smoke test for renderable output shape, not a legal review of whether "
+        "section 4 is substantively Leitfaden-compliant.</p>"
+        "<table><tr><th>Model</th><th>Quality class</th><th>Count</th><th>Example answers</th>"
+        "<th>Median length</th><th>With section 4 heading</th><th>With Markdown table</th></tr>"
+        f"{body}</table></section>"
+    )
+
+def raw_change_status_summary_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "<section class='chart compact'><h3>Raw Change-Status Output Summary</h3><p>No raw status entities.</p></section>"
+    limited = rows[:30]
+    body = "".join(
+        "<tr>"
+        f"<td>{html.escape(str(row.get('prompt_id') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('entity_type') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('status_bucket') or ''))}</td>"
+        f"<td>{format_tick(num(row.get('count')))}</td>"
+        f"<td>{html.escape(str(row.get('example_status_values') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('example_answer_ids') or ''))}</td>"
+        "</tr>"
+        for row in limited
+    )
+    return (
+        "<section class='chart compact'><h3>Raw Change-Status Output Summary</h3>"
+        "<p class='chart-note'>This table groups the raw model output before app normalization. "
+        "If `missing` appears here, the model did not provide a lifecycle status for that raw entity. "
+        "If `present_unrecognized` appears, the model did provide something, but it was outside the "
+        "expected vocabulary and should be reviewed as prompt/model output quality.</p>"
+        "<table><tr><th>Prompt</th><th>Entity</th><th>Status bucket</th><th>Count</th>"
+        "<th>Example raw values</th><th>Example answers</th></tr>"
         f"{body}</table></section>"
     )
 
@@ -1998,14 +2348,32 @@ def adjudication_series() -> list[tuple[str, str, str]]:
 
 def process_step_shape_series() -> list[tuple[str, str, str]]:
     return [
-        ("expected_nested_prozesse", "#009e73", "expected nested shape"),
+        ("expected_flat_fallgruppen", "#009e73", "expected flat groups"),
+        ("expected_nested_prozesse", "#66c2a5", "legacy nested shape"),
         ("fallback_reachable_flat_fallgruppen", "#f0e442", "fallback-reachable flat groups"),
-        ("flat_fallgruppen_rejected_by_current_contract", "#d55e00", "flat groups, current code rejects"),
         ("prozesse_present_but_no_steps", "#e69f00", "prozesse present but no steps"),
         ("flat_fallgruppen_without_steps", "#8c6bb1", "flat groups without steps"),
         ("other_json_no_prozesse", "#0072b2", "other JSON without prozesse"),
         ("top_level_list", "#6baed6", "top-level list"),
         ("unparseable", "#cc79a7", "unparseable"),
+    ]
+
+def step_6_shape_series() -> list[tuple[str, str, str]]:
+    return [
+        ("expected_flat_fallgruppen", "#009e73", "expected flat groups"),
+        ("legacy_nested_prozesse", "#66c2a5", "legacy nested shape"),
+        ("flat_fallgruppen_without_metrics", "#8c6bb1", "flat groups without metrics"),
+        ("prozesse_present_without_metrics", "#e69f00", "prozesse present without metrics"),
+        ("other_json_no_fallgruppen", "#0072b2", "other JSON without fallgruppen"),
+        ("top_level_list", "#6baed6", "top-level list"),
+        ("unparseable", "#cc79a7", "unparseable"),
+    ]
+
+def raw_change_status_series() -> list[tuple[str, str, str]]:
+    return [
+        ("present_valid", "#2ca25f", "status present and valid"),
+        ("missing", "#bdbdbd", "status missing"),
+        ("present_unrecognized", "#de2d26", "status unrecognized"),
     ]
 
 def retry_step_series() -> list[tuple[str, str, str]]:
@@ -2071,7 +2439,6 @@ def retry_pressure_summary_table(rows: list[dict[str, Any]]) -> str:
 
 def retry_cause_series() -> list[tuple[str, str, str]]:
     return [
-        ("process_step_flat_fallgruppen_shape", "#d55e00", "flat Fallgruppen shape"),
         ("root_contract_mismatch", "#0072b2", "root contract mismatch"),
         ("near_complete_json_truncation", "#f0e442", "near-complete JSON truncation"),
         ("hard_json_truncation", "#a63603", "hard JSON truncation"),
@@ -2183,6 +2550,8 @@ def scatter_svg(
             f"<span>{scatter_shape_icon(idx % 4)}{html.escape(group)} ({html.escape(', '.join(pairs))})</span>"
             for idx, (group, pairs) in enumerate(law_groups)
         ) + "</div>",
+        "<div class='legend'><span><strong>Deep Research:</strong></span>"
+        "<span><span class='dr-outline-swatch'></span>enabled</span></div>",
     ]
     svg = [f"<svg width='{width}' height='{height}' role='img' aria-label='{html.escape(title)}'>"]
     svg.append(
@@ -2215,8 +2584,10 @@ def scatter_svg(
         law_pair = str(row.get("law_pair") or "unknown")
         law_group = law_pair_group(law_pair)
         shape_idx = law_group_shapes.get(law_group, 0)
-        title_text = f"session {row.get('session_id')} | {row.get('week')} | {row.get('model')} | law group {law_group} | law pair {law_pair} | {y_label}: {raw:g}"
-        svg.append(scatter_marker(x, y, color, shape_idx, title_text))
+        uses_deep_research = truthy(row.get("deep_research_enabled"))
+        research_note = " | Deep Research" if uses_deep_research else ""
+        title_text = f"session {row.get('session_id')} | {row.get('week')} | {row.get('model')} | law group {law_group} | law pair {law_pair}{research_note} | {y_label}: {raw:g}"
+        svg.append(scatter_marker(x, y, color, shape_idx, title_text, outlined=uses_deep_research))
     svg.append("</svg>")
     parts.append("".join(svg))
     parts.append("<p class='chart-note'>Color identifies the model. Shape identifies the law group shown in the legend; the tooltip gives the exact law pair.</p>")
@@ -2262,17 +2633,26 @@ def scatter_model_colors(models: list[str]) -> dict[str, str]:
     palette = ["#0072b2", "#d55e00", "#009e73", "#cc79a7", "#e69f00", "#5e4fa2", "#4d4d4d", "#56b4e9"]
     return {model: palette[idx % len(palette)] for idx, model in enumerate(models)}
 
-def scatter_marker(x: float, y: float, color: str, shape_idx: int, title_text: str) -> str:
+def scatter_marker(
+    x: float,
+    y: float,
+    color: str,
+    shape_idx: int,
+    title_text: str,
+    *,
+    outlined: bool = False,
+) -> str:
     title = f"<title>{html.escape(title_text)}</title>"
+    stroke = " stroke='#000' stroke-width='2.1'" if outlined else ""
     if shape_idx == 1:
-        return f"<rect x='{x-4:.1f}' y='{y-4:.1f}' width='8' height='8' fill='{color}' opacity='0.82'>{title}</rect>"
+        return f"<rect x='{x-4:.1f}' y='{y-4:.1f}' width='8' height='8' fill='{color}' opacity='0.82'{stroke}>{title}</rect>"
     if shape_idx == 2:
         points = f"{x:.1f},{y-5:.1f} {x-5:.1f},{y+4:.1f} {x+5:.1f},{y+4:.1f}"
-        return f"<polygon points='{points}' fill='{color}' opacity='0.82'>{title}</polygon>"
+        return f"<polygon points='{points}' fill='{color}' opacity='0.82'{stroke}>{title}</polygon>"
     if shape_idx == 3:
         points = f"{x:.1f},{y-5:.1f} {x+5:.1f},{y:.1f} {x:.1f},{y+5:.1f} {x-5:.1f},{y:.1f}"
-        return f"<polygon points='{points}' fill='{color}' opacity='0.82'>{title}</polygon>"
-    return f"<circle cx='{x:.1f}' cy='{y:.1f}' r='4.2' fill='{color}' opacity='0.82'>{title}</circle>"
+        return f"<polygon points='{points}' fill='{color}' opacity='0.82'{stroke}>{title}</polygon>"
+    return f"<circle cx='{x:.1f}' cy='{y:.1f}' r='4.2' fill='{color}' opacity='0.82'{stroke}>{title}</circle>"
 
 def scatter_shape_icon(shape_idx: int) -> str:
     if shape_idx == 1:
@@ -2390,6 +2770,7 @@ def issue_y_label(issue_id: str) -> str:
         "issue_06_cost_variance": "threshold findings",
         "issue_07_case_count_driven_variance": "candidate findings",
         "issue_08_bureaucracy_cost": "sessions",
+        "issue_09_compliance_export_quality": "exports",
     }.get(issue_id, "count")
 
 def issue_detail_series(issue_id: str, rows: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
@@ -2462,6 +2843,12 @@ def issue_detail_palette() -> dict[str, list[tuple[str, str, str]]]:
             ("ip_present_cost_not_evaluable", "#bdbdbd", "IP present but cost not evaluable"),
             ("ip_present_bureaucracy_cost_nonzero", "#6baed6", "IP persisted, bureaucracy cost nonzero"),
         ],
+        "issue_09_compliance_export_quality": [
+            ("expected_markdown", "#2ca25f", "expected Markdown"),
+            ("markdown_needs_review", "#3182bd", "Markdown needs review"),
+            ("leaked_prompt_or_json_artifact", "#de2d26", "leaked prompt/JSON artefact"),
+            ("empty_export", "#636363", "empty export"),
+        ],
     }
 
 def issue_detail_description(issue_id: str) -> str:
@@ -2494,14 +2881,17 @@ def issue_detail_description(issue_id: str) -> str:
             "This splits all evaluable status/value checks by outcome, so the green segment shows cases where "
             "the status matched the current/proposed values and the colored segments show inconsistency types. "
             "The number above each bar is the total evaluable checks for that week; non-evaluable rows are kept "
-            "in `weekly_change_status_quality.csv` but not plotted. Introduced should normally "
-            "have no current burden, abolished should normally have no proposed burden, and changed should "
-            "normally differ between current and proposed values. Likely time drivers: row-based effort/cost "
-            "persistence and stricter parsing increased the number of evaluable persisted value/status combinations."
+            "in `weekly_change_status_quality.csv` but not plotted. Introduced should normally have no current "
+            "burden, abolished should normally have no proposed burden, and changed should normally differ between "
+            "current and proposed values. `Unveraendert` can be valid when the per-case activity is unchanged but "
+            "case counts or frequencies change elsewhere; this chart is therefore a review signal for lifecycle "
+            "labels, not final legal judgement. Likely time drivers: row-based effort/cost persistence and stricter "
+            "parsing increased the number of evaluable persisted value/status combinations."
         ),
         "issue_05_structure_consistency": (
-            "This is pairwise consistency for repeated runs with the same law pair and same model. The later "
-            "session is flagged when its persisted regulation/process/case-group/generated-Taetigkeit "
+            "This is pairwise consistency for repeated runs with the same law pair, same model, and same Deep "
+            "Research mode. If the batch only ran one session for each law/model/DR combination, this diagnostic "
+            "will have no pair to compare. The later session is flagged when its persisted regulation/process/case-group/generated-Taetigkeit "
             "fingerprint has low similarity to an earlier run. Similarity is Jaccard overlap for each of "
             "the four persisted layers, averaged across layers; mean similarity below 0.65 is the threshold. "
             "Layer-specific buckets show which layer also fell below 0.65. It is evidence of instability, "
@@ -2511,7 +2901,9 @@ def issue_detail_description(issue_id: str) -> str:
             "prompt semantic changes such as recurring-only effort and addressee-specific rules can legitimately shift structures."
         ),
         "issue_06_cost_variance": (
-            "This is repeated-run final-cost spread for the same law pair and model. The thresholds are "
+            "This is repeated-run final-cost spread for the same law pair, model, and Deep Research mode. If the "
+            "batch only ran one session for each law/model/DR combination, this diagnostic will have no variance "
+            "group to compare. The thresholds are "
             "coefficient of variation above 0.5 or max/min total cost ratio above 2. It shows instability, "
             "not automatically a prompt failure. The chart shows only law-pair/model groups that crossed the "
             "variance thresholds; stable groups are omitted. When shown/total appears above a bar, the "
@@ -2521,7 +2913,8 @@ def issue_detail_description(issue_id: str) -> str:
         "issue_07_case_count_driven_variance": (
             "This narrows cost variance to cases where structures are similar but proposed case-count totals "
             "differ materially. That suggests the variance comes from assumptions about affected cases rather "
-            "than different legal decomposition. The chart shows only flagged case-count-driven variance "
+            "than different legal decomposition. It also needs repeated sessions with the same law pair, model, "
+            "and Deep Research mode. The chart shows only flagged case-count-driven variance "
             "signals; unflagged comparisons are omitted. When shown/total appears above a bar, the denominator "
             "is all high-cost-variance groups checked for case-count attribution that week. Likely time drivers: "
             "Deep Research and changed case-count prompt contracts."
@@ -2534,6 +2927,11 @@ def issue_detail_description(issue_id: str) -> str:
             "looks missing or suspicious. Bar labels use shown/total sessions checked, so omitted sessions are "
             "those without a plotted business-IP/cost-separation bucket. Likely time drivers: business IP flag "
             "cleanup/display and bureaucracy-cost binding changes."
+        ),
+        "issue_09_compliance_export_quality": (
+            "This is a lightweight Markdown/prose export check. Compliance exports are not schema JSON, so they "
+            "are excluded from raw JSON-quality failures. This issue only flags empty exports or obvious leaked "
+            "prompt/JSON artefacts; heading/table presence is reported as supporting detail."
         ),
     }
     return descriptions.get(issue_id, "")
