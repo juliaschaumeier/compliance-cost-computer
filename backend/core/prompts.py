@@ -165,12 +165,7 @@ NORM_ADDRESSEE_RULES_ADMINISTRATION: Dict[str, str] = {
         "IT-/Sachunterstuetzung. Bilden Sie keine Fallgruppen, nur weil "
         "unterschiedliche Paragraphen beruehrt werden oder die materielle "
         "Rechtslage leicht abweicht, solange der Bearbeitungsweg derselbe "
-        "bleibt. Setzen Sie den `aenderungsstatus` je Fallgruppe differenziert: "
-        "`eingefuehrt` nur bei durch die Regelung neu entstehenden Fallgruppen, "
-        "`abgeschafft` nur bei wegfallenden, `geaendert` nur dann, wenn sich "
-        "Bearbeitungsaufwand oder Fallzahl der Fallgruppe durch die Regelung "
-        "tatsaechlich aendert. Unveraenderte Nebenfallgruppen sind nicht "
-        "auszuweisen."
+        "bleibt. Unveraenderte Nebenfallgruppen sind nicht auszuweisen."
     ),
     PromptId.CASES_CALCULATION: (
         "Fuer die Verwaltung ist die `Anzahl Betroffene` NICHT die Zahl extern "
@@ -220,11 +215,7 @@ NORM_ADDRESSEE_RULES_BUSINESS: Dict[str, str] = {
         "nur, wenn daraus wesentliche Unterschiede im Personal- oder Sachaufwand "
         "pro Fall folgen. Bilden Sie keine Fallgruppen nur deshalb, weil "
         "unterschiedliche Paragraphen oder Behoerden beruehrt sind, solange der "
-        "operative Ablauf im Unternehmen derselbe bleibt. Setzen Sie den "
-        "`aenderungsstatus` je Fallgruppe differenziert: `eingefuehrt` nur bei "
-        "neu entstehenden Fallgruppen, `abgeschafft` nur bei wegfallenden, "
-        "`geaendert` nur dann, wenn sich Aufwand oder Fallzahl der Fallgruppe "
-        "durch die Regelung tatsaechlich aendert."
+        "operative Ablauf im Unternehmen derselbe bleibt."
     ),
     PromptId.CASES_CALCULATION: (
         "Bei periodisch zu erfuellenden Vorgaben ergibt sich die Fallzahl aus der "
@@ -260,15 +251,18 @@ NORM_ADDRESSEE_RULES_CITIZENS: Dict[str, str] = {
         "Alltagshandlungen kuenstlich zusammenziehen."
     ),
     PromptId.CASE_GROUP_DEVELOPMENT: (
-        "Typische buergerbezogene Fallgruppen koennen sich insbesondere unterscheiden "
-        "nach erstmaliger Erfuellung versus wiederkehrender Erfuellung, digitalem "
-        "Verfahren versus Postweg oder persoenlichem Erscheinen, einfacher Standardlage "
-        "versus zusaetzlichem Nachweis- oder Beratungsbedarf, eigener Vornahme versus "
-        "Beauftragung Dritter. Bilden Sie solche Fallgruppen aber nur, wenn daraus "
-        "wesentlich unterschiedliche Zeit- oder Sachaufwaende folgen. Bilden Sie keine "
-        "Fallgruppen nur deshalb, weil unterschiedliche Behoerden oder Drittstellen "
-        "beteiligt sind, sofern sich der buergerseitige Aufwand dadurch nicht merklich "
-        "aendert. Verwenden Sie moeglichst wenige, fachlich trennscharfe Fallgruppen."
+        "Typische buergerbezogene Fallgruppen unterscheiden sich zum Beispiel danach, "
+        "ob eine Pflicht erstmalig oder wiederkehrend erfuellt wird, ob sie digital, "
+        "postalisch oder durch persoenliches Erscheinen erfuellt wird, ob ein einfacher "
+        "Standardfall oder ein Fall mit zusaetzlichem Nachweis- oder Beratungsbedarf "
+        "vorliegt, und ob Buergerinnen und Buerger selbst handeln oder Dritte beauftragen. "
+        "Bilden Sie solche Fallgruppen aber nur, wenn daraus wesentlich unterschiedliche "
+        "Zeit- oder Sachaufwaende folgen. Bilden Sie keine Fallgruppen nur deshalb, weil "
+        "unterschiedliche Behoerden oder Drittstellen beteiligt sind, sofern sich der "
+        "buergerseitige Aufwand dadurch nicht merklich aendert. Verwenden Sie moeglichst "
+        "wenige, fachlich trennscharfe Fallgruppen. "
+        "Wenden Sie die allgemeinen Statusregeln auf den buergerseitigen "
+        "Erfuellungsweg an, nicht auf interne Verwaltungs- oder Unternehmensablaeufe."
     ),
     PromptId.CASES_CALCULATION: (
         "Bei periodisch zu erfuellenden privaten Pflichten von Buergerinnen und Buergern ergibt sich die Fallzahl "
@@ -502,8 +496,15 @@ Folgendes ist das konsolidierte, geltende Gesetz: {gesetz_gueltig}
 Folgendes konsolidiertes Gesetz wird vorgeschlagen: {gesetz_vorschlag}
 
 Identifizieren Sie alle darin enthaltenen Vorgaben (Einzelregelungen) im nachfolgenden Sinne.
-Wichtig: Das Gesetz bzw. die Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie den Status an, also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung handelt.
-Beruecksichtigen Sie dabei auch implizite Aenderungen von Vorgaben, bei denen bisher Betroffene wegfallen, weil sie kuenftig stattdessen einem neuen Prozess unterliegen; solche Faelle sind ebenfalls als eigene relevante Vorgaben mit passendem Aenderungsstatus auszuweisen.
+Wichtig: Das Gesetz bzw. die Gesetzesaenderung kann keine, eine oder mehrere Vorgaben enthalten. Identifizieren Sie alle relevanten Vorgaben und geben Sie fuer jede Vorgabe den `aenderungsstatus` aus Sicht des Rechtsvergleichs an:
+
+- `eingefuehrt`: Die Vorgabe oder die sie tragende Einzelregelung existiert in dieser Form nur in der vorgeschlagenen Rechtslage.
+- `abgeschafft`: Die Vorgabe oder die sie tragende Einzelregelung existiert in dieser Form nur in der geltenden Rechtslage und entfaellt im Vorschlag.
+- `geaendert`: Die Vorgabe oder die sie tragende Einzelregelung existiert in beiden Rechtslagen, wird aber inhaltlich so geaendert, dass sich Pflichteninhalt, Betroffenenkreis, Fallzahl, Zeitaufwand oder Sachaufwand aendern koennen.
+
+Bewerten Sie den `aenderungsstatus` nicht allein danach, ob der Erfuellungsaufwand steigt oder sinkt. Eine Entlastung durch eine neue Norm macht diese Norm nicht `abgeschafft`; sie ist `eingefuehrt`, sofern sie nur im Vorschlag existiert.
+
+Wenn eine neue Regelung zugleich eine bisherige Pflicht ersetzt oder entlastet, trennen Sie dies fachlich, soweit noetig: Die neue Vorgabe ist `eingefuehrt`; die wegfallende bisherige Pflicht ist `abgeschafft`; eine fortbestehende, aber veraenderte Pflicht ist `geaendert`. Vermischen Sie diese Perspektiven nicht in einer einzigen Vorgabe.
 
 Bestimmen Sie fuer jede Vorgabe ausserdem:
 - welche Normadressaten betroffen sind: administration, business, citizens,
@@ -561,12 +562,18 @@ Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
 
 Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden Einzelvorgaben fuer den betroffenen Normadressaten: {vorgaben_json}
 
-Ihre Aufgabe ist es, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfuellt werden, zu gemeinsamen Prozessen zu buendeln. Soweit eine Buendelung von Vorgaben in Prozesse nicht moeglich oder sinnvoll ist, ist die betreffende Einzelvorgabe identisch einem eigenen Prozess zu behandeln. Ein solcher Prozess besteht daher ausschliesslich aus einer Vorgabe. Geben Sie ausserdem den Status an, also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung des Prozesses handelt. Orientieren Sie sich dazu an den Statusangaben der Vorgaben.
+Ihre Aufgabe ist es, die enthaltenen Vorgaben (Einzelregelungen), welche in der Praxis in einem Zusammenhang erfuellt werden, zu gemeinsamen Prozessen zu buendeln. Soweit eine Buendelung von Vorgaben in Prozesse nicht moeglich oder sinnvoll ist, ist fuer die betreffende Einzelvorgabe ein eigener Prozess zu bilden. Ein solcher Prozess besteht daher ausschliesslich aus einer Vorgabe.
+
+Geben Sie fuer jeden Prozess den `aenderungsstatus` aus Sicht des praktischen Arbeitsablaufs an. Uebernehmen Sie den Status der Vorgaben nicht automatisch; nutzen Sie ihn nur als Kontext:
+
+- `eingefuehrt`: Fuer den Normadressaten entsteht durch die Regelung ein neuer regelmaessig wiederkehrender praktischer Ablauf, zu dem es in der geltenden Rechtslage keinen vergleichbaren Ablauf gab.
+- `abgeschafft`: Ein bisher regelmaessig wiederkehrender praktischer Ablauf entfaellt durch die Regelung.
+- `geaendert`: Ein vergleichbarer praktischer Ablauf besteht vor und nach der Gesetzesaenderung fort, aber Anlass, Umfang, Bearbeitungslogik, Betroffenenkreis, Fallzahl oder Aufwand aendern sich.
 
 Buendeln Sie Vorgaben aus Unionsrecht und aus nationalem Recht niemals in denselben Prozess. Wenn der zugrunde liegende Rechtsrahmen unterschiedlich ist, muessen getrennte Prozesse ausgewiesen werden, auch wenn die praktische Bearbeitung aehnlich erscheint. Die spaetere gesonderte Ausweisung EU-bedingten Erfuellungsaufwands muss anhand Ihrer Prozessstruktur weiterhin moeglich bleiben.
 
 Nur jaehrlich wiederkehrender Erfuellungsaufwand: Bilden Sie ausschliesslich Prozesse fuer regelmaessig pro Jahr wiederkehrende Vollzugs- bzw. Erfuellungstaetigkeiten. Nicht zulaessig als Prozess ist einmaliger Umstellungs-/Einfuehrungsaufwand bei Einfuehrung der Regelung (z.B. Implementierung, IT-Rollout, initiale Leitlinienerstellung, Erst-/Initialschulung, einmalige Umstellung, Erst-Einarbeitung); wenn eine Taetigkeit nach der Einfuehrung nicht regelmaessig pro Jahr erneut anfaellt, geben Sie sie nicht als Prozess aus.
-Ein durch die Regelung neu hinzukommender Prozess (aenderungsstatus "eingefuehrt") ist hingegen zulaessig, sofern er laufenden, jaehrlich wiederkehrenden Aufwand ausloest.
+Ein durch die Regelung neu hinzukommender Prozess (aenderungsstatus `eingefuehrt`) ist hingegen zulaessig, sofern er laufenden, jaehrlich wiederkehrenden Aufwand ausloest.
 
 {norm_addressee_rule}
 
@@ -632,7 +639,13 @@ Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
 
 Das Gesetz bzw. die Gesetzesaenderung fuehrt zu folgenden, Erfuellungsaufwand ausloesenden Prozessen fuer den betroffenen Normadressaten: {prozesse_json}
 
-Ihre Aufgabe ist es, Fallgruppen zu bilden, wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfuellt. Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Fuer jede Fallgruppe ist der Erfuellungsaufwand separat zu ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmoeglichkeiten genutzt werden oder weil sich die zugrunde liegenden Sachverhalte unterscheiden. Geben Sie ausserdem den Status an, also ob es sich um entweder eine Einfuehrung, eine Aenderung, oder eine Streichung/Loeschung der Fallgruppe handelt.
+Ihre Aufgabe ist es, Fallgruppen zu bilden, wenn damit zu rechnen ist, dass der betroffene Normadressat die jeweiligen Prozesse auf unterschiedlichen Wegen erfuellt. Dies jedoch nur, soweit durch die verschiedenen Wege wesentliche Unterschiede zu erwarten sind. Fuer jede Fallgruppe ist der Erfuellungsaufwand separat zu ermitteln und darzustellen. Dabei ist es unerheblich, ob die Differenzierung erfolgt, weil unterschiedliche Gestaltungsmoeglichkeiten genutzt werden oder weil sich die zugrunde liegenden Sachverhalte unterscheiden.
+
+Geben Sie fuer jede Fallgruppe den `aenderungsstatus` aus Sicht der Art von Fall an, die fuer den Erfuellungsaufwand relevant ist. Uebernehmen Sie den Status des Prozesses nicht automatisch; nutzen Sie ihn nur als Kontext:
+
+- `eingefuehrt`: Die Fallgruppe beschreibt eine Art von Fall, die fuer den Normadressaten erst durch die vorgeschlagene Rechtslage entsteht oder erst dadurch fuer den Erfuellungsaufwand relevant wird. Dies kann auch aus einer geaenderten bestehenden Norm oder einem fortbestehenden Prozess folgen.
+- `abgeschafft`: Die Fallgruppe beschreibt eine Art von Fall, die in der geltenden Rechtslage fuer den Normadressaten relevant war, durch die vorgeschlagene Rechtslage aber entfaellt oder fuer den Erfuellungsaufwand nicht mehr relevant ist.
+- `geaendert`: Die Fallgruppe beschreibt dieselbe Art von Fall in der geltenden und in der vorgeschlagenen Rechtslage; Fallzahl, Haeufigkeit, Bearbeitungsweg, Zeitaufwand, Sachaufwand oder, soweit einschlaegig, Personalaufwand aendern sich jedoch.
 
 Soweit eine Bildung von Fallgruppen aus dem jeweiligen Prozess nicht moeglich oder sinnvoll ist, hat der betreffende Prozess nur eine einzige Fallgruppe. Ein solcher Prozess besteht daher ausschliesslich aus einer Fallgruppe.
 
@@ -723,11 +736,16 @@ Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
 
 Die folgende Eingabe `case_groups_json` enthaelt fuer den betroffenen Normadressaten die relevanten Prozesse und Fallgruppen: {case_groups_json}
 
-Ihre Aufgabe ist es, je Fallgruppe die wesentlichen wiederkehrenden Taetigkeiten zu identifizieren, die der betroffene Normadressat zur Erfuellung der Vorgabe oder des Prozesses ausfuehrt, und je Taetigkeit den Aenderungsstatus anzugeben: eingefuehrt, geaendert, abgeschafft oder unveraendert. Orientieren Sie sich dabei, wenn noetig, an den vorhandenen Statusangaben in den Fallgruppen und Prozessen.
+Ihre Aufgabe ist es, je Fallgruppe die wesentlichen wiederkehrenden Taetigkeiten zu identifizieren, die der betroffene Normadressat zur Erfuellung der Vorgabe oder des Prozesses ausfuehrt, und je Taetigkeit den `aenderungsstatus` aus Sicht der konkreten wiederkehrenden Taetigkeit anzugeben. Uebernehmen Sie Statusangaben aus Fallgruppen oder Prozessen nicht automatisch; nutzen Sie sie nur als Kontext:
+
+- `eingefuehrt`: Die konkrete Taetigkeit ist nur nach der vorgeschlagenen Rechtslage erforderlich.
+- `abgeschafft`: Die konkrete Taetigkeit ist nur nach der geltenden Rechtslage erforderlich und entfaellt im Vorschlag.
+- `geaendert`: Dieselbe konkrete Taetigkeit ist vor und nach der Gesetzesaenderung erforderlich, aber Inhalt, Umfang, Zeitaufwand, Personalaufwand, Sachaufwand oder Haeufigkeit aendern sich.
+- `unveraendert`: Dieselbe konkrete Taetigkeit ist vor und nach der Gesetzesaenderung mit unveraendertem Aufwand erforderlich. Geben Sie solche Taetigkeiten nur aus, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden.
 
 Schaetzen Sie in diesem Schritt keine Minuten, Lohngruppen, Stundenloehne, Sachaufwaende oder Kosten.
 
-Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind. Uebernehmen Sie unveraenderte Standardschritte nur dann, wenn sie fuer den Vorher-Nachher-Vergleich wirklich benoetigt werden; erfinden Sie keine vollstaendige Verfahrenskette neu, wenn sich tatsaechlich nur einzelne Schritte aendern.
+Entscheidend ist die Aenderung des Erfuellungsaufwands, nicht die abstrakte Vollbeschreibung des gesamten Verfahrens. Beschreiben Sie daher nur solche Taetigkeiten, die fuer die Ermittlung des Unterschieds zwischen geltender Rechtslage und Vorschlag erforderlich sind; erfinden Sie keine vollstaendige Verfahrenskette neu, wenn sich tatsaechlich nur einzelne Schritte aendern.
 
 Bei Daueraufgaben oder sehr einfachen Pflichterfuellungen reicht eine einzelne, zusammenfassende Haupttaetigkeit aus, wenn eine weitere Untergliederung fuer den Vorher-Nachher-Vergleich keinen fachlichen Mehrwert hat.
 
@@ -785,7 +803,7 @@ Verwenden Sie keine ein- oder ausleitenden Texte und keine sonstigen Zeichen.
 
 Die folgende Eingabe `case_groups_json` enthaelt fuer den betroffenen Normadressaten die relevanten Prozesse und Fallgruppen: {case_groups_json}
 
-Ihre Aufgabe ist es, die Aenderung der Fallzahlen fuer jede dieser Fallgruppen zu bestimmen. Dazu betrachten Sie die Haeufigkeit und die Anzahl der Betroffenen vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung. Alle vier Kennzahlenfelder bleiben im Output enthalten. Wenn fuer eine Fallgruppe fachlich keine Betroffenen oder keine Haeufigkeit bestehen, geben Sie in den betreffenden Kennzahlenfeldern 0 aus. Ansonsten leiten Sie einen bestmoeglichen Zahlenwert her und markieren die Belastbarkeit in `confidence`.
+Ihre Aufgabe ist es, die Aenderung der Fallzahlen fuer jede dieser Fallgruppen zu bestimmen. Dazu betrachten Sie die Haeufigkeit und die Anzahl der Betroffenen vor (_gueltig) und nach (_vorschlag) der geplanten Gesetzesaenderung. Alle vier Kennzahlenfelder bleiben im Output enthalten. Leiten Sie fuer jedes Kennzahlenfeld einen bestmoeglichen Zahlenwert her; wenn der sachgerechte Wert 0 ist, geben Sie 0 aus. Markieren Sie die Belastbarkeit jedes Werts in `confidence`.
 
 Massgeblich ist auch hier die Aenderung des Erfuellungsaufwands. Schaetzen Sie deshalb nicht losgeloest einen abstrakten Gesamtbestand an Faellen, sondern die fuer die geltende und die vorgeschlagene Rechtslage jeweils sachgerechte Fallzahl derselben Fallgruppe.
 
