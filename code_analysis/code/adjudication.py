@@ -135,7 +135,7 @@ def deterministic_decision(
                 return reviewed("quality_issue", "high", f"Deterministic current/proposed value mismatch for status rule: {reason}.")
         if issue_id == "issue_08_bureaucracy_cost":
             reason = str(evidence.get("reason") or "")
-            if reason in {"raw_ip_not_persisted", "ip_present_bureaucracy_missing_or_zero"}:
+            if reason in {"raw_ip_not_persisted", "ip_present_bureaucracy_missing"}:
                 return reviewed("quality_issue", "high", f"Information-obligation evidence conflicts with persisted bureaucracy-cost split: {reason}.")
 
     if judgement == "instability_signal":
@@ -183,6 +183,12 @@ def deterministic_decision(
                     "cost_split_review_signal",
                     "medium",
                     "Nearly all business cost is marked as bureaucracy cost despite mixed regulation evidence; this is a strong cost-split diagnostic but still needs content/legal review.",
+                )
+            if reason == "ip_present_zero_bureaucracy_cost":
+                return reviewed(
+                    "cost_split_review_signal",
+                    "low",
+                    "Business information obligations are linked to process steps, but current/proposed effort and case values net to zero bureaucracy-cost delta.",
                 )
 
     if issue_id == "issue_03_json_truncation" and "current_contract_mismatch" in {str(key) for key in detail_keys}:

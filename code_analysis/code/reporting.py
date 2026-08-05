@@ -326,10 +326,16 @@ def aggregate(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, 
     write_csv(out_dir / "reports" / "weekly_retry_cause_groups.csv", weekly_retry_causes)
     retry_cause_summary_rows = retry_cause_summary(retry_pressure)
     write_csv(out_dir / "reports" / "retry_cause_summary.csv", retry_cause_summary_rows)
+    deep_research_retry_rows = deep_research_retry_summary(data)
+    write_csv(out_dir / "reports" / "deep_research_retry_summary.csv", deep_research_retry_rows)
+    weekly_deep_research_attempt_rows = weekly_deep_research_attempts(deep_research_retry_rows)
+    write_csv(out_dir / "reports" / "weekly_deep_research_attempts.csv", weekly_deep_research_attempt_rows)
     session_cost_case_points_rows = session_cost_case_points(data)
     write_csv(out_dir / "reports" / "session_cost_case_points.csv", session_cost_case_points_rows)
     issue_detail_rows = weekly_issue_details(findings)
     write_csv(out_dir / "reports" / "weekly_issue_details.csv", issue_detail_rows)
+    hard_failure_rows = hard_failure_session_rows(session_rows, findings)
+    write_csv(out_dir / "reports" / "hard_failure_sessions.csv", hard_failure_rows)
     write_report_md(out_dir, session_rows, weekly, findings)
     write_csv(out_dir / "reports" / "review_packet_index.csv", review_index)
     return {
@@ -359,8 +365,11 @@ def aggregate(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, 
         "retry_pressure_summary": retry_summary,
         "weekly_retry_cause_groups": weekly_retry_causes,
         "retry_cause_summary": retry_cause_summary_rows,
+        "deep_research_retry_summary": deep_research_retry_rows,
+        "weekly_deep_research_attempts": weekly_deep_research_attempt_rows,
         "session_cost_case_points": session_cost_case_points_rows,
         "weekly_issue_details": issue_detail_rows,
+        "hard_failure_sessions": hard_failure_rows,
         "review_packet_index": review_index,
     }
 
@@ -433,7 +442,7 @@ def finding_session_judgement(row: dict[str, Any]) -> str:
             return "hard_failure"
         return "review_signal"
     if issue_id == "issue_08_bureaucracy_cost":
-        if evidence.get("reason") in {"raw_ip_not_persisted", "ip_present_bureaucracy_missing_or_zero"}:
+        if evidence.get("reason") in {"raw_ip_not_persisted", "ip_present_bureaucracy_missing"}:
             return "hard_failure"
         return "review_signal"
     if issue_id == "issue_09_compliance_export_quality":
@@ -517,8 +526,10 @@ def review_question(row: dict[str, Any]) -> str | None:
             return "Should nearly all business cost be counted as bureaucracy cost here, or has general compliance effort been mixed into the bureaucracy-cost bucket?"
         if reason == "raw_ip_not_persisted":
             return "Did the raw answer correctly identify business information obligations that were lost in persistence, or are the raw flags false positives?"
-        if reason == "ip_present_bureaucracy_missing_or_zero":
-            return "Is zero/missing bureaucracy cost defensible despite business information obligations, or is this a cost-separation failure?"
+        if reason == "ip_present_bureaucracy_missing":
+            return "Is the missing bureaucracy cost a cost-separation failure despite business information obligations?"
+        if reason == "ip_present_zero_bureaucracy_cost":
+            return "Is zero bureaucracy-cost delta defensible because current/proposed IP effort and cases are genuinely unchanged, or did the model miss an IP burden change?"
     if issue_id == "issue_09_compliance_export_quality":
         return "Does this compliance export contain usable Markdown text, or did the model return an empty/leaky artefact?"
     if judgement in {"review_signal", "instability_signal"}:
@@ -1226,6 +1237,160 @@ def retry_cause_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         })
     return out_rows
 
+def deep_research_retry_summary(data: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    sessions_by_id = {
+        int_or_none(session.get("session_id")): session
+        for session in data.get("sessions", [])
+        if int_or_none(session.get("session_id")) is not None
+    }
+    grouped: dict[tuple[int, str], list[dict[str, Any]]] = {}
+    for row in data.get("deep_research_runs", []):
+        sid = int_or_none(row.get("session_id"))
+        if sid is None:
+            continue
+        purpose = str(row.get("purpose") or "unknown")
+        grouped.setdefault((sid, purpose), []).append(row)
+
+    out: list[dict[str, Any]] = []
+    for (sid, purpose), runs in sorted(grouped.items()):
+        runs = sorted(
+            runs,
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                int_or_none(item.get("research_run_id")) or 0,
+            ),
+        )
+        session = sessions_by_id.get(sid, {})
+        statuses = [str(item.get("status") or "") for item in runs]
+        failed_runs = [item for item in runs if str(item.get("status") or "").lower() == "failed"]
+        parsed_runs = [
+            item
+            for item in runs
+            if str(item.get("status") or "").lower() in {"parsed", "completed", "succeeded", "success"}
+        ]
+        latest = runs[-1]
+        out.append({
+            "session_id": sid,
+            "app_session_id": session.get("app_session_id"),
+            "week": iso_week(session.get("created_at") or latest.get("created_at")),
+            "law_pair": law_pair_key(session) if session else "",
+            "model": session.get("llm_model"),
+            "workflow_step": "Step 6 effort",
+            "run_type": "Deep Research",
+            "purpose": purpose,
+            "total_runs": len(runs),
+            "failed_runs": len(failed_runs),
+            "parsed_runs": len(parsed_runs),
+            "retried_before_success": int(bool(failed_runs and parsed_runs)),
+            "latest_status": latest.get("status"),
+            "status_history": " -> ".join(statuses),
+            "first_created_at": runs[0].get("created_at"),
+            "latest_completed_at": latest.get("completed_at") or latest.get("finished_at"),
+            "estimated_cost_usd": round(
+                sum(num(item.get("estimated_cost_usd")) for item in runs),
+                6,
+            ),
+            "error_excerpt": "; ".join(
+                truncate_text(str(item.get("error") or ""), 220)
+                for item in failed_runs
+                if str(item.get("error") or "").strip()
+            ),
+        })
+    return out
+
+def weekly_deep_research_attempts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_week: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_week.setdefault(str(row.get("week") or "unknown"), []).append(row)
+
+    out: list[dict[str, Any]] = []
+    for week, items in sorted(by_week.items()):
+        row = {
+            "week": week,
+            "total_deep_research_pairs": len(items),
+            "total_deep_research_runs": int(sum(num(item.get("total_runs")) for item in items)),
+            "deep_research_success_first_try": 0,
+            "deep_research_failed_then_success": 0,
+            "deep_research_failed_without_success": 0,
+            "deep_research_other": 0,
+        }
+        for item in items:
+            failed = num(item.get("failed_runs")) > 0
+            succeeded = num(item.get("parsed_runs")) > 0
+            if succeeded and not failed:
+                row["deep_research_success_first_try"] += 1
+            elif succeeded and failed:
+                row["deep_research_failed_then_success"] += 1
+            elif failed:
+                row["deep_research_failed_without_success"] += 1
+            else:
+                row["deep_research_other"] += 1
+        out.append(row)
+    return out
+
+def hard_failure_session_rows(
+    session_rows: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    bad_sessions = {
+        int_or_none(row.get("session_id")): row
+        for row in session_rows
+        if row.get("quality_label") == "bad" and int_or_none(row.get("session_id")) is not None
+    }
+    hard_findings_by_session: dict[int, list[dict[str, Any]]] = {}
+    for finding in findings:
+        sid = int_or_none(finding.get("session_id"))
+        if sid not in bad_sessions:
+            continue
+        if finding.get("classification") != "bad":
+            continue
+        if finding_session_judgement(finding) != "hard_failure":
+            continue
+        hard_findings_by_session.setdefault(sid, []).append(finding)
+
+    out: list[dict[str, Any]] = []
+    for sid, session in sorted(bad_sessions.items(), key=lambda item: (str(item[1].get("week") or ""), item[0] or 0)):
+        session_findings = hard_findings_by_session.get(sid or -1, [])
+        issue_ids = sorted({str(finding.get("issue_id") or "") for finding in session_findings if finding.get("issue_id")})
+        evidence_summaries = [
+            truncate_text(str(finding.get("evidence_summary") or ""), 180)
+            for finding in session_findings
+            if str(finding.get("evidence_summary") or "").strip()
+        ]
+        evidence_details = [hard_failure_detail(finding) for finding in session_findings]
+        out.append({
+            "session_id": sid,
+            "app_session_id": session.get("app_session_id"),
+            "week": session.get("week"),
+            "law_pair": session.get("law_pair"),
+            "model": session.get("model"),
+            "completion_depth": session.get("completion_depth"),
+            "hard_issue_count": len(issue_ids),
+            "hard_issues": ", ".join(issue_ids),
+            "evidence_summary": " | ".join(evidence_summaries[:4]),
+            "evidence_details": " | ".join(detail for detail in evidence_details[:4] if detail),
+        })
+    return out
+
+def hard_failure_detail(finding: dict[str, Any]) -> str:
+    evidence = finding.get("evidence") if isinstance(finding.get("evidence"), dict) else {}
+    issue_id = str(finding.get("issue_id") or "")
+    reason = evidence.get("reason") or evidence.get("parse_class") or evidence.get("classification_bucket") or evidence.get("quality_class")
+    parts = [issue_id]
+    if reason:
+        parts.append(str(reason))
+    for key in ("entity_type", "entity_label", "norm_addressee", "prompt_id"):
+        value = evidence.get(key) or finding.get(key)
+        if value not in (None, ""):
+            parts.append(f"{key}={value}")
+    return truncate_text("; ".join(parts), 220)
+
+def truncate_text(value: str, limit: int) -> str:
+    text = " ".join(value.split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
 def retry_problem_unit(row: dict[str, Any]) -> bool:
     if not truthy(row.get("succeeded")):
         return str(row.get("primary_retry_cause") or "") != "no_failed_attempt_before_success"
@@ -1454,8 +1619,11 @@ def write_report_md(out_dir: Path, session_rows: list[dict[str, Any]], weekly: l
         "- `reports/retry_pressure_summary.csv`",
         "- `reports/weekly_retry_cause_groups.csv`",
         "- `reports/retry_cause_summary.csv`",
+        "- `reports/deep_research_retry_summary.csv`",
+        "- `reports/weekly_deep_research_attempts.csv`",
         "- `reports/session_cost_case_points.csv`",
         "- `reports/weekly_issue_details.csv`",
+        "- `reports/hard_failure_sessions.csv`",
         "- `findings/issue_02_not_applicable_wordings.csv`",
         "- `findings/retry_pressure.csv`",
         "- `findings/issue_03_process_step_shape.csv`",
@@ -1497,8 +1665,11 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
     retry_summary = read_csv_dicts(out_dir / "reports" / "retry_pressure_summary.csv")
     weekly_retry_causes = read_csv_dicts(out_dir / "reports" / "weekly_retry_cause_groups.csv")
     retry_cause_summary_rows = read_csv_dicts(out_dir / "reports" / "retry_cause_summary.csv")
+    deep_research_retry_summary_rows = read_csv_dicts(out_dir / "reports" / "deep_research_retry_summary.csv")
+    weekly_deep_research_attempt_rows = read_csv_dicts(out_dir / "reports" / "weekly_deep_research_attempts.csv")
     cost_case_points = read_csv_dicts(out_dir / "reports" / "session_cost_case_points.csv")
     weekly_issue_detail = read_csv_dicts(out_dir / "reports" / "weekly_issue_details.csv")
+    hard_failure_rows = read_csv_dicts(out_dir / "reports" / "hard_failure_sessions.csv")
     adjudication_decisions = read_csv_dicts(out_dir / "adjudication" / "decisions.csv")
     scope_note = analysis_scope_note(out_dir)
     body = "\n".join(report_charts(
@@ -1527,8 +1698,11 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
         retry_summary=retry_summary,
         weekly_retry_causes=weekly_retry_causes,
         retry_cause_summary_rows=retry_cause_summary_rows,
+        deep_research_retry_summary_rows=deep_research_retry_summary_rows,
+        weekly_deep_research_attempts=weekly_deep_research_attempt_rows,
         cost_case_points=cost_case_points,
         weekly_issue_detail=weekly_issue_detail,
+        hard_failure_rows=hard_failure_rows,
         issue_02_wording_summary_rows=issue_02_wording_summary_rows,
         adjudication_decisions=adjudication_decisions,
     ))
@@ -1605,8 +1779,11 @@ def report_charts(
     retry_summary: list[dict[str, Any]],
     weekly_retry_causes: list[dict[str, Any]],
     retry_cause_summary_rows: list[dict[str, Any]],
+    deep_research_retry_summary_rows: list[dict[str, Any]],
+    weekly_deep_research_attempts: list[dict[str, Any]],
     cost_case_points: list[dict[str, Any]],
     weekly_issue_detail: list[dict[str, Any]],
+    hard_failure_rows: list[dict[str, Any]],
     issue_02_wording_summary_rows: list[dict[str, Any]],
     adjudication_decisions: list[dict[str, Any]],
 ) -> list[str]:
@@ -1644,6 +1821,7 @@ def report_charts(
                     ],
                     y_label="sessions",
                 ),
+                hard_failure_sessions_table(hard_failure_rows),
             ],
         ),
         report_section(
@@ -1745,6 +1923,20 @@ def report_charts(
                     "week",
                     average_session_retry_series(),
                     y_label="avg extra retry rounds/session",
+                ),
+                stacked_bar_svg(
+                    "Deep Research Attempt Outcomes",
+                    (
+                        "Deep Research is part of Step 6, but it is stored in `deep_research_runs` rather than "
+                        "`llm_answers`, so it is shown separately from prompt-backed workflow retries. Each bar counts "
+                        "session/purpose pairs: green succeeded on the first DR run, yellow failed once or more and "
+                        "later parsed successfully, red failed without a parsed successor, and grey is any other "
+                        "non-terminal or legacy status."
+                    ),
+                    weekly_deep_research_attempts,
+                    "week",
+                    deep_research_attempt_series(),
+                    y_label="Deep Research session/purpose pairs",
                 ),
                 small_multiples_stacked_bar_svg(
                     "Retry Cause Groups By Workflow Step",
@@ -1874,6 +2066,7 @@ def report_charts(
                     ),
                     retry_pressure_summary_table(retry_summary),
                     retry_cause_summary_table(retry_cause_summary_rows),
+                    deep_research_retry_summary_table(deep_research_retry_summary_rows),
                 ]),
                 details_section("Additional Workflow Diagnostics", "Useful checks that are too detailed for the main story.", [
                     stacked_bar_svg(
@@ -2386,6 +2579,14 @@ def retry_step_series() -> list[tuple[str, str, str]]:
         ("step_6_effort", "#9e0142", "Step 6 effort"),
     ]
 
+def deep_research_attempt_series() -> list[tuple[str, str, str]]:
+    return [
+        ("deep_research_success_first_try", "#2ca25f", "DR success first try"),
+        ("deep_research_failed_then_success", "#fdae6b", "DR failed, then success"),
+        ("deep_research_failed_without_success", "#de2d26", "DR failed without success"),
+        ("deep_research_other", "#bdbdbd", "DR other/non-terminal"),
+    ]
+
 def session_retry_category_series() -> list[tuple[str, str, str]]:
     return [
         ("no_retry_sessions", "#2ca25f", "no retry"),
@@ -2491,6 +2692,75 @@ def retry_cause_summary_table(rows: list[dict[str, Any]]) -> str:
         "The DB reason column is retained to show where the persisted symptom differs from the likely cause.</p>"
         "<table><tr><th>Step</th><th>Inferred cause</th><th>Episodes</th><th>Retried then succeeded</th>"
         "<th>Failed without success</th><th>Retry rounds</th><th>DB reason groups</th><th>Example sessions</th></tr>"
+        f"{body}</table></section>"
+    )
+
+def hard_failure_sessions_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return (
+            "<details class='compact'><summary>Hard Failure Sessions</summary>"
+            "<p class='details-note'>No hard-failure sessions were found. If the red bar above is zero, this is expected.</p>"
+            "</details>"
+        )
+    body = "".join(
+        "<tr>"
+        f"<td>{html.escape(str(row.get('app_session_id') or row.get('session_id') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('week') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('law_pair') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('model') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('completion_depth') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('hard_issues') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('evidence_summary') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('evidence_details') or ''))}</td>"
+        "</tr>"
+        for row in rows
+    )
+    return (
+        "<details class='compact'><summary>Hard Failure Sessions</summary>"
+        "<p class='details-note'>These are the sessions counted in the red hard-failure bars above. "
+        "The table joins `reports/session_quality.csv` with the hard-failure rows from `findings/findings.csv`, "
+        "so you can see which sessions need inspection without manually filtering CSVs.</p>"
+        "<table><tr><th>Session</th><th>Week</th><th>Law pair</th><th>Model</th>"
+        "<th>Completion depth</th><th>Hard issue(s)</th><th>Summary</th><th>Detail</th></tr>"
+        f"{body}</table></details>"
+    )
+
+def deep_research_retry_summary_table(rows: list[dict[str, Any]]) -> str:
+    interesting = [
+        row for row in rows
+        if num(row.get("total_runs")) > 1 or num(row.get("failed_runs")) > 0
+    ]
+    if not rows:
+        return (
+            "<section class='chart compact'><h3>Deep Research Attempts</h3>"
+            "<p class='chart-note'>No Deep Research run records were found in the analysed DB snapshot.</p></section>"
+        )
+    if not interesting:
+        return (
+            "<section class='chart compact'><h3>Deep Research Attempts</h3>"
+            "<p class='chart-note'>Deep Research ran, but no failed or repeated Deep Research attempts were found.</p></section>"
+        )
+    body = "".join(
+        "<tr>"
+        f"<td>{html.escape(str(row.get('app_session_id') or row.get('session_id') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('law_pair') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('model') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('workflow_step') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('run_type') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('status_history') or ''))}</td>"
+        f"<td>{format_tick(num(row.get('failed_runs')))}</td>"
+        f"<td>{format_tick(num(row.get('parsed_runs')))}</td>"
+        f"<td>{html.escape(str(row.get('error_excerpt') or ''))}</td>"
+        "</tr>"
+        for row in interesting
+    )
+    return (
+        "<section class='chart compact'><h3>Deep Research Attempts</h3>"
+        "<p class='chart-note'>This table is read from `deep_research_runs`. "
+        "It shows provider/timeout failures and later successful parsed DR runs for the same app session. "
+        "These are part of Step 6, but separate from the prompt-backed workflow/addressee retry charts above.</p>"
+        "<table><tr><th>Session</th><th>Law pair</th><th>Model</th><th>Workflow step</th><th>Run type</th><th>Status history</th>"
+        "<th>Failed DR runs</th><th>Parsed DR runs</th><th>Error excerpt</th></tr>"
         f"{body}</table></section>"
     )
 
@@ -2834,14 +3104,14 @@ def issue_detail_palette() -> dict[str, list[tuple[str, str, str]]]:
             ("similar_structure_with_case_count_delta", "#e6550d", "similar structure, large case-count delta"),
         ],
         "issue_08_bureaucracy_cost": [
-            ("raw_ip_persisted_bureaucracy_cost_nonzero", "#2ca25f", "raw IP persisted, bureaucracy cost nonzero"),
             ("raw_ip_not_persisted", "#756bb1", "raw IP flag present in LLM answer but not persisted"),
             ("persisted_ip_without_raw_flag", "#8c6bb1", "persisted IP without raw flag"),
-            ("ip_present_bureaucracy_missing_or_zero", "#de2d26", "IP present but bureaucracy cost zero/missing"),
+            ("ip_present_positive_bureaucracy_cost", "#2ca25f", "IP present, positive bureaucracy cost"),
+            ("ip_present_negative_bureaucracy_cost", "#74c476", "IP present, negative bureaucracy relief"),
+            ("ip_present_zero_bureaucracy_cost", "#fdd049", "IP present, zero bureaucracy delta"),
+            ("ip_present_missing_bureaucracy_cost", "#de2d26", "IP present but bureaucracy cost missing"),
             ("suspicious_all_business_cost_marked_bureaucracy", "#fd8d3c", "nearly all business cost marked bureaucracy"),
-            ("ip_present_no_business_cost_row", "#e69f00", "IP present but no business cost row"),
-            ("ip_present_cost_not_evaluable", "#bdbdbd", "IP present but cost not evaluable"),
-            ("ip_present_bureaucracy_cost_nonzero", "#6baed6", "IP persisted, bureaucracy cost nonzero"),
+            ("ip_present_missing_business_cost_row", "#e69f00", "IP present but no business cost row"),
         ],
         "issue_09_compliance_export_quality": [
             ("expected_markdown", "#2ca25f", "expected Markdown"),

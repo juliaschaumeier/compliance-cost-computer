@@ -917,6 +917,36 @@ class HistoricalQualityTests(unittest.TestCase):
         rows = issues.analyze_retry_pressure(data, out_dir=None)
         self.assertEqual(rows[0]["primary_retry_cause"], "unknown_qualification_value")
 
+    def test_bureaucracy_quality_treats_negative_ip_cost_as_evaluable_relief(self):
+        row = issues.bureaucracy_cost_quality_row(
+            data={},
+            session={"session_id": 1, "created_at": "2026-01-01", "app_session_id": "s1"},
+            raw_business_ip=[{"legal_citation": "§ 1"}],
+            business_ip=[{"regulation_id": 10}],
+            business_regs=[{"regulation_id": 10}],
+            business_cost={"total_cost": -100.0, "bureaucracy_cost": -80.0},
+            linked_steps=[{"step_id": 20}],
+        )
+
+        self.assertEqual(row["bureaucracy_sign"], "negative")
+        self.assertEqual(row["cost_bucket"], "ip_present_negative_bureaucracy_cost")
+        self.assertEqual(row["chart_bucket"], "ip_present_negative_bureaucracy_cost")
+
+    def test_bureaucracy_quality_reports_zero_ip_cost_as_zero_delta(self):
+        row = issues.bureaucracy_cost_quality_row(
+            data={},
+            session={"session_id": 1, "created_at": "2026-01-01", "app_session_id": "s1"},
+            raw_business_ip=[{"legal_citation": "§ 1"}],
+            business_ip=[{"regulation_id": 10}],
+            business_regs=[{"regulation_id": 10}],
+            business_cost={"total_cost": -100.0, "bureaucracy_cost": 0.0},
+            linked_steps=[{"step_id": 20}],
+        )
+
+        self.assertEqual(row["bureaucracy_sign"], "zero")
+        self.assertEqual(row["cost_bucket"], "ip_present_zero_bureaucracy_cost")
+        self.assertEqual(row["chart_bucket"], "ip_present_zero_bureaucracy_cost")
+
     def test_weekly_session_retry_pressure_categories_and_average(self):
         rows = [
             {"session_id": 1, "session_created_week": "2026-W01", "step_key": "step_5_process_steps", "succeeded": True, "retry_rounds_to_success": 2},
@@ -931,6 +961,115 @@ class HistoricalQualityTests(unittest.TestCase):
         self.assertEqual(weekly[0]["other_step_retry_sessions"], 1)
         self.assertEqual(weekly[0]["no_retry_sessions"], 1)
         self.assertEqual(weekly[0]["avg_retry_rounds_per_session"], 1.333)
+
+    def test_deep_research_retry_summary_uses_db_run_history(self):
+        data = {
+            "sessions": [
+                {
+                    "session_id": 1,
+                    "app_session_id": "KMQW0R",
+                    "created_at": "2026-08-04 19:40:00",
+                    "current_law_id": 7,
+                    "proposed_law_id": 8,
+                    "llm_model": "gemini-3.5-flash",
+                }
+            ],
+            "deep_research_runs": [
+                {
+                    "research_run_id": 10,
+                    "session_id": 1,
+                    "purpose": "case_group_metrics",
+                    "status": "failed",
+                    "created_at": "2026-08-04 19:40:54",
+                    "completed_at": "2026-08-04 20:10:58",
+                    "error": "Gemini Deep Research timed out after 1800 seconds",
+                    "estimated_cost_usd": 0,
+                },
+                {
+                    "research_run_id": 11,
+                    "session_id": 1,
+                    "purpose": "case_group_metrics",
+                    "status": "parsed",
+                    "created_at": "2026-08-05 09:20:00",
+                    "completed_at": "2026-08-05 09:38:01",
+                    "estimated_cost_usd": 1.25,
+                },
+            ],
+        }
+
+        rows = reporting.deep_research_retry_summary(data)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["app_session_id"], "KMQW0R")
+        self.assertEqual(rows[0]["workflow_step"], "Step 6 effort")
+        self.assertEqual(rows[0]["run_type"], "Deep Research")
+        self.assertEqual(rows[0]["status_history"], "failed -> parsed")
+        self.assertEqual(rows[0]["failed_runs"], 1)
+        self.assertEqual(rows[0]["parsed_runs"], 1)
+        self.assertEqual(rows[0]["retried_before_success"], 1)
+        self.assertIn("timed out", rows[0]["error_excerpt"])
+
+    def test_weekly_deep_research_attempts_splits_first_try_retry_and_failure(self):
+        rows = [
+            {"week": "2026-W32", "total_runs": 1, "failed_runs": 0, "parsed_runs": 1},
+            {"week": "2026-W32", "total_runs": 2, "failed_runs": 1, "parsed_runs": 1},
+            {"week": "2026-W32", "total_runs": 1, "failed_runs": 1, "parsed_runs": 0},
+            {"week": "2026-W32", "total_runs": 1, "failed_runs": 0, "parsed_runs": 0},
+        ]
+
+        weekly = reporting.weekly_deep_research_attempts(rows)
+
+        self.assertEqual(len(weekly), 1)
+        self.assertEqual(weekly[0]["total_deep_research_pairs"], 4)
+        self.assertEqual(weekly[0]["total_deep_research_runs"], 5)
+        self.assertEqual(weekly[0]["deep_research_success_first_try"], 1)
+        self.assertEqual(weekly[0]["deep_research_failed_then_success"], 1)
+        self.assertEqual(weekly[0]["deep_research_failed_without_success"], 1)
+        self.assertEqual(weekly[0]["deep_research_other"], 1)
+
+    def test_hard_failure_session_rows_explains_red_sessions(self):
+        session_rows = [
+            {
+                "session_id": 1,
+                "app_session_id": "BAD001",
+                "week": "2026-W32",
+                "law_pair": "1->2",
+                "model": "gemini-3.5-flash",
+                "completion_depth": "total_cost_ready",
+                "quality_label": "bad",
+            },
+            {
+                "session_id": 2,
+                "app_session_id": "OK001",
+                "quality_label": "good",
+            },
+        ]
+        findings = [
+            {
+                "session_id": 1,
+                "app_session_id": "BAD001",
+                "issue_id": "issue_03_json_truncation",
+                "classification": "bad",
+                "prompt_id": "case_group_development",
+                "evidence_summary": "expected top-level key fallgruppen",
+                "evidence": {"parse_class": "wrong_top_level_key"},
+            },
+            {
+                "session_id": 1,
+                "app_session_id": "BAD001",
+                "issue_id": "issue_05_structure_consistency",
+                "classification": "bad",
+                "evidence_summary": "diagnostic only",
+                "evidence": {},
+            },
+        ]
+
+        rows = reporting.hard_failure_session_rows(session_rows, findings)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["app_session_id"], "BAD001")
+        self.assertEqual(rows[0]["hard_issues"], "issue_03_json_truncation")
+        self.assertIn("expected top-level key", rows[0]["evidence_summary"])
 
 
 if __name__ == "__main__":
