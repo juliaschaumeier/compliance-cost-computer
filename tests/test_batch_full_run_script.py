@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import os
 import py_compile
@@ -11,16 +12,21 @@ import pytest
 
 from scripts.batch_full_run import (
     BatchConfig,
+    BatchLogger,
     BatchResult,
     LawPair,
     ModelSpec,
     ScenarioResult,
     build_scenarios,
     discover_law_pairs,
+    failed_existing_sessions,
     load_config_from_env,
     load_dotenv_if_available,
     load_batch_result,
+    preview_scenarios,
+    quality_output_dir_for_batch,
     redacted_config,
+    resume_existing_sessions,
     run_batch,
     run_workflow_with_retries,
     select_scenarios,
@@ -45,14 +51,17 @@ def test_discover_law_pairs(tmp_path: Path):
     ]
 
 
-def test_batch_notebook_is_valid_and_clean():
+def test_batch_notebook_is_valid_and_has_batch_helpers():
     notebook_path = REPO_ROOT / "notebooks" / "batch_full_run.ipynb"
     notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+    sources = ["".join(cell.get("source", [])) for cell in notebook.get("cells", [])]
 
-    assert any(
-        "load_batch_result" in "".join(cell.get("source", []))
-        for cell in notebook.get("cells", [])
-    )
+    assert any("load_batch_result" in source for source in sources)
+    assert any("preview_scenarios" in source for source in sources)
+    assert any("quality_output_dir_for_batch" in source for source in sources)
+    assert any("failed_existing_sessions" in source for source in sources)
+    assert any("await resume_existing_sessions" in source for source in sources)
+    assert any('batch_id=""' in source for source in sources)
     assert all(
         not cell.get("outputs")
         for cell in notebook.get("cells", [])
@@ -129,6 +138,41 @@ def test_select_scenarios_filters_exact_ids_after_building_full_matrix():
     ]
 
 
+def test_preview_scenarios_returns_configured_matrix(tmp_path: Path):
+    laws_dir = tmp_path / "laws"
+    laws_dir.mkdir()
+    (laws_dir / "alpha_gueltig.txt").write_text("A", encoding="utf-8")
+    (laws_dir / "alpha_vorschlag.txt").write_text("B", encoding="utf-8")
+    config = BatchConfig(
+        law_pairs=("alpha",),
+        models=(ModelSpec("gemini", "gemini-3.5-flash"),),
+        deep_research_modes=(True, False),
+        repetitions=1,
+        built_in_laws_dir=laws_dir,
+    )
+
+    rows = preview_scenarios(config).to_dict("records")
+
+    assert rows == [
+        {
+            "scenario_index": 1,
+            "scenario_id": "alpha__gemini-3.5-flash__dr__01",
+            "law_pair": "alpha",
+            "model": "gemini-3.5-flash",
+            "deep_research": True,
+            "repetition": 1,
+        },
+        {
+            "scenario_index": 2,
+            "scenario_id": "alpha__gemini-3.5-flash__no-dr__01",
+            "law_pair": "alpha",
+            "model": "gemini-3.5-flash",
+            "deep_research": False,
+            "repetition": 1,
+        },
+    ]
+
+
 def test_select_scenarios_rejects_unknown_ids():
     with pytest.raises(RuntimeError, match="No matching scenario"):
         select_scenarios(
@@ -160,6 +204,17 @@ def test_validate_config_rejects_non_positive_deep_research_attempts():
         assert str(exc) == "max_deep_research_attempts must be at least 1"
     else:
         raise AssertionError("validate_config should reject max_deep_research_attempts=0")
+
+
+def test_validate_config_rejects_non_positive_export_attempts():
+    config = BatchConfig(max_export_attempts=0)
+
+    try:
+        validate_config(config)
+    except ValueError as exc:
+        assert str(exc) == "max_export_attempts must be at least 1"
+    else:
+        raise AssertionError("validate_config should reject max_export_attempts=0")
 
 
 def test_validate_config_accepts_zero_stuck_minutes_as_disabled():
@@ -496,6 +551,15 @@ def test_run_batch_auto_batch_id_keeps_root_output_dir_clean(tmp_path: Path):
     assert (result.output_dir / "runs.jsonl").exists()
 
 
+def test_quality_output_dir_uses_batch_name(tmp_path: Path):
+    batch_dir = tmp_path / "batch_runs" / "full_matrix_once_20260804"
+
+    assert quality_output_dir_for_batch(
+        batch_dir,
+        output_root=tmp_path / "code_analysis" / "output",
+    ) == tmp_path / "code_analysis" / "output" / "full_matrix_once_20260804"
+
+
 def test_result_dataframe_default_columns(tmp_path: Path):
     result = build_scenarios(
         [LawPair("alpha", "alpha_gueltig.txt", "alpha_vorschlag.txt")],
@@ -528,6 +592,7 @@ def test_result_dataframe_default_columns(tmp_path: Path):
         "duration_min",
         "run_attempts",
         "export_status",
+        "export_attempts",
         "estimated_llm_cost_usd",
         "estimated_dr_cost_usd",
         "estimated_total_cost_usd",
@@ -658,6 +723,203 @@ def test_run_batch_scenario_ids_force_single_rerun_when_resume_is_disabled(tmp_p
     ]
 
 
+def test_resume_existing_sessions_reuses_session_and_appends_log(tmp_path: Path):
+    laws_dir = tmp_path / "laws"
+    laws_dir.mkdir()
+    (laws_dir / "alpha_gueltig.txt").write_text("A", encoding="utf-8")
+    (laws_dir / "alpha_vorschlag.txt").write_text("B", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    requests: list[tuple[str, str, dict | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8") or "{}") if request.content else None
+        requests.append((request.method, request.url.path, body))
+        if request.method == "POST" and request.url.path == "/auth/login":
+            return httpx.Response(200, json={"user_id": 1, "email": "batch@example.test"})
+        if request.method == "GET" and request.url.path == "/regulations":
+            return httpx.Response(
+                200,
+                json={"files": ["alpha_gueltig.txt", "alpha_vorschlag.txt"]},
+            )
+        if request.method == "GET" and request.url.path == "/sessions/status":
+            return httpx.Response(200, json={"total_cost_ready": False})
+        if request.method == "POST" and request.url.path == "/sessions/run-all/start":
+            return httpx.Response(200, json={"run_id": "run-1", "status": "running"})
+        if request.method == "GET" and request.url.path == "/sessions/run-all/run-1":
+            return httpx.Response(200, json={"status": "completed", "ok": True, "steps": []})
+        if request.method == "POST" and request.url.path == "/sessions/compliance-text-export":
+            return httpx.Response(200, content=b"%PDF")
+        if request.method == "GET" and request.url.path == "/sessions/llm-monitor":
+            return httpx.Response(200, json={"recent": []})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = BatchConfig(
+        base_url="http://testserver",
+        email="batch@example.test",
+        password="password",
+        law_pairs=("alpha",),
+        models=(ModelSpec("gemini", "gemini-3.5-flash"),),
+        deep_research_modes=(True,),
+        repetitions=1,
+        concurrency=1,
+        output_dir=output_dir,
+        batch_id="resume-existing-test",
+        built_in_laws_dir=laws_dir,
+        poll_seconds=0,
+    )
+
+    result = asyncio.run(
+        resume_existing_sessions(
+            config,
+            {"alpha__gemini-3.5-flash__dr__01": "EXIST1"},
+            transport=httpx.MockTransport(handler),
+            max_deep_research_attempts=3,
+        )
+    )
+
+    assert result.results[0].status == "success"
+    assert result.results[0].app_session_id == "EXIST1"
+    assert result.results[0].retry_reasons[0] == "Resumed existing session EXIST1"
+    assert ("POST", "/sessions", None) not in requests
+    assert (
+        "POST",
+        "/sessions/case-group-research",
+        {"app_session_id": "EXIST1", "enabled": True},
+    ) not in requests
+    assert (
+        "POST",
+        "/sessions/run-all/start",
+        {
+            "app_session_id": "EXIST1",
+            "model": "gemini-3.5-flash",
+            "provider": "gemini",
+            "current_filename": "alpha_gueltig.txt",
+            "proposed_filename": "alpha_vorschlag.txt",
+        },
+    ) in requests
+    row = json.loads((result.output_dir / "runs.jsonl").read_text(encoding="utf-8"))
+    assert row["app_session_id"] == "EXIST1"
+    assert row["retry_reasons"].startswith("Resumed existing session EXIST1")
+
+
+def test_resume_existing_session_with_total_cost_ready_retries_export_only(tmp_path: Path):
+    laws_dir = tmp_path / "laws"
+    laws_dir.mkdir()
+    (laws_dir / "alpha_gueltig.txt").write_text("A", encoding="utf-8")
+    (laws_dir / "alpha_vorschlag.txt").write_text("B", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    requests: list[tuple[str, str]] = []
+    export_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal export_calls
+        requests.append((request.method, request.url.path))
+        if request.method == "POST" and request.url.path == "/auth/login":
+            return httpx.Response(200, json={"user_id": 1, "email": "batch@example.test"})
+        if request.method == "GET" and request.url.path == "/regulations":
+            return httpx.Response(
+                200,
+                json={"files": ["alpha_gueltig.txt", "alpha_vorschlag.txt"]},
+            )
+        if request.method == "GET" and request.url.path == "/sessions/status":
+            return httpx.Response(200, json={"total_cost_ready": True})
+        if request.method == "POST" and request.url.path == "/sessions/compliance-text-export":
+            export_calls += 1
+            if export_calls == 1:
+                return httpx.Response(500, text="temporary export failure")
+            return httpx.Response(200, content=b"%PDF")
+        if request.method == "GET" and request.url.path == "/sessions/llm-monitor":
+            return httpx.Response(200, json={"recent": []})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = BatchConfig(
+        base_url="http://testserver",
+        email="batch@example.test",
+        password="password",
+        law_pairs=("alpha",),
+        models=(ModelSpec("gemini", "gemini-3.5-flash"),),
+        deep_research_modes=(True,),
+        repetitions=1,
+        concurrency=1,
+        max_export_attempts=2,
+        output_dir=output_dir,
+        batch_id="resume-export-test",
+        built_in_laws_dir=laws_dir,
+    )
+
+    result = asyncio.run(
+        resume_existing_sessions(
+            config,
+            {"alpha__gemini-3.5-flash__dr__01": "EXIST1"},
+            transport=httpx.MockTransport(handler),
+        )
+    )
+
+    assert result.results[0].status == "success"
+    assert result.results[0].run_attempts == 0
+    assert result.results[0].export_attempts == 2
+    assert ("POST", "/sessions/run-all/start") not in requests
+    assert export_calls == 2
+
+
+def test_export_retry_handles_transient_request_errors(tmp_path: Path):
+    laws_dir = tmp_path / "laws"
+    laws_dir.mkdir()
+    (laws_dir / "alpha_gueltig.txt").write_text("A", encoding="utf-8")
+    (laws_dir / "alpha_vorschlag.txt").write_text("B", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    export_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal export_calls
+        if request.method == "POST" and request.url.path == "/auth/login":
+            return httpx.Response(200, json={"user_id": 1, "email": "batch@example.test"})
+        if request.method == "GET" and request.url.path == "/regulations":
+            return httpx.Response(
+                200,
+                json={"files": ["alpha_gueltig.txt", "alpha_vorschlag.txt"]},
+            )
+        if request.method == "POST" and request.url.path == "/sessions":
+            return httpx.Response(200, json={"app_session_id": "FRESH1", "created": True})
+        if request.method == "POST" and request.url.path == "/sessions/case-group-research":
+            return httpx.Response(200, json={"app_session_id": "FRESH1", "enabled": False})
+        if request.method == "POST" and request.url.path == "/sessions/run-all/start":
+            return httpx.Response(200, json={"run_id": "run-1", "status": "running"})
+        if request.method == "GET" and request.url.path == "/sessions/run-all/run-1":
+            return httpx.Response(200, json={"status": "completed", "ok": True, "steps": []})
+        if request.method == "POST" and request.url.path == "/sessions/compliance-text-export":
+            export_calls += 1
+            if export_calls == 1:
+                raise httpx.ReadError("temporary read failure", request=request)
+            return httpx.Response(200, content=b"%PDF")
+        if request.method == "GET" and request.url.path == "/sessions/llm-monitor":
+            return httpx.Response(200, json={"recent": []})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    config = BatchConfig(
+        base_url="http://testserver",
+        email="batch@example.test",
+        password="password",
+        law_pairs=("alpha",),
+        models=(ModelSpec("gemini", "gemini-3.5-flash"),),
+        deep_research_modes=(False,),
+        repetitions=1,
+        concurrency=1,
+        max_export_attempts=2,
+        output_dir=output_dir,
+        batch_id="export-retry-test",
+        built_in_laws_dir=laws_dir,
+        poll_seconds=0,
+    )
+
+    result = asyncio.run(run_batch(config, transport=httpx.MockTransport(handler)))
+
+    assert result.results[0].status == "success"
+    assert result.results[0].export_attempts == 2
+    assert export_calls == 2
+    assert "temporary read failure" in result.results[0].export_retry_reasons[0]
+
+
 def test_summary_dataframe_aggregates_costs_duration_and_status(tmp_path: Path):
     batch_result = BatchResult(
         results=[
@@ -709,6 +971,7 @@ def test_summary_dataframe_aggregates_costs_duration_and_status(tmp_path: Path):
     assert rows["gesamt"]["runs"] == 3
     assert rows["gesamt"]["success"] == 2
     assert rows["gesamt"]["failed"] == 1
+    assert rows["gesamt"]["total_run_attempts"] == 5
     assert rows["gesamt"]["total_cost_usd"] == 1.6
     assert rows["gesamt"]["avg_duration_min"] == 4.0
     assert rows["gesamt"]["std_duration_min"] == 1.63
@@ -720,6 +983,145 @@ def test_summary_dataframe_aggregates_costs_duration_and_status(tmp_path: Path):
     assert rows["deep_research=True"]["std_dr_cost_usd"] == 0.15
     assert rows["model=gemini-3.5-flash | deep_research=False"]["runs"] == 1
     assert rows["model=gemini-3.5-flash | deep_research=False"]["std_cost_usd"] == 0.0
+
+
+def test_latest_dataframe_keeps_one_row_per_scenario_with_attempt_history(tmp_path: Path):
+    batch_result = BatchResult(
+        results=[
+            ScenarioResult(
+                status="failed",
+                scenario_id="alpha__gemini-3.5-flash__dr__01",
+                law_pair="alpha",
+                model="gemini-3.5-flash",
+                deep_research=True,
+                repetition=1,
+                app_session_id="EXIST1",
+                run_attempts=1,
+                retry_reasons=["first failure"],
+            ),
+            ScenarioResult(
+                status="success",
+                scenario_id="alpha__gemini-3.5-flash__dr__01",
+                law_pair="alpha",
+                model="gemini-3.5-flash",
+                deep_research=True,
+                repetition=1,
+                app_session_id="EXIST1",
+                run_attempts=2,
+                retry_reasons=["resumed"],
+                export_retry_reasons=["export retry"],
+            ),
+            ScenarioResult(
+                status="success",
+                scenario_id="beta__gemini-3.5-flash__dr__01",
+                law_pair="beta",
+                model="gemini-3.5-flash",
+                deep_research=True,
+                repetition=1,
+                app_session_id="OTHER1",
+                run_attempts=1,
+            ),
+        ],
+        output_dir=tmp_path,
+    )
+
+    all_attempts = batch_result.to_dataframe(mode="all_attempts")
+    latest = batch_result.to_dataframe(mode="latest", include_diagnostics=True)
+    summary = batch_result.to_summary_dataframe()
+
+    assert len(all_attempts) == 3
+    assert len(latest) == 2
+    alpha = latest.loc[
+        latest["scenario_id"].eq("alpha__gemini-3.5-flash__dr__01")
+    ].iloc[0]
+    assert alpha["status"] == "success"
+    assert alpha["batch_log_attempt_rows"] == 2
+    assert alpha["batch_log_status_history"] == "failed -> success"
+    assert alpha["batch_log_total_run_attempts"] == 3
+    assert alpha["batch_log_retry_reasons"] == "first failure; resumed"
+    assert alpha["batch_log_export_retry_reasons"] == "export retry"
+    assert alpha["batch_log_app_session_ids"] == "EXIST1"
+    assert summary.loc[summary["group"].eq("gesamt"), "runs"].iloc[0] == 2
+    assert summary.loc[summary["group"].eq("gesamt"), "total_run_attempts"].iloc[0] == 4
+    assert summary.loc[summary["group"].eq("gesamt"), "avg_attempts"].iloc[0] == 2.0
+
+
+def test_failed_existing_sessions_uses_latest_status_per_scenario(tmp_path: Path):
+    batch_result = BatchResult(
+        results=[
+            ScenarioResult(
+                status="failed",
+                scenario_id="alpha__gemini-3.5-flash__dr__01",
+                law_pair="alpha",
+                model="gemini-3.5-flash",
+                deep_research=True,
+                repetition=1,
+                app_session_id="ALPHA1",
+            ),
+            ScenarioResult(
+                status="success",
+                scenario_id="alpha__gemini-3.5-flash__dr__01",
+                law_pair="alpha",
+                model="gemini-3.5-flash",
+                deep_research=True,
+                repetition=1,
+                app_session_id="ALPHA1",
+            ),
+            ScenarioResult(
+                status="export_failed",
+                scenario_id="beta__gemini-3.5-flash__dr__01",
+                law_pair="beta",
+                model="gemini-3.5-flash",
+                deep_research=True,
+                repetition=1,
+                app_session_id="BETA1",
+            ),
+        ],
+        output_dir=tmp_path,
+    )
+
+    assert failed_existing_sessions(batch_result) == {
+        "beta__gemini-3.5-flash__dr__01": "BETA1"
+    }
+
+
+def test_batch_logger_rewrites_stale_summary_csv_header(tmp_path: Path):
+    logger = BatchLogger(tmp_path)
+    (tmp_path / "summary.csv").write_text("status,scenario_id\nfailed,old\n", encoding="utf-8")
+    (tmp_path / "runs.jsonl").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "scenario_id": "old",
+                "law_pair": "alpha",
+                "model": "gemini-3.5-flash",
+                "deep_research": False,
+                "repetition": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    logger.write_result(
+        ScenarioResult(
+            status="success",
+            scenario_id="new",
+            law_pair="alpha",
+            model="gemini-3.5-flash",
+            deep_research=False,
+            repetition=1,
+            export_attempts=2,
+        )
+    )
+
+    with (tmp_path / "summary.csv").open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert len(rows) == 2
+    assert "export_attempts" in rows[0]
+    assert rows[1]["scenario_id"] == "new"
+    assert rows[1]["export_attempts"] == "2"
 
 
 def test_load_batch_result_reconstructs_results_from_jsonl(tmp_path: Path):
@@ -735,6 +1137,7 @@ def test_load_batch_result_reconstructs_results_from_jsonl(tmp_path: Path):
                 "app_session_id": "ABC123",
                 "estimated_total_cost_usd": 0.42,
                 "retry_reasons": ["first retry", "second retry"],
+                "export_retry_reasons": "export retry one; export retry two",
             }
         )
         + "\n",
@@ -748,3 +1151,7 @@ def test_load_batch_result_reconstructs_results_from_jsonl(tmp_path: Path):
     assert result.results[0].app_session_id == "ABC123"
     assert result.results[0].estimated_total_cost_usd == 0.42
     assert result.results[0].retry_reasons == ["first retry", "second retry"]
+    assert result.results[0].export_retry_reasons == [
+        "export retry one",
+        "export retry two",
+    ]

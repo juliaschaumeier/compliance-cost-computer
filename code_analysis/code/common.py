@@ -520,7 +520,8 @@ def extract(snapshot_path: Path, out_dir: Path, config: dict[str, Any] | None = 
             ]),
             "deep_research_runs": db.select("deep_research_runs", [
                 "research_run_id", "session_id", "purpose", "status",
-                "created_at", "finished_at", "estimated_cost_usd",
+                "created_at", "started_at", "completed_at", "parsed_at",
+                "finished_at", "error", "estimated_cost_usd",
             ]),
         }
     finally:

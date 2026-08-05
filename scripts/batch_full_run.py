@@ -21,7 +21,9 @@ DEFAULT_MODELS: tuple[tuple[str, str], ...] = (
 DEFAULT_OUTPUT_DIR = Path("batch_runs")
 DEFAULT_BUILT_IN_LAWS_DIR = Path("resources/built_in_laws")
 DEFAULT_ENV_PATH = Path(".env")
+DEFAULT_QUALITY_OUTPUT_ROOT = Path("code_analysis/output")
 DEEP_RESEARCH_PROMPT_ID = "deep_research_case_group_metrics"
+DataFrameMode = Literal["all_attempts", "latest"]
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,7 @@ class BatchConfig:
     resume_completed: bool = True
     max_run_attempts: int = 5
     max_deep_research_attempts: int = 1
+    max_export_attempts: int = 3
     max_stuck_minutes: float = 60.0
     poll_seconds: float = 5.0
     output_dir: Path = DEFAULT_OUTPUT_DIR
@@ -96,6 +99,7 @@ class ScenarioResult:
     duration_min: float | None = None
     run_attempts: int = 0
     export_status: str | None = None
+    export_attempts: int = 0
     estimated_llm_cost_usd: float | None = None
     estimated_dr_cost_usd: float | None = None
     estimated_total_cost_usd: float | None = None
@@ -107,8 +111,10 @@ class ScenarioResult:
     started_at: str | None = None
     finished_at: str | None = None
     retry_reasons: list[str] = field(default_factory=list)
+    export_retry_reasons: list[str] = field(default_factory=list)
     llm_calls_total: int = 0
     llm_calls_failed: int = 0
+    run_mode: str = "fresh"
 
     def to_row(self, *, include_diagnostics: bool = False) -> dict[str, Any]:
         row: dict[str, Any] = {
@@ -122,6 +128,7 @@ class ScenarioResult:
             "duration_min": self.duration_min,
             "run_attempts": self.run_attempts,
             "export_status": self.export_status,
+            "export_attempts": self.export_attempts,
             "estimated_llm_cost_usd": self.estimated_llm_cost_usd,
             "estimated_dr_cost_usd": self.estimated_dr_cost_usd,
             "estimated_total_cost_usd": self.estimated_total_cost_usd,
@@ -139,8 +146,10 @@ class ScenarioResult:
                     "started_at": self.started_at,
                     "finished_at": self.finished_at,
                     "retry_reasons": "; ".join(self.retry_reasons),
+                    "export_retry_reasons": "; ".join(self.export_retry_reasons),
                     "llm_calls_total": self.llm_calls_total,
                     "llm_calls_failed": self.llm_calls_failed,
+                    "run_mode": self.run_mode,
                 }
             )
         return row
@@ -151,17 +160,27 @@ class BatchResult:
     results: list[ScenarioResult]
     output_dir: Path
 
-    def to_dataframe(self, *, include_diagnostics: bool = False):
+    def to_dataframe(
+        self,
+        *,
+        include_diagnostics: bool = False,
+        mode: DataFrameMode = "all_attempts",
+    ):
         import pandas as pd
 
-        return pd.DataFrame(
-            [result.to_row(include_diagnostics=include_diagnostics) for result in self.results]
-        )
+        rows = self._rows(include_diagnostics=include_diagnostics, mode=mode)
+        return pd.DataFrame(rows)
 
-    def to_summary_dataframe(self):
+    def latest_dataframe(self, *, include_diagnostics: bool = True):
+        return self.to_dataframe(include_diagnostics=include_diagnostics, mode="latest")
+
+    def all_attempts_dataframe(self, *, include_diagnostics: bool = False):
+        return self.to_dataframe(include_diagnostics=include_diagnostics, mode="all_attempts")
+
+    def to_summary_dataframe(self, *, mode: DataFrameMode = "latest"):
         import pandas as pd
 
-        df = self.to_dataframe()
+        df = self.to_dataframe(mode=mode)
         if df.empty:
             return pd.DataFrame()
         value_columns = [
@@ -174,6 +193,12 @@ class BatchResult:
         ]
         for column in value_columns:
             df[column] = pd.to_numeric(df[column], errors="coerce")
+        attempt_column = "run_attempts"
+        if mode == "latest" and "batch_log_total_run_attempts" in df.columns:
+            df["batch_log_total_run_attempts"] = pd.to_numeric(
+                df["batch_log_total_run_attempts"], errors="coerce"
+            )
+            attempt_column = "batch_log_total_run_attempts"
 
         def _std(series: pd.Series, digits: int) -> float:
             value = series.std(ddof=0)
@@ -189,6 +214,7 @@ class BatchResult:
                 "success": int(success.sum()),
                 "failed": int((~success).sum()),
                 "success_rate": round(float(success.mean()) if len(group) else 0.0, 3),
+                "total_run_attempts": int(group[attempt_column].sum()),
                 "total_cost_usd": round(float(group["estimated_total_cost_usd"].sum()), 4),
                 "avg_cost_usd": round(float(group["estimated_total_cost_usd"].mean()), 4),
                 "std_cost_usd": _std(group["estimated_total_cost_usd"], 4),
@@ -198,8 +224,8 @@ class BatchResult:
                 "std_dr_cost_usd": _std(group["estimated_dr_cost_usd"], 4),
                 "avg_duration_min": round(float(group["duration_min"].mean()), 2),
                 "std_duration_min": _std(group["duration_min"], 2),
-                "avg_attempts": round(float(group["run_attempts"].mean()), 2),
-                "std_attempts": _std(group["run_attempts"], 2),
+                "avg_attempts": round(float(group[attempt_column].mean()), 2),
+                "std_attempts": _std(group[attempt_column], 2),
                 "missing_cost_estimates": int(group["missing_cost_estimates"].sum()),
             }
 
@@ -220,6 +246,121 @@ class BatchResult:
         )
         return pd.DataFrame(rows)
 
+    def _rows(
+        self,
+        *,
+        include_diagnostics: bool,
+        mode: DataFrameMode,
+    ) -> list[dict[str, Any]]:
+        if mode == "all_attempts":
+            return [
+                result.to_row(include_diagnostics=include_diagnostics)
+                for result in self.results
+            ]
+        if mode != "latest":
+            raise ValueError("mode must be 'all_attempts' or 'latest'")
+        return [
+            _latest_scenario_row(
+                scenario_results,
+                include_diagnostics=include_diagnostics,
+            )
+            for scenario_results in _group_results_by_scenario(self.results)
+        ]
+
+
+def _group_results_by_scenario(results: Iterable[ScenarioResult]) -> list[list[ScenarioResult]]:
+    grouped: dict[str, list[ScenarioResult]] = {}
+    order: list[str] = []
+    for index, result in enumerate(results):
+        key = result.scenario_id or f"__row_{index}"
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(result)
+    return [grouped[key] for key in order]
+
+
+def _latest_scenario_row(
+    results: list[ScenarioResult],
+    *,
+    include_diagnostics: bool,
+) -> dict[str, Any]:
+    latest = results[-1]
+    row = latest.to_row(include_diagnostics=include_diagnostics)
+    row.update(
+        {
+            "batch_log_attempt_rows": len(results),
+            "batch_log_status_history": " -> ".join(
+                str(result.status or "") for result in results
+            ),
+            "batch_log_total_run_attempts": sum(
+                int(result.run_attempts or 0) for result in results
+            ),
+            "batch_log_retry_reasons": "; ".join(
+                reason
+                for result in results
+                for reason in result.retry_reasons
+                if reason
+            ),
+            "batch_log_export_retry_reasons": "; ".join(
+                reason
+                for result in results
+                for reason in result.export_retry_reasons
+                if reason
+            ),
+            "batch_log_app_session_ids": " -> ".join(
+                _unique_preserve_order(
+                    str(result.app_session_id)
+                    for result in results
+                    if result.app_session_id
+                )
+            ),
+        }
+    )
+    return row
+
+
+def _unique_preserve_order(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique
+
+
+def _result_diagnostic_fieldnames() -> list[str]:
+    return list(
+        ScenarioResult(
+            status="",
+            law_pair="",
+            model="",
+            deep_research=False,
+            repetition=0,
+        ).to_row(include_diagnostics=True)
+    )
+
+
+def failed_existing_sessions(
+    batch_result: BatchResult,
+    *,
+    statuses: Iterable[str] = ("failed", "export_failed"),
+) -> dict[str, str]:
+    """Return scenario ids and app sessions whose latest batch row still failed."""
+    failed_statuses = {status for status in statuses}
+    mapping: dict[str, str] = {}
+    for scenario_results in _group_results_by_scenario(batch_result.results):
+        latest = scenario_results[-1]
+        if (
+            latest.status in failed_statuses
+            and latest.scenario_id
+            and latest.app_session_id
+        ):
+            mapping[latest.scenario_id] = latest.app_session_id
+    return mapping
+
 
 def load_batch_result(batch_dir: Path) -> BatchResult:
     jsonl_path = batch_dir / "runs.jsonl"
@@ -235,11 +376,12 @@ def load_batch_result(batch_dir: Path) -> BatchResult:
         if not isinstance(row, dict):
             continue
         payload = {key: value for key, value in row.items() if key in scenario_result_fields}
-        retry_reasons = payload.get("retry_reasons")
-        if isinstance(retry_reasons, str):
-            payload["retry_reasons"] = [
-                item.strip() for item in retry_reasons.split(";") if item.strip()
-            ]
+        for reason_field in ("retry_reasons", "export_retry_reasons"):
+            reasons = payload.get(reason_field)
+            if isinstance(reasons, str):
+                payload[reason_field] = [
+                    item.strip() for item in reasons.split(";") if item.strip()
+                ]
         results.append(ScenarioResult(**payload))
     return BatchResult(results=results, output_dir=batch_dir)
 
@@ -255,6 +397,15 @@ def default_batch_id() -> str:
 def resolve_batch_output_dir(config: BatchConfig) -> Path:
     batch_id = config.batch_id.strip() or default_batch_id()
     return config.output_dir / batch_id
+
+
+def quality_output_dir_for_batch(
+    batch_dir: Path,
+    *,
+    output_root: Path = DEFAULT_QUALITY_OUTPUT_ROOT,
+) -> Path:
+    """Return the conventional quality-report output directory for one batch."""
+    return output_root / batch_dir.name
 
 
 def discover_law_pairs(laws_dir: Path = DEFAULT_BUILT_IN_LAWS_DIR) -> list[LawPair]:
@@ -333,6 +484,36 @@ def select_scenarios(
     return scenarios[:limit] if limit is not None else scenarios
 
 
+def preview_scenarios(config: BatchConfig):
+    import pandas as pd
+
+    pairs = discover_law_pairs(config.built_in_laws_dir)
+    if config.law_pairs:
+        selected = set(config.law_pairs)
+        pairs = [pair for pair in pairs if pair.name in selected]
+    scenarios = select_scenarios(
+        pairs,
+        config.models,
+        config.deep_research_modes,
+        config.repetitions,
+        scenario_ids=config.scenario_ids,
+        limit=config.limit_scenarios,
+    )
+    return pd.DataFrame(
+        [
+            {
+                "scenario_index": index,
+                "scenario_id": scenario.scenario_id,
+                "law_pair": scenario.law_pair.name,
+                "model": scenario.model_spec.model,
+                "deep_research": scenario.deep_research,
+                "repetition": scenario.repetition,
+            }
+            for index, scenario in enumerate(scenarios, start=1)
+        ]
+    )
+
+
 def validate_config(config: BatchConfig) -> None:
     if config.concurrency < 1:
         raise ValueError("concurrency must be at least 1")
@@ -340,6 +521,8 @@ def validate_config(config: BatchConfig) -> None:
         raise ValueError("max_run_attempts must be at least 1")
     if config.max_deep_research_attempts < 1:
         raise ValueError("max_deep_research_attempts must be at least 1")
+    if config.max_export_attempts < 1:
+        raise ValueError("max_export_attempts must be at least 1")
     if config.max_stuck_minutes < 0:
         raise ValueError("max_stuck_minutes must not be negative")
     if config.poll_seconds < 0:
@@ -404,6 +587,7 @@ def redacted_config(config: BatchConfig) -> dict[str, Any]:
         "resume_completed": config.resume_completed,
         "max_run_attempts": config.max_run_attempts,
         "max_deep_research_attempts": config.max_deep_research_attempts,
+        "max_export_attempts": config.max_export_attempts,
         "max_stuck_minutes": config.max_stuck_minutes,
         "poll_seconds": config.poll_seconds,
         "output_dir": str(config.output_dir),
@@ -633,26 +817,56 @@ async def export_compliance_text(
     config: BatchConfig,
     headers: dict[str, str],
     output_dir: Path,
-) -> tuple[str, str | None]:
-    response = await client.post(
-        "/sessions/compliance-text-export",
-        json={
-            "app_session_id": app_session_id,
-            "model": scenario.model_spec.model,
-            "provider": scenario.model_spec.provider,
-            "user_edit_policy": config.user_edit_policy,
-        },
-        headers=headers,
+) -> tuple[str, str | None, int, list[str]]:
+    retry_reasons: list[str] = []
+    last_error: str | None = None
+    for attempt in range(1, config.max_export_attempts + 1):
+        try:
+            response = await client.post(
+                "/sessions/compliance-text-export",
+                json={
+                    "app_session_id": app_session_id,
+                    "model": scenario.model_spec.model,
+                    "provider": scenario.model_spec.provider,
+                    "user_edit_policy": config.user_edit_policy,
+                },
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            last_error = f"export attempt {attempt} failed: {type(exc).__name__}: {exc!r}"
+            retry_reasons.append(last_error)
+            continue
+        if response.status_code == 200:
+            if not config.download_pdfs:
+                return "success", None, attempt, retry_reasons
+            pdf_dir = output_dir / "pdf"
+            pdf_dir.mkdir(parents=True, exist_ok=True)
+            filename = pdf_dir / f"{scenario.scenario_id}__{app_session_id}.pdf"
+            filename.write_bytes(response.content)
+            return "success", str(filename), attempt, retry_reasons
+        last_error = f"export attempt {attempt} failed: {response.status_code} {response.text}"
+        retry_reasons.append(last_error)
+    return "failed", last_error, config.max_export_attempts, retry_reasons
+
+
+async def load_session_status(
+    client: httpx.AsyncClient,
+    app_session_id: str,
+) -> dict[str, Any]:
+    return await _request_json(
+        client,
+        "GET",
+        "/sessions/status",
+        params={"app_session_id": app_session_id},
     )
-    if response.status_code != 200:
-        return "failed", response.text
-    if not config.download_pdfs:
-        return "success", None
-    pdf_dir = output_dir / "pdf"
-    pdf_dir.mkdir(parents=True, exist_ok=True)
-    filename = pdf_dir / f"{scenario.scenario_id}__{app_session_id}.pdf"
-    filename.write_bytes(response.content)
-    return "success", str(filename)
+
+
+async def total_cost_ready(
+    client: httpx.AsyncClient,
+    app_session_id: str,
+) -> bool:
+    status = await load_session_status(client, app_session_id)
+    return bool(status.get("total_cost_ready"))
 
 
 async def load_cost_summary(
@@ -753,7 +967,12 @@ async def run_scenario(
             await _fill_cost_summary(client, result)
             return result
 
-        export_status, export_file_or_error = await export_compliance_text(
+        (
+            export_status,
+            export_file_or_error,
+            export_attempts,
+            export_retry_reasons,
+        ) = await export_compliance_text(
             client,
             scenario,
             app_session_id,
@@ -762,6 +981,8 @@ async def run_scenario(
             output_dir,
         )
         result.export_status = export_status
+        result.export_attempts = export_attempts
+        result.export_retry_reasons = export_retry_reasons
         if export_status == "success":
             result.export_file = export_file_or_error
             result.status = "success"
@@ -773,6 +994,95 @@ async def run_scenario(
         return result
     except Exception as exc:
         result.error = str(exc)
+        try:
+            await _fill_cost_summary(client, result)
+        except Exception:
+            pass
+        return result
+    finally:
+        result.finished_at = utc_now()
+        result.duration_min = round((time.monotonic() - started_monotonic) / 60, 2)
+
+
+async def resume_existing_session(
+    client: httpx.AsyncClient,
+    scenario: Scenario,
+    app_session_id: str,
+    config: BatchConfig,
+    headers: dict[str, str],
+    output_dir: Path,
+    *,
+    scenario_index: int | None = None,
+    scenario_total: int | None = None,
+) -> ScenarioResult:
+    started_monotonic = time.monotonic()
+    result = ScenarioResult(
+        status="failed",
+        scenario_id=scenario.scenario_id,
+        law_pair=scenario.law_pair.name,
+        model=scenario.model_spec.model,
+        deep_research=scenario.deep_research,
+        repetition=scenario.repetition,
+        app_session_id=app_session_id,
+        scenario_index=scenario_index,
+        scenario_total=scenario_total,
+        batch_id=output_dir.name,
+        started_at=utc_now(),
+        retry_reasons=[f"Resumed existing session {app_session_id}"],
+        run_mode="resume_existing_session",
+    )
+    try:
+        if scenario_index is not None and scenario_total is not None:
+            print(
+                f"[{scenario_index}/{scenario_total}] resuming {scenario.scenario_id} "
+                f"session={app_session_id}",
+                flush=True,
+            )
+        if await total_cost_ready(client, app_session_id):
+            result.retry_reasons.append("Total costs already ready; skipped run-all")
+        else:
+            final_status, attempts, retry_reasons = await run_workflow_with_retries(
+                client,
+                scenario,
+                app_session_id,
+                config,
+                headers,
+            )
+            result.run_attempts = attempts
+            result.retry_reasons.extend(retry_reasons)
+            result.step_failed = _failed_step(final_status)
+            if final_status.get("status") != "completed" or final_status.get("ok") is not True:
+                result.error = str(final_status.get("last_error") or "run-all failed")
+                await _fill_cost_summary(client, result)
+                return result
+
+        (
+            export_status,
+            export_file_or_error,
+            export_attempts,
+            export_retry_reasons,
+        ) = await export_compliance_text(
+            client,
+            scenario,
+            app_session_id,
+            config,
+            headers,
+            output_dir,
+        )
+        result.export_status = export_status
+        result.export_attempts = export_attempts
+        result.export_retry_reasons = export_retry_reasons
+        if export_status == "success":
+            result.export_file = export_file_or_error
+            result.status = "success"
+        else:
+            result.status = "export_failed"
+            result.error = export_file_or_error
+
+        await _fill_cost_summary(client, result)
+        return result
+    except Exception as exc:
+        result.error = f"{type(exc).__name__}: {exc!r}"
         try:
             await _fill_cost_summary(client, result)
         except Exception:
@@ -803,6 +1113,10 @@ class BatchLogger:
         with self.jsonl_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(diagnostic_row, ensure_ascii=False) + "\n")
 
+        if self._csv_needs_rewrite(diagnostic_row):
+            self._rewrite_csv_from_jsonl()
+            return
+
         if self._csv_fieldnames is None:
             self._csv_fieldnames = list(diagnostic_row)
             write_header = not self.csv_path.exists()
@@ -813,6 +1127,48 @@ class BatchLogger:
             if write_header:
                 writer.writeheader()
             writer.writerow(diagnostic_row)
+
+    def _csv_needs_rewrite(self, row: dict[str, Any]) -> bool:
+        if not self.csv_path.exists():
+            return False
+        with self.csv_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            existing_header = next(reader, None)
+        return existing_header != list(row)
+
+    def _rewrite_csv_from_jsonl(self) -> None:
+        rows = self._read_jsonl_rows()
+        fieldnames = _result_diagnostic_fieldnames()
+        extras = [
+            key
+            for row in rows
+            for key in row
+            if key not in fieldnames
+        ]
+        fieldnames.extend(_unique_preserve_order(extras))
+        with self.csv_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+        self._csv_fieldnames = fieldnames
+
+    def _read_jsonl_rows(self) -> list[dict[str, Any]]:
+        if not self.jsonl_path.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        with self.jsonl_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict):
+                    rows.append(row)
+        return rows
 
     def completed_scenario_ids(self) -> set[str]:
         if not self.jsonl_path.exists():
@@ -920,6 +1276,97 @@ async def run_batch(
     return BatchResult(results=results, output_dir=output_dir)
 
 
+async def resume_existing_sessions(
+    config: BatchConfig,
+    session_by_scenario_id: dict[str, str],
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    **config_overrides: Any,
+) -> BatchResult:
+    """Resume existing app sessions and append their results to the batch log.
+
+    The keys in `session_by_scenario_id` must be stable scenario ids from the
+    configured matrix, and the values are existing `app_session_id` values. Use
+    keyword overrides for one-off retry settings, for example
+    `max_deep_research_attempts=3` or `concurrency=1`.
+    """
+    if config_overrides:
+        config = replace(config, **config_overrides)
+    validate_config(config)
+    output_dir = resolve_batch_output_dir(config)
+    effective_config = config if config.batch_id.strip() else replace(config, batch_id=output_dir.name)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger = BatchLogger(output_dir)
+    logger.write_config(effective_config)
+    headers = api_key_headers(config)
+
+    async with httpx.AsyncClient(
+        base_url=config.base_url.rstrip("/"),
+        timeout=httpx.Timeout(60.0, read=None),
+        transport=transport,
+    ) as client:
+        await login(client, config)
+        pairs = discover_law_pairs(config.built_in_laws_dir)
+        if config.law_pairs:
+            selected = set(config.law_pairs)
+            pairs = [pair for pair in pairs if pair.name in selected]
+        if not pairs:
+            raise RuntimeError("No matching built-in law pairs found")
+        await validate_law_pairs(client, pairs)
+
+        scenarios = select_scenarios(
+            pairs,
+            config.models,
+            config.deep_research_modes,
+            config.repetitions,
+        )
+        scenario_by_id = {scenario.scenario_id: scenario for scenario in scenarios}
+        missing = sorted(set(session_by_scenario_id) - set(scenario_by_id))
+        if missing:
+            raise RuntimeError(
+                "No matching scenario(s) found for existing-session resume: "
+                + ", ".join(missing)
+            )
+
+        selected_scenarios = [
+            scenario
+            for scenario in scenarios
+            if scenario.scenario_id in session_by_scenario_id
+        ]
+        semaphore = asyncio.Semaphore(config.concurrency)
+
+        async def _resume_and_log(index: int, scenario: Scenario) -> ScenarioResult:
+            async with semaphore:
+                result = await resume_existing_session(
+                    client,
+                    scenario,
+                    session_by_scenario_id[scenario.scenario_id],
+                    config,
+                    headers,
+                    output_dir,
+                    scenario_index=index,
+                    scenario_total=len(selected_scenarios),
+                )
+                logger.write_result(result)
+                print(
+                    f"[{index}/{len(selected_scenarios)}] {result.status} "
+                    f"{scenario.scenario_id} session={result.app_session_id or '-'} "
+                    f"duration={result.duration_min}min "
+                    f"cost={result.estimated_total_cost_usd}",
+                    flush=True,
+                )
+                return result
+
+        results = await asyncio.gather(
+            *[
+                _resume_and_log(index, scenario)
+                for index, scenario in enumerate(selected_scenarios, start=1)
+            ]
+        )
+
+    return BatchResult(results=list(results), output_dir=output_dir)
+
+
 def parse_model_specs(values: list[str] | None) -> tuple[ModelSpec, ...]:
     if not values:
         return tuple(ModelSpec(provider=provider, model=model) for provider, model in DEFAULT_MODELS)
@@ -960,6 +1407,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-run-attempts", type=int, default=5)
     parser.add_argument("--max-deep-research-attempts", type=int, default=1)
+    parser.add_argument("--max-export-attempts", type=int, default=3)
     parser.add_argument(
         "--max-stuck-minutes",
         type=float,
@@ -1001,6 +1449,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         resume_completed=not args.no_resume,
         max_run_attempts=args.max_run_attempts,
         max_deep_research_attempts=args.max_deep_research_attempts,
+        max_export_attempts=args.max_export_attempts,
         max_stuck_minutes=args.max_stuck_minutes,
         poll_seconds=args.poll_seconds,
         output_dir=args.output_dir,

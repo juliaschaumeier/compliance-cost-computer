@@ -2180,11 +2180,17 @@ def analyze_issue_08(data: dict[str, list[dict[str, Any]]], out_dir: Path) -> li
             "bureaucracy_ratio": (bureaucracy / total if total else None),
         }
         rows.append(row)
-        if total and total > 0 and (bureaucracy is None or bureaucracy <= 0):
+        if total is not None and total > 0 and bureaucracy is None:
             findings.append(finding(
                 "issue_08_bureaucracy_cost", session, "bad", "high",
-                "Business information obligations exist, but bureaucracy cost is missing or zero.",
-                {**row, "reason": "ip_present_bureaucracy_missing_or_zero"},
+                "Business information obligations exist, but bureaucracy cost is missing.",
+                {**row, "reason": "ip_present_bureaucracy_missing"},
+            ))
+        elif bureaucracy == 0 and linked_steps:
+            findings.append(finding(
+                "issue_08_bureaucracy_cost", session, "diagnostic", "low",
+                "Business information obligations are linked to process steps, but the bureaucracy-cost delta is zero.",
+                {**row, "reason": "ip_present_zero_bureaucracy_cost"},
             ))
         elif total and bureaucracy is not None and total > 0 and bureaucracy / total >= 0.98 and len(business_regs) > len(business_ip):
             findings.append(finding(
@@ -2217,23 +2223,33 @@ def bureaucracy_cost_quality_row(
     else:
         raw_persisted_bucket = "no_raw_or_persisted_ip"
 
+    bureaucracy_sign = "none"
+    if bureaucracy is None:
+        bureaucracy_sign = "missing"
+    elif bureaucracy > 0:
+        bureaucracy_sign = "positive"
+    elif bureaucracy < 0:
+        bureaucracy_sign = "negative"
+    else:
+        bureaucracy_sign = "zero"
+
     cost_bucket = "no_business_ip"
     if business_ip and not business_cost:
-        cost_bucket = "ip_present_no_business_cost_row"
-    elif business_ip and total and total > 0 and (bureaucracy is None or bureaucracy <= 0):
-        cost_bucket = "ip_present_bureaucracy_missing_or_zero"
-    elif business_ip and total and bureaucracy is not None and total > 0 and bureaucracy / total >= 0.98 and len(business_regs) > len(business_ip):
+        cost_bucket = "ip_present_missing_business_cost_row"
+    elif business_ip and bureaucracy is None:
+        cost_bucket = "ip_present_missing_bureaucracy_cost"
+    elif business_ip and bureaucracy > 0:
+        cost_bucket = "ip_present_positive_bureaucracy_cost"
+    elif business_ip and bureaucracy < 0:
+        cost_bucket = "ip_present_negative_bureaucracy_cost"
+    elif business_ip and bureaucracy == 0:
+        cost_bucket = "ip_present_zero_bureaucracy_cost"
+    if business_ip and total and bureaucracy is not None and total > 0 and bureaucracy / total >= 0.98 and len(business_regs) > len(business_ip):
         cost_bucket = "suspicious_all_business_cost_marked_bureaucracy"
-    elif business_ip and total and total > 0 and bureaucracy is not None:
-        cost_bucket = "ip_present_bureaucracy_cost_nonzero"
-    elif business_ip:
-        cost_bucket = "ip_present_cost_not_evaluable"
 
     chart_bucket = cost_bucket
     if raw_persisted_bucket == "raw_ip_not_persisted":
         chart_bucket = "raw_ip_not_persisted"
-    elif raw_persisted_bucket == "raw_ip_persisted" and cost_bucket == "ip_present_bureaucracy_cost_nonzero":
-        chart_bucket = "raw_ip_persisted_bureaucracy_cost_nonzero"
 
     return {
         "session_id": session.get("session_id"),
@@ -2248,6 +2264,7 @@ def bureaucracy_cost_quality_row(
         "linked_ip_step_count": len(linked_steps),
         "business_total_cost": total,
         "business_bureaucracy_cost": bureaucracy,
+        "bureaucracy_sign": bureaucracy_sign,
         "bureaucracy_ratio": (bureaucracy / total if total else None),
         "raw_persisted_bucket": raw_persisted_bucket,
         "cost_bucket": cost_bucket,
