@@ -59,7 +59,7 @@ describe("ModelSelector", () => {
     expect(screen.queryByText("LLM-Auswahl")).not.toBeInTheDocument();
   });
 
-  it("removes cleared API keys and only shows models for valid keys", async () => {
+  it("stores cleared API keys and uses backend-returned model availability", async () => {
     mockUseApp.mockReturnValue({
       state: {
         selectedModel: "",
@@ -68,16 +68,21 @@ describe("ModelSelector", () => {
       setAvailableModels: jest.fn(),
       setSelectedModel: jest.fn(),
     });
-    mockFetchModels.mockResolvedValue({
-      organized: {
-        openai: {
-          recommended: [{ id: "gpt-5", name: "GPT-5", provider: "OpenAI" }],
-          additional: [],
+    mockFetchModels.mockImplementation((keys) => {
+      const openaiModels = keys.openaiApiKey
+        ? {
+            recommended: [{ id: "gpt-5", name: "GPT-5", provider: "OpenAI" }],
+            additional: [],
+          }
+        : { recommended: [], additional: [] };
+      return Promise.resolve({
+        organized: {
+          openai: openaiModels,
+          deepinfra: { recommended: [], additional: [] },
+          gemini: { recommended: [], additional: [] },
         },
-        deepinfra: { recommended: [], additional: [] },
-        gemini: { recommended: [], additional: [] },
-      },
-      default: "gpt-5",
+        default: "gpt-5",
+      });
     });
 
     render(<ModelSelector />);
@@ -108,6 +113,53 @@ describe("ModelSelector", () => {
       expect(screen.queryByRole("option", { name: "GPT-5" })).not.toBeInTheDocument()
     );
     expect(localStorage.getItem("openai_api_key")).toBeNull();
+  });
+
+  it("shows models supplied by backend env keys when no browser key is stored", async () => {
+    const setAvailableModels = jest.fn();
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedModel: "",
+        availableModels: [],
+      },
+      setAvailableModels,
+      setSelectedModel: jest.fn(),
+    });
+    mockFetchModels.mockResolvedValue({
+      organized: {
+        openai: { recommended: [], additional: [] },
+        deepinfra: { recommended: [], additional: [] },
+        gemini: {
+          recommended: [
+            {
+              id: "gemini-3.5-flash",
+              name: "Gemini 3.5 flash",
+              provider: "Gemini",
+            },
+          ],
+          additional: [],
+        },
+      },
+      default: "gemini-3.5-flash",
+    });
+
+    render(<ModelSelector />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /llm-auswahl öffnen/i }));
+
+    expect(
+      await screen.findByRole("option", {
+        name: "gemini-3.5-flash · $1.50 in / $9 out",
+      })
+    ).toBeInTheDocument();
+    expect(setAvailableModels).toHaveBeenCalledWith([
+      {
+        id: "gemini-3.5-flash",
+        name: "Gemini 3.5 flash",
+        provider: "Gemini",
+      },
+    ]);
   });
 
   it("keeps selected model label visible after loading models", async () => {

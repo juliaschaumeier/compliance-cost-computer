@@ -138,19 +138,8 @@ export default function ModelSelector() {
     loadModels(storedOpenai, storedDeepinfra, storedGemini);
   }, [loadModels]);
 
-  const visibleOrganizedModels = useMemo<OrganizedModels>(() => {
-    const hasOpenAiKey = hasPlausibleApiKey(openaiApiKey);
-    const hasDeepinfraKey = hasPlausibleApiKey(deepinfraApiKey);
-    const hasGeminiKey = hasPlausibleApiKey(geminiApiKey);
-    return {
-      openai: hasOpenAiKey ? organizedModels.openai : emptyProvider,
-      deepinfra: hasDeepinfraKey ? organizedModels.deepinfra : emptyProvider,
-      gemini: hasGeminiKey ? organizedModels.gemini : emptyProvider,
-    };
-  }, [organizedModels, openaiApiKey, deepinfraApiKey, geminiApiKey]);
-
   useEffect(() => {
-    const allModels = flattenModels(visibleOrganizedModels);
+    const allModels = flattenModels(organizedModels);
     setAvailableModels(allModels);
     if (!modelsLoadedRef.current) {
       return;
@@ -160,7 +149,7 @@ export default function ModelSelector() {
       setSelectedModel("");
     }
   }, [
-    visibleOrganizedModels,
+    organizedModels,
     state.selectedModel,
     setAvailableModels,
     setSelectedModel,
@@ -271,49 +260,49 @@ export default function ModelSelector() {
             >
               <option value="">Modell auswählen</option>
               <optgroup label={recommendationGroupLabel("OpenAI")}>
-                {visibleOrganizedModels.openai.recommended.map((model) => (
+                {organizedModels.openai.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
                     {modelOptionLabel(model, true)}
                   </option>
                 ))}
               </optgroup>
               <optgroup label={recommendationGroupLabel("DeepInfra")}>
-                {visibleOrganizedModels.deepinfra.recommended.map((model) => (
+                {organizedModels.deepinfra.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
                     {modelOptionLabel(model, true)}
                   </option>
                 ))}
               </optgroup>
               <optgroup label={recommendationGroupLabel("Gemini")}>
-                {visibleOrganizedModels.gemini.recommended.map((model) => (
+                {organizedModels.gemini.recommended.map((model) => (
                   <option key={model.id} value={model.id}>
                     {modelOptionLabel(model, true)}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Weitere - OpenAI">
-                {visibleOrganizedModels.openai.additional.map((model) => (
+                {organizedModels.openai.additional.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Weitere - DeepInfra">
-                {visibleOrganizedModels.deepinfra.additional.map((model) => (
+                {organizedModels.deepinfra.additional.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Weitere - Gemini">
-                {visibleOrganizedModels.gemini.additional.map((model) => (
+                {organizedModels.gemini.additional.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </optgroup>
             </select>
-            {flattenModels(visibleOrganizedModels).length === 0 ? (
+            {flattenModels(organizedModels).length === 0 ? (
               <p className="mt-2 text-[11px] leading-4 text-slate-500">
                 Kein Modell verfügbar. Bitte einen gültigen API-Schlüssel
                 eintragen oder prüfen.
