@@ -18,6 +18,20 @@ import { getWorkflowStepActionButtonState } from "@/lib/workflowStepActionButton
 
 type UploadTarget = "current" | "proposed";
 
+const LAW_CARD_CLASS =
+  "rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm";
+const LEGISLLM_CARD_CLASS =
+  "rounded-2xl border border-slate-300 bg-slate-50 px-4 py-4 shadow-sm lg:mr-4 xl:mr-6";
+const LAW_HEADING_CLASS = "text-sm font-semibold text-slate-800";
+const LEGISLLM_HEADING_CLASS = "text-sm font-semibold text-slate-800";
+const DROP_ZONE_CLASS =
+  "relative flex min-h-[64px] flex-1 flex-col items-start justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-2 text-sm font-semibold text-slate-700 transition";
+const DROP_ZONE_IDLE_CLASS = "border-slate-200 bg-white";
+const DROP_ZONE_ACTIVE_CLASS = "border-teal-500 bg-teal-50";
+const LEGISLLM_DROP_ZONE_IDLE_CLASS = "border-slate-300 bg-white";
+const LEGISLLM_DROP_ZONE_ACTIVE_CLASS = "border-slate-500 bg-slate-100";
+const DROP_ZONE_HELPER_CLASS = "text-xs font-normal text-slate-500";
+
 export default function UploadPanel() {
   const {
     state,
@@ -37,10 +51,13 @@ export default function UploadPanel() {
     setLastFailedMessage,
   } = useApp();
   const [status, setStatus] = useState<string | null>(null);
+  const [statusTone, setStatusTone] = useState<"warning" | "success">("warning");
   const [isDragging, setIsDragging] = useState({
     current: false,
     proposed: false,
+    legisllm: false,
   });
+  const [isImportingLegisLlm, setIsImportingLegisLlm] = useState(false);
   const [showLists, setShowLists] = useState({
     current: false,
     proposed: false,
@@ -125,6 +142,7 @@ export default function UploadPanel() {
       setSelectedRegulation("");
     }
     setStatus(null);
+    setStatusTone("warning");
     setSummaryReady(false);
     setRegulationsReady(false);
     setProcessesReady(false);
@@ -142,6 +160,7 @@ export default function UploadPanel() {
       setPendingProposedUploadName("");
     }
     setStatus(null);
+    setStatusTone("warning");
     setSummaryReady(false);
     setRegulationsReady(false);
     setProcessesReady(false);
@@ -183,7 +202,7 @@ export default function UploadPanel() {
   useEffect(() => {
     setStatus(null);
     setShowLists({ current: false, proposed: false });
-    setIsDragging({ current: false, proposed: false });
+    setIsDragging({ current: false, proposed: false, legisllm: false });
   }, [state.appSessionId]);
 
   const handleFileSelection = (target: UploadTarget, file: File | null) => {
@@ -204,6 +223,7 @@ export default function UploadPanel() {
       setSelectedRegulation("");
     }
     if (file && state.availableRegulations.includes(file.name)) {
+      setStatusTone("warning");
       setStatus(`Datei existiert bereits: ${file.name}`);
     }
   };
@@ -212,8 +232,42 @@ export default function UploadPanel() {
     handleFileSelection(target, file);
   };
 
+  const handleLegisLlmDrop = async (file: File | null) => {
+    setStatus(null);
+    setShowLists({ current: false, proposed: false });
+    if (!file) {
+      return;
+    }
+    setIsImportingLegisLlm(true);
+    try {
+      const response = await apiClient.importLegisLlmExport(file);
+      const refreshed = await apiClient.fetchRegulations();
+      setAvailableRegulations(refreshed.files);
+      setSelectedCurrentLaw(response.current_filename);
+      setSelectedRegulation(response.proposed_filename);
+      setPendingCurrentUpload(null);
+      setPendingProposedUpload(null);
+      setPendingCurrentUploadName("");
+      setPendingProposedUploadName("");
+      setSummaryReady(false);
+      setRegulationsReady(false);
+      setProcessesReady(false);
+      setStatusTone("success");
+      setStatus(response.message);
+    } catch (error) {
+      logClientError("UploadPanel.handleLegisLlmDrop", error, {
+        appSessionId: state.appSessionId,
+      });
+      setStatus(formatSessionStartError(error));
+      setStatusTone("warning");
+    } finally {
+      setIsImportingLegisLlm(false);
+    }
+  };
+
   const updatePendingUploadName = (target: UploadTarget, value: string) => {
     setStatus(null);
+    setStatusTone("warning");
     if (target === "current") {
       setPendingCurrentUploadName(value);
     } else {
@@ -226,7 +280,11 @@ export default function UploadPanel() {
   );
   const hasConflicts = Boolean(conflicts.current || conflicts.proposed);
   const canStart =
-    hasProposed && !isBusy && !hasConflicts && Boolean(state.selectedModel);
+    hasProposed &&
+    !isBusy &&
+    !isImportingLegisLlm &&
+    !hasConflicts &&
+    Boolean(state.selectedModel);
 
   const getSelectedName = (target: UploadTarget) => {
     const upload = target === "current" ? pendingUploads.current : pendingUploads.proposed;
@@ -243,6 +301,7 @@ export default function UploadPanel() {
       return;
     }
     setStatus(null);
+    setStatusTone("warning");
     setLastFailedStep(null);
     setLastFailedLabel(null);
     setLastFailedMessage(null);
@@ -271,6 +330,7 @@ export default function UploadPanel() {
         appSessionId: state.appSessionId,
       });
       setStatus(formatSessionStartError(error));
+      setStatusTone("warning");
       setSummaryReady(false);
     }
   };
@@ -306,6 +366,9 @@ export default function UploadPanel() {
       isStepActive: stepRun.isRunning || isRunAllBusy,
     }
   );
+  const displayedStatus = visibleStepRunStatus || status || failedStepStatus;
+  const displayedStatusTone =
+    status && displayedStatus === status ? statusTone : "warning";
 
   return (
     <section className="w-full border-b border-white/60 bg-white/80 py-4 backdrop-blur">
@@ -328,13 +391,48 @@ export default function UploadPanel() {
         <div
           data-testid="law-selection-grid"
           className={
-            isBusy ? "hidden" : "grid grid-cols-1 gap-4 lg:grid-cols-2"
+            isBusy ? "hidden" : "grid grid-cols-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]"
           }
         >
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-800">
-              Gültiges Gesetz
-            </h3>
+          <div className={LEGISLLM_CARD_CLASS}>
+            <h3 className={LEGISLLM_HEADING_CLASS}>LegisLLM Import</h3>
+            <div className="mt-3">
+              <div
+                onDragEnter={() =>
+                  setIsDragging((prev) => ({ ...prev, legisllm: true }))
+                }
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={() =>
+                  setIsDragging((prev) => ({ ...prev, legisllm: false }))
+                }
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setIsDragging((prev) => ({ ...prev, legisllm: false }));
+                  const droppedFile = event.dataTransfer.files?.[0] || null;
+                  void handleLegisLlmDrop(droppedFile);
+                }}
+                className={`${DROP_ZONE_CLASS} cursor-default ${
+                  isDragging.legisllm
+                    ? LEGISLLM_DROP_ZONE_ACTIVE_CLASS
+                    : LEGISLLM_DROP_ZONE_IDLE_CLASS
+                }`}
+              >
+                {isImportingLegisLlm ? (
+                  <span className="pointer-events-none">Importiere...</span>
+                ) : (
+                  <div className="pointer-events-none">
+                    <span>Exportiertes JSON</span>
+                    <span className={`block ${DROP_ZONE_HELPER_CLASS}`}>
+                      hierher ziehen
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className={LAW_CARD_CLASS}>
+            <h3 className={LAW_HEADING_CLASS}>Gültiges Gesetz</h3>
             <div className="mt-3">
               <div
                 onClick={() =>
@@ -356,10 +454,10 @@ export default function UploadPanel() {
                   const droppedFile = event.dataTransfer.files?.[0] || null;
                   handleDrop("current", droppedFile);
                 }}
-                className={`relative flex min-h-[64px] flex-1 cursor-pointer flex-col items-start justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-2 text-sm font-semibold text-slate-700 transition ${
+                className={`${DROP_ZONE_CLASS} cursor-pointer ${
                   isDragging.current
-                    ? "border-teal-500 bg-teal-50"
-                    : "border-slate-200 bg-white"
+                    ? DROP_ZONE_ACTIVE_CLASS
+                    : DROP_ZONE_IDLE_CLASS
                 }`}
               >
                 {getSelectedName("current") && (
@@ -376,16 +474,16 @@ export default function UploadPanel() {
                   </button>
                 )}
                 {getSelectedName("current") ? (
-                  <span className="text-xs font-normal text-slate-500">
+                  <span className="pointer-events-none break-words pr-7 text-xs font-normal text-slate-500">
                     Ausgewählt: {getSelectedName("current")}
                   </span>
                 ) : (
-                  <>
+                  <div className="pointer-events-none">
                     <span>Datei hierher ziehen oder klicken</span>
-                    <span className="text-xs font-normal text-slate-500">
-                      optional: aus hochgeladenen Dateien auswählen
+                    <span className={`block ${DROP_ZONE_HELPER_CLASS}`}>
+                      um aus hochgeladenen Dateien auszuwählen
                     </span>
-                  </>
+                  </div>
                 )}
               </div>
               {showLists.current && (
@@ -431,10 +529,8 @@ export default function UploadPanel() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-800">
-              Gesetzesvorschlag
-            </h3>
+          <div className={LAW_CARD_CLASS}>
+            <h3 className={LAW_HEADING_CLASS}>Gesetzesvorschlag</h3>
             <div className="mt-3">
               <div
                 onClick={() =>
@@ -456,10 +552,10 @@ export default function UploadPanel() {
                   const droppedFile = event.dataTransfer.files?.[0] || null;
                   handleDrop("proposed", droppedFile);
                 }}
-                className={`relative flex min-h-[64px] flex-1 cursor-pointer flex-col items-start justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-2 text-sm font-semibold text-slate-700 transition ${
+                className={`${DROP_ZONE_CLASS} cursor-pointer ${
                   isDragging.proposed
-                    ? "border-teal-500 bg-teal-50"
-                    : "border-slate-200 bg-white"
+                    ? DROP_ZONE_ACTIVE_CLASS
+                    : DROP_ZONE_IDLE_CLASS
                 }`}
               >
                 {getSelectedName("proposed") && (
@@ -476,16 +572,16 @@ export default function UploadPanel() {
                   </button>
                 )}
                 {getSelectedName("proposed") ? (
-                  <span className="text-xs font-normal text-slate-500">
+                  <span className="pointer-events-none break-words pr-7 text-xs font-normal text-slate-500">
                     Ausgewählt: {getSelectedName("proposed")}
                   </span>
                 ) : (
-                  <>
+                  <div className="pointer-events-none">
                     <span>Datei hierher ziehen oder klicken</span>
-                    <span className="text-xs font-normal text-slate-500">
+                    <span className={`block ${DROP_ZONE_HELPER_CLASS}`}>
                       um aus hochgeladenen Dateien auszuwählen
                     </span>
-                  </>
+                  </div>
                 )}
               </div>
               {showLists.proposed && (
@@ -532,9 +628,15 @@ export default function UploadPanel() {
           </div>
         </div>
 
-        {(status || visibleStepRunStatus || failedStepStatus) && (
-          <div className="ccc-status-warning whitespace-pre-line rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {visibleStepRunStatus || status || failedStepStatus}
+        {displayedStatus && (
+          <div
+            className={`whitespace-pre-line rounded-xl border px-3 py-2 text-xs font-semibold ${
+              displayedStatusTone === "success"
+                ? "ccc-status-success border-teal-700 bg-teal-50 text-teal-800"
+                : "ccc-status-warning border-amber-200 bg-amber-50 text-amber-800"
+            }`}
+          >
+            {displayedStatus}
           </div>
         )}
       </div>

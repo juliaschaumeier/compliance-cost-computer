@@ -2240,6 +2240,27 @@ def insert_law(
     return document_id
 
 
+def insert_or_reuse_law(
+    file_name: str,
+    law_text: str,
+    owner_user_id: int,
+) -> tuple[int, bool]:
+    """Insert a private law row, or reuse an existing identical private row."""
+    existing = get_law_by_filename(file_name, owner_user_id=owner_user_id)
+    if existing is not None:
+        if existing.get("is_builtin"):
+            raise ValueError(f"Cannot reuse built-in law name for private import: {file_name}")
+        if existing.get("law_text") != law_text:
+            raise ValueError(f"Existing law content differs: {file_name}")
+        return int(existing["document_id"]), False
+    return insert_law(
+        file_name,
+        law_text,
+        owner_user_id=owner_user_id,
+        is_builtin=False,
+    ), True
+
+
 def get_session_by_app_id(app_session_id: str) -> dict | None:
     conn = get_conn()
     cur = conn.cursor()
