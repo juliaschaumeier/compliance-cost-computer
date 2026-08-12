@@ -255,6 +255,7 @@ def aggregate(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, 
             "week": iso_week(session.get("created_at")),
             "created_at": session.get("created_at"),
             "law_pair": law_pair_key(session),
+            "law_pair_label": session.get("law_pair_label") or law_pair_key(session),
             "model": session.get("llm_model"),
             "completion_depth": depth,
             "quality_label": label,
@@ -332,6 +333,8 @@ def aggregate(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, 
     write_csv(out_dir / "reports" / "weekly_deep_research_attempts.csv", weekly_deep_research_attempt_rows)
     session_cost_case_points_rows = session_cost_case_points(data)
     write_csv(out_dir / "reports" / "session_cost_case_points.csv", session_cost_case_points_rows)
+    session_llm_cost_points_rows = session_llm_cost_points(data)
+    write_csv(out_dir / "reports" / "session_llm_cost_points.csv", session_llm_cost_points_rows)
     issue_detail_rows = weekly_issue_details(findings)
     write_csv(out_dir / "reports" / "weekly_issue_details.csv", issue_detail_rows)
     hard_failure_rows = hard_failure_session_rows(session_rows, findings)
@@ -368,6 +371,7 @@ def aggregate(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, 
         "deep_research_retry_summary": deep_research_retry_rows,
         "weekly_deep_research_attempts": weekly_deep_research_attempt_rows,
         "session_cost_case_points": session_cost_case_points_rows,
+        "session_llm_cost_points": session_llm_cost_points_rows,
         "weekly_issue_details": issue_detail_rows,
         "hard_failure_sessions": hard_failure_rows,
         "review_packet_index": review_index,
@@ -1424,19 +1428,65 @@ def session_cost_case_points(data: dict[str, list[dict[str, Any]]]) -> list[dict
             continue
         proposed_cases = session_case_total(data, sid, "proposed")
         current_cases = session_case_total(data, sid, "current")
+        estimated_llm_cost = session_estimated_llm_cost(data, sid)
         rows.append({
             "session_id": sid,
             "app_session_id": session.get("app_session_id"),
             "created_at": session.get("created_at"),
             "week": iso_week(session.get("created_at")),
             "law_pair": law_pair_key(session),
+            "law_pair_label": session.get("law_pair_label") or law_pair_key(session),
             "model": session.get("llm_model"),
             "total_cost": total_cost,
             "proposed_case_total": proposed_cases,
             "current_case_total": current_cases,
+            "estimated_llm_cost_usd": estimated_llm_cost,
             "deep_research_enabled": int(session_deep_research_enabled(data, session)),
         })
     return rows
+
+def session_llm_cost_points(data: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for session in sorted(data["sessions"], key=lambda row: str(row.get("created_at") or "")):
+        sid = int_or_none(session.get("session_id"))
+        if sid is None:
+            continue
+        estimated_llm_cost = session_estimated_llm_cost(data, sid)
+        if estimated_llm_cost is None:
+            continue
+        rows.append({
+            "session_id": sid,
+            "app_session_id": session.get("app_session_id"),
+            "created_at": session.get("created_at"),
+            "week": iso_week(session.get("created_at")),
+            "law_pair": law_pair_key(session),
+            "law_pair_label": session.get("law_pair_label") or law_pair_key(session),
+            "model": session.get("llm_model"),
+            "estimated_llm_cost_usd": estimated_llm_cost,
+            "deep_research_enabled": int(session_deep_research_enabled(data, session)),
+        })
+    return rows
+
+def session_estimated_llm_cost(data: dict[str, list[dict[str, Any]]], sid: int) -> float | None:
+    total = 0.0
+    found = False
+    for row in data.get("llm_answers", []):
+        if int_or_none(row.get("session_id")) != sid:
+            continue
+        cost = safe_float(row.get("estimated_cost_usd"))
+        if cost is None:
+            continue
+        total += cost
+        found = True
+    for row in data.get("deep_research_runs", []):
+        if int_or_none(row.get("session_id")) != sid:
+            continue
+        cost = safe_float(row.get("estimated_cost_usd"))
+        if cost is None:
+            continue
+        total += cost
+        found = True
+    return round(total, 6) if found else None
 
 def session_case_total(data: dict[str, list[dict[str, Any]]], sid: int, period: str) -> float | None:
     total = 0.0
@@ -1622,6 +1672,7 @@ def write_report_md(out_dir: Path, session_rows: list[dict[str, Any]], weekly: l
         "- `reports/deep_research_retry_summary.csv`",
         "- `reports/weekly_deep_research_attempts.csv`",
         "- `reports/session_cost_case_points.csv`",
+        "- `reports/session_llm_cost_points.csv`",
         "- `reports/weekly_issue_details.csv`",
         "- `reports/hard_failure_sessions.csv`",
         "- `findings/issue_02_not_applicable_wordings.csv`",
@@ -1668,6 +1719,7 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
     deep_research_retry_summary_rows = read_csv_dicts(out_dir / "reports" / "deep_research_retry_summary.csv")
     weekly_deep_research_attempt_rows = read_csv_dicts(out_dir / "reports" / "weekly_deep_research_attempts.csv")
     cost_case_points = read_csv_dicts(out_dir / "reports" / "session_cost_case_points.csv")
+    llm_cost_points = read_csv_dicts(out_dir / "reports" / "session_llm_cost_points.csv")
     weekly_issue_detail = read_csv_dicts(out_dir / "reports" / "weekly_issue_details.csv")
     hard_failure_rows = read_csv_dicts(out_dir / "reports" / "hard_failure_sessions.csv")
     adjudication_decisions = read_csv_dicts(out_dir / "adjudication" / "decisions.csv")
@@ -1701,6 +1753,7 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
         deep_research_retry_summary_rows=deep_research_retry_summary_rows,
         weekly_deep_research_attempts=weekly_deep_research_attempt_rows,
         cost_case_points=cost_case_points,
+        llm_cost_points=llm_cost_points,
         weekly_issue_detail=weekly_issue_detail,
         hard_failure_rows=hard_failure_rows,
         issue_02_wording_summary_rows=issue_02_wording_summary_rows,
@@ -1730,6 +1783,8 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
     .details-note {{ max-width: 980px; color: #475467; font-size: 13px; line-height: 1.45; margin: 8px 0 18px; }}
     .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 12px; font-size: 12px; }}
     .legend span {{ display: inline-flex; align-items: center; gap: 4px; }}
+    .scatter-series-legend button {{ border: 1px solid #d9dee7; background: #fff; color: #172033; border-radius: 999px; padding: 3px 8px; font-size: 11px; cursor: pointer; }}
+    .scatter-series-legend button.is-muted {{ opacity: 0.42; text-decoration: line-through; }}
     .swatch {{ display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }}
     .dr-outline-swatch {{ display: inline-block; width: 10px; height: 10px; border: 2px solid #000; background: #fff; margin-right: 5px; vertical-align: -2px; }}
     .shape-icon {{ width: 18px; height: 14px; vertical-align: -2px; }}
@@ -1747,6 +1802,27 @@ def visualize(out_dir: Path, markers: list[dict[str, Any]], config: dict[str, An
   <p>Deterministic analysis of historical CCC sessions. Missing later workflow steps are not bad by default.</p>
   {scope_note}
   {body}
+  <script>
+    document.addEventListener("click", function(event) {{
+      const button = event.target.closest("[data-scatter-filter]");
+      if (!button) return;
+      const chart = button.closest("[data-scatter-chart]");
+      if (!chart) return;
+      button.classList.toggle("is-muted");
+      const muted = Array.from(chart.querySelectorAll("[data-scatter-filter].is-muted")).map(function(item) {{
+        return {{
+          field: item.getAttribute("data-scatter-filter"),
+          value: item.getAttribute("data-scatter-value")
+        }};
+      }});
+      chart.querySelectorAll("[data-scatter-point]").forEach(function(point) {{
+        const hidden = muted.some(function(filter) {{
+          return point.getAttribute("data-scatter-" + filter.field) === filter.value;
+        }});
+        point.style.display = hidden ? "none" : "";
+      }});
+    }});
+  </script>
 </body>
 </html>
 """
@@ -1782,6 +1858,7 @@ def report_charts(
     deep_research_retry_summary_rows: list[dict[str, Any]],
     weekly_deep_research_attempts: list[dict[str, Any]],
     cost_case_points: list[dict[str, Any]],
+    llm_cost_points: list[dict[str, Any]],
     weekly_issue_detail: list[dict[str, Any]],
     hard_failure_rows: list[dict[str, Any]],
     issue_02_wording_summary_rows: list[dict[str, Any]],
@@ -2004,6 +2081,20 @@ def report_charts(
             [
                 details_section("Feature Markers", "Dates and code changes used as visual context.", [render_markers(markers)]),
                 details_section("Reading Guide", "Definitions for report labels and diagnostic terms.", [dashboard_glossary()]),
+                details_section("Session Cost Scatter", "Session-level estimated LLM spend, matching the repeated-run scatter layout.", [
+                    scatter_svg(
+                        "Estimated LLM Cost Scatter Over Time",
+                        (
+                            "Each point is one session with summed estimated cost from `llm_answers` and "
+                            "`deep_research_runs`. Color identifies model, shape identifies law pair, and a black "
+                            "outline marks Deep Research sessions. Use the series buttons to hide/show specific "
+                            "model/law/DR combinations when points overlap."
+                        ),
+                        llm_cost_points,
+                        "estimated_llm_cost_usd",
+                        "estimated LLM cost (USD)",
+                    ),
+                ]),
                 details_section("JSON Syntax And Contract Details", "Lower-level JSON diagnostics kept out of the main flow.", [
                     stacked_bar_svg(
                         "Weekly Raw Answer JSON Syntax Quality",
@@ -2249,18 +2340,34 @@ def analysis_scope_note(out_dir: Path) -> str:
     rows = read_csv_dicts(out_dir / "extracted" / "analysis_scope.csv")
     if not rows:
         return (
-            "<p class='chart-note'><strong>Analysis scope:</strong> included law pairs are "
-            "1-&gt;2 and 9-&gt;10 (e-sports), 3-&gt;4 and 7-&gt;8 (arbeitstagepauschale), and "
-            "5-&gt;6 and 11-&gt;12 (491 bgb). Reversed, missing-law, and ad-hoc test pairs are excluded.</p>"
+            "<p class='chart-note'><strong>Analysis scope:</strong> no extracted scope metadata found.</p>"
         )
     row = rows[0]
+    labels = parse_json_maybe(row.get("included_law_pair_labels"))
+    pairs = parse_json_maybe(row.get("included_law_pairs"))
+    pair_text = analysis_scope_pair_text(labels, pairs)
     return (
-        "<p class='chart-note'><strong>Analysis scope:</strong> included law pairs are "
-        "1-&gt;2 and 9-&gt;10 (e-sports), 3-&gt;4 and 7-&gt;8 (arbeitstagepauschale), and "
-        "5-&gt;6 and 11-&gt;12 (491 bgb). "
+        "<p class='chart-note'><strong>Analysis scope:</strong> "
+        f"{pair_text}. "
         f"Included sessions: {html.escape(str(row.get('included_session_count') or ''))}; "
         f"excluded sessions: {html.escape(str(row.get('excluded_session_count') or ''))}.</p>"
     )
+
+def analysis_scope_pair_text(labels: Any, pairs: Any) -> str:
+    if not isinstance(labels, dict):
+        labels = {}
+    if not isinstance(pairs, list):
+        pairs = sorted(str(key) for key in labels)
+    items = []
+    for pair in sorted(str(item) for item in pairs):
+        label = str(labels.get(pair) or "").strip()
+        if label and label != pair:
+            items.append(f"{html.escape(label)} ({html.escape(pair)})")
+        else:
+            items.append(html.escape(pair))
+    if not items:
+        return "No law-pair filter is active"
+    return "Included law pairs: " + ", ".join(items)
 
 def color_for_issue(issue_id: str) -> str:
     palette = {
@@ -2806,22 +2913,27 @@ def scatter_svg(
         max_v = min_v + 1
     models = sorted({str(row.get("model") or "unknown") for row in points})
     law_pairs = sorted({str(row.get("law_pair") or "unknown") for row in points})
-    law_groups = scatter_law_groups(law_pairs)
-    law_group_shapes = {group: idx % 4 for idx, (group, _pairs) in enumerate(law_groups)}
+    law_pair_labels = scatter_law_pair_labels(points)
+    law_shape_keys = scatter_law_shape_keys(law_pairs)
+    law_group_shapes = {pair: idx % 4 for idx, pair in enumerate(law_shape_keys)}
     model_colors = scatter_model_colors(models)
+    chart_id = "scatter-" + slugify(title)
     parts = [
-        f"<section class='chart'><h2>{html.escape(title)}</h2>",
+        f"<section class='chart' id='{html.escape(chart_id)}' data-scatter-chart><h2>{html.escape(title)}</h2>",
         f"<p class='chart-note'>{html.escape(description)}</p>",
-        "<div class='legend'><span><strong>Model color:</strong></span>" + "".join(
-            f"<span><span class='swatch' style='background:{model_colors[model]}'></span>{html.escape(model)}</span>"
+        "<div class='legend scatter-series-legend'><span><strong>Model color:</strong></span>" + "".join(
+            f"<button type='button' data-scatter-filter='model' data-scatter-value='{html.escape(slugify(model))}'>"
+            f"<span class='swatch' style='background:{model_colors[model]}'></span>{html.escape(model)}</button>"
             for model in models
         ) + "</div>",
-        "<div class='legend'><span><strong>Law group shape:</strong></span>" + "".join(
-            f"<span>{scatter_shape_icon(idx % 4)}{html.escape(group)} ({html.escape(', '.join(pairs))})</span>"
-            for idx, (group, pairs) in enumerate(law_groups)
+        "<div class='legend scatter-series-legend'><span><strong>Law pair shape:</strong></span>" + "".join(
+            f"<button type='button' data-scatter-filter='law' data-scatter-value='{html.escape(slugify(pair))}'>"
+            f"{scatter_shape_icon(idx % 4)}{html.escape(scatter_law_pair_label(pair, law_pair_labels))}</button>"
+            for idx, pair in enumerate(law_shape_keys)
         ) + "</div>",
-        "<div class='legend'><span><strong>Deep Research:</strong></span>"
-        "<span><span class='dr-outline-swatch'></span>enabled</span></div>",
+        "<div class='legend scatter-series-legend'><span><strong>Deep Research:</strong></span>"
+        "<button type='button' data-scatter-filter='dr' data-scatter-value='enabled'>"
+        "<span class='dr-outline-swatch'></span>enabled</button></div>",
     ]
     svg = [f"<svg width='{width}' height='{height}' role='img' aria-label='{html.escape(title)}'>"]
     svg.append(
@@ -2852,29 +2964,52 @@ def scatter_svg(
         y = top + chart_h - ((value - min_v) / (max_v - min_v) * chart_h)
         color = model_colors.get(str(row.get("model") or "unknown"), "#636363")
         law_pair = str(row.get("law_pair") or "unknown")
-        law_group = law_pair_group(law_pair)
-        shape_idx = law_group_shapes.get(law_group, 0)
+        law_label = str(row.get("law_pair_label") or law_pair)
+        shape_idx = law_group_shapes.get(law_pair, 0)
         uses_deep_research = truthy(row.get("deep_research_enabled"))
         research_note = " | Deep Research" if uses_deep_research else ""
-        title_text = f"session {row.get('session_id')} | {row.get('week')} | {row.get('model')} | law group {law_group} | law pair {law_pair}{research_note} | {y_label}: {raw:g}"
-        svg.append(scatter_marker(x, y, color, shape_idx, title_text, outlined=uses_deep_research))
+        title_text = f"session {row.get('session_id')} | {row.get('week')} | {row.get('model')} | law pair {law_label} ({law_pair}){research_note} | {y_label}: {raw:g}"
+        svg.append(
+            f"<g data-scatter-point data-scatter-model='{html.escape(slugify(str(row.get('model') or 'unknown')))}' "
+            f"data-scatter-law='{html.escape(slugify(law_pair))}' "
+            f"data-scatter-dr='{'enabled' if uses_deep_research else 'disabled'}'>"
+            f"{scatter_marker(x, y, color, shape_idx, title_text, outlined=uses_deep_research)}"
+            "</g>"
+        )
     svg.append("</svg>")
     parts.append("".join(svg))
-    parts.append("<p class='chart-note'>Color identifies the model. Shape identifies the law group shown in the legend; the tooltip gives the exact law pair.</p>")
+    parts.append("<p class='chart-note'>Color identifies the model. Shape identifies the law pair shown in the legend. Click a legend button to hide or show one model, law pair, or Deep Research group.</p>")
     parts.append("</section>")
     return "\n".join(parts)
 
-def scatter_law_groups(law_pairs: list[str]) -> list[tuple[str, list[str]]]:
-    preferred = ["e-sports", "arbeitstagepauschale", "491 bgb"]
-    grouped: dict[str, list[str]] = {}
-    for pair in law_pairs:
-        grouped.setdefault(law_pair_group(pair), []).append(pair)
-    ordered = [group for group in preferred if group in grouped]
-    ordered.extend(sorted(group for group in grouped if group not in ordered))
-    return [(group, sorted(grouped[group])) for group in ordered]
+def scatter_law_shape_keys(law_pairs: list[str]) -> list[str]:
+    return sorted(law_pairs)
 
-def law_pair_group(law_pair: str) -> str:
-    return law_pair_label(law_pair)
+def scatter_law_pair_labels(rows: list[dict[str, Any]]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for row in rows:
+        pair = str(row.get("law_pair") or "unknown")
+        label = str(row.get("law_pair_label") or "").strip()
+        if label:
+            labels.setdefault(pair, label)
+    return labels
+
+def scatter_law_pair_label(law_pair: str, labels: dict[str, str]) -> str:
+    label = labels.get(law_pair, law_pair)
+    duplicate = sum(1 for value in labels.values() if value == label) > 1
+    if duplicate and label != law_pair:
+        return f"{label} ({law_pair})"
+    return label
+
+def slugify(value: str) -> str:
+    out = []
+    for ch in value.lower():
+        if ch.isalnum():
+            out.append(ch)
+        elif out and out[-1] != "-":
+            out.append("-")
+    return "".join(out).strip("-") or "item"
+
 
 def point_x(timestamp: float, min_t: float, max_t: float, left: int, chart_w: int) -> float:
     if abs(max_t - min_t) < 1e-12:

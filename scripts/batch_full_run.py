@@ -13,6 +13,8 @@ from typing import Any, Iterable, Literal
 
 import httpx
 
+from backend.core.runtime_info import app_code_state as current_app_code_state
+
 
 DEFAULT_MODELS: tuple[tuple[str, str], ...] = (
     ("gemini", "gemini-3.1-pro-preview"),
@@ -115,6 +117,7 @@ class ScenarioResult:
     llm_calls_total: int = 0
     llm_calls_failed: int = 0
     run_mode: str = "fresh"
+    app_code_state: str = ""
 
     def to_row(self, *, include_diagnostics: bool = False) -> dict[str, Any]:
         row: dict[str, Any] = {
@@ -150,6 +153,7 @@ class ScenarioResult:
                     "llm_calls_total": self.llm_calls_total,
                     "llm_calls_failed": self.llm_calls_failed,
                     "run_mode": self.run_mode,
+                    "app_code_state": self.app_code_state,
                 }
             )
         return row
@@ -941,6 +945,7 @@ async def run_scenario(
         scenario_total=scenario_total,
         batch_id=output_dir.name,
         started_at=started_at,
+        app_code_state=current_app_code_state(),
     )
     try:
         app_session_id = await create_session(client, scenario)
@@ -1030,6 +1035,7 @@ async def resume_existing_session(
         started_at=utc_now(),
         retry_reasons=[f"Resumed existing session {app_session_id}"],
         run_mode="resume_existing_session",
+        app_code_state=current_app_code_state(),
     )
     try:
         if scenario_index is not None and scenario_total is not None:

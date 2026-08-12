@@ -1,6 +1,14 @@
 from backend.core.config import Settings
 
 
+def test_settings_default_model_is_unselected_when_not_configured(monkeypatch):
+    monkeypatch.delenv("DEFAULT_MODEL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.default_model == ""
+
+
 def test_settings_accept_shared_deployment_env_keys(tmp_path, monkeypatch):
     for key in (
         "AUTH_SECRET_KEY",

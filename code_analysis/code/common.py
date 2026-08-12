@@ -455,7 +455,7 @@ def extract(snapshot_path: Path, out_dir: Path, config: dict[str, Any] | None = 
             "sessions": db.select("sessions", [
                 "session_id", "app_session_id", "created_at", "llm_model",
                 "used_llm_models", "current_law_id", "proposed_law_id",
-                "law_diff_title", "cc_cost", "owner_user_id",
+                "law_diff_title", "cc_cost", "owner_user_id", "app_code_state",
             ]),
             "laws": db.select("laws", [
                 "document_id", "file_name", "text_length", "uploaded_at",
@@ -521,7 +521,7 @@ def extract(snapshot_path: Path, out_dir: Path, config: dict[str, Any] | None = 
             "deep_research_runs": db.select("deep_research_runs", [
                 "research_run_id", "session_id", "purpose", "status",
                 "created_at", "started_at", "completed_at", "parsed_at",
-                "finished_at", "error", "estimated_cost_usd",
+                "finished_at", "error", "estimated_cost_usd", "app_code_state",
             ]),
         }
     finally:
@@ -543,10 +543,20 @@ def filter_analysis_scope(
     if config is not None:
         configure_analysis(config)
     allowed_pairs = included_law_pairs()
-    labels = law_pair_labels()
     sessions = tables.get("sessions", [])
+    labels = {
+        **law_pair_labels(),
+        **law_pair_display_labels(sessions, tables.get("laws", [])),
+    }
     included_sessions = [
-        row for row in sessions
+        {
+            **row,
+            "law_pair_label": labels.get(
+                law_pair_key_from_ids(row.get("current_law_id"), row.get("proposed_law_id")),
+                law_pair_key_from_ids(row.get("current_law_id"), row.get("proposed_law_id")),
+            ),
+        }
+        for row in sessions
         if law_pair_key_from_ids(row.get("current_law_id"), row.get("proposed_law_id")) in allowed_pairs
     ]
     excluded_sessions = [
@@ -588,6 +598,59 @@ def filter_analysis_scope(
 
 def law_pair_key_from_ids(current_law_id: Any, proposed_law_id: Any) -> str:
     return f"{current_law_id or 'none'}->{proposed_law_id or 'none'}"
+
+def law_pair_display_labels(
+    sessions: list[dict[str, Any]],
+    laws: list[dict[str, Any]],
+) -> dict[str, str]:
+    laws_by_id = {
+        str(row.get("document_id")): str(row.get("file_name") or "").strip()
+        for row in laws
+        if row.get("document_id") is not None
+    }
+    labels: dict[str, str] = {}
+    for session in sessions:
+        current_id = session.get("current_law_id")
+        proposed_id = session.get("proposed_law_id")
+        pair = law_pair_key_from_ids(current_id, proposed_id)
+        label = law_pair_display_label(
+            laws_by_id.get(str(current_id), ""),
+            laws_by_id.get(str(proposed_id), ""),
+        )
+        if label:
+            labels[pair] = label
+    return labels
+
+def law_pair_display_label(current_name: str, proposed_name: str) -> str:
+    current = normalized_law_name_stem(current_name)
+    proposed = normalized_law_name_stem(proposed_name)
+    if current and current == proposed:
+        return current
+    if current and proposed:
+        common = common_law_name_prefix(current, proposed)
+        if common:
+            return common
+    return current or proposed
+
+def normalized_law_name_stem(file_name: str) -> str:
+    name = Path(file_name).stem.strip().lower()
+    name = re.sub(
+        r"([_-]?(gueltig|geltend|current|bestehend|vorschlag|proposed|neu|reform|new))$",
+        "",
+        name,
+    )
+    name = re.sub(r"[_-]+", " ", name).strip()
+    return re.sub(r"\s+", " ", name)
+
+def common_law_name_prefix(current: str, proposed: str) -> str:
+    current_parts = current.split()
+    proposed_parts = proposed.split()
+    shared: list[str] = []
+    for left, right in zip(current_parts, proposed_parts):
+        if left != right:
+            break
+        shared.append(left)
+    return " ".join(shared).strip()
 
 def load_extracted(out_dir: Path, config: dict[str, Any] | None = None) -> dict[str, list[dict[str, Any]]]:
     config = configure_analysis(config or load_run_config(out_dir))

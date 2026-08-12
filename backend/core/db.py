@@ -29,6 +29,7 @@ from .norm_addressees import (
     SUPPORTED_NORM_ADDRESSEES,
     normalize_norm_addressee,
 )
+from .runtime_info import app_code_state
 
 logger = logging.getLogger(__name__)
 
@@ -770,6 +771,7 @@ def _create_deep_research_runs_table(
             thought_tokens        INTEGER,
             total_tokens          INTEGER,
             estimated_cost_usd    REAL,
+            app_code_state        TEXT,
             created_at            TEXT NOT NULL DEFAULT current_timestamp,
             started_at            TEXT,
             completed_at          TEXT,
@@ -781,6 +783,7 @@ def _create_deep_research_runs_table(
         )
         """
     )
+    _ensure_column(cur, table_name, "app_code_state", "TEXT")
     cur.execute(
         f"""
         CREATE INDEX IF NOT EXISTS idx_{table_name}_session_purpose
@@ -908,6 +911,7 @@ def _create_compliance_text_exports_table(
             output_tokens          INTEGER,
             hidden_thinking_tokens INTEGER,
             estimated_cost_usd     REAL,
+            app_code_state         TEXT,
             created_at             TEXT NOT NULL DEFAULT current_timestamp,
             FOREIGN KEY (session_id)
             REFERENCES sessions (session_id)
@@ -920,6 +924,7 @@ def _create_compliance_text_exports_table(
         )
         """
     )
+    _ensure_column(cur, table_name, "app_code_state", "TEXT")
     cur.execute(
         f"""
         CREATE INDEX IF NOT EXISTS idx_{table_name}_session_snapshot_policy
@@ -1735,6 +1740,7 @@ def init_db() -> None:
             law_diff_summary    TEXT,
             case_group_research_enabled INTEGER NOT NULL DEFAULT 0,
             cc_cost             REAL,
+            app_code_state      TEXT,
             FOREIGN KEY (current_law_id) 
             REFERENCES laws(document_id) 
                 ON UPDATE RESTRICT
@@ -1761,6 +1767,7 @@ def init_db() -> None:
     )
     # Migration-only: add the ownership column to legacy/dev session tables.
     _ensure_column(cur, "sessions", "owner_user_id", "INTEGER REFERENCES users(user_id)")
+    _ensure_column(cur, "sessions", "app_code_state", "TEXT")
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_user_id)"
     )
@@ -2756,11 +2763,21 @@ def create_deep_research_run(
             agent,
             status,
             prompt_text,
+            app_code_state,
             started_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = 'running' THEN current_timestamp ELSE NULL END)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'running' THEN current_timestamp ELSE NULL END)
         """,
-        (session_id, purpose, provider, agent, status, prompt_text, status),
+        (
+            session_id,
+            purpose,
+            provider,
+            agent,
+            status,
+            prompt_text,
+            app_code_state(),
+            status,
+        ),
     )
     _maybe_commit(conn)
     research_run_id = int(cur.lastrowid)
@@ -2944,6 +2961,9 @@ def insert_compliance_text_export(
     conn = get_conn()
     cur = conn.cursor()
     _create_compliance_text_exports_table(cur)
+    code_state = app_code_state()
+    metadata_with_code_state = dict(metadata_json or {})
+    metadata_with_code_state.setdefault("app_code_state", code_state)
     cur.execute(
         """
         INSERT INTO compliance_text_exports (
@@ -2964,9 +2984,10 @@ def insert_compliance_text_export(
             input_tokens,
             output_tokens,
             hidden_thinking_tokens,
-            estimated_cost_usd
+            estimated_cost_usd,
+            app_code_state
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -2982,11 +3003,12 @@ def insert_compliance_text_export(
             deep_research_run_id,
             int(bool(used_user_edits)),
             user_edit_policy,
-            json.dumps(metadata_json, ensure_ascii=False) if metadata_json is not None else None,
+            json.dumps(metadata_with_code_state, ensure_ascii=False),
             input_tokens,
             output_tokens,
             hidden_thinking_tokens,
             estimated_cost_usd,
+            code_state,
         ),
     )
     export_id = int(cur.lastrowid)
@@ -3499,6 +3521,7 @@ def upsert_session(
                 app_session_id,
                 llm_model,
                 owner_user_id,
+                app_code_state,
                 case_group_research_enabled,
                 pay_rate_administration_level,
                 pay_rate_default_a,
@@ -3506,12 +3529,13 @@ def upsert_session(
                 pay_rate_default_c,
                 pay_rate_default_d
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 app_session_id,
                 llm_model,
                 owner_user_id,
+                app_code_state(),
                 0,
                 PAY_RATE_LEVEL_BUND,
                 defaults["a"],
@@ -3551,6 +3575,8 @@ def insert_llm_answer(
         raise ValueError(f"Invalid llm answer state: {answer_state}")
     conn = get_conn()
     cur = conn.cursor()
+    metadata_with_code_state = dict(metadata or {})
+    metadata_with_code_state.setdefault("app_code_state", app_code_state())
     cur.execute(
         """
         INSERT INTO llm_answers (
@@ -3577,7 +3603,7 @@ def insert_llm_answer(
             model,
             answer_text,
             prompt_text,
-            json.dumps(metadata, ensure_ascii=False) if metadata else None,
+            json.dumps(metadata_with_code_state, ensure_ascii=False),
             input_tokens,
             output_tokens,
             hidden_thinking_tokens,

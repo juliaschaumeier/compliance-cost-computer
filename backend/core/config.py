@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     deepinfra_api_key: str = ""
     gemini_api_key: str = ""
-    default_model: str = "gpt-4o"
+    default_model: str = ""
     enable_web_search: bool = True
     openai_max_tokens: int = 100000
     deepinfra_max_tokens: int = 0
@@ -76,7 +76,7 @@ DEEPINFRA_RECOMMENDED = [
 GEMINI_RECOMMENDED = [
     "gemini-3.1-pro-preview",
     "gemini-3.5-flash",
-    "gemini-3-flash-preview",
+    "gemini-3.6-flash",
 ]
 
 GEMINI_EXCLUDED_MODEL_TOKENS = (
