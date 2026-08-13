@@ -21,9 +21,20 @@ const mockUseApp = useApp as jest.Mock;
 const mockFetchModels = apiClient.fetchOrganizedModels as jest.Mock;
 
 describe("ModelSelector", () => {
+  const originalLockFlag = process.env.NEXT_PUBLIC_LOCK_LLM_MODEL;
+
   beforeEach(() => {
     mockFetchModels.mockReset();
     localStorage.clear();
+    delete process.env.NEXT_PUBLIC_LOCK_LLM_MODEL;
+  });
+
+  afterEach(() => {
+    if (typeof originalLockFlag === "string") {
+      process.env.NEXT_PUBLIC_LOCK_LLM_MODEL = originalLockFlag;
+    } else {
+      delete process.env.NEXT_PUBLIC_LOCK_LLM_MODEL;
+    }
   });
 
   it("renders the chooser in a portal and allows closing", async () => {
@@ -307,5 +318,46 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getByRole("button", { name: /llm-auswahl öffnen/i }));
     expect(await screen.findByTestId("model-selector-modal")).toBeInTheDocument();
+  });
+
+  it("locks the header selector and adopts the backend default model when configured", async () => {
+    process.env.NEXT_PUBLIC_LOCK_LLM_MODEL = "true";
+    const setSelectedModel = jest.fn();
+    mockUseApp.mockReturnValue({
+      state: {
+        selectedModel: "",
+        availableModels: [],
+      },
+      setAvailableModels: jest.fn(),
+      setSelectedModel,
+    });
+    mockFetchModels.mockResolvedValue({
+      organized: {
+        openai: { recommended: [], additional: [] },
+        deepinfra: { recommended: [], additional: [] },
+        gemini: {
+          recommended: [
+            {
+              id: "gemini-3.6-flash",
+              name: "Gemini 3.6 flash",
+              provider: "Gemini",
+            },
+          ],
+          additional: [],
+        },
+      },
+      default: "gemini-3.6-flash",
+    });
+
+    render(<ModelSelector />);
+
+    await waitFor(() =>
+      expect(setSelectedModel).toHaveBeenCalledWith("gemini-3.6-flash")
+    );
+    expect(
+      screen.queryByRole("button", { name: /llm-auswahl öffnen/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("model-selector-modal")).not.toBeInTheDocument();
+    expect(screen.getByText("LLM:")).toBeInTheDocument();
   });
 });

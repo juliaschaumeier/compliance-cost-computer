@@ -18,7 +18,7 @@ const recommendedModelPriceLabels: Record<string, string> = {
   "gpt-5.4-mini": "$0.75 in / $4.50 out",
   "gemini-3.1-pro-preview": "≤200k $2/$12 · >200k $4/$18",
   "gemini-3.5-flash": "$1.50 in / $9 out",
-  "gemini-3-flash-preview": "$0.50 in / $3 out",
+  "gemini-3.6-flash": "$1.50 in / $7.50 out",
   "anthropic/claude-sonnet-4-6": "$3 in / $15 out",
   "deepseek-ai/DeepSeek-V3.2": "$0.26 in / $0.38 out",
 };
@@ -44,6 +44,10 @@ const modelOptionLabel = (model: Model, recommended = false) => {
   }
   return `${model.id} · ${priceLabel}`;
 };
+const isModelSelectorLocked = () =>
+  ["1", "true", "yes", "on"].includes(
+    (process.env.NEXT_PUBLIC_LOCK_LLM_MODEL || "").trim().toLowerCase()
+  );
 
 const buildSelectedModelLabels = (
   selectedModel: string,
@@ -74,6 +78,7 @@ const buildSelectedModelLabels = (
 
 export default function ModelSelector() {
   const { state, setAvailableModels, setSelectedModel } = useApp();
+  const modelLocked = isModelSelectorLocked();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -88,6 +93,7 @@ export default function ModelSelector() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const modelsLoadedRef = useRef(false);
+  const selectedModelRef = useRef(state.selectedModel);
   const { position: menuPos } = useAnchoredPopoverPosition({
     open,
     triggerRef,
@@ -100,6 +106,10 @@ export default function ModelSelector() {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    selectedModelRef.current = state.selectedModel;
+  }, [state.selectedModel]);
 
   const loadModels = useCallback(async (
     openaiKey: string,
@@ -120,13 +130,24 @@ export default function ModelSelector() {
           : undefined,
       });
       setOrganizedModels(organized.organized);
+      const defaultIsAvailable = flattenModels(organized.organized).some(
+        (model) => model.id === organized.default
+      );
+      if (
+        modelLocked &&
+        organized.default &&
+        defaultIsAvailable &&
+        selectedModelRef.current !== organized.default
+      ) {
+        setSelectedModel(organized.default);
+      }
     } catch (error) {
       logClientError("ModelSelector.loadModels", error);
     } finally {
       modelsLoadedRef.current = true;
       setLoading(false);
     }
-  }, []);
+  }, [modelLocked, setSelectedModel]);
 
   useEffect(() => {
     const storedOpenai = localStorage.getItem("openai_api_key") || "";
@@ -198,6 +219,12 @@ export default function ModelSelector() {
       state.availableModels
     );
   }, [organizedModels, state.availableModels, state.selectedModel]);
+
+  useEffect(() => {
+    if (modelLocked && open) {
+      setOpen(false);
+    }
+  }, [modelLocked, open]);
 
   useEffect(() => {
     if (!open) {
@@ -410,18 +437,22 @@ export default function ModelSelector() {
           </span>
           <span className="sm:hidden">Modell</span>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((prev) => !prev)}
-          title="LLM-Auswahl"
-          aria-label={open ? "LLM-Auswahl schließen" : "LLM-Auswahl öffnen"}
-          aria-expanded={open}
-          className="h-full border-l border-white/20 px-3 py-2 transition hover:bg-white/10"
-        >
-          {open ? "⌃" : "⌄"}
-        </button>
+        {!modelLocked ? (
+          <button
+            type="button"
+            onClick={() => setOpen((prev) => !prev)}
+            title="LLM-Auswahl"
+            aria-label={open ? "LLM-Auswahl schließen" : "LLM-Auswahl öffnen"}
+            aria-expanded={open}
+            className="h-full border-l border-white/20 px-3 py-2 transition hover:bg-white/10"
+          >
+            {open ? "⌃" : "⌄"}
+          </button>
+        ) : null}
       </div>
-      {open && isMounted ? createPortal(menuContent, document.body) : null}
+      {!modelLocked && open && isMounted
+        ? createPortal(menuContent, document.body)
+        : null}
     </div>
   );
 }

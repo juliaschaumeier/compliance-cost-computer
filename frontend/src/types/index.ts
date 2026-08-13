@@ -75,6 +75,16 @@ export interface SessionsResponse {
   has_more?: boolean;
 }
 
+export interface LegisLlmImportResponse {
+  ok: boolean;
+  created: boolean;
+  current_filename: string;
+  proposed_filename: string;
+  current_document_id: number;
+  proposed_document_id: number;
+  message: string;
+}
+
 export interface SessionStatus {
   summary_ready: boolean;
   regulations_ready: boolean;

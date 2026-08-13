@@ -1,6 +1,6 @@
 "use client";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import UploadPanel from "@/components/UploadPanel";
 import { useApp } from "@/contexts/AppContext";
@@ -15,6 +15,7 @@ jest.mock("@/contexts/AppContext", () => ({
 jest.mock("@/lib/api", () => ({
   apiClient: {
     fetchRegulations: jest.fn(),
+    importLegisLlmExport: jest.fn(),
     startStepRun: jest.fn(),
     getStepRunStatus: jest.fn(),
     cancelStepRun: jest.fn(),
@@ -45,6 +46,7 @@ jest.mock("@/lib/runAllStepEvents", () => ({
 
 const mockUseApp = useApp as jest.Mock;
 const mockFetchRegulations = apiClient.fetchRegulations as jest.Mock;
+const mockImportLegisLlmExport = apiClient.importLegisLlmExport as jest.Mock;
 const mockPrepareSessionDocuments = prepareSessionDocuments as jest.Mock;
 const mockUseActiveWorkflowRun = useActiveWorkflowRun as jest.Mock;
 
@@ -84,6 +86,15 @@ describe("UploadPanel", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFetchRegulations.mockResolvedValue({ files: [] });
+    mockImportLegisLlmExport.mockResolvedValue({
+      ok: true,
+      created: true,
+      current_filename: "import_20260811_abcd1234_gueltig.legisllm",
+      proposed_filename: "import_20260811_abcd1234_vorschlag.legisllm",
+      current_document_id: 1,
+      proposed_document_id: 2,
+      message: "LegisLLM-Export importiert. Gültige Fassung und Vorschlag sind ausgewählt.",
+    });
     mockPrepareSessionDocuments.mockResolvedValue({
       proposedFilename: "proposed.txt",
       llm: { model: "gpt-5.4", provider: "openai", keys: {} },
@@ -200,5 +211,77 @@ describe("UploadPanel", () => {
     await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
     expect(screen.getByRole("button", { name: /ccc starten/i })).toBeDisabled();
     expect(screen.getByText(/datei existiert bereits/i)).toBeInTheDocument();
+  });
+
+  it("imports a LegisLLM export and selects both generated laws", async () => {
+    const app = createAppValue();
+    mockUseApp.mockReturnValue(app);
+    mockFetchRegulations
+      .mockResolvedValueOnce({ files: [] })
+      .mockResolvedValueOnce({
+        files: [
+          "import_20260811_abcd1234_gueltig.legisllm",
+          "import_20260811_abcd1234_vorschlag.legisllm",
+        ],
+      });
+
+    render(<UploadPanel />);
+
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    const dropZone = screen.getByText("Exportiertes JSON").parentElement!;
+    const file = new File(['{"schritte":{}}'], "export.json", {
+      type: "application/json",
+    });
+
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [file],
+      },
+    });
+    await waitFor(() => expect(mockImportLegisLlmExport).toHaveBeenCalledWith(file));
+    await waitFor(() =>
+      expect(app.setAvailableRegulations).toHaveBeenCalledWith([
+        "import_20260811_abcd1234_gueltig.legisllm",
+        "import_20260811_abcd1234_vorschlag.legisllm",
+      ])
+    );
+    expect(app.setSelectedCurrentLaw).toHaveBeenCalledWith(
+      "import_20260811_abcd1234_gueltig.legisllm"
+    );
+    expect(app.setSelectedRegulation).toHaveBeenCalledWith(
+      "import_20260811_abcd1234_vorschlag.legisllm"
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/legisllm-export importiert/i)).toBeInTheDocument()
+    );
+  });
+
+  it("shows LegisLLM import errors", async () => {
+    const app = createAppValue({
+      selectedCurrentLaw: "current.txt",
+      selectedRegulation: "proposed.txt",
+    });
+    mockUseApp.mockReturnValue(app);
+    mockFetchRegulations.mockResolvedValueOnce({
+      files: ["current.txt", "proposed.txt"],
+    });
+    mockImportLegisLlmExport.mockRejectedValueOnce(new Error("Import kaputt"));
+
+    render(<UploadPanel />);
+
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    const dropZone = screen.getByText("Exportiertes JSON").parentElement!;
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [new File(["not-json"], "export.json", { type: "application/json" })],
+      },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Fehler")).toBeInTheDocument()
+    );
+    expect(app.setSelectedCurrentLaw).not.toHaveBeenCalled();
+    expect(app.setSelectedRegulation).not.toHaveBeenCalled();
+    expect(app.setSummaryReady).not.toHaveBeenCalled();
   });
 });

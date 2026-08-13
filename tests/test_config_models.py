@@ -8,7 +8,7 @@ class _FakeGeminiResponse:
         return {
             "data": [
                 {"id": "models/gemini-3.1-pro-preview"},
-                {"id": "models/gemini-3-flash-preview"},
+                {"id": "models/gemini-3.6-flash"},
                 {"id": "models/gemini-2.5-flash"},
                 {"id": "models/gemini-random-preview"},
                 {"id": "models/gemini-embedding-test"},
@@ -68,7 +68,7 @@ def test_get_gemini_models_keeps_recommended_preview_models(monkeypatch):
         models = config.get_gemini_models("AIza-valid-test-key")
 
         assert "gemini-3.1-pro-preview" in models
-        assert "gemini-3-flash-preview" in models
+        assert "gemini-3.6-flash" in models
         assert "gemini-2.5-flash" in models
         assert "gemini-random-preview" not in models
         assert "gemini-embedding-test" not in models

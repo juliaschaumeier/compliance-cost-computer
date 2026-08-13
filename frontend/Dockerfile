@@ -14,7 +14,11 @@ WORKDIR /app
 # NEXT_PUBLIC_* values are inlined at build time, so they must be set BEFORE
 # `npm run build`. Defaults to same-origin "/api" (Caddy strips the prefix).
 ARG NEXT_PUBLIC_API_BASE_URL=/api
+ARG NEXT_PUBLIC_LOCK_LLM_MODEL=false
+ARG NEXT_PUBLIC_ENABLE_LLM_CONSOLE=true
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_LOCK_LLM_MODEL=$NEXT_PUBLIC_LOCK_LLM_MODEL
+ENV NEXT_PUBLIC_ENABLE_LLM_CONSOLE=$NEXT_PUBLIC_ENABLE_LLM_CONSOLE
 
 # Install dependencies first for better layer caching.
 COPY package.json package-lock.json ./

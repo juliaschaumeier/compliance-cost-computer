@@ -32,6 +32,7 @@ from scripts.batch_full_run import (
     select_scenarios,
     validate_config,
 )
+from scripts import batch_full_run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -100,6 +101,24 @@ def test_build_scenarios_keeps_expected_matrix_order():
         "alpha__gemini-3.5-flash__no-dr__01",
         "alpha__gemini-3.5-flash__no-dr__02",
     ]
+
+
+def test_batch_result_rows_include_app_code_state(monkeypatch):
+    monkeypatch.setattr(
+        batch_full_run, "current_app_code_state", lambda: "develop@9b93524"
+    )
+    result = ScenarioResult(
+        status="success",
+        law_pair="alpha",
+        model="gemini-3.5-flash",
+        deep_research=False,
+        repetition=1,
+        app_code_state=batch_full_run.current_app_code_state(),
+    )
+
+    row = result.to_row(include_diagnostics=True)
+
+    assert row["app_code_state"] == "develop@9b93524"
 
 
 def test_build_scenarios_can_limit_matrix():

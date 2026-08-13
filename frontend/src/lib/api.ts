@@ -23,6 +23,7 @@ import {
   CaseGroupResearchSettingsResponse,
   AuthUser,
   AdminUser,
+  LegisLlmImportResponse,
 } from "@/types";
 import { hasPlausibleApiKey } from "@/lib/apiKeys";
 import { notifyAuthExpired } from "@/lib/authExpired";
@@ -728,6 +729,26 @@ export const apiClient = {
       await throwApiClientErrorFromResponse(response, "Failed to upload regulation", {
         preferDetailErrorField: true,
       });
+    }
+    return response.json();
+  },
+
+  async importLegisLlmExport(file: File): Promise<LegisLlmImportResponse> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${API_BASE_URL}/regulations/import/legisllm`, {
+      credentials: "include",
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      await throwApiClientErrorFromResponse(
+        response,
+        "Failed to import LegisLLM export",
+        {
+          preferDetailErrorField: true,
+        }
+      );
     }
     return response.json();
   },

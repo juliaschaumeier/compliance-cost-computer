@@ -15,6 +15,7 @@ from backend.core.auth import ApiKeys, get_api_keys
 from backend.core.change_status import extract_change_status, normalize_change_status
 from backend.core.config import settings
 from backend.core import db
+from backend.core.legisllm_import import LegisLlmImportError, build_legisllm_law_texts
 from backend.core.llm_attempts import (
     mark_llm_answer_applied,
 )
@@ -132,6 +133,60 @@ async def upload_regulation(
         is_builtin=False,
     )
     return {"ok": True, "filename": desired_name, "document_id": document_id}
+
+
+@router.post("/import/legisllm")
+async def import_legisllm_export(
+    file: UploadFile = File(...),
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+    content = await file.read()
+    try:
+        law_texts = build_legisllm_law_texts(content)
+    except LegisLlmImportError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"LegisLLM-Export konnte nicht gelesen werden: {exc}",
+        ) from exc
+
+    try:
+        with db.transaction():
+            current_id, current_created = db.insert_or_reuse_law(
+                law_texts.current_filename,
+                law_texts.current_text,
+                owner_user_id=user.user_id,
+            )
+            proposed_id, proposed_created = db.insert_or_reuse_law(
+                law_texts.proposed_filename,
+                law_texts.proposed_text,
+                owner_user_id=user.user_id,
+            )
+    except ValueError as exc:
+        logger.warning("LegisLLM import conflict for user=%s: %s", user.user_id, exc)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "LegisLLM-Export konnte nicht wiederverwendet werden, weil bereits "
+                "ein Eintrag mit gleichem Namen, aber anderem Inhalt existiert."
+            ),
+        ) from exc
+
+    created = current_created or proposed_created
+    return {
+        "ok": True,
+        "created": created,
+        "current_filename": law_texts.current_filename,
+        "proposed_filename": law_texts.proposed_filename,
+        "current_document_id": current_id,
+        "proposed_document_id": proposed_id,
+        "message": (
+            "LegisLLM-Export importiert. Gültige Fassung und Vorschlag sind ausgewählt."
+            if created
+            else "LegisLLM-Export war bereits vorhanden. Die Fassungen wurden ausgewählt."
+        ),
+    }
 
 
 def _parse_summary(payload: str) -> tuple[str, str, str]:

@@ -33,6 +33,18 @@ Edit `.env` and set at minimum:
 - At least one LLM provider key (`OPENAI_API_KEY`, `DEEPINFRA_API_KEY`,
   and/or `GEMINI_API_KEY`).
 
+Optional user-test controls:
+
+- `DEFAULT_MODEL=gemini-3.6-flash` — backend default model for new sessions.
+- `NEXT_PUBLIC_LOCK_LLM_MODEL=true` — show the configured model without the
+  header selector.
+- `NEXT_PUBLIC_ENABLE_LLM_CONSOLE=false` — hide the LLM console entry point.
+- `DEEP_RESEARCH_MAX_POLL_SECONDS=2700` — wait up to 45 minutes for Deep
+  Research runs.
+
+If `NEXT_PUBLIC_LOCK_LLM_MODEL=true`, set `DEFAULT_MODEL` to an available model;
+otherwise users cannot choose a model from the locked header.
+
 `docker-compose.yml` sets `DB_PATH=/data/ccc.db` and
 `REGULATIONS_PATH=/data/regulations` for the backend. These point at the
 persistent volume and should not normally be changed.

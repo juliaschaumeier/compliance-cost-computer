@@ -59,6 +59,31 @@ class HistoricalQualityTests(unittest.TestCase):
         finally:
             common.configure_analysis(common.default_analysis_config())
 
+    def test_analysis_scope_derives_law_pair_labels_from_filenames(self):
+        tables = {
+            "sessions": [
+                {"session_id": 1, "current_law_id": 20, "proposed_law_id": 21},
+            ],
+            "laws": [
+                {"document_id": 20, "file_name": "einkunftsarten_gueltig.txt"},
+                {"document_id": 21, "file_name": "einkunftsarten_vorschlag.txt"},
+            ],
+            "llm_answers": [{"session_id": 1, "answer_id": 10}],
+        }
+        config = common.normalize_analysis_config({
+            "law_pair_groups": [{"name": "combined benchmark", "pairs": ["20->21"]}],
+        })
+
+        try:
+            filtered = common.filter_analysis_scope(tables, config)
+            self.assertEqual(filtered["sessions"][0]["law_pair_label"], "einkunftsarten")
+            self.assertEqual(
+                filtered["analysis_scope"][0]["included_law_pair_labels"]["20->21"],
+                "einkunftsarten",
+            )
+        finally:
+            common.configure_analysis(common.default_analysis_config())
+
     def test_json_missing_bracket_is_near_complete(self):
         result = hq.classify_json_answer('{"prozesse": [{"x": 1}]', "process_compilation")
         self.assertEqual(result["parse_class"], "near_complete_missing_closer")
@@ -267,6 +292,90 @@ class HistoricalQualityTests(unittest.TestCase):
         self.assertIn("Deep Research", svg)
         self.assertIn("stroke='#000' stroke-width='2.1'", svg)
         self.assertEqual(svg.count("stroke='#000' stroke-width='2.1'"), 1)
+
+    def test_scatter_svg_adds_clickable_legend_group_toggles(self):
+        rows = [
+            {
+                "session_id": 1,
+                "created_at": "2026-07-30 10:00:00",
+                "week": "2026-W31",
+                "law_pair": "1->2",
+                "model": "gemini-3.5-flash",
+                "total_cost": 10,
+                "deep_research_enabled": 1,
+            },
+            {
+                "session_id": 2,
+                "created_at": "2026-07-30 11:00:00",
+                "week": "2026-W31",
+                "law_pair": "9->10",
+                "model": "gemini-3.6-flash",
+                "total_cost": 20,
+                "deep_research_enabled": 0,
+            },
+        ]
+
+        svg = reporting.scatter_svg("Cost", "desc", rows, "total_cost", "cost")
+
+        self.assertIn("data-scatter-chart", svg)
+        self.assertIn("data-scatter-filter=", svg)
+        self.assertIn("data-scatter-point", svg)
+        self.assertIn("data-scatter-filter='model'", svg)
+        self.assertIn("data-scatter-filter='law'", svg)
+        self.assertIn("data-scatter-filter='dr'", svg)
+        self.assertIn(">1-&gt;2</button>", svg)
+        self.assertIn(">9-&gt;10</button>", svg)
+        self.assertNotIn("e-sports (1-&gt;2, 9-&gt;10)", svg)
+
+    def test_scatter_svg_uses_extracted_law_pair_labels(self):
+        rows = [
+            {
+                "session_id": 1,
+                "created_at": "2026-07-30 10:00:00",
+                "week": "2026-W31",
+                "law_pair": "20->21",
+                "law_pair_label": "einkunftsarten",
+                "model": "gemini-3.5-flash",
+                "total_cost": 10,
+                "deep_research_enabled": 0,
+            },
+        ]
+
+        svg = reporting.scatter_svg("Cost", "desc", rows, "total_cost", "cost")
+
+        self.assertIn(">einkunftsarten</button>", svg)
+        self.assertIn("law pair einkunftsarten (20-&gt;21)", svg)
+
+    def test_session_llm_cost_points_sums_llm_and_deep_research_estimates(self):
+        data = {
+            "sessions": [
+                {
+                    "session_id": 1,
+                    "app_session_id": "A",
+                    "created_at": "2026-07-30 10:00:00",
+                    "current_law_id": 10,
+                    "proposed_law_id": 11,
+                    "llm_model": "gemini-3.5-flash",
+                }
+            ],
+            "costs": [],
+            "case_groups": [{"session_id": 1, "cases_proposed": 5, "cases_current": 2}],
+            "llm_answers": [
+                {"session_id": 1, "estimated_cost_usd": 0.1},
+                {"session_id": 1, "estimated_cost_usd": 0.2},
+                {"session_id": 2, "estimated_cost_usd": 99},
+                {"session_id": 1, "estimated_cost_usd": None},
+            ],
+            "deep_research_runs": [
+                {"session_id": 1, "estimated_cost_usd": 1.25},
+                {"session_id": 2, "estimated_cost_usd": 99},
+            ],
+        }
+
+        rows = reporting.session_llm_cost_points(data)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["estimated_llm_cost_usd"], 1.55)
 
     def test_issue_02_old_schema_is_not_no_applies_failure(self):
         data = {

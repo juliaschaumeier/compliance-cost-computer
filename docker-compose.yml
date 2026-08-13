@@ -29,6 +29,8 @@ services:
       args:
         # Same-origin API path; Caddy strips the /api prefix.
         NEXT_PUBLIC_API_BASE_URL: /api
+        NEXT_PUBLIC_LOCK_LLM_MODEL: ${NEXT_PUBLIC_LOCK_LLM_MODEL:-false}
+        NEXT_PUBLIC_ENABLE_LLM_CONSOLE: ${NEXT_PUBLIC_ENABLE_LLM_CONSOLE:-true}
     restart: unless-stopped
 
   caddy:
