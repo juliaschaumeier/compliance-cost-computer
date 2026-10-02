@@ -38,33 +38,28 @@ export default function ImpressumPage() {
           geprüft werden.
         </p>
 
-        <section id="lizenz" className="mt-8 space-y-3">
+        <section className="mt-8 space-y-3">
           <h2 className="text-lg font-semibold text-slate-950">
-            Angaben gemäß § 5 TMG
+            Entwicklung und Kontakt
           </h2>
           <div className="text-sm leading-7 text-slate-700">
-            <p>Anbieter:</p>
             <p>Technische Universität München</p>
             <p>Arbeitsgruppe Legal Tech</p>
             <p>Boltzmannstraße 3</p>
             <p>85748 Garching</p>
+            <p className="mt-3">
+              E-Mail:{" "}
+              <a
+                href="mailto:j.schaumeier@tum.de"
+                className="font-semibold text-slate-950 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
+              >
+                j.schaumeier@tum.de
+              </a>
+            </p>
           </div>
         </section>
 
-        <section className="mt-8 space-y-3">
-          <h2 className="text-lg font-semibold text-slate-950">Kontakt</h2>
-          <p className="text-sm leading-7 text-slate-700">
-            E-Mail:{" "}
-            <a
-              href="mailto:j.schaumeier@tum.de"
-              className="font-semibold text-slate-950 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-            >
-              j.schaumeier@tum.de
-            </a>
-          </p>
-        </section>
-
-        <section className="mt-8 space-y-3">
+        <section id="lizenz" className="mt-8 space-y-3">
           <h2 className="text-lg font-semibold text-slate-950">Lizenz</h2>
           <p className="text-sm leading-7 text-slate-700">
             Der Compliance-Cost Computer ist als Open-Source-Software unter der{" "}
