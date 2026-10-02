@@ -29,6 +29,25 @@ describe("LoginForm", () => {
     expect(screen.getByText(AUTH_EXPIRED_MESSAGE)).toBeInTheDocument();
   });
 
+  it("links to the public impressum from the login screen", () => {
+    mockUseAuth.mockReturnValue({
+      authNotice: null,
+      clearAuthNotice: jest.fn(),
+      login: jest.fn(),
+    });
+
+    render(<LoginForm />);
+
+    expect(screen.getByRole("link", { name: "Impressum" })).toHaveAttribute(
+      "href",
+      "/impressum"
+    );
+    expect(screen.getByRole("link", { name: "Lizenz" })).toHaveAttribute(
+      "href",
+      "/impressum#lizenz"
+    );
+  });
+
   it("clears an expired-login notice before submitting new credentials", async () => {
     const clearAuthNotice = jest.fn();
     const login = jest.fn().mockRejectedValue(

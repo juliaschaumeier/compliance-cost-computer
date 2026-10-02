@@ -114,6 +114,15 @@ export default function LoginForm() {
         >
           {isSubmitting ? "Wird angemeldet..." : "Anmelden"}
         </button>
+        <div className="mt-4 flex items-center justify-center gap-2 text-xs font-semibold text-slate-500">
+          <a href="/impressum" className="hover:text-slate-900">
+            Impressum
+          </a>
+          <span aria-hidden="true">·</span>
+          <a href="/impressum#lizenz" className="hover:text-slate-900">
+            Lizenz
+          </a>
+        </div>
       </form>
     </div>
   );

@@ -8,6 +8,11 @@ CCC is a web app to estimate compliance costs for German legislation across a 7-
 - LLM providers: OpenAI, DeepInfra, Gemini
 - Auth: built-in email + password accounts; sessions are private per user
 
+## License
+
+This project is licensed under the GNU General Public License v3.0 or later
+(`GPL-3.0-or-later`). See [LICENSE](LICENSE).
+
 ## Deployment
 - Production (Docker + Caddy TLS): see [DEPLOY.md](DEPLOY.md).
 - Local run (with or without Docker): see [DEPLOY_LOCAL.md](DEPLOY_LOCAL.md).

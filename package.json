@@ -1,6 +1,7 @@
 {
   "name": "ccc-app",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
