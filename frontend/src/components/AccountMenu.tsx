@@ -83,11 +83,17 @@ export default function AccountMenu({ user, logout }: AccountMenuProps) {
       <div className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
         {user.is_admin ? "Admin" : "Benutzer"}
       </div>
+      <a
+        href="/impressum"
+        className="mt-4 flex w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+      >
+        Impressum & Lizenz
+      </a>
       <button
         type="button"
         onClick={handleLogout}
         disabled={isLoggingOut}
-        className="mt-4 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {isLoggingOut ? "Abmelden..." : "Abmelden"}
       </button>

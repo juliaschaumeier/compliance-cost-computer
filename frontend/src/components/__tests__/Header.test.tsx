@@ -75,6 +75,10 @@ describe("Header", () => {
 
     await user.click(screen.getByRole("button", { name: "Benutzerkonto öffnen" }));
     expect(screen.getByText("ada@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Impressum & Lizenz" })).toHaveAttribute(
+      "href",
+      "/impressum"
+    );
     await user.click(screen.getByRole("button", { name: /abmelden/i }));
     expect(logout).toHaveBeenCalledTimes(1);
   });
