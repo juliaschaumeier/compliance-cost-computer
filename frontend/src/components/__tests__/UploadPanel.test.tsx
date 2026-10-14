@@ -2,6 +2,8 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+import userEvent from "@testing-library/user-event";
+
 import UploadPanel from "@/components/UploadPanel";
 import { useApp } from "@/contexts/AppContext";
 import { apiClient } from "@/lib/api";
@@ -89,8 +91,8 @@ describe("UploadPanel", () => {
     mockImportLegisLlmExport.mockResolvedValue({
       ok: true,
       created: true,
-      current_filename: "import_20260811_abcd1234_gueltig.legisllm",
-      proposed_filename: "import_20260811_abcd1234_vorschlag.legisllm",
+      current_filename: "gueltig_import_20260811_abcd1234.legisllm",
+      proposed_filename: "vorschlag_import_20260811_abcd1234.legisllm",
       current_document_id: 1,
       proposed_document_id: 2,
       message: "LegisLLM-Export importiert. Gültige Fassung und Vorschlag sind ausgewählt.",
@@ -220,15 +222,15 @@ describe("UploadPanel", () => {
       .mockResolvedValueOnce({ files: [] })
       .mockResolvedValueOnce({
         files: [
-          "import_20260811_abcd1234_gueltig.legisllm",
-          "import_20260811_abcd1234_vorschlag.legisllm",
+          "gueltig_import_20260811_abcd1234.legisllm",
+          "vorschlag_import_20260811_abcd1234.legisllm",
         ],
       });
 
     render(<UploadPanel />);
 
     await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
-    const dropZone = screen.getByText("Exportiertes JSON").parentElement!;
+    const dropZone = screen.getByTestId("legisllm-drop-zone");
     const file = new File(['{"schritte":{}}'], "export.json", {
       type: "application/json",
     });
@@ -241,22 +243,22 @@ describe("UploadPanel", () => {
     await waitFor(() => expect(mockImportLegisLlmExport).toHaveBeenCalledWith(file));
     await waitFor(() =>
       expect(app.setAvailableRegulations).toHaveBeenCalledWith([
-        "import_20260811_abcd1234_gueltig.legisllm",
-        "import_20260811_abcd1234_vorschlag.legisllm",
+        "gueltig_import_20260811_abcd1234.legisllm",
+        "vorschlag_import_20260811_abcd1234.legisllm",
       ])
     );
     expect(app.setSelectedCurrentLaw).toHaveBeenCalledWith(
-      "import_20260811_abcd1234_gueltig.legisllm"
+      "gueltig_import_20260811_abcd1234.legisllm"
     );
     expect(app.setSelectedRegulation).toHaveBeenCalledWith(
-      "import_20260811_abcd1234_vorschlag.legisllm"
+      "vorschlag_import_20260811_abcd1234.legisllm"
     );
     await waitFor(() =>
       expect(screen.getByText(/legisllm-export importiert/i)).toBeInTheDocument()
     );
   });
 
-  it("shows LegisLLM import errors", async () => {
+  it.each(["drop", "picker"])("shows LegisLLM import errors from %s", async (source) => {
     const app = createAppValue({
       selectedCurrentLaw: "current.txt",
       selectedRegulation: "proposed.txt",
@@ -270,12 +272,13 @@ describe("UploadPanel", () => {
     render(<UploadPanel />);
 
     await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
-    const dropZone = screen.getByText("Exportiertes JSON").parentElement!;
-    fireEvent.drop(dropZone, {
-      dataTransfer: {
-        files: [new File(["not-json"], "export.json", { type: "application/json" })],
-      },
-    });
+    const dropZone = screen.getByTestId("legisllm-drop-zone");
+    const file = new File(["not-json"], "export.json", { type: "application/json" });
+    if (source === "drop") {
+      fireEvent.drop(dropZone, { dataTransfer: { files: [file] } });
+    } else {
+      fireEvent.change(screen.getByLabelText("LegisLLM: JSON-Datei"), { target: { files: [file] } });
+    }
 
     await waitFor(() =>
       expect(screen.getByText("Fehler")).toBeInTheDocument()
@@ -284,4 +287,145 @@ describe("UploadPanel", () => {
     expect(app.setSelectedRegulation).not.toHaveBeenCalled();
     expect(app.setSummaryReady).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["current", "Gültiges Gesetz", "setPendingCurrentUpload", "setPendingCurrentUploadName", "setSelectedCurrentLaw"],
+    ["proposed", "Gesetzesvorschlag", "setPendingProposedUpload", "setPendingProposedUploadName", "setSelectedRegulation"],
+  ] as const)("stages %s files from picker and drop without starting execution", async (target, label, fileSetter, nameSetter, selectedSetter) => {
+    const app = createAppValue();
+    mockUseApp.mockReturnValue(app);
+    render(<UploadPanel />);
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    const input = screen.getByLabelText(`${label}: lokale Datei`) as HTMLInputElement;
+    const click = jest.spyOn(input, "click");
+    fireEvent.click(screen.getByRole("button", { name: `${label} vom Computer auswählen` }));
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: `${label}: bereits hochgeladene Datei auswählen` })).toHaveAttribute("aria-expanded", "false");
+    const file = new File(["law"], "law.txt", { type: "text/plain" });
+    await userEvent.setup().upload(input, file);
+    expect(app[fileSetter]).toHaveBeenLastCalledWith(file);
+    expect(app[nameSetter]).toHaveBeenLastCalledWith("law.txt");
+    expect(app[selectedSetter]).toHaveBeenLastCalledWith("");
+    expect(input.value).toBe("");
+    await userEvent.setup().upload(input, file);
+    expect(app[fileSetter]).toHaveBeenCalledTimes(2);
+    fireEvent.drop(screen.getByTestId(`${target}-law-drop-zone`), { dataTransfer: { files: [file] } });
+    expect(app[fileSetter]).toHaveBeenCalledTimes(3);
+    fireEvent.change(input, { target: { files: [] } });
+    expect(app[fileSetter]).toHaveBeenCalledTimes(3);
+    expect(mockPrepareSessionDocuments).not.toHaveBeenCalled();
+    expect(apiClient.startStepRun).not.toHaveBeenCalled();
+    expect(mockImportLegisLlmExport).not.toHaveBeenCalled();
+  });
+
+  it("keeps a selected file while changing it and lets stored content replace it", async () => {
+    const app = createAppValue({
+      pendingProposedUpload: new File(["law"], "local.txt"),
+      pendingProposedUploadName: "local.txt",
+      availableRegulations: ["stored.txt"],
+    });
+    mockUseApp.mockReturnValue(app);
+    mockFetchRegulations.mockResolvedValue({ files: ["stored.txt"] });
+    render(<UploadPanel />);
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    expect(screen.getByText("Wird beim Start hochgeladen")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Gesetzesvorschlag: Auswahl ändern" }));
+    fireEvent.change(screen.getByLabelText("Gesetzesvorschlag: lokale Datei"), { target: { files: [] } });
+    expect(app.setPendingProposedUpload).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("proposed-law-drop-zone"));
+    const storedButton = screen.getByRole("button", { name: "Gesetzesvorschlag: bereits hochgeladene Datei auswählen" });
+    expect(storedButton).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(storedButton);
+    expect(storedButton).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "stored.txt" }));
+    expect(app.setSelectedRegulation).toHaveBeenCalledWith("stored.txt");
+    expect(app.setPendingProposedUpload).toHaveBeenCalledWith(null);
+    expect(app.setPendingProposedUploadName).toHaveBeenCalledWith("");
+  });
+
+  it("shows stored selection status and clears only its target", async () => {
+    const app = createAppValue({ selectedRegulation: "stored.txt" });
+    mockUseApp.mockReturnValue(app);
+    mockFetchRegulations.mockResolvedValue({ files: ["stored.txt"] });
+    render(<UploadPanel />);
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    expect(screen.getByText("Bereits hochgeladen")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Gesetzesvorschlag: Auswahl entfernen" }));
+    expect(app.setSelectedRegulation).toHaveBeenCalledWith("");
+    expect(app.setPendingProposedUpload).toHaveBeenCalledWith(null);
+    expect(app.setSelectedCurrentLaw).not.toHaveBeenCalled();
+  });
+
+  it("opens the JSON picker and imports immediately through the existing API", async () => {
+    const app = createAppValue();
+    mockUseApp.mockReturnValue(app);
+    render(<UploadPanel />);
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    const input = screen.getByLabelText("LegisLLM: JSON-Datei") as HTMLInputElement;
+    const click = jest.spyOn(input, "click");
+    fireEvent.click(screen.getByRole("button", { name: "LegisLLM-JSON vom Computer auswählen" }));
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(input).toHaveAttribute("accept", ".json,application/json");
+    fireEvent.change(input, { target: { files: [] } });
+    expect(mockImportLegisLlmExport).not.toHaveBeenCalled();
+    expect(app.setSummaryReady).not.toHaveBeenCalled();
+    const file = new File(["{}"], "export.json", { type: "application/json" });
+    await userEvent.setup().upload(input, file);
+    await waitFor(() => expect(app.setSelectedCurrentLaw).toHaveBeenCalledWith("gueltig_import_20260811_abcd1234.legisllm"));
+    expect(app.setSelectedRegulation).toHaveBeenCalledWith("vorschlag_import_20260811_abcd1234.legisllm");
+    expect(app.setPendingCurrentUpload).toHaveBeenCalledWith(null);
+    expect(app.setPendingProposedUpload).toHaveBeenCalledWith(null);
+    expect(input.value).toBe("");
+    await userEvent.setup().upload(input, file);
+    await waitFor(() => expect(mockImportLegisLlmExport).toHaveBeenCalledTimes(2));
+    expect(apiClient.startStepRun).not.toHaveBeenCalled();
+  });
+
+  it("blocks overlapping JSON imports and law selection while importing", async () => {
+    let finish!: (value: unknown) => void;
+    mockImportLegisLlmExport.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const app = createAppValue();
+    mockUseApp.mockReturnValue(app);
+    render(<UploadPanel />);
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    const file = new File(["{}"], "export.json", { type: "application/json" });
+    fireEvent.drop(screen.getByTestId("legisllm-drop-zone"), { dataTransfer: { files: [file] } });
+    fireEvent.drop(screen.getByTestId("legisllm-drop-zone"), { dataTransfer: { files: [file] } });
+    expect(mockImportLegisLlmExport).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "LegisLLM-JSON vom Computer auswählen" })).toBeDisabled();
+    fireEvent.drop(screen.getByTestId("proposed-law-drop-zone"), { dataTransfer: { files: [file] } });
+    expect(app.setPendingProposedUpload).not.toHaveBeenCalled();
+    finish({ current_filename: "current.txt", proposed_filename: "proposed.txt", message: "Imported" });
+    await waitFor(() => expect(screen.getByText("Imported")).toBeInTheDocument());
+  });
+
+  it("keeps conflict reuse and rename available after selection", async () => {
+    const app = createAppValue({
+      availableRegulations: ["existing.txt"],
+      pendingProposedUpload: new File(["law"], "existing.txt"),
+      pendingProposedUploadName: "existing.txt",
+    });
+    mockUseApp.mockReturnValue(app);
+    render(<UploadPanel />);
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Gesetzesvorschlag: neuer Dateiname"), { target: { value: "renamed.txt" } });
+    expect(app.setPendingProposedUploadName).toHaveBeenCalledWith("renamed.txt");
+    fireEvent.click(screen.getByRole("button", { name: "Vorhandene Datei verwenden" }));
+    expect(app.setSelectedRegulation).toHaveBeenCalledWith("existing.txt");
+    expect(app.setPendingProposedUpload).toHaveBeenCalledWith(null);
+  });
+
+  it("passes staged picker documents into shared preparation before manual start", async () => {
+    const file = new File(["law"], "local.txt");
+    mockUseApp.mockReturnValue(createAppValue({ pendingProposedUpload: file, pendingProposedUploadName: "local.txt" }));
+    (apiClient.startStepRun as jest.Mock).mockResolvedValueOnce({ run_id: "manual-1" });
+    (apiClient.getStepRunStatus as jest.Mock).mockResolvedValueOnce({ status: "completed", steps: [], ok: true });
+    render(<UploadPanel />);
+    await waitFor(() => expect(mockFetchRegulations).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "CCC starten" }));
+    await waitFor(() => expect(apiClient.startStepRun).toHaveBeenCalled());
+    expect(mockPrepareSessionDocuments).toHaveBeenCalledWith(expect.objectContaining({ pendingProposed: { file, desiredName: "local.txt" } }));
+    expect(apiClient.startStepRun).toHaveBeenCalledWith(expect.objectContaining({ stepKey: "summary", proposedFilename: "proposed.txt" }));
+  });
+
 });

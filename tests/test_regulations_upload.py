@@ -88,11 +88,13 @@ def test_import_legisllm_creates_current_and_proposed_laws(test_client):
     payload = response.json()
     assert payload["ok"] is True
     assert payload["created"] is True
-    assert payload["current_filename"].endswith("_gueltig.legisllm")
-    assert payload["proposed_filename"].endswith("_vorschlag.legisllm")
-    assert payload["current_filename"].replace("_gueltig.legisllm", "") == payload[
+    assert payload["current_filename"].startswith("gueltig_")
+    assert payload["proposed_filename"].startswith("vorschlag_")
+    assert payload["current_filename"].endswith(".legisllm")
+    assert payload["proposed_filename"].endswith(".legisllm")
+    assert payload["current_filename"].removeprefix("gueltig_") == payload[
         "proposed_filename"
-    ].replace("_vorschlag.legisllm", "")
+    ].removeprefix("vorschlag_")
 
     current = db.get_law_by_filename(payload["current_filename"])
     proposed = db.get_law_by_filename(payload["proposed_filename"])
@@ -216,3 +218,53 @@ def test_import_legisllm_rejects_norm_without_heading(test_client):
 
     assert response.status_code == 422
     assert "Norm ohne enbez/jurabk" in response.json()["detail"]
+
+
+def test_import_legisllm_long_names_are_distinguishable_in_file_list(test_client):
+    payload_bytes = _legisllm_payload(title="Sehr lange Gesetzesbezeichnung " * 8)
+    response = test_client.post(
+        "/regulations/import/legisllm",
+        files={"file": ("export.json", payload_bytes, "application/json")},
+    )
+    assert response.status_code == 200
+    pair = response.json()
+    assert pair["current_filename"].startswith("gueltig_")
+    assert pair["proposed_filename"].startswith("vorschlag_")
+    assert pair["current_filename"][:20] != pair["proposed_filename"][:20]
+    listed = test_client.get("/regulations").json()["files"]
+    assert pair["current_filename"] in listed
+    assert pair["proposed_filename"] in listed
+
+
+def test_import_legisllm_keeps_historical_suffix_entries(test_client):
+    from backend.core.legisllm_import import build_legisllm_law_texts
+
+    payload_bytes = _legisllm_payload()
+    texts = build_legisllm_law_texts(payload_bytes)
+    base = texts.current_filename.removeprefix("gueltig_").removesuffix(".legisllm")
+    old_current = f"{base}_gueltig.legisllm"
+    old_proposed = f"{base}_vorschlag.legisllm"
+    old_current_id = db.insert_law(old_current, texts.current_text)
+    old_proposed_id = db.insert_law(old_proposed, texts.proposed_text)
+    db.upsert_session("historical", "test-model")
+    db.update_session_documents("historical", old_current, old_proposed)
+
+    first = test_client.post(
+        "/regulations/import/legisllm",
+        files={"file": ("export.json", payload_bytes, "application/json")},
+    ).json()
+    second = test_client.post(
+        "/regulations/import/legisllm",
+        files={"file": ("export.json", payload_bytes, "application/json")},
+    ).json()
+    assert first["created"] is True
+    assert first["current_document_id"] != old_current_id
+    assert first["proposed_document_id"] != old_proposed_id
+    assert second["created"] is False
+    assert second["current_document_id"] == first["current_document_id"]
+    assert second["proposed_document_id"] == first["proposed_document_id"]
+    assert db.get_law_by_id(old_current_id)["file_name"] == old_current
+    assert db.get_law_by_id(old_proposed_id)["file_name"] == old_proposed
+    session = db.get_session_by_app_id("historical")
+    assert session["current_law_id"] == old_current_id
+    assert session["proposed_law_id"] == old_proposed_id

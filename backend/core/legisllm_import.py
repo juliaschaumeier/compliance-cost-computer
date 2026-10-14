@@ -98,8 +98,8 @@ def build_legisllm_law_texts(payload: bytes | str) -> LegisLlmLawTexts:
     return LegisLlmLawTexts(
         current_text="\n\n".join(current_sections).strip(),
         proposed_text="\n\n".join(proposed_sections).strip(),
-        current_filename=f"{base}_gueltig.legisllm",
-        proposed_filename=f"{base}_vorschlag.legisllm",
+        current_filename=f"gueltig_{base}.legisllm",
+        proposed_filename=f"vorschlag_{base}.legisllm",
     )
 
 

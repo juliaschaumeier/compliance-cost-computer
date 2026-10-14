@@ -84,6 +84,7 @@ The default CORS config already allows `http://localhost:3000` → the backend o
   - `CORS_ALLOW_ORIGINS` (comma-separated; defaults to localhost dev origins, empty for same-origin prod)
 - Optional:
   - `DEFAULT_MODEL`
+  - `DEEP_RESEARCH_MAX_POLL_SECONDS` (default: `1800`; raise for longer Deep Research test runs)
   - `DB_PATH`
   - `REGULATIONS_PATH`
   - `LLM_CONSOLE_ENABLED` (default: `true`; set to `false` to disable monitor endpoints)
@@ -91,6 +92,7 @@ The default CORS config already allows `http://localhost:3000` → the backend o
 
 Frontend can override API base URL with:
 - `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_LOCK_LLM_MODEL` (`true`/`false`; when true, users see the configured model but cannot change it)
 - `NEXT_PUBLIC_ENABLE_LLM_CONSOLE` (`true`/`false`; default: `true`)
 
 ## Testing
