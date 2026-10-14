@@ -1,7 +1,6 @@
 "use client";
 
 import { useApp } from "@/contexts/AppContext";
-import UploadPanel from "@/components/UploadPanel";
 import RegulationsPanel from "@/components/RegulationsPanel";
 import ProcessesPanel from "@/components/ProcessesPanel";
 import CaseGroupsPanel from "@/components/CaseGroupsPanel";
@@ -13,7 +12,8 @@ export default function TabPanels() {
   const { state } = useApp();
 
   if (state.currentTab === 0) {
-    return <UploadPanel />;
+    // Step 1 preparation lives in the sticky AppShell region.
+    return null;
   }
 
   if (state.currentTab === 1) {

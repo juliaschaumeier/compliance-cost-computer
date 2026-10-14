@@ -365,6 +365,7 @@ describe("SessionMenu", () => {
         expect.objectContaining({
           appSessionId: "ABC123",
           pendingProposed: expect.objectContaining({
+            file: expect.any(File),
             desiredName: "proposal.txt",
           }),
         })

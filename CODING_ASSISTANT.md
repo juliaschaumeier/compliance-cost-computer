@@ -93,6 +93,12 @@
 - API client contract: `frontend/src/lib/api.ts`
 - EA editor shell: `frontend/src/components/ea_edit/EaEditDrawerShell.tsx`
 
+## Step 1 Document Selection
+- Local file pickers and drag-and-drop use the same pending-file state; regular law files upload through shared session preparation before manual start or run-all.
+- Already uploaded laws are selected through explicit file-list buttons. Gültiges Gesetz is optional; Gesetzesvorschlag is required.
+- LegisLLM JSON selection/import is immediate and fills both law selections. Future imports generate `gueltig_<title>_<date>_<hash>.legisllm` and `vorschlag_<title>_<date>_<hash>.legisllm`; existing suffix-named entries are not renamed. Re-importing an older export creates a new prefixed pair.
+- Step 1 preparation renders once in the sticky shell; on short screens its content scrolls internally. Later step panels remain below the sticky header/tabs and scroll normally.
+
 ## Database + Migrations
 - DB setup and in-place migration helpers: `backend/core/db.py`
 - Default DB path: `backend/ccc.db`
@@ -115,6 +121,7 @@
   - Backend: `python3 -m pytest`
   - Frontend tests: `npm --prefix frontend test -- --runInBand`
   - Frontend lint: `npm --prefix frontend run lint -- --max-warnings=0`
+  - Frontend build for route, env, or public-asset changes: `npm --prefix frontend run build`
 
 ## Change Style (Required)
 - Implement first, then perform a focused cleanup/refactor pass in the same work item.
